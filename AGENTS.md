@@ -8,21 +8,22 @@ Latch is an open-source, user-controlled mobile runtime that lets any AI model o
 
 The product must be useful to real people, safe to run on personal devices, understandable to contributors, and practical to self-host. Build a durable foundation instead of a demo that only works for one model, one vendor, or one local machine.
 
-## Source of truth: Notion
+## Source of truth: repository handbook
 
-The current product and engineering handbook is maintained in the MobileMCP TeamSpace in Notion:
+The cloud-readable, versioned handbook is in [handbook/README.md](handbook/README.md). The complete handbook index is also available at:
 
-https://app.notion.com/p/3ec9b3674a8a81cb9ff4ddf4fce018f3?pvs=204
+https://github.com/aspershupadhyay/latch/tree/main/handbook
 
 Before making a product, architecture, UX, security, or implementation decision:
 
-- Read the current Notion root page and the relevant active chapter pages.
-- For broad decisions, re-read all active chapters before deciding.
+- Read handbook/README.md and the relevant chapter files in handbook/.
+- For broad decisions, read all active handbook chapters before deciding.
+- Treat the repository handbook as the canonical cloud-session reference for the roadmap, capability matrix, safety model, UX, lifecycle, testing, and release plan.
 - Do not rely on stale memory, an old export, or an archived planning page.
-- Treat the current Notion handbook as canonical for the roadmap, capability matrix, safety model, UX, lifecycle, testing, and release plan.
-- If Notion is unavailable or this file conflicts with the current handbook, report the conflict and pause the affected decision. Do not silently invent a replacement.
+- If the handbook is missing, incomplete, or internally inconsistent, report the gap and pause the affected decision. Do not silently invent a replacement.
+- The handbook is a versioned mirror of the MobileMCP Notion plan. Refresh it from Notion when the upstream plan changes, then review the resulting diff.
 
-This repository file provides cloud-session operating context. It does not silently override the current Notion handbook.
+This AGENTS.md file provides operating rules; the handbook provides the product and engineering plan.
 
 ## Cloud and GitHub workflow
 
@@ -70,7 +71,7 @@ Required principles:
 
 The repository should remain understandable to a new contributor. Prefer clear boundaries over a large generic framework.
 
-Expected high-level structure, subject to the current Notion handbook:
+Expected high-level structure, subject to the repository handbook:
 
 - apps/android: Android application and device integration.
 - apps/ios: iOS application and device integration.
@@ -91,7 +92,7 @@ Do not create every directory speculatively. Add a directory when an accepted ph
 
 ## Delivery discipline
 
-Follow the phase gates in the current Notion handbook. Work on one accepted phase at a time.
+Follow the phase gates in the repository handbook. Work on one accepted phase at a time.
 
 Use these statuses consistently:
 
@@ -128,7 +129,7 @@ Definition of done is more than compiling: code quality, tests, security and pri
 ## First actions in a new cloud session
 
 1. Read this AGENTS.md completely.
-2. Read the current Notion root and the active chapter pages relevant to the task.
+2. Read handbook/README.md and the active handbook chapter files relevant to the task.
 3. State the current phase, acceptance gate, assumptions, and risks.
 4. Inspect the repository before proposing edits.
 5. Ask for authorization only when the task would materially expand scope or change external state.
