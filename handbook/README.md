@@ -123,20 +123,20 @@ The plan is grounded in current primary documentation and will be rechecked at i
 This handbook is a clean product plan created from scratch. It intentionally replaces the previous planning tree. The old planning pages are not part of the new source of truth.
 ## How to read this book
 Start with the product thesis, then read scope, architecture, platform plans, safety, and UX before reading the delivery schedule. The schedule is intentionally downstream of the capability and risk decisions.
-<page url="https://app.notion.com/p/3ec9b3674a8a81faadd8de688ad944dc">00 — Start Here: Product Thesis & Operating Rules</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81c7874bcdb0e2870d2b">01 — Product, Users & Use Cases</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a8179a6fcccd84358a707">02 — Scope, Non-Goals & Capability Matrix</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a8169a2eac46fd6d992d6">03 — System Architecture & Runtime Boundaries</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81cfb843e5497475da4e">04 — Rust Core & MCP Runtime</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a817b88c0ebb58c128f54">05 — Android Application Plan</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81bfa651ec1c141cfc02">06 — iOS Application Plan</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81de97c0f96ccb1a76c4">07 — Computer-Use Feature Catalog</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81b2a277ce178e95f1b3">08 — Safety, Privacy & Security</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81d1bebfe8134c5b87f6">09 — UI/UX Design System</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81269846ca6f40da8f09">10 — Repository, Code Style & Engineering Workflow</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81db931bd32755dc8029">11 — Testing, Evaluations & Device Lab</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81d2b9b1c9cccdd10563">12 — GitHub Distribution, Release & Supply Chain</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a814f8a16e4576f8c109e">13 — Delivery Lifecycle, Milestones & Gates</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81d5b431ed009b526151">14 — Open-Source Community & Governance</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a811ebc43c60d1e2c0213">15 — Operations, Maintenance & Roadmap</page>
-<page url="https://app.notion.com/p/3ec9b3674a8a81038942e0bd12808914">16 — ADR Index & Decision Log</page>
+- [00 — Start Here: Product Thesis & Operating Rules](./00-product-thesis.md)
+- [01 — Product, Users & Use Cases](./01-product-users-use-cases.md)
+- [02 — Scope, Non-Goals & Capability Matrix](./02-scope-capability-matrix.md)
+- [03 — System Architecture & Runtime Boundaries](./03-system-architecture-runtime-boundaries.md)
+- [04 — Rust Core & MCP Runtime](./04-rust-core-mcp-runtime.md)
+- [05 — Android Application Plan](./05-android-application-plan.md)
+- [06 — iOS Application Plan](./06-ios-application-plan.md)
+- [07 — Computer-Use Feature Catalog](./07-computer-use-feature-catalog.md)
+- [08 — Safety, Privacy & Security](./08-safety-privacy-security.md)
+- [09 — UI/UX Design System](./09-ui-ux-design-system.md)
+- [10 — Repository, Code Style & Engineering Workflow](./10-repository-engineering-workflow.md)
+- [11 — Testing, Evaluations & Device Lab](./11-testing-evaluations-device-lab.md)
+- [12 — GitHub Distribution, Release & Supply Chain](./12-github-distribution-release-supply-chain.md)
+- [13 — Delivery Lifecycle, Milestones & Gates](./13-delivery-lifecycle-milestones-gates.md)
+- [14 — Open-Source Community & Governance](./14-open-source-community-governance.md)
+- [15 — Operations, Maintenance & Roadmap](./15-operations-maintenance-roadmap.md)
+- [16 — ADR Index & Decision Log](./16-adr-index-decision-log.md)
