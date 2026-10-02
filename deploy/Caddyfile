@@ -1,0 +1,4 @@
+{$LATCH_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy latch:8787
+}

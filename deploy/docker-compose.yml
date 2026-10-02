@@ -1,0 +1,35 @@
+# Latch gateway behind Caddy with automatic HTTPS, for any VPS or home server
+# with a DNS name pointing at it and ports 80/443 open.
+#
+#   cp .env.example .env   # fill in the three values
+#   docker compose up -d
+services:
+  latch:
+    build: ..
+    # Or use a published release: image: ghcr.io/aspershupadhyay/latch-gateway:<version>
+    restart: unless-stopped
+    environment:
+      LATCH_ADMIN_TOKEN: ${LATCH_ADMIN_TOKEN:?set LATCH_ADMIN_TOKEN in .env}
+      LATCH_MCP_TOKEN: ${LATCH_MCP_TOKEN:?set LATCH_MCP_TOKEN in .env}
+      LATCH_PUBLIC_URL: https://${LATCH_DOMAIN:?set LATCH_DOMAIN in .env}
+    volumes:
+      - latch-data:/data
+    expose:
+      - "8787"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [latch]
+    environment:
+      LATCH_DOMAIN: ${LATCH_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  latch-data:
+  caddy-data:
