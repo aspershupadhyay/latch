@@ -3,7 +3,9 @@ package io.github.aspershupadhyay.latch.session
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
+import io.github.aspershupadhyay.latch.data.ApprovalGrants
 import io.github.aspershupadhyay.latch.data.Settings
+import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityState
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
@@ -53,11 +55,14 @@ class SessionController(
     private val approvals: ApprovalBroker,
     private val log: ActivityLog,
     private val http: OkHttpClient,
+    private val grants: ApprovalGrants,
+    consequences: Consequences,
+    appName: (String) -> String? = { null },
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
-    private val executor = CommandExecutor(bridge, approvals, log)
+    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName)
     private var link: DeviceLink? = null
     private var wanted = false
     private var paused = false
@@ -109,6 +114,7 @@ class SessionController(
         }
         wanted = true
         paused = false
+        grants.endSession()
         expiresAtMs = System.currentTimeMillis() + settings.preferences.value.sessionMinutes * 60_000L
         log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes")
         expiryJob?.cancel()
@@ -143,6 +149,7 @@ class SessionController(
         paused = false
         expiryJob?.cancel()
         approvals.cancel()
+        grants.endSession()
         val closing = link
         link = null
         // Tell the gateway right away so tool calls fail fast instead of timing out.
@@ -163,6 +170,7 @@ class SessionController(
     fun forget() {
         stop("This phone forgot the gateway")
         settings.forgetPairing()
+        grants.clearAll()
         _state.value = SessionState.Unpaired
     }
 

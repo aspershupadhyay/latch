@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.protocol.Capability
+import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import java.text.DateFormat
 import java.util.Date
@@ -89,8 +90,16 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                     Text(p.title, style = MaterialTheme.typography.titleLarge, color = Color.White)
                     Text(p.detail, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SecondaryButton("Deny", { actions.answer(p.nonce, false) }, Modifier.weight(1f), contentColor = Color.White)
-                        PrimaryButton("Approve", { actions.answer(p.nonce, true) }, Modifier.weight(1f), color = Color.White, contentColor = Color(0xFF7C2D12))
+                        SecondaryButton("Deny", { actions.answer(p.nonce, ApprovalChoice.DENY) }, Modifier.weight(1f), contentColor = Color.White)
+                        PrimaryButton("Allow once", { actions.answer(p.nonce, ApprovalChoice.ONCE) }, Modifier.weight(1f), color = Color.White, contentColor = Color(0xFF7C2D12))
+                    }
+                    if (p.rememberable) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SecondaryButton("This session", { actions.answer(p.nonce, ApprovalChoice.SESSION) }, Modifier.weight(1f), contentColor = Color.White)
+                            SecondaryButton("Always in ${p.appName ?: "this app"}", { actions.answer(p.nonce, ApprovalChoice.ALWAYS) }, Modifier.weight(1f), contentColor = Color.White)
+                        }
+                    } else {
+                        Text("Asked every time.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
                     }
                 }
             }

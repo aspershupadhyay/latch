@@ -4,6 +4,7 @@ import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.McpClient
 import io.github.aspershupadhyay.latch.session.NewMcpClient
+import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.PendingApproval
 import io.github.aspershupadhyay.latch.session.SignInRequest
 
@@ -36,7 +37,7 @@ class HomeActions(
     val stop: () -> Unit = {},
     val setPaused: (Boolean) -> Unit = {},
     val setMinutes: (Int) -> Unit = {},
-    val answer: (String, Boolean) -> Unit = { _, _ -> },
+    val answer: (String, ApprovalChoice) -> Unit = { _, _ -> },
     val openAccessibilitySettings: () -> Unit = {},
     val openAppInfo: () -> Unit = {},
     val goCapabilities: () -> Unit = {},

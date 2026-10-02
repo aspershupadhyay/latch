@@ -6,6 +6,10 @@ import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
 import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
+import io.github.aspershupadhyay.latch.data.ApprovalGrants
+import io.github.aspershupadhyay.latch.policy.Consequence
+import io.github.aspershupadhyay.latch.policy.Consequences
+import io.github.aspershupadhyay.latch.policy.Judgement
 import io.github.aspershupadhyay.latch.protocol.ActionResult
 import io.github.aspershupadhyay.latch.protocol.AppList
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -58,10 +62,20 @@ fun describe(command: Command): String = when (command) {
  * Runs one command on this phone after the device-side checks. The gateway
  * has already applied policy; these checks hold even if it did not.
  */
+private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
+private const val CONSEQUENTIAL_DETAIL =
+    "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
+private const val CRITICAL_DETAIL =
+    "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time."
+
 class CommandExecutor(
     private val bridge: DeviceBridge,
     private val approvals: ApprovalBroker,
     private val log: ActivityLog,
+    private val grants: ApprovalGrants,
+    private val consequences: Consequences,
+    /** Human name of an app, for the "Always in …" button. */
+    private val appName: (String) -> String? = { null },
 ) {
     /**
      * [current] reads the owner's session and switches again later, so an
@@ -87,25 +101,7 @@ class CommandExecutor(
             }
         }
 
-        val needsApproval = command.isAction && (envelope.confirm != null || session.approveEveryAction)
-        if (needsApproval) {
-            val title = envelope.confirm?.title ?: describe(command)
-            val detail = envelope.confirm?.detail ?: "Requested by an AI agent connected through Latch."
-            log.add(ActivityKind.APPROVAL, "Asked you: $title")
-            // Leave the gateway a little time to receive the answer before its deadline.
-            val outcome = approvals.request(title, detail, envelope.confirm?.risk ?: "medium", (envelope.deadlineMs - 2_000).coerceAtLeast(5_000))
-            when (outcome) {
-                ApprovalOutcome.APPROVED -> log.add(ActivityKind.APPROVAL, "You approved: $title")
-                ApprovalOutcome.DENIED -> {
-                    log.add(ActivityKind.APPROVAL, "You denied: $title")
-                    throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
-                }
-                ApprovalOutcome.EXPIRED -> {
-                    log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
-                    throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
-                }
-            }
-        }
+        if (command.isAction) approve(envelope, session)
 
         if (command == Command.DeviceInfoCommand) {
             val service = bridge.service.value
@@ -148,6 +144,76 @@ class CommandExecutor(
                 envelope.observeAfter?.let { result = observeAfter(service, it, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
+        }
+    }
+
+    /**
+     * Decides whether the owner must approve, from the gateway's request and
+     * the phone's own check of the same screen (whichever is stricter), and
+     * waits for the answer or uses one the owner saved.
+     */
+    private suspend fun approve(envelope: CommandEnvelope, session: SessionInfo) {
+        val command = envelope.command
+        val confirm = envelope.confirm
+        val judgement = judge(command)
+        val deviceAsks = judgement != null && judgement.consequence != Consequence.NONE
+        if (confirm == null && !session.approveEveryAction && !deviceAsks) return
+
+        // Critical by either judge: asked every time. A gateway older than 1.3 never sends
+        // remember keys, so its high-risk prompts are treated the same way.
+        val critical = judgement?.consequence == Consequence.CRITICAL || (confirm != null && confirm.risk == "high" && confirm.remember == null)
+        val key = when {
+            critical || session.approveEveryAction -> null
+            confirm != null -> confirm.remember
+            deviceAsks -> judgement.rememberKey
+            else -> null
+        }
+        val title = confirm?.title ?: judgement?.takeIf { deviceAsks }?.title ?: describe(command)
+        val detail = confirm?.detail ?: when {
+            !deviceAsks -> AGENT_DETAIL
+            critical -> CRITICAL_DETAIL
+            else -> CONSEQUENTIAL_DETAIL
+        }
+        val risk = confirm?.risk ?: if (deviceAsks) "high" else "medium"
+
+        if (key != null && grants.allows(key)) {
+            log.add(ActivityKind.APPROVAL, "Allowed by your saved choice: $title")
+            return
+        }
+        log.add(ActivityKind.APPROVAL, "Asked you: $title")
+        // Leave the gateway a little time to receive the answer before its deadline.
+        val timeout = (envelope.deadlineMs - 2_000).coerceAtLeast(5_000)
+        val app = bridge.service.value?.currentPackage()?.let(appName)
+        when (approvals.request(title, detail, risk, timeout, rememberable = key != null, appName = app)) {
+            ApprovalOutcome.APPROVED_ONCE -> log.add(ActivityKind.APPROVAL, "You approved: $title")
+            ApprovalOutcome.APPROVED_SESSION -> {
+                grants.allowForSession(key!!)
+                log.add(ActivityKind.APPROVAL, "You approved for this session: $title")
+            }
+            ApprovalOutcome.APPROVED_ALWAYS -> {
+                grants.allowAlways(key!!)
+                log.add(ActivityKind.APPROVAL, "You always allow: $title")
+            }
+            ApprovalOutcome.DENIED -> {
+                log.add(ActivityKind.APPROVAL, "You denied: $title")
+                throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
+            }
+            ApprovalOutcome.EXPIRED -> {
+                log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
+                throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
+            }
+        }
+    }
+
+    /** The phone's own judgement of a tap or swipe, or null for other commands. */
+    private fun judge(command: Command): Judgement? {
+        val service = bridge.service.value ?: return null
+        return when (command) {
+            is Command.Tap -> service.tapContext(command.observationId, command.target)?.let {
+                consequences.judgeTap(it.observation, it.node, command.longPress, it.live)
+            }
+            is Command.Swipe -> consequences.judgeSwipe(service.currentPackage())
+            else -> null
         }
     }
 

@@ -33,6 +33,7 @@ import io.github.aspershupadhyay.latch.protocol.ScreenInfo
 import io.github.aspershupadhyay.latch.protocol.Screenshot
 import io.github.aspershupadhyay.latch.protocol.Target
 import io.github.aspershupadhyay.latch.protocol.UiNode
+import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.PendingApproval
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -154,7 +155,7 @@ class LatchAccessibilityService : AccessibilityService() {
     private var approvalCard: android.view.View? = null
     private var approvalNonce: String? = null
 
-    fun showApproval(pending: PendingApproval, onAnswer: (Boolean) -> Unit) {
+    fun showApproval(pending: PendingApproval, onAnswer: (ApprovalChoice) -> Unit) {
         if (approvalNonce == pending.nonce) return
         hideApproval()
         val density = resources.displayMetrics.density
@@ -185,25 +186,37 @@ class LatchAccessibilityService : AccessibilityService() {
             setTextColor(Color.rgb(200, 206, 214))
             textSize = 14f
         })
-        val buttons = LinearLayout(this).apply {
+        fun row() = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
-            setPadding(0, dp(16), 0, 0)
+            setPadding(0, dp(12), 0, 0)
         }
-        val deny = Button(this).apply {
-            text = "Deny"
-            setOnClickListener { onAnswer(false) }
-        }
-        val approve = Button(this).apply {
-            text = "Approve"
-            // A short delay so a tap meant for the app underneath cannot approve by accident.
+        // A short delay so a tap meant for the app underneath cannot approve by accident.
+        fun allow(label: String, choice: ApprovalChoice) = Button(this).apply {
+            text = label
             isEnabled = false
             postDelayed({ isEnabled = true }, APPROVE_ENABLE_DELAY_MS)
-            setOnClickListener { onAnswer(true) }
+            setOnClickListener { onAnswer(choice) }
         }
-        buttons.addView(deny)
-        buttons.addView(approve)
+        val buttons = row()
+        buttons.addView(Button(this).apply {
+            text = "Deny"
+            setOnClickListener { onAnswer(ApprovalChoice.DENY) }
+        })
+        buttons.addView(allow("Allow once", ApprovalChoice.ONCE))
         card.addView(buttons)
+        if (pending.rememberable) {
+            val remember = row().apply { setPadding(0, 0, 0, 0) }
+            remember.addView(allow("This session", ApprovalChoice.SESSION))
+            remember.addView(allow("Always in ${pending.appName ?: "this app"}".take(40), ApprovalChoice.ALWAYS))
+            card.addView(remember)
+        } else {
+            card.addView(TextView(this).apply {
+                text = "Asked every time."
+                setTextColor(Color.rgb(200, 206, 214))
+                textSize = 12f
+            })
+        }
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -447,6 +460,49 @@ class LatchAccessibilityService : AccessibilityService() {
         return if (top > 0) top else (24 * resources.displayMetrics.density).roundToInt()
     }
 
+    // ---- Approval check: what the phone itself sees under a tap ----
+
+    /** The phone's own view of a tap target, for the device-side approval check. */
+    class TapContext(val observation: Observation, val node: UiNode?, val live: List<UiNode>)
+
+    /**
+     * Null when the cited observation is not the latest; the action is then
+     * refused as stale anyway. [TapContext.live] adds what the element shows
+     * right now (the gateway's copy may be truncated), redacted like observe.
+     */
+    fun tapContext(observationId: String, target: Target): TapContext? {
+        val snap = latest?.takeIf { it.id == observationId } ?: return null
+        val nodes = snap.ui.values.toList()
+        val node = when (target) {
+            is Target.Element -> snap.ui[target.element]
+            is Target.Point -> io.github.aspershupadhyay.latch.policy.Consequences.nodeAt(nodes, target.x, target.y)
+        }
+        val live = node?.let { snap.nodes[it.id] }?.let(::liveLabels).orEmpty()
+        val observation = Observation(snap.id, 0, snap.packageName, ScreenInfo(0, 0), nodes)
+        return TapContext(observation, node, live)
+    }
+
+    private fun liveLabels(root: AccessibilityNodeInfo): List<UiNode> {
+        if (!root.refresh()) return emptyList()
+        val out = ArrayList<UiNode>()
+        val queue = ArrayDeque(listOf(root))
+        while (queue.isNotEmpty() && out.size < LIVE_SCOPE_NODES) {
+            val node = queue.removeFirst()
+            if (!Redaction.isSensitive(facts(node))) {
+                out += UiNode(
+                    id = "live${out.size}",
+                    role = "View",
+                    text = node.text?.toString()?.take(1_000),
+                    description = node.contentDescription?.toString()?.take(1_000),
+                    resourceId = node.viewIdResourceName?.take(128),
+                    bounds = Rect(0, 0, 0, 0),
+                )
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return out
+    }
+
     // ---- Actions ----
 
     private fun invalidate() {
@@ -583,5 +639,6 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val MAX_SCREENSHOT_EDGE = 1280
         private const val MOVE_TOLERANCE_PX = 8
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L
+        private const val LIVE_SCOPE_NODES = 64
     }
 }
