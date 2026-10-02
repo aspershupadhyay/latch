@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Latch</string>
+    <string name="a11y_label">Latch remote control</string>
+    <string name="a11y_summary">Lets an AI client you connect read the screen and tap for you, only during a session you start.</string>
+    <string name="a11y_description">Latch uses this service to read what is on the screen and to tap, swipe, and type when an AI client you connected asks, but only during a session you start, only for the capabilities you switch on, and never in password, PIN, one-time-code, or payment fields. A red Latch button stays on screen while a session is active; tap it to stop everything. Actions that send, buy, delete, or publish wait for your approval. Turn this service off at any time to stop all of it.</string>
+    <string name="channel_session">Active session</string>
+    <string name="channel_session_description">Shows while an AI client can use this phone, with a Stop button.</string>
+    <string name="notification_title">Latch session active</string>
+    <string name="notification_active">An AI client can use what you allowed. Tap Stop to end it.</string>
+    <string name="notification_paused">Paused. The AI client can do nothing until you resume.</string>
+    <string name="notification_connecting">Connecting to your gateway…</string>
+    <string name="action_stop">Stop</string>
+</resources>
