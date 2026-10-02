@@ -211,13 +211,9 @@ class DeviceLinkGatewayTest(private val implementation: String) {
         }
         val tapResult = callTool(mcp, "tap", """{"observation_id":"o_jvm","element_id":"n0"}""")
         assertTrue(tapResult.second, !tapResult.first)
-        if (implementation == "vercel") {
-            // One phone command per action: the observation came back with the tap.
-            assertEquals(listOf("ui.observe", "input.tap"), received.toList())
-            assertTrue(tapResult.second, tapResult.second.contains("observation_id: o_after"))
-        } else {
-            assertEquals(listOf("ui.observe", "input.tap", "ui.observe"), received.toList())
-        }
+        // Both gateways: one phone command per action, the observation came back with the tap.
+        assertEquals(listOf("ui.observe", "input.tap"), received.toList())
+        assertTrue(tapResult.second, tapResult.second.contains("observation_id: o_after"))
 
         // Revocation reaches the phone through the transport.
         val deviceId = obj(get("/v1/admin/devices", ADMIN).second).getValue("devices").jsonArray[0].jsonObject.str("id")

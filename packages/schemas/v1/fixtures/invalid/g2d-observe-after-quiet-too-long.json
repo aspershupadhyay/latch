@@ -1,0 +1,7 @@
+{
+  "type": "command",
+  "id": "c_0025",
+  "deadline_ms": 20000,
+  "command": { "name": "nav.global", "params": { "action": "back" } },
+  "observe_after": { "settle_ms": 1500, "quiet_ms": 5000, "max_nodes": 400 }
+}

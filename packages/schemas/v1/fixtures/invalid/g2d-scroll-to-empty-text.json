@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0024", "deadline_ms": 20000, "command": { "name": "ui.scroll_to", "params": { "observation_id": "o_7", "text": "  ", "direction": "down" } } }

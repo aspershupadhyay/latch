@@ -19,7 +19,10 @@
       { "id": "n10", "parent": "n9", "role": "ImageView", "description": "Send", "bounds": { "left": 20, "top": 920, "right": 180, "bottom": 980 } },
       { "id": "n11", "role": "Button", "text": "Pay now", "bounds": { "left": 0, "top": 1000, "right": 1080, "bottom": 1100 }, "clickable": true },
       { "id": "n12", "role": "TextView", "text": "+1 (555) 010-4477", "bounds": { "left": 0, "top": 1100, "right": 1080, "bottom": 1200 }, "clickable": true },
-      { "id": "n13", "role": "TextView", "text": "Room 2026", "bounds": { "left": 0, "top": 1200, "right": 1080, "bottom": 1300 }, "clickable": true }
+      { "id": "n13", "role": "TextView", "text": "Room 2026", "bounds": { "left": 0, "top": 1200, "right": 1080, "bottom": 1300 }, "clickable": true },
+      { "id": "n14", "role": "EditText", "description": "Search settings", "bounds": { "left": 0, "top": 1300, "right": 1080, "bottom": 1400 }, "clickable": true, "editable": true },
+      { "id": "n15", "role": "EditText", "description": "Message", "text": "see you at 6", "bounds": { "left": 0, "top": 1400, "right": 1080, "bottom": 1500 }, "clickable": true, "editable": true },
+      { "id": "n16", "role": "RecyclerView", "bounds": { "left": 0, "top": 1500, "right": 1080, "bottom": 2200 }, "scrollable": true }
     ],
     "redacted_count": 1,
     "truncated": false
@@ -30,6 +33,17 @@
     "observation_age_ms": 0
   },
   "cases": [
+    { "name": "type and search runs at once", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n14", "text": "wifi", "submit": true } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "type and press enter in a chat asks the owner", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n15", "text": "on my way", "submit": true } }, "expect": { "decision": "confirm", "risk": "high", "title": "Type 9 characters into “Message” and press Enter in com.example.chat", "remember": "enter|com.example.chat|message" } },
+    { "name": "type without submit stays medium", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n15", "text": "on my way" } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "type and submit into a PIN field", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n5", "text": "1234", "submit": true } }, "expect": { "decision": "deny", "code": "sensitive_target" } },
+    { "name": "wait for text is a read", "command": { "name": "ui.wait", "params": { "text": "Delivered", "timeout_ms": 3000 } }, "observation_age_ms": null, "expect": { "decision": "allow", "risk": "low" } },
+    { "name": "wait needs ui.observe", "command": { "name": "ui.wait", "params": { "text": "Delivered" } }, "capabilities": ["input.gesture"], "expect": { "decision": "deny", "code": "permission_missing" } },
+    { "name": "wait too long", "command": { "name": "ui.wait", "params": { "text": "Delivered", "timeout_ms": 60000 } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "scroll to text", "command": { "name": "ui.scroll_to", "params": { "observation_id": "o_1", "text": "Battery", "direction": "down", "container": "n16" } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "scroll to needs a fresh observation", "command": { "name": "ui.scroll_to", "params": { "observation_id": "o_9", "text": "Battery", "direction": "down" } }, "expect": { "decision": "deny", "code": "stale_observation" } },
+    { "name": "scroll to an unknown container", "command": { "name": "ui.scroll_to", "params": { "observation_id": "o_1", "text": "Battery", "direction": "down", "container": "n99" } }, "expect": { "decision": "deny", "code": "target_not_found" } },
+    { "name": "scroll to needs both gestures and reading", "command": { "name": "ui.scroll_to", "params": { "observation_id": "o_1", "text": "Battery", "direction": "down" } }, "capabilities": ["input.gesture"], "expect": { "decision": "deny", "code": "permission_missing" } },
     { "name": "unlabeled button judged by the icon inside it", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n9" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Send” in com.example.chat", "remember": "tap|com.example.chat|send" } },
     { "name": "coordinate tap on an unlabeled button with a labeled icon", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "x": 100, "y": 950 } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Send” in com.example.chat", "remember": "tap|com.example.chat|send" } },
     { "name": "critical tap is asked every time", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n11" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Pay now” in com.example.chat", "remember": null } },

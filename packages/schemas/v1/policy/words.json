@@ -123,6 +123,18 @@
     "com.oplus.dialer",
     "com.coloros.phonemanager"
   ],
+  "search_field_words": [
+    "search",
+    "find",
+    "query",
+    "url",
+    "address",
+    "omnibox",
+    "lookup",
+    "buscar",
+    "suche",
+    "recherche"
+  ],
   "secret_field_words": [
     "password",
     "passcode",

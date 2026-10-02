@@ -140,7 +140,25 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       const node = resolve(obs, command.params.element);
       if (node.sensitive || looksLikeSecretField(node)) throw sensitive();
       if (!node.editable) throw new ProtocolError("invalid_request", "that element is not an editable text field");
-      return medium(`Type ${[...command.params.text].length} characters into “${labelOf(node)}”`);
+      const count = [...command.params.text].length;
+      if (command.params.submit !== true) return medium(`Type ${count} characters into “${labelOf(node)}”`);
+      // Enter in a chat box sends; in a search box it searches. The field's own
+      // text is what is being typed, so it is never used as its name.
+      const name = fieldLabel(node);
+      let consequence = classify([node], obs.package);
+      if (consequence === "none" && !isSearchField(node)) consequence = "consequential";
+      return judged(
+        consequence,
+        `Type ${count} characters into “${name}” and press Enter${place(obs.package)}`,
+        `enter|${obs.package ?? "?"}|${name.toLowerCase()}`,
+      );
+    }
+    case "ui.wait":
+      return low(`Wait for “${shorten(command.params.text)}” to ${command.params.gone ? "disappear" : "appear"}`);
+    case "ui.scroll_to": {
+      const obs = need();
+      if (command.params.container !== undefined && resolve(obs, command.params.container).sensitive) throw sensitive();
+      return medium(`Scroll to “${shorten(command.params.text)}”${place(obs.package)}`);
     }
   }
 }
@@ -195,6 +213,23 @@ export function showsPhoneNumber(node: UiNode): boolean {
     const t = raw.trim();
     const digits = [...t].filter((c) => c >= "0" && c <= "9").length;
     return digits >= 7 && digits <= 15 && /^[0-9 +\-().\u00a0]*$/.test(t);
+  });
+}
+
+/** A text field's name for prompts: its description or resource id, never its content. */
+function fieldLabel(node: UiNode): string {
+  const rid = node.resource_id !== undefined ? node.resource_id.split("/").pop() ?? node.resource_id : undefined;
+  return shorten(nonBlank(node.description) ?? rid ?? node.role);
+}
+
+/** Search, address, and URL boxes, where Enter only looks something up. */
+export function isSearchField(node: UiNode): boolean {
+  const list = WORDS.search_field_words as readonly string[];
+  return [node.description, node.resource_id].some((field) => {
+    if (field === undefined) return false;
+    const ws = words(field);
+    const compact = ws.join("");
+    return ws.some((w) => list.includes(w)) || list.some((w) => w.length >= 5 && compact.includes(w));
   });
 }
 

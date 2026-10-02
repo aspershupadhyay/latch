@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0022", "deadline_ms": 20000, "command": { "name": "input.type", "params": { "observation_id": "o_7", "element": "n4", "text": "wifi", "submit": true } } }

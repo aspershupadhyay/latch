@@ -19,6 +19,11 @@ pub const MAX_PACKAGE_CHARS: usize = 255;
 pub const MAX_NODE_TEXT_CHARS: usize = 4_000;
 pub const MAX_SCREENSHOT_BASE64_BYTES: usize = 6 * 1024 * 1024;
 pub const MAX_SETTLE_MS: u32 = 3_000;
+pub const MAX_QUIET_MS: u32 = 1_000;
+pub const MAX_WAIT_MS: u32 = 15_000;
+pub const MIN_WAIT_MS: u32 = 100;
+pub const MAX_FIND_TEXT_CHARS: usize = 200;
+pub const MAX_SCROLL_SWIPES: u32 = 20;
 
 fn invalid(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(ErrorCode::InvalidRequest, message)
@@ -93,6 +98,11 @@ pub fn envelope(envelope: &CommandEnvelope) -> Result<(), ProtocolError> {
                 "observe_after.settle_ms must be at most {MAX_SETTLE_MS}"
             )));
         }
+        if after.quiet_ms.is_some_and(|q| q > MAX_QUIET_MS) {
+            return Err(invalid(format!(
+                "observe_after.quiet_ms must be at most {MAX_QUIET_MS}"
+            )));
+        }
         if after.max_nodes == 0 || after.max_nodes > MAX_NODES {
             return Err(invalid(format!(
                 "observe_after.max_nodes must be between 1 and {MAX_NODES}"
@@ -102,8 +112,59 @@ pub fn envelope(envelope: &CommandEnvelope) -> Result<(), ProtocolError> {
     Ok(())
 }
 
+/// Text to look for on screen: 1-200 characters, no control characters.
+fn check_find_text(text: &str) -> Result<(), ProtocolError> {
+    if text.trim().is_empty() || text.chars().count() > MAX_FIND_TEXT_CHARS {
+        return Err(invalid(format!(
+            "text must be 1-{MAX_FIND_TEXT_CHARS} characters"
+        )));
+    }
+    if text.chars().any(char::is_control) {
+        return Err(invalid("text must not contain control characters"));
+    }
+    Ok(())
+}
+
 pub fn command(command: &Command) -> Result<(), ProtocolError> {
     match command {
+        Command::WaitFor {
+            text,
+            timeout_ms,
+            max_nodes,
+            ..
+        } => {
+            check_find_text(text)?;
+            if !(MIN_WAIT_MS..=MAX_WAIT_MS).contains(timeout_ms) {
+                return Err(invalid(format!(
+                    "timeout_ms must be between {MIN_WAIT_MS} and {MAX_WAIT_MS}"
+                )));
+            }
+            if *max_nodes == 0 || *max_nodes > MAX_NODES {
+                return Err(invalid(format!(
+                    "max_nodes must be between 1 and {MAX_NODES}"
+                )));
+            }
+            Ok(())
+        }
+        Command::ScrollTo {
+            observation_id,
+            text,
+            container,
+            max_swipes,
+            ..
+        } => {
+            check_id("observation_id", observation_id)?;
+            check_find_text(text)?;
+            if let Some(container) = container {
+                check_id("container", container)?;
+            }
+            if *max_swipes == 0 || *max_swipes > MAX_SCROLL_SWIPES {
+                return Err(invalid(format!(
+                    "max_swipes must be between 1 and {MAX_SCROLL_SWIPES}"
+                )));
+            }
+            Ok(())
+        }
         Command::DeviceInfo {} | Command::ListApps {} | Command::Global { .. } => Ok(()),
         Command::Observe { max_nodes, .. } => {
             if *max_nodes == 0 || *max_nodes > MAX_NODES {
@@ -157,6 +218,7 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             observation_id,
             element,
             text,
+            ..
         } => {
             check_id("observation_id", observation_id)?;
             check_id("element", element)?;
@@ -302,6 +364,7 @@ mod tests {
             observation_id: "o_1".into(),
             element: "n1".into(),
             text: "x".repeat(MAX_TEXT_CHARS + 1),
+            submit: false,
         };
         assert!(command(&long_text).is_err());
 
@@ -309,6 +372,7 @@ mod tests {
             observation_id: "o_1".into(),
             element: "n1".into(),
             text: "abc\u{0007}".into(),
+            submit: false,
         };
         assert!(command(&control).is_err());
 

@@ -28,6 +28,7 @@ import io.github.aspershupadhyay.latch.protocol.ProtocolException
 import io.github.aspershupadhyay.latch.protocol.ScreenInfo
 import io.github.aspershupadhyay.latch.protocol.SessionInfo
 import io.github.aspershupadhyay.latch.protocol.Target
+import io.github.aspershupadhyay.latch.protocol.WaitResult
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 
@@ -48,7 +49,10 @@ fun describe(command: Command): String = when (command) {
         is Target.Point -> if (command.longPress) "Long-press at (${t.x}, ${t.y})" else "Tap at (${t.x}, ${t.y})"
     }
     is Command.Swipe -> "Swipe on the screen"
-    is Command.TypeText -> "Type ${command.text.codePointCount(0, command.text.length)} characters"
+    is Command.TypeText ->
+        "Type ${command.text.codePointCount(0, command.text.length)} characters" + if (command.submit) " and press Enter" else ""
+    is Command.WaitFor -> if (command.gone) "Wait for text to disappear" else "Wait for text to appear"
+    is Command.ScrollTo -> "Scroll to text"
     is Command.Global -> when (command.action) {
         GlobalAction.BACK -> "Press Back"
         GlobalAction.HOME -> "Press Home"
@@ -62,6 +66,9 @@ fun describe(command: Command): String = when (command) {
  * Runs one command on this phone after the device-side checks. The gateway
  * has already applied policy; these checks hold even if it did not.
  */
+/** Least time to let an app open or the home screen appear before smart settle may answer. */
+private const val TRANSITION_FLOOR_MS = 300L
+
 private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
 private const val CONSEQUENTIAL_DETAIL =
     "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
@@ -131,17 +138,26 @@ class CommandExecutor(
                 log.add(ActivityKind.OBSERVE, describe(command))
                 Protocol.json.encodeToJsonElement(AppList.serializer(), AppList(service.listApps()))
             }
+            is Command.WaitFor -> {
+                // The searched-for text is the agent's, not screen content, but the log stays content-free anyway.
+                val waited = service.waitFor(command.text, command.gone, command.timeoutMs, command.maxNodes)
+                log.add(ActivityKind.OBSERVE, "${describe(command)} · ${if (waited.matched) "done" else "timed out"}")
+                Protocol.json.encodeToJsonElement(WaitResult.serializer(), waited)
+            }
             else -> {
+                var found: Boolean? = null
                 when (command) {
                     is Command.Tap -> service.tap(command.observationId, command.target, command.longPress)
                     is Command.Swipe -> service.swipe(command.observationId, command.fromX, command.fromY, command.toX, command.toY, command.durationMs)
-                    is Command.TypeText -> service.typeText(command.observationId, command.element, command.text)
+                    is Command.TypeText -> service.typeText(command.observationId, command.element, command.text, command.submit)
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName)
+                    is Command.ScrollTo ->
+                        found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
                 }
                 log.add(ActivityKind.ACTION, describe(command))
-                var result = action.copy(`package` = service.currentPackage())
-                envelope.observeAfter?.let { result = observeAfter(service, it, result, current) }
+                var result = action.copy(`package` = service.currentPackage(), found = found)
+                envelope.observeAfter?.let { result = observeAfter(command, service, it, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
         }
@@ -213,6 +229,13 @@ class CommandExecutor(
                 consequences.judgeTap(it.observation, it.node, command.longPress, it.live)
             }
             is Command.Swipe -> consequences.judgeSwipe(service.currentPackage())
+            is Command.TypeText -> if (!command.submit) {
+                null
+            } else {
+                service.tapContext(command.observationId, Target.Element(command.element))?.let { context ->
+                    context.node?.let { consequences.judgeEnter(context.observation, it, command.text.codePointCount(0, command.text.length)) }
+                }
+            }
             else -> null
         }
     }
@@ -223,12 +246,20 @@ class CommandExecutor(
      * trip. The action already happened, so problems are reported, not thrown.
      */
     private suspend fun observeAfter(
+        command: Command,
         service: LatchAccessibilityService,
         after: ObserveAfter,
         result: ActionResult,
         current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
     ): ActionResult {
-        delay(after.settleMs.toLong())
+        val quiet = after.quietMs
+        if (quiet == null) {
+            delay(after.settleMs.toLong())
+        } else {
+            // Opening an app or going home starts with an animation that sends few events.
+            val floor = if (command is Command.LaunchApp || command is Command.Global) TRANSITION_FLOOR_MS else 0L
+            service.awaitQuiet(quiet.toLong(), after.settleMs.toLong(), floor)
+        }
         val (session, capabilities) = current()
         val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
         val refusal = when {

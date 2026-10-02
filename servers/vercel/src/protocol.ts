@@ -1,4 +1,4 @@
-// Latch device protocol v1.1 for the Vercel gateway. The normative definition
+// Latch device protocol v1.3 for the Vercel gateway. The normative definition
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
@@ -79,12 +79,16 @@ export interface Observation {
 }
 
 export type Target = { element: string } | { x: number; y: number };
+export type Direction = "up" | "down" | "left" | "right";
+const DIRECTIONS: readonly string[] = ["up", "down", "left", "right"];
 export type Command =
   | { name: "device.info"; params: Record<string, never> }
   | { name: "ui.observe"; params: { include_screenshot: boolean; max_nodes: number } }
   | { name: "input.tap"; params: { observation_id: string; target: Target; long_press: boolean } }
   | { name: "input.swipe"; params: { observation_id: string; from: { x: number; y: number }; to: { x: number; y: number }; duration_ms: number } }
-  | { name: "input.type"; params: { observation_id: string; element: string; text: string } }
+  | { name: "input.type"; params: { observation_id: string; element: string; text: string; submit?: boolean } }
+  | { name: "ui.wait"; params: { text: string; gone: boolean; timeout_ms: number; max_nodes: number } }
+  | { name: "ui.scroll_to"; params: { observation_id: string; text: string; direction: Direction; container?: string; max_swipes: number } }
   | { name: "nav.global"; params: { action: "back" | "home" | "recents" } }
   | { name: "app.list"; params: Record<string, never> }
   | { name: "app.launch"; params: { package: string } };
@@ -101,14 +105,27 @@ export const MAX_REMEMBER_CHARS = 160;
  * observes the screen, and returns the observation inside the action result,
  * which saves the agent loop a whole second round trip.
  */
-export interface ObserveAfter { settle_ms: number; include_screenshot: boolean; max_nodes: number }
+export interface ObserveAfter { settle_ms: number; include_screenshot: boolean; max_nodes: number; quiet_ms?: number }
 export const MAX_SETTLE_MS = 3_000;
+/** Since 1.3: observe once the screen has been still this long (at most), within settle_ms. */
+export const MAX_QUIET_MS = 1_000;
 
-/** True when a phone that sent `hello` with this protocol version understands `observe_after`. */
-export function supportsObserveAfter(version: string | undefined): boolean {
-  const minor = Number(String(version ?? "").split(".")[1]);
-  return isCompatible(String(version ?? "")) && minor >= 2;
+/** Result of `ui.wait` (since 1.3). */
+export interface WaitResult { matched: boolean; observation: Observation }
+
+/** Minor protocol version of a compatible `major.minor` string, or undefined. */
+export function minorVersion(version: string | undefined): number | undefined {
+  const v = String(version ?? "");
+  return isCompatible(v) ? Number(v.split(".")[1]) : undefined;
 }
+
+/** Lowest minor version a phone must speak to run this command exactly. */
+export function minMinorVersion(c: Command): number {
+  if (c.name === "ui.wait" || c.name === "ui.scroll_to") return 3;
+  if (c.name === "input.type" && c.params.submit === true) return 3;
+  return 0;
+}
+
 
 export type Outcome = { status: "ok"; data: unknown } | { status: "error"; error: { code: ErrorCode; message: string } };
 
@@ -120,13 +137,17 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "input.type": return ["input.text"];
     case "nav.global": return ["nav.global"];
     case "app.list": case "app.launch": return ["app.launch"];
+    case "ui.wait": return ["ui.observe"];
+    case "ui.scroll_to": return ["ui.observe", "input.gesture"];
   }
 }
 
-export const isAction = (c: Command) => !["device.info", "ui.observe", "app.list"].includes(c.name);
+export const isAction = (c: Command) => !["device.info", "ui.observe", "app.list", "ui.wait"].includes(c.name);
 
 export function observationIdOf(c: Command): string | undefined {
-  return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" ? c.params.observation_id : undefined;
+  return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" || c.name === "ui.scroll_to"
+    ? c.params.observation_id
+    : undefined;
 }
 
 // ---- Limits and validation (mirrors latch_protocol::validate) ----
@@ -134,7 +155,7 @@ export function observationIdOf(c: Command): string | undefined {
 export const LIMITS = {
   maxTextChars: 2_000, maxNodes: 2_000, maxSwipeMs: 5_000, maxCoordinate: 20_000, maxIdChars: 64,
   maxPackageChars: 255, maxNodeTextChars: 4_000, maxScreenshotBase64: 6 * 1024 * 1024,
-  maxMessageBytes: 8 * 1024 * 1024,
+  maxMessageBytes: 8 * 1024 * 1024, minWaitMs: 100, maxWaitMs: 15_000, maxFindTextChars: 200, maxScrollSwipes: 20,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
@@ -157,8 +178,29 @@ function id(name: string, v: string) {
   if (!isValidId(v)) throw invalid(`${name} must be 1-${LIMITS.maxIdChars} characters of letters, digits, '_' or '-'`);
 }
 
+function findText(text: string) {
+  if (text.trim() === "" || [...text].length > LIMITS.maxFindTextChars) throw invalid(`text must be 1-${LIMITS.maxFindTextChars} characters`);
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(text)) throw invalid("text must not contain control characters");
+}
+
 export function validateCommand(c: Command): void {
   switch (c.name) {
+    case "ui.wait":
+      findText(c.params.text);
+      if (c.params.timeout_ms < LIMITS.minWaitMs || c.params.timeout_ms > LIMITS.maxWaitMs) {
+        throw invalid(`timeout_ms must be between ${LIMITS.minWaitMs} and ${LIMITS.maxWaitMs}`);
+      }
+      if (c.params.max_nodes < 1 || c.params.max_nodes > LIMITS.maxNodes) throw invalid(`max_nodes must be between 1 and ${LIMITS.maxNodes}`);
+      return;
+    case "ui.scroll_to":
+      id("observation_id", c.params.observation_id);
+      findText(c.params.text);
+      if (c.params.container !== undefined) id("container", c.params.container);
+      if (c.params.max_swipes < 1 || c.params.max_swipes > LIMITS.maxScrollSwipes) {
+        throw invalid(`max_swipes must be between 1 and ${LIMITS.maxScrollSwipes}`);
+      }
+      return;
     case "device.info": case "app.list": case "nav.global": return;
     case "ui.observe":
       if (c.params.max_nodes < 1 || c.params.max_nodes > LIMITS.maxNodes) throw invalid(`max_nodes must be between 1 and ${LIMITS.maxNodes}`);
@@ -212,7 +254,28 @@ export function parseCommand(raw: unknown): Command {
       return { name, params: { observation_id: str("observation_id"), target, long_press: bool("long_press", false) } };
     }
     case "input.swipe": return { name, params: { observation_id: str("observation_id"), from: point("from"), to: point("to"), duration_ms: p.duration_ms === undefined ? 300 : int(p.duration_ms, "duration_ms") } };
-    case "input.type": return { name, params: { observation_id: str("observation_id"), element: str("element"), text: str("text") } };
+    case "input.type": return { name, params: { observation_id: str("observation_id"), element: str("element"), text: str("text"), submit: bool("submit", false) } };
+    case "ui.wait": return {
+      name,
+      params: {
+        text: str("text"), gone: bool("gone", false),
+        timeout_ms: p.timeout_ms === undefined ? 5_000 : int(p.timeout_ms, "timeout_ms"),
+        max_nodes: p.max_nodes === undefined ? 400 : int(p.max_nodes, "max_nodes"),
+      },
+    };
+    case "ui.scroll_to": {
+      const direction = str("direction");
+      if (!DIRECTIONS.includes(direction)) throw invalid("direction must be up, down, left, or right");
+      if (p.container !== undefined && typeof p.container !== "string") throw invalid("container must be a string");
+      return {
+        name,
+        params: {
+          observation_id: str("observation_id"), text: str("text"), direction: direction as Direction,
+          ...(p.container !== undefined ? { container: p.container as string } : {}),
+          max_swipes: p.max_swipes === undefined ? 10 : int(p.max_swipes, "max_swipes"),
+        },
+      };
+    }
     case "nav.global": {
       const action = str("action");
       if (action !== "back" && action !== "home" && action !== "recents") throw invalid("unknown global action");

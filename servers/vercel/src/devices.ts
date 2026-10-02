@@ -5,7 +5,7 @@
 import { evaluate } from "./policy.js";
 import {
   type CapabilityState, type Command, type ConfirmRequest, type ErrorCode, type Hello, type Observation, type ObserveAfter,
-  type Outcome, ProtocolError, RECOVERY_HINTS, type SessionInfo, isAction, normalizeObservation, supportsObserveAfter,
+  type Outcome, ProtocolError, RECOVERY_HINTS, type SessionInfo, isAction, minMinorVersion, minorVersion, normalizeObservation,
 } from "./protocol.js";
 import { newId } from "./secret.js";
 import type { BatchOp, Store } from "./store.js";
@@ -47,6 +47,8 @@ export interface Executed {
 export interface ExecuteOptions {
   /** Ask the phone to observe after a successful action; ignored for phones older than 1.2. */
   observeAfter?: ObserveAfter;
+  /** Fixed settle time for 1.2 phones, which ignore `quiet_ms` and would wait the whole `settle_ms`. */
+  legacySettleMs?: number;
 }
 
 export interface DeviceRecord {
@@ -307,6 +309,13 @@ export class Devices {
     const [liveRaw, obsRecord] = await this.store.mget([K.live(id), K.observation(id)]);
     if (!liveRaw) throw unavailable();
     const live = JSON.parse(liveRaw) as Live;
+    const minor = minorVersion(live.protocol) ?? 0;
+    if (minMinorVersion(command) > minor) {
+      throw new ProtocolError(
+        "unsupported_capability",
+        `the Latch app on this phone (protocol ${String(live.protocol ?? "1.0").slice(0, 16)}) is too old for ${command.name}; the owner needs to update it`,
+      );
+    }
     const cached = obsRecord ? (JSON.parse(obsRecord) as { conn: string; observation: Observation; received_at_ms: number }) : undefined;
     const now = Date.now();
     const decision = evaluate(command, {
@@ -320,9 +329,13 @@ export class Devices {
     const confirm: ConfirmRequest | undefined = decision.kind === "confirm" ? decision.request : undefined;
     const deadlineMs = confirm ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
     const enabled = (c: string) => live.capabilities.some((s) => s.capability === c && s.status === "enabled");
-    const observeAfter = options.observeAfter && isAction(command) && supportsObserveAfter(live.protocol) && enabled("ui.observe")
-      ? { ...options.observeAfter, include_screenshot: options.observeAfter.include_screenshot && enabled("screen.capture") }
-      : undefined;
+    let observeAfter: ObserveAfter | undefined;
+    if (options.observeAfter && isAction(command) && minor >= 2 && enabled("ui.observe")) {
+      const { quiet_ms: quiet, ...rest } = options.observeAfter;
+      observeAfter = { ...rest, include_screenshot: rest.include_screenshot && enabled("screen.capture") };
+      if (minor >= 3 && quiet !== undefined) observeAfter.quiet_ms = quiet;
+      if (minor < 3 && options.legacySettleMs !== undefined) observeAfter.settle_ms = options.legacySettleMs;
+    }
 
     const commandId = newId("c");
     const envelope = {
@@ -383,6 +396,18 @@ export class Devices {
       return { data: observation, phoneMs };
     }
     if (typeof outcome.data !== "object" || outcome.data === null) throw malformed();
+    if (command.name === "ui.wait") {
+      const raw = outcome.data as { matched?: unknown; observation?: unknown };
+      if (typeof raw.matched !== "boolean") throw malformed();
+      let observation: Observation;
+      try {
+        observation = normalizeObservation(raw.observation, command.params.max_nodes);
+      } catch (e) {
+        throw e instanceof ProtocolError ? e : malformed();
+      }
+      remember(observation);
+      return { data: { matched: raw.matched }, observation, phoneMs };
+    }
     if (!observeAfter) return { data: outcome.data, phoneMs };
     // The action ran; a bad or missing observation only means the agent must observe itself.
     const { observation: rawObservation, observation_error: rawError, ...data } = outcome.data as Record<string, unknown>;

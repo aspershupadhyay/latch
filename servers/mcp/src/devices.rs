@@ -10,8 +10,9 @@ use std::time::Duration;
 
 use latch_policy::{Decision, DeviceContext};
 use latch_protocol::{
-    ActionResult, AppList, CapabilityState, Command, CommandEnvelope, DeviceInfo, ErrorCode,
-    GatewayToDevice, Hello, Observation, Outcome, ProtocolError, SessionInfo, validate,
+    ActionResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
+    DeviceInfo, ErrorCode, GatewayToDevice, Hello, Observation, ObserveAfter, Outcome,
+    ProtocolError, SessionInfo, WaitResult, validate,
 };
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
@@ -258,6 +259,7 @@ pub enum Output {
     Observation(Box<Observation>),
     Action(ActionResult),
     Apps(AppList),
+    Wait(Box<WaitResult>),
 }
 
 /// Chooses the device a tool call addresses.
@@ -301,9 +303,20 @@ pub async fn execute(
     device_id: &str,
     command: Command,
 ) -> Result<Output, ProtocolError> {
+    execute_with(state, device_id, command, None).await
+}
+
+/// Like [`execute`], and for actions asks the phone to observe the screen in
+/// the same round trip (protocol 1.2+). The phone may not: check the result.
+pub async fn execute_with(
+    state: &AppState,
+    device_id: &str,
+    command: Command,
+    observe_after: Option<ObserveAfter>,
+) -> Result<Output, ProtocolError> {
     let started = now_ms();
     let name = command.name();
-    let result = execute_inner(state, device_id, command).await;
+    let result = execute_inner(state, device_id, command, observe_after).await;
     let (decision, outcome) = match &result {
         Ok((decision, _)) => (*decision, "ok"),
         Err((decision, e)) => (*decision, e.code.as_str()),
@@ -328,7 +341,12 @@ pub async fn execute(
 
 type Staged<T> = Result<(&'static str, T), (&'static str, ProtocolError)>;
 
-async fn execute_inner(state: &AppState, device_id: &str, command: Command) -> Staged<Output> {
+async fn execute_inner(
+    state: &AppState,
+    device_id: &str,
+    command: Command,
+    observe_after: Option<ObserveAfter>,
+) -> Staged<Output> {
     let unavailable = || {
         (
             "deny",
@@ -355,9 +373,42 @@ async fn execute_inner(state: &AppState, device_id: &str, command: Command) -> S
             )
         })?;
 
-    let (decision, deadline_ms, id, rx, conn_id) = {
+    let (decision, deadline_ms, id, rx, conn_id, observe_after) = {
         let mut live = state.devices.lock();
         let l = live.get_mut(device_id).ok_or_else(unavailable)?;
+        let minor = latch_protocol::minor_version(&l.hello.protocol).unwrap_or(0);
+        if command.min_minor_version() > minor {
+            return Err((
+                "deny",
+                ProtocolError::new(
+                    ErrorCode::UnsupportedCapability,
+                    format!(
+                        "the Latch app on this phone (protocol {}) is too old for {}; the owner needs to update it",
+                        truncate(&l.hello.protocol, 16),
+                        command.name()
+                    ),
+                ),
+            ));
+        }
+        let enabled = |c: Capability| {
+            l.capabilities
+                .iter()
+                .any(|s| s.capability == c && s.status == CapabilityStatus::Enabled)
+        };
+        // Only phones that understand it, only for actions, only when the owner lets it read the screen.
+        let observe_after = observe_after
+            .filter(|_| command.is_action() && minor >= 2 && enabled(Capability::UiObserve))
+            .map(|after| ObserveAfter {
+                include_screenshot: after.include_screenshot && enabled(Capability::ScreenCapture),
+                // 1.2 phones ignore quiet_ms and would wait the whole settle_ms.
+                settle_ms: if minor >= 3 {
+                    after.settle_ms
+                } else {
+                    state.settle_ms.min(u64::from(validate::MAX_SETTLE_MS)) as u32
+                },
+                quiet_ms: after.quiet_ms.filter(|_| minor >= 3),
+                ..after
+            });
         let ctx = DeviceContext {
             capabilities: &l.capabilities,
             session: l.session,
@@ -389,8 +440,7 @@ async fn execute_inner(state: &AppState, device_id: &str, command: Command) -> S
             deadline_ms,
             command: command.clone(),
             confirm,
-            // This gateway's WebSocket round trip is cheap; it observes with a second command.
-            observe_after: None,
+            observe_after,
         });
         if l.tx.try_send(envelope).is_err() {
             l.pending.remove(&id);
@@ -402,7 +452,7 @@ async fn execute_inner(state: &AppState, device_id: &str, command: Command) -> S
                 ),
             ));
         }
-        (decision, deadline_ms, id, rx, l.conn_id)
+        (decision, deadline_ms, id, rx, l.conn_id, observe_after)
     };
 
     // A little grace on top of the device's own deadline for the network.
@@ -444,6 +494,21 @@ async fn execute_inner(state: &AppState, device_id: &str, command: Command) -> S
             ProtocolError::new(ErrorCode::Internal, "the phone returned a malformed result"),
         )
     };
+    // The newest screen the phone reported becomes the one actions must cite.
+    let remember = |obs: &Observation| {
+        let cached = Observation {
+            screenshot: None,
+            ..obs.clone()
+        };
+        if let Some(l) = state
+            .devices
+            .lock()
+            .get_mut(device_id)
+            .filter(|l| l.conn_id == conn_id)
+        {
+            l.latest_observation = Some((Arc::new(cached), now_ms()));
+        }
+    };
     let output = match &command {
         Command::DeviceInfo {} => {
             Output::Info(Box::new(serde_json::from_value(data).map_err(malformed)?))
@@ -451,24 +516,40 @@ async fn execute_inner(state: &AppState, device_id: &str, command: Command) -> S
         Command::Observe { max_nodes, .. } => {
             let obs: Observation = serde_json::from_value(data).map_err(malformed)?;
             validate::observation(&obs, *max_nodes).map_err(|e| (decision, e))?;
-            let cached = Observation {
-                screenshot: None,
-                ..obs.clone()
-            };
-            if let Some(l) = state
-                .devices
-                .lock()
-                .get_mut(device_id)
-                .filter(|l| l.conn_id == conn_id)
-            {
-                l.latest_observation = Some((Arc::new(cached), now_ms()));
-            }
+            remember(&obs);
             Output::Observation(Box::new(obs))
         }
+        Command::WaitFor { max_nodes, .. } => {
+            let wait: WaitResult = serde_json::from_value(data).map_err(malformed)?;
+            validate::observation(&wait.observation, *max_nodes).map_err(|e| (decision, e))?;
+            remember(&wait.observation);
+            Output::Wait(Box::new(wait))
+        }
         Command::ListApps {} => Output::Apps(serde_json::from_value(data).map_err(malformed)?),
-        _ => Output::Action(serde_json::from_value(data).map_err(malformed)?),
+        _ => {
+            let mut result: ActionResult = serde_json::from_value(data).map_err(malformed)?;
+            // The action ran; a bad or unasked-for observation only means the agent must observe.
+            match (&result.observation, observe_after) {
+                (Some(obs), Some(after)) if validate::observation(obs, after.max_nodes).is_ok() => {
+                    remember(obs);
+                }
+                (Some(_), _) => {
+                    result.observation = None;
+                    result.observation_error = Some(ProtocolError::new(
+                        ErrorCode::Internal,
+                        "the phone returned a malformed observation",
+                    ));
+                }
+                (None, _) => {}
+            }
+            Output::Action(result)
+        }
     };
     Ok((decision, output))
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
 }
 
 #[cfg(test)]

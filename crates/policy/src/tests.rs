@@ -276,6 +276,7 @@ fn sensitive_fields_are_never_targeted() {
         observation_id: "o_1".into(),
         element: "n3".into(),
         text: "hunter2".into(),
+        submit: false,
     };
     assert_eq!(
         code(decide(&type_password, &all_enabled(), session(), Some(ctx))),
@@ -286,6 +287,7 @@ fn sensitive_fields_are_never_targeted() {
         observation_id: "o_1".into(),
         element: "n5".into(),
         text: "1234".into(),
+        submit: false,
     };
     assert_eq!(
         code(decide(&type_pin, &all_enabled(), session(), Some(ctx))),
@@ -315,6 +317,7 @@ fn typing_requires_an_editable_target() {
         observation_id: "o_1".into(),
         element: "n4".into(),
         text: "weather".into(),
+        submit: false,
     };
     assert_eq!(
         decide(&ok, &all_enabled(), session(), Some((&obs, NOW))),
@@ -326,6 +329,7 @@ fn typing_requires_an_editable_target() {
         observation_id: "o_1".into(),
         element: "n1".into(),
         text: "x".into(),
+        submit: false,
     };
     assert_eq!(
         code(decide(
@@ -437,13 +441,14 @@ fn word_lists_match_shared_file() {
             .join(",\n")
     };
     let generated = format!(
-        "{{\n  \"consequential_words\": [\n{}\n  ],\n  \"consequential_phrases\": [\n{}\n  ],\n  \"critical_words\": [\n{}\n  ],\n  \"critical_phrases\": [\n{}\n  ],\n  \"critical_packages\": [\n{}\n  ],\n  \"call_packages\": [\n{}\n  ],\n  \"secret_field_words\": [\n{}\n  ],\n  \"secret_field_phrases\": [\n{}\n  ]\n}}\n",
+        "{{\n  \"consequential_words\": [\n{}\n  ],\n  \"consequential_phrases\": [\n{}\n  ],\n  \"critical_words\": [\n{}\n  ],\n  \"critical_phrases\": [\n{}\n  ],\n  \"critical_packages\": [\n{}\n  ],\n  \"call_packages\": [\n{}\n  ],\n  \"search_field_words\": [\n{}\n  ],\n  \"secret_field_words\": [\n{}\n  ],\n  \"secret_field_phrases\": [\n{}\n  ]\n}}\n",
         list(CONSEQUENTIAL_WORDS),
         list(CONSEQUENTIAL_PHRASES),
         list(CRITICAL_WORDS),
         list(CRITICAL_PHRASES),
         list(CRITICAL_PACKAGES),
         list(CALL_PACKAGES),
+        list(SEARCH_FIELD_WORDS),
         list(SECRET_FIELD_WORDS),
         list(SECRET_FIELD_PHRASES),
     );

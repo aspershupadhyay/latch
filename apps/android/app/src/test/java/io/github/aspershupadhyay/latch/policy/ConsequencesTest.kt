@@ -57,6 +57,30 @@ class ConsequencesTest {
         assertTrue("too few tap cases checked: $checked", checked >= 8)
     }
 
+    @Test
+    fun agreesWithSharedPolicyCasesOnTypeAndEnter() {
+        val doc = Protocol.json.parseToJsonElement(shared("policy/cases.json")).jsonObject
+        val observation = Protocol.json.decodeFromJsonElement(Observation.serializer(), doc.getValue("observation"))
+        var checked = 0
+        for (case in doc.getValue("cases").jsonArray.map { it.jsonObject }) {
+            val command = case.getValue("command").jsonObject
+            val params = command.getValue("params").jsonObject
+            if (command["name"]!!.jsonPrimitive.content != "input.type" || params["submit"]?.jsonPrimitive?.boolean != true) continue
+            val expect = case.getValue("expect").jsonObject
+            val decision = expect.getValue("decision").jsonPrimitive.content
+            if (decision == "deny") continue
+            val field = observation.nodes.first { it.id == params.getValue("element").jsonPrimitive.content }
+            val text = params.getValue("text").jsonPrimitive.content
+            val judgement = consequences.judgeEnter(observation, field, text.codePointCount(0, text.length))
+            val name = case.getValue("name").jsonPrimitive.content
+            assertEquals(name, if (decision == "allow") Consequence.NONE else Consequence.CONSEQUENTIAL, judgement.consequence)
+            expect["title"]?.let { assertEquals(name, it.jsonPrimitive.content, judgement.title) }
+            (expect["remember"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it !is JsonNull }?.let { assertEquals(name, it.content, judgement.rememberKey) }
+            checked++
+        }
+        assertEquals(2, checked)
+    }
+
     private fun node(id: String, text: String? = null, description: String? = null, parent: String? = null, clickable: Boolean = true) =
         UiNode(id = id, parent = parent, role = "View", text = text, description = description, bounds = Rect(0, 0, 100, 100), clickable = clickable)
 

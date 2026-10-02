@@ -18,6 +18,7 @@ data class PolicyWords(
     @SerialName("critical_phrases") val criticalPhrases: List<String>,
     @SerialName("critical_packages") val criticalPackages: List<String>,
     @SerialName("call_packages") val callPackages: List<String>,
+    @SerialName("search_field_words") val searchFieldWords: List<String>,
 ) {
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
@@ -65,6 +66,28 @@ class Consequences(private val words: PolicyWords) {
             "$verb “$label”$place",
             "${verb.lowercase()}|${pkg ?: "?"}|${label.lowercase()}".take(MAX_KEY_CHARS),
         )
+    }
+
+    /**
+     * Typing then pressing Enter in [field]: sends in a chat, searches in a
+     * search box. The field's text is what is being typed, so it never names it.
+     */
+    fun judgeEnter(observation: Observation, field: UiNode, characters: Int): Judgement {
+        val pkg = observation.`package`
+        val name = fieldLabel(field)
+        var consequence = classify(listOf(field), pkg)
+        if (consequence == Consequence.NONE && !isSearchField(field)) consequence = Consequence.CONSEQUENTIAL
+        return Judgement(
+            consequence,
+            "Type $characters characters into “$name” and press Enter${pkg?.let { " in $it" } ?: ""}",
+            "enter|${pkg ?: "?"}|${name.lowercase()}".take(MAX_KEY_CHARS),
+        )
+    }
+
+    fun isSearchField(node: UiNode): Boolean = listOfNotNull(node.description, node.resourceId).any { field ->
+        val ws = words(field)
+        val compact = ws.joinToString("")
+        ws.any { it in words.searchFieldWords } || words.searchFieldWords.any { it.length >= 5 && compact.contains(it) }
     }
 
     fun judgeSwipe(packageName: String?): Judgement {
@@ -134,6 +157,9 @@ class Consequences(private val words: PolicyWords) {
         private fun ownLabel(n: UiNode): String? = n.text?.takeIf { it.isNotBlank() } ?: n.description?.takeIf { it.isNotBlank() }
 
         fun labelOf(n: UiNode): String = shorten(ownLabel(n) ?: n.resourceId ?: n.role)
+
+        private fun fieldLabel(n: UiNode): String =
+            shorten(n.description?.takeIf { it.isNotBlank() } ?: n.resourceId?.substringAfterLast('/') ?: n.role)
 
         private fun shorten(raw: String): String {
             val single = raw.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")

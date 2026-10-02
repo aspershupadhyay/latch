@@ -106,7 +106,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll", "swipe", "press", "list_apps", "launch_app"]);
+  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "press", "list_apps", "launch_app"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
   const apps = await client.callTool({ name: "list_apps", arguments: { query: " CHAT " } });
@@ -131,6 +131,16 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.ok(stale.isError);
   assert.match(text(stale), /stale_observation/);
 
+  // One-call tools (protocol 1.3), with the same text as the Rust gateway.
+  screen = await client.callTool({ name: "press", arguments: { button: "back" } });
+  screen = await client.callTool({ name: "scroll_to", arguments: { observation_id: obsId(text(screen)), text: "about phone" } });
+  assert.match(text(screen), /^Found "about phone"\. The screen after the action:/);
+  assert.match(text(screen), /"About phone"/);
+  const waited = await client.callTool({ name: "wait_for", arguments: { text: "Bluetooth", timeout_ms: 100 } });
+  assert.match(text(waited), /^"Bluetooth" did not appear within 100 ms\. The screen:/);
+  screen = await client.callTool({ name: "wait_for", arguments: { text: "battery" } });
+  assert.match(text(screen), /^"battery" is on screen\./);
+
   screen = await client.callTool({ name: "launch_app", arguments: { package: "org.latch.demo.chat" } });
   screen = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n1", text: "hello from vercel" } });
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Send") } });
@@ -145,7 +155,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const auditText = JSON.stringify(audit.body);
   assert.match(auditText, /input.tap/);
   // Protocol 1.2: actions bring their observation back in the same phone command,
-  // so only the explicit observe call above sent ui.observe.
+  // so only the explicit observe call above sent ui.observe (waits are ui.wait).
   assert.equal((audit.body.events as { command: string }[]).filter((e) => e.command === "ui.observe").length, 1, auditText);
   assert.doesNotMatch(auditText, /hello from vercel|Wi-Fi|hunter2/, "audit must not contain content");
 

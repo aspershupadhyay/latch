@@ -10,6 +10,7 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Base64
 import android.view.Display
 import android.view.Gravity
@@ -24,6 +25,7 @@ import android.widget.TextView
 import androidx.core.graphics.scale
 import io.github.aspershupadhyay.latch.LatchApp
 import io.github.aspershupadhyay.latch.protocol.AppEntry
+import io.github.aspershupadhyay.latch.protocol.Direction
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
 import io.github.aspershupadhyay.latch.protocol.GlobalAction
 import io.github.aspershupadhyay.latch.protocol.Observation
@@ -33,6 +35,7 @@ import io.github.aspershupadhyay.latch.protocol.ScreenInfo
 import io.github.aspershupadhyay.latch.protocol.Screenshot
 import io.github.aspershupadhyay.latch.protocol.Target
 import io.github.aspershupadhyay.latch.protocol.UiNode
+import io.github.aspershupadhyay.latch.protocol.WaitResult
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.PendingApproval
 import kotlinx.coroutines.delay
@@ -77,9 +80,32 @@ class LatchAccessibilityService : AccessibilityService() {
         LatchApp.get(this).bridge.attach(this)
     }
 
+    /** When another app's screen last changed (uptime ms), for smart settle and waits. */
+    @Volatile private var lastUiEventAtMs = 0L
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        if (event == null) return
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.packageName?.toString()?.let { foregroundPackage = it }
+        }
+        // Latch's own overlays (Stop pill, approval card, cursor) are not the app changing.
+        if (event.packageName?.toString() != packageName) lastUiEventAtMs = SystemClock.uptimeMillis()
+    }
+
+    /**
+     * Returns once the screen has not changed for [quietMs] (counting from now
+     * at the earliest, so an app that has not reacted yet still gets that long),
+     * or after [maxMs] in all, whichever comes first.
+     */
+    suspend fun awaitQuiet(quietMs: Long, maxMs: Long, minMs: Long = 0) {
+        val start = SystemClock.uptimeMillis()
+        while (true) {
+            val now = SystemClock.uptimeMillis()
+            val elapsed = now - start
+            if (elapsed >= maxMs) return
+            val idle = now - max(lastUiEventAtMs, start)
+            if (idle >= quietMs && elapsed >= minMs) return
+            delay((quietMs - idle).coerceIn(10, 25))
         }
     }
 
@@ -559,7 +585,7 @@ class LatchAccessibilityService : AccessibilityService() {
         return r.takeUnless { it.isEmpty }
     }
 
-    fun typeText(observationId: String, elementId: String, text: String) {
+    fun typeText(observationId: String, elementId: String, text: String, submit: Boolean = false) {
         val snap = requireFresh(observationId)
         invalidate()
         val node = liveNode(snap, elementId)
@@ -573,6 +599,127 @@ class LatchAccessibilityService : AccessibilityService() {
         if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
             throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "the field did not accept text")
         }
+        if (submit) {
+            // The keyboard's own action key for this field: Enter, Search, Send, Go, or Done.
+            node.refresh()
+            if (!node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
+                throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "the text was typed, but the field did not accept Enter")
+            }
+        }
+    }
+
+    // ---- Waiting and scrolling on the phone, without a round trip per step ----
+
+    /** Waits until an element containing [text] is on screen (or none is, with [gone]). */
+    suspend fun waitFor(text: String, gone: Boolean, timeoutMs: Int, maxNodes: Int): WaitResult {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        while (true) {
+            val observation = observe(false, maxNodes)
+            val present = observation.nodes.any { n ->
+                !n.sensitive && (n.text?.contains(text, ignoreCase = true) == true || n.description?.contains(text, ignoreCase = true) == true)
+            }
+            if (present != gone) return WaitResult(true, observation)
+            val now = SystemClock.uptimeMillis()
+            if (now >= deadline) return WaitResult(false, observation)
+            // Look again when the screen changes, and at least every 300 ms.
+            val seen = lastUiEventAtMs
+            val until = minOf(deadline, now + 300)
+            while (SystemClock.uptimeMillis() < until && lastUiEventAtMs == seen) delay(25)
+        }
+    }
+
+    /** Scrolls until an element containing [text] is visible. Returns whether it is. */
+    suspend fun scrollTo(observationId: String, text: String, direction: Direction, containerId: String?, maxSwipes: Int): Boolean {
+        val snap = requireFresh(observationId)
+        invalidate()
+        var container = if (containerId != null) liveNode(snap, containerId) else largestScrollable()
+        for (attempt in 0..maxSwipes) {
+            val current = rootInActiveWindow?.packageName?.toString() ?: foregroundPackage
+            refuseRestrictedPackage(current)
+            if (current != snap.packageName) throw ProtocolException(ErrorCode.STALE_OBSERVATION, "a different app is in the foreground now")
+            if (showsText(text)) return true
+            if (attempt == maxSwipes) return false
+            val before = signature(container)
+            if (container == null || !scrollOnce(container, direction)) scrollByGesture(container, direction, snap)
+            awaitQuiet(SCROLL_QUIET_MS, SCROLL_MAX_SETTLE_MS)
+            if (container?.refresh() == false) container = largestScrollable()
+            // Nothing moved: the list is at its end.
+            if (signature(container) == before) return showsText(text)
+        }
+        return false
+    }
+
+    private fun visibleNodes(): Sequence<AccessibilityNodeInfo> = sequence {
+        val root = rootInActiveWindow ?: return@sequence
+        val queue = ArrayDeque(listOf(root))
+        var seen = 0
+        while (queue.isNotEmpty() && seen < MAX_SEARCH_NODES) {
+            val node = queue.removeFirst()
+            seen++
+            if (!node.isVisibleToUser) continue
+            yield(node)
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+    }
+
+    private fun showsText(text: String): Boolean = visibleNodes().any { node ->
+        !Redaction.isSensitive(facts(node)) &&
+            (node.text?.contains(text, ignoreCase = true) == true || node.contentDescription?.contains(text, ignoreCase = true) == true)
+    }
+
+    private fun largestScrollable(): AccessibilityNodeInfo? = visibleNodes().filter { it.isScrollable }.maxByOrNull { node ->
+        val r = android.graphics.Rect()
+        node.getBoundsInScreen(r)
+        r.width().toLong() * r.height()
+    }
+
+    /** What the list shows, cheaply: changes when it scrolled. */
+    private fun signature(container: AccessibilityNodeInfo?): Int {
+        val root = container ?: rootInActiveWindow ?: return 0
+        val parts = ArrayList<String>()
+        val queue = ArrayDeque(listOf(root))
+        while (queue.isNotEmpty() && parts.size < 80) {
+            val node = queue.removeFirst()
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            parts += "${node.text}|${node.contentDescription}|${r.top}|${r.left}"
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return parts.hashCode()
+    }
+
+    private fun scrollOnce(node: AccessibilityNodeInfo, direction: Direction): Boolean {
+        val exact = when (direction) {
+            Direction.DOWN -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN
+            Direction.UP -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP
+            Direction.RIGHT -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT
+            Direction.LEFT -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT
+        }
+        if (node.actionList.any { it.id == exact.id } && node.performAction(exact.id)) return true
+        val generic = if (direction == Direction.DOWN || direction == Direction.RIGHT) {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        }
+        return node.performAction(generic)
+    }
+
+    /** Fallback for lists that do not offer scroll actions: a swipe across the middle of the area, above the keyboard. */
+    private suspend fun scrollByGesture(container: AccessibilityNodeInfo?, direction: Direction, snap: Snapshot) {
+        val area = android.graphics.Rect()
+        if (container != null) container.getBoundsInScreen(area) else area.set(0, statusBarHeight(), screenInfo().width, screenInfo().height)
+        keyboardBounds()?.let { keyboard -> if (keyboard.top in (area.top + 1) until area.bottom) area.bottom = keyboard.top }
+        if (area.width() < 10 || area.height() < 10) throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "nothing on screen can scroll")
+        val cx = area.centerX()
+        val cy = area.centerY()
+        val (from, to) = when (direction) {
+            Direction.DOWN -> (cx to area.top + area.height() * 4 / 5) to (cx to area.top + area.height() / 5)
+            Direction.UP -> (cx to area.top + area.height() / 5) to (cx to area.top + area.height() * 4 / 5)
+            Direction.RIGHT -> (area.left + area.width() * 4 / 5 to cy) to (area.left + area.width() / 5 to cy)
+            Direction.LEFT -> (area.left + area.width() / 5 to cy) to (area.left + area.width() * 4 / 5 to cy)
+        }
+        checkGesturePoint(from.first, from.second, snap)
+        gesture(from.first, from.second, to.first, to.second, 300)
     }
 
     fun global(action: GlobalAction) {
@@ -640,5 +787,8 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val MOVE_TOLERANCE_PX = 8
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L
         private const val LIVE_SCOPE_NODES = 64
+        private const val MAX_SEARCH_NODES = 2_000
+        private const val SCROLL_QUIET_MS = 120L
+        private const val SCROLL_MAX_SETTLE_MS = 800L
     }
 }

@@ -285,7 +285,12 @@ fn assess(
                 ),
             ))
         }
-        Command::TypeText { element, text, .. } => {
+        Command::TypeText {
+            element,
+            text,
+            submit,
+            ..
+        } => {
             let obs = observation.ok_or_else(internal_missing_observation)?;
             let node = resolve(obs, element)?;
             if node.sensitive || looks_like_secret_field(node) {
@@ -297,10 +302,49 @@ fn assess(
                     "that element is not an editable text field",
                 ));
             }
+            let count = text.chars().count();
+            if !*submit {
+                return Ok(Assessment::medium(format!(
+                    "Type {count} characters into “{}”",
+                    label_of(node)
+                )));
+            }
+            // Enter in a chat box sends; in a search box it searches. The field's
+            // own text is what is being typed, so it is never used as its name.
+            let package = obs.package.as_deref();
+            let name = field_label(node);
+            let consequence = match classify(&[node], package) {
+                Consequence::None if is_search_field(node) => Consequence::None,
+                Consequence::None => Consequence::Consequential,
+                raised => raised,
+            };
+            Ok(Assessment::judged(
+                consequence,
+                format!(
+                    "Type {count} characters into “{name}” and press Enter{}",
+                    place(package)
+                ),
+                format!("enter|{}|{}", package.unwrap_or("?"), name.to_lowercase()),
+            ))
+        }
+        Command::WaitFor { text, gone, .. } => Ok(low(format!(
+            "Wait for “{}” to {}",
+            shorten(text),
+            if *gone { "disappear" } else { "appear" }
+        ))),
+        Command::ScrollTo {
+            text, container, ..
+        } => {
+            let obs = observation.ok_or_else(internal_missing_observation)?;
+            if let Some(container) = container
+                && resolve(obs, container)?.sensitive
+            {
+                return Err(sensitive());
+            }
             Ok(Assessment::medium(format!(
-                "Type {} characters into “{}”",
-                text.chars().count(),
-                label_of(node)
+                "Scroll to “{}”{}",
+                shorten(text),
+                place(obs.package.as_deref())
             )))
         }
     }
@@ -388,6 +432,37 @@ pub fn shows_phone_number(node: &UiNode) -> bool {
             (7..=15).contains(&digits)
                 && t.chars()
                     .all(|c| c.is_ascii_digit() || " +-().\u{a0}".contains(c))
+        })
+}
+
+/// A text field's name for prompts: its description or resource id, never its
+/// content (which is what the agent is typing).
+fn field_label(node: &UiNode) -> String {
+    let raw = node
+        .description
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| {
+            node.resource_id
+                .as_deref()
+                .map(|r| r.rsplit('/').next().unwrap_or(r))
+        })
+        .unwrap_or(&node.role);
+    shorten(raw)
+}
+
+/// Search, address, and URL boxes, where Enter only looks something up.
+pub fn is_search_field(node: &UiNode) -> bool {
+    [node.description.as_deref(), node.resource_id.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|field| {
+            let ws = words(field);
+            let compact = ws.concat();
+            ws.iter().any(|w| SEARCH_FIELD_WORDS.contains(&w.as_str()))
+                || SEARCH_FIELD_WORDS
+                    .iter()
+                    .any(|w| w.len() >= 5 && compact.contains(w))
         })
 }
 
@@ -606,6 +681,20 @@ const CALL_PACKAGES: &[&str] = &[
     "com.android.phone",
     "com.oplus.dialer",
     "com.coloros.phonemanager",
+];
+
+/// Field names where pressing Enter looks something up instead of sending.
+const SEARCH_FIELD_WORDS: &[&str] = &[
+    "search",
+    "find",
+    "query",
+    "url",
+    "address",
+    "omnibox",
+    "lookup",
+    "buscar",
+    "suche",
+    "recherche",
 ];
 
 const SECRET_FIELD_WORDS: &[&str] = &[

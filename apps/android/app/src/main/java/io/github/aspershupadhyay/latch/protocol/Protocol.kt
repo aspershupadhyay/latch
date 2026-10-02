@@ -171,7 +171,13 @@ data class ActionResult(
     val observation: Observation? = null,
     /** Why the phone did not observe after the action. The action itself succeeded. */
     @SerialName("observation_error") val observationError: ErrorBody? = null,
+    /** `ui.scroll_to` only (since 1.3): whether the text is on screen now. */
+    val found: Boolean? = null,
 )
+
+/** Result of `ui.wait` (since 1.3). */
+@Serializable
+data class WaitResult(val matched: Boolean, val observation: Observation)
 
 @Serializable
 data class AppEntry(val `package`: String, val label: String)
@@ -246,6 +252,9 @@ sealed interface Target {
 
 enum class GlobalAction { BACK, HOME, RECENTS }
 
+/** Named after the content revealed: DOWN shows what is further down. */
+enum class Direction { UP, DOWN, LEFT, RIGHT }
+
 sealed interface Command {
     val name: String
     val requiredCapabilities: List<Capability>
@@ -279,9 +288,29 @@ sealed interface Command {
         override val requiredCapabilities = listOf(Capability.INPUT_GESTURE)
     }
 
-    data class TypeText(override val observationId: String, val element: String, val text: String) : Command {
+    /** [submit] (since 1.3): then press the keyboard's action key (Enter, Search, Send) in that field. */
+    data class TypeText(override val observationId: String, val element: String, val text: String, val submit: Boolean = false) : Command {
         override val name = "input.type"
         override val requiredCapabilities = listOf(Capability.INPUT_TEXT)
+    }
+
+    /** Since 1.3: wait until text appears (or, with [gone], disappears), up to [timeoutMs]. */
+    data class WaitFor(val text: String, val gone: Boolean, val timeoutMs: Int, val maxNodes: Int) : Command {
+        override val name = "ui.wait"
+        override val requiredCapabilities = listOf(Capability.UI_OBSERVE)
+        override val isAction = false
+    }
+
+    /** Since 1.3: scroll [container] (or the largest scrollable element) until [text] is visible. */
+    data class ScrollTo(
+        override val observationId: String,
+        val text: String,
+        val direction: Direction,
+        val container: String?,
+        val maxSwipes: Int,
+    ) : Command {
+        override val name = "ui.scroll_to"
+        override val requiredCapabilities = listOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE)
     }
 
     data class Global(val action: GlobalAction) : Command {
@@ -302,7 +331,13 @@ sealed interface Command {
 }
 
 /** Since 1.2: observe after a successful action and return it in the same result. */
-data class ObserveAfter(val settleMs: Int, val includeScreenshot: Boolean, val maxNodes: Int)
+data class ObserveAfter(
+    val settleMs: Int,
+    val includeScreenshot: Boolean,
+    val maxNodes: Int,
+    /** Since 1.3: observe once the screen has been still this long, within [settleMs]. */
+    val quietMs: Int? = null,
+)
 
 data class CommandEnvelope(
     val id: String,
@@ -378,6 +413,7 @@ object GatewayParser {
                         it.int("settle_ms"),
                         it.bool("include_screenshot", false),
                         if (it.containsKey("max_nodes")) it.int("max_nodes") else 400,
+                        if (it.containsKey("quiet_ms")) it.int("quiet_ms") else null,
                     )
                 }
                 if (observeAfter != null) Validation.observeAfter(command, observeAfter)
@@ -411,7 +447,28 @@ object GatewayParser {
                     if (params.containsKey("duration_ms")) params.int("duration_ms") else 300,
                 )
             }
-            "input.type" -> Command.TypeText(params.str("observation_id"), params.str("element"), params.str("text"))
+            "input.type" -> Command.TypeText(
+                params.str("observation_id"), params.str("element"), params.str("text"), params.bool("submit", false),
+            )
+            "ui.wait" -> Command.WaitFor(
+                params.str("text"),
+                params.bool("gone", false),
+                if (params.containsKey("timeout_ms")) params.int("timeout_ms") else 5_000,
+                if (params.containsKey("max_nodes")) params.int("max_nodes") else 400,
+            )
+            "ui.scroll_to" -> Command.ScrollTo(
+                params.str("observation_id"),
+                params.str("text"),
+                when (params.str("direction")) {
+                    "up" -> Direction.UP
+                    "down" -> Direction.DOWN
+                    "left" -> Direction.LEFT
+                    "right" -> Direction.RIGHT
+                    else -> invalid("unknown direction")
+                },
+                if (params.containsKey("container")) params.str("container") else null,
+                if (params.containsKey("max_swipes")) params.int("max_swipes") else 10,
+            )
             "nav.global" -> Command.Global(
                 when (params.str("action")) {
                     "back" -> GlobalAction.BACK
@@ -445,6 +502,11 @@ object Limits {
     const val MAX_NODE_TEXT_CHARS = 4_000
     const val MAX_SETTLE_MS = 3_000
     const val MAX_REMEMBER_CHARS = 160
+    const val MAX_QUIET_MS = 1_000
+    const val MIN_WAIT_MS = 100
+    const val MAX_WAIT_MS = 15_000
+    const val MAX_FIND_TEXT_CHARS = 200
+    const val MAX_SCROLL_SWIPES = 20
 
     fun isValidId(id: String) =
         id.isNotEmpty() && id.length <= MAX_ID_CHARS && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '-' }
@@ -475,6 +537,12 @@ object Validation {
         if (!command.isAction) invalid("observe_after is only allowed on actions")
         if (after.settleMs !in 0..Limits.MAX_SETTLE_MS) invalid("observe_after.settle_ms out of range")
         if (after.maxNodes !in 1..Limits.MAX_NODES) invalid("observe_after.max_nodes out of range")
+        if (after.quietMs != null && after.quietMs !in 0..Limits.MAX_QUIET_MS) invalid("observe_after.quiet_ms out of range")
+    }
+
+    private fun findText(text: String) {
+        if (text.isBlank() || text.codePointCount(0, text.length) > Limits.MAX_FIND_TEXT_CHARS) invalid("text must be 1-200 characters")
+        if (text.any(Character::isISOControl)) invalid("control characters")
     }
 
     fun command(command: Command) {
@@ -501,6 +569,17 @@ object Validation {
                 if (command.text.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
             is Command.LaunchApp -> if (!Limits.isValidPackage(command.packageName)) invalid("bad package name")
+            is Command.WaitFor -> {
+                findText(command.text)
+                if (command.timeoutMs !in Limits.MIN_WAIT_MS..Limits.MAX_WAIT_MS) invalid("timeout_ms out of range")
+                if (command.maxNodes !in 1..Limits.MAX_NODES) invalid("max_nodes out of range")
+            }
+            is Command.ScrollTo -> {
+                id(command.observationId)
+                findText(command.text)
+                command.container?.let(::id)
+                if (command.maxSwipes !in 1..Limits.MAX_SCROLL_SWIPES) invalid("max_swipes out of range")
+            }
         }
     }
 }
