@@ -111,3 +111,44 @@ The owner's first audit (realme C55, Android 15, Vercel gateway, one session, no
 | WhatsApp send and a SIM 2 call completed without a clearly surfaced approval | **OPEN:** needs tracing; the call path may be an unlabeled control or a button text not in the consequential-word list | Investigate before S4 can pass | TODO |
 
 Not done, deliberately: caching app lists or observations in the gateway (a cached answer would skip the policy and capability check of the moment), and compound actions (`tap → type → submit` under one policy check), which need their own threat review.
+
+## 9. Feature roadmap (owner request, 2026-10-02)
+
+The owner asked for the full feature list, ordered by priority, to be built one wave at a time. Every feature gets its own capability switch (off by default), protocol and fixture changes, tests on both gateways, and README steps. Items that change §3 ("no file or credential tools") or a chapter 08 rule need an ADR in the same change. All items are TODO unless marked otherwise.
+
+**P0 — blocker before new features**
+
+- Trace and fix the WhatsApp send / SIM 2 call that completed without a surfaced approval (§8). New capabilities must not build on a broken approval path.
+
+**Wave 1 — speed and visibility**
+
+| Feature | Outcome |
+|---|---|
+| Cursor overlay | A non-touchable dot moves to each tap point and pulses; swipes leave a short trail; a highlight box shows the target element. Hidden from screen readers. |
+| Smart settle | Wait until the screen stops changing instead of a fixed 500 ms. |
+| `tap` by text, `scroll_to`, `wait_for` | The phone finds, scrolls to, or waits for an element itself: fewer round trips. |
+| Keyboard action | Press the keyboard's own Enter / Search / Send / Done. |
+| Wake and keep-awake | Turn the screen on and keep it on during a session so a task is not cut off by the lock. |
+| More gestures | Double tap, long-press-drag, drag and drop, pinch, fling, pull to refresh. |
+
+**Wave 2 — files and posting** (ADR required: adds file tools)
+
+| Feature | Outcome |
+|---|---|
+| `ask_owner` hand-off | The agent asks the owner to do something (log in, unlock, choose); a screen-reader-friendly card waits until done. |
+| Gallery read | List photos and videos (name, date, size, thumbnail) within the media the owner allowed. |
+| Folder grant with CRUD | One owner-picked folder (Storage Access Framework): list, read, create, edit, rename, delete. Delete and overwrite always need approval. |
+| Send / read file | Move a file between the agent and the granted folder, with size and type limits; contents never logged. |
+| `share_to_app` | Open an app's share sheet with chosen files (for example, post three photos to Instagram in ~4 calls). Posting still needs approval. |
+
+**Wave 3 — polish**
+
+Action batches (each step checked by policy), screen diffs, WebSocket on the Vercel gateway, per-app allowlist (S5), phone controls (volume, media, brightness, Wi-Fi / Bluetooth panels, flashlight), clipboard write, saved workflows stored as data.
+
+**Wave 4 — phone-held unlock** (ADR required: changes the chapter 02 Tier 6 and chapter 07 rules)
+
+The owner types the PIN once into Latch on the phone; it is stored encrypted on the phone and never sent to the gateway or the agent. The agent gets `unlock_phone()` with no arguments, and the phone enters the PIN itself. Requirements before it ships, not after: off by default with a clear warning; works only during an owner-started session; second-factor gate (authenticator or owner approval); audit entry; Stop pill still works. App passwords stay out of agent hands: autofill, passkeys, or `ask_owner`. Accessibility setup guide alongside it: Voice Access, Switch Access, Extend Unlock / Smart Lock, keep-awake.
+
+**Later / optional:** notification reading (Play Protect restricts it), clipboard read, owner-started screen recording, scheduled tasks.
+
+**Not planned:** the agent typing a PIN, password, or OTP itself; reading SMS or OTP codes; "all files" access; a shell; silent recording.
