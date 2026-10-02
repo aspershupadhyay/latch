@@ -41,6 +41,7 @@ test("shared policy cases decide exactly like the Rust engine", () => {
     if (decision.kind === "confirm") {
       assert.equal(decision.request.risk, want.risk, c.name);
       if (want.title) assert.equal(decision.request.title, want.title, c.name);
+      if ("remember" in want) assert.equal(decision.request.remember ?? null, want.remember, c.name);
     }
     if (decision.kind === "deny") assert.equal(decision.error.code, want.code, c.name);
   }

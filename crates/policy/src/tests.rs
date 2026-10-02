@@ -437,9 +437,13 @@ fn word_lists_match_shared_file() {
             .join(",\n")
     };
     let generated = format!(
-        "{{\n  \"consequential_words\": [\n{}\n  ],\n  \"consequential_phrases\": [\n{}\n  ],\n  \"secret_field_words\": [\n{}\n  ],\n  \"secret_field_phrases\": [\n{}\n  ]\n}}\n",
+        "{{\n  \"consequential_words\": [\n{}\n  ],\n  \"consequential_phrases\": [\n{}\n  ],\n  \"critical_words\": [\n{}\n  ],\n  \"critical_phrases\": [\n{}\n  ],\n  \"critical_packages\": [\n{}\n  ],\n  \"call_packages\": [\n{}\n  ],\n  \"secret_field_words\": [\n{}\n  ],\n  \"secret_field_phrases\": [\n{}\n  ]\n}}\n",
         list(CONSEQUENTIAL_WORDS),
         list(CONSEQUENTIAL_PHRASES),
+        list(CRITICAL_WORDS),
+        list(CRITICAL_PHRASES),
+        list(CRITICAL_PACKAGES),
+        list(CALL_PACKAGES),
         list(SECRET_FIELD_WORDS),
         list(SECRET_FIELD_PHRASES),
     );
@@ -456,4 +460,188 @@ fn word_lists_match_shared_file() {
         generated,
         "words.json is stale"
     );
+}
+
+fn child(id: &str, parent: &str, text: Option<&str>, description: Option<&str>) -> UiNode {
+    let mut n = node(id, "", rect(900, 2200, 1080, 2400));
+    n.parent = Some(parent.into());
+    n.text = text.map(Into::into);
+    n.description = description.map(Into::into);
+    n.clickable = false;
+    n
+}
+
+fn unlabeled(id: &str) -> UiNode {
+    let mut n = node(id, "", rect(900, 2200, 1080, 2400));
+    n.text = None;
+    n.role = "FrameLayout".into();
+    n
+}
+
+fn obs_of(package: &str, nodes: Vec<UiNode>) -> Observation {
+    Observation {
+        package: Some(package.into()),
+        nodes,
+        ..observation()
+    }
+}
+
+fn judge(obs: &Observation, target: Target) -> Decision {
+    let caps = all_enabled();
+    evaluate(
+        &Command::Tap {
+            observation_id: "o_1".into(),
+            target,
+            long_press: false,
+        },
+        &DeviceContext {
+            capabilities: &caps,
+            session: session(),
+            latest_observation: Some((obs, NOW)),
+            now_ms: NOW,
+        },
+    )
+}
+
+fn confirm(decision: Decision) -> ConfirmRequest {
+    match decision {
+        Decision::Confirm(c) => c,
+        other => panic!("expected confirm, got {other:?}"),
+    }
+}
+
+/// Regression: a WhatsApp-style send button is an unlabeled clickable frame
+/// whose label sits on the icon inside it. The tap must still ask.
+#[test]
+fn unlabeled_button_is_judged_by_the_icon_inside_it() {
+    let obs = obs_of(
+        "com.whatsapp",
+        vec![unlabeled("n1"), child("n2", "n1", None, Some("Send"))],
+    );
+    for target in [
+        Target::Element {
+            element: "n1".into(),
+        },
+        Target::Point { x: 950, y: 2300 },
+    ] {
+        let c = confirm(judge(&obs, target));
+        assert_eq!(c.risk, RiskLevel::High);
+        assert_eq!(c.title, "Tap “Send” in com.whatsapp");
+        assert_eq!(c.remember.as_deref(), Some("tap|com.whatsapp|send"));
+    }
+}
+
+/// Regression: tapping a phone number, or anything in a phone app, can start a call.
+#[test]
+fn calls_need_approval() {
+    let number = obs_of(
+        "com.example.contacts",
+        vec![node("n1", "+91 98765 43210", rect(0, 0, 500, 100))],
+    );
+    let c = confirm(judge(
+        &number,
+        Target::Element {
+            element: "n1".into(),
+        },
+    ));
+    assert!(c.remember.is_some());
+
+    let sim = obs_of(
+        "com.android.server.telecom",
+        vec![node("n1", "Jio 4G", rect(0, 0, 500, 100))],
+    );
+    let c = confirm(judge(
+        &sim,
+        Target::Element {
+            element: "n1".into(),
+        },
+    ));
+    assert_eq!(c.title, "Tap “Jio 4G” in com.android.server.telecom");
+
+    let chooser = obs_of(
+        "com.example.chooser",
+        vec![node("n1", "SIM 2", rect(0, 0, 500, 100))],
+    );
+    confirm(judge(
+        &chooser,
+        Target::Element {
+            element: "n1".into(),
+        },
+    ));
+
+    // A short number like a year or an amount is not a phone number.
+    let plain = obs_of(
+        "com.example",
+        vec![node("n1", "2026", rect(0, 0, 500, 100))],
+    );
+    assert!(matches!(
+        judge(
+            &plain,
+            Target::Element {
+                element: "n1".into()
+            }
+        ),
+        Decision::Allow { .. }
+    ));
+}
+
+#[test]
+fn critical_actions_are_never_rememberable() {
+    for (package, label) in [
+        ("com.example.shop", "Pay now"),
+        ("com.example.shop", "Place order"),
+        ("com.example.bank", "Transfer"),
+        (
+            "com.google.android.permissioncontroller",
+            "While using the app",
+        ),
+        ("com.android.settings", "Delete account"),
+    ] {
+        let obs = obs_of(package, vec![node("n1", label, rect(0, 0, 500, 100))]);
+        let c = confirm(judge(
+            &obs,
+            Target::Element {
+                element: "n1".into(),
+            },
+        ));
+        assert_eq!(c.risk, RiskLevel::High, "{label}");
+        assert_eq!(c.remember, None, "{label} must be asked every time");
+    }
+}
+
+#[test]
+fn labels_from_outside_the_tapped_element_do_not_count() {
+    // A parent row that says "Delete" does not make its unrelated child consequential.
+    let mut row = node("n1", "Delete", rect(0, 0, 1080, 200));
+    row.clickable = false;
+    let mut open = node("n2", "Open", rect(0, 0, 500, 200));
+    open.parent = Some("n1".into());
+    let obs = obs_of("com.example", vec![row, open]);
+    assert!(matches!(
+        judge(
+            &obs,
+            Target::Element {
+                element: "n2".into()
+            }
+        ),
+        Decision::Allow { .. }
+    ));
+}
+
+#[test]
+fn unlabeled_element_borrows_the_nearest_labeled_ancestor() {
+    let mut holder = node("n1", "", rect(900, 2200, 1080, 2400));
+    holder.text = None;
+    holder.description = Some("Voice call".into());
+    holder.clickable = false;
+    let mut button = unlabeled("n2");
+    button.parent = Some("n1".into());
+    let obs = obs_of("com.example.chat", vec![holder, button]);
+    let c = confirm(judge(
+        &obs,
+        Target::Element {
+            element: "n2".into(),
+        },
+    ));
+    assert_eq!(c.title, "Tap “Voice call” in com.example.chat");
 }

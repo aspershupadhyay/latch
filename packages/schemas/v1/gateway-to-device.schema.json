@@ -353,6 +353,13 @@
         "detail": {
           "type": "string"
         },
+        "remember": {
+          "description": "Since 1.3: present when the owner may answer \"allow for this session\"\nor \"always allow in this app\" instead of only \"once\". Absent for\ncritical actions (money, permissions, installs, account deletion),\nwhich are asked every time. The phone matches saved answers by this\nexact key and may still ignore it after its own live check.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "risk": {
           "$ref": "#/$defs/RiskLevel"
         },

@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.2"
+    const val VERSION = "1.3"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -180,7 +180,13 @@ data class AppEntry(val `package`: String, val label: String)
 data class AppList(val apps: List<AppEntry>)
 
 @Serializable
-data class ConfirmRequest(val title: String, val detail: String, val risk: String)
+data class ConfirmRequest(
+    val title: String,
+    val detail: String,
+    val risk: String,
+    /** Since 1.3: key for "this session" / "always in this app" answers; absent = ask every time. */
+    val remember: String? = null,
+)
 
 // ---- Device → gateway ----
 
@@ -357,7 +363,13 @@ object GatewayParser {
                 val id = root.str("id")
                 if (!Limits.isValidId(id)) invalid("bad command id")
                 val confirm = (root["confirm"] as? JsonObject)?.let {
-                    ConfirmRequest(it.str("title"), it.str("detail"), it.str("risk"))
+                    val remember = if (it.containsKey("remember")) it.str("remember") else null
+                    if (remember != null &&
+                        (remember.isEmpty() || remember.codePointCount(0, remember.length) > Limits.MAX_REMEMBER_CHARS || remember.any(Character::isISOControl))
+                    ) {
+                        invalid("confirm.remember out of range")
+                    }
+                    ConfirmRequest(it.str("title"), it.str("detail"), it.str("risk"), remember)
                 }
                 val command = parseCommand(root.obj("command"))
                 Validation.command(command)
@@ -432,6 +444,7 @@ object Limits {
     const val MAX_GATEWAY_FRAME_CHARS = 64 * 1024
     const val MAX_NODE_TEXT_CHARS = 4_000
     const val MAX_SETTLE_MS = 3_000
+    const val MAX_REMEMBER_CHARS = 160
 
     fun isValidId(id: String) =
         id.isNotEmpty() && id.length <= MAX_ID_CHARS && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '-' }

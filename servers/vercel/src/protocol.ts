@@ -2,7 +2,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.2";
+export const PROTOCOL_VERSION = "1.3";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -90,7 +90,12 @@ export type Command =
   | { name: "app.launch"; params: { package: string } };
 
 export type RiskLevel = "low" | "medium" | "high";
-export interface ConfirmRequest { title: string; detail: string; risk: RiskLevel }
+/**
+ * `remember` (since 1.3): present when the owner may save the answer for the
+ * session or for this app; absent for critical actions, asked every time.
+ */
+export interface ConfirmRequest { title: string; detail: string; risk: RiskLevel; remember?: string }
+export const MAX_REMEMBER_CHARS = 160;
 /**
  * Since protocol 1.2: after a successful action the phone waits `settle_ms`,
  * observes the screen, and returns the observation inside the action result,

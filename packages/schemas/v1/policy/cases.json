@@ -14,7 +14,12 @@
       { "id": "n5", "role": "EditText", "text": "Enter PIN", "bounds": { "left": 0, "top": 500, "right": 1080, "bottom": 600 }, "clickable": true, "editable": true },
       { "id": "n6", "role": "Button", "text": "Next", "bounds": { "left": 0, "top": 600, "right": 1080, "bottom": 700 }, "clickable": true, "enabled": false },
       { "id": "n7", "role": "Button", "resource_id": "com.example:id/btnSignOut", "bounds": { "left": 0, "top": 700, "right": 1080, "bottom": 800 }, "clickable": true },
-      { "id": "n8", "role": "TextView", "text": "Sender details", "bounds": { "left": 0, "top": 800, "right": 1080, "bottom": 900 }, "clickable": true }
+      { "id": "n8", "role": "TextView", "text": "Sender details", "bounds": { "left": 0, "top": 800, "right": 1080, "bottom": 900 }, "clickable": true },
+      { "id": "n9", "role": "FrameLayout", "bounds": { "left": 0, "top": 900, "right": 200, "bottom": 1000 }, "clickable": true },
+      { "id": "n10", "parent": "n9", "role": "ImageView", "description": "Send", "bounds": { "left": 20, "top": 920, "right": 180, "bottom": 980 } },
+      { "id": "n11", "role": "Button", "text": "Pay now", "bounds": { "left": 0, "top": 1000, "right": 1080, "bottom": 1100 }, "clickable": true },
+      { "id": "n12", "role": "TextView", "text": "+1 (555) 010-4477", "bounds": { "left": 0, "top": 1100, "right": 1080, "bottom": 1200 }, "clickable": true },
+      { "id": "n13", "role": "TextView", "text": "Room 2026", "bounds": { "left": 0, "top": 1200, "right": 1080, "bottom": 1300 }, "clickable": true }
     ],
     "redacted_count": 1,
     "truncated": false
@@ -25,6 +30,13 @@
     "observation_age_ms": 0
   },
   "cases": [
+    { "name": "unlabeled button judged by the icon inside it", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n9" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Send” in com.example.chat", "remember": "tap|com.example.chat|send" } },
+    { "name": "coordinate tap on an unlabeled button with a labeled icon", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "x": 100, "y": 950 } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Send” in com.example.chat", "remember": "tap|com.example.chat|send" } },
+    { "name": "critical tap is asked every time", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n11" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Pay now” in com.example.chat", "remember": null } },
+    { "name": "tapping a phone number can call", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n12" } } }, "expect": { "decision": "confirm", "risk": "high", "remember": "tap|com.example.chat|+1 (555) 010-4477" } },
+    { "name": "a short number is not a phone number", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n13" } } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "consequential long-press remembers separately from tap", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n2" }, "long_press": true } }, "expect": { "decision": "confirm", "risk": "high", "remember": "long-press|com.example.chat|send" } },
+    { "name": "approve-every-action prompts are not rememberable", "session": { "expires_in_ms": 60000, "approve_every_action": true, "paused": false }, "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "expect": { "decision": "confirm", "risk": "medium", "remember": null } },
     { "name": "harmless tap", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "expect": { "decision": "allow", "risk": "medium" } },
     { "name": "consequential tap asks the owner", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n2" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Send” in com.example.chat" } },
     { "name": "consequential long-press", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n2" }, "long_press": true } }, "expect": { "decision": "confirm", "risk": "high", "title": "Long-press “Send” in com.example.chat" } },

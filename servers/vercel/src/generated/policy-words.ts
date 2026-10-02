@@ -28,6 +28,7 @@ export const WORDS = {
     "reserve",
     "call",
     "dial",
+    "sim",
     "block",
     "report",
     "reset",
@@ -74,6 +75,54 @@ export const WORDS = {
     "delete account",
     "close account",
     "make payment"
+  ],
+  "critical_words": [
+    "pay",
+    "buy",
+    "purchase",
+    "checkout",
+    "transfer",
+    "withdraw",
+    "deposit",
+    "donate",
+    "install",
+    "uninstall",
+    "wipe",
+    "pagar",
+    "comprar",
+    "kaufen",
+    "payer",
+    "acheter"
+  ],
+  "critical_phrases": [
+    "place order",
+    "pay now",
+    "buy now",
+    "factory reset",
+    "send money",
+    "add money",
+    "confirm payment",
+    "make payment",
+    "delete account",
+    "close account",
+    "erase all data"
+  ],
+  "critical_packages": [
+    "com.android.permissioncontroller",
+    "com.google.android.permissioncontroller",
+    "com.android.packageinstaller",
+    "com.google.android.packageinstaller"
+  ],
+  "call_packages": [
+    "com.android.dialer",
+    "com.google.android.dialer",
+    "com.samsung.android.dialer",
+    "com.samsung.android.incallui",
+    "com.android.incallui",
+    "com.android.server.telecom",
+    "com.android.phone",
+    "com.oplus.dialer",
+    "com.coloros.phonemanager"
   ],
   "secret_field_words": [
     "password",

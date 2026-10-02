@@ -71,6 +71,19 @@ fn check_id(name: &str, id: &str) -> Result<(), ProtocolError> {
 /// A whole command as a device receives it: the command and, since 1.2, `observe_after`.
 pub fn envelope(envelope: &CommandEnvelope) -> Result<(), ProtocolError> {
     command(&envelope.command)?;
+    if let Some(key) = envelope
+        .confirm
+        .as_ref()
+        .and_then(|c| c.remember.as_deref())
+        && (key.is_empty()
+            || key.chars().count() > crate::MAX_REMEMBER_CHARS
+            || key.chars().any(char::is_control))
+    {
+        return Err(invalid(format!(
+            "confirm.remember must be 1-{} characters without control characters",
+            crate::MAX_REMEMBER_CHARS
+        )));
+    }
     if let Some(after) = &envelope.observe_after {
         if !envelope.command.is_action() {
             return Err(invalid("observe_after is only allowed on actions"));

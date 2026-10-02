@@ -4,7 +4,7 @@
 
 import { WORDS } from "./generated/policy-words.js";
 import {
-  CAPABILITY_DESCRIPTIONS, type CapabilityState, type Command, type ConfirmRequest, type Observation,
+  CAPABILITY_DESCRIPTIONS, MAX_REMEMBER_CHARS, type CapabilityState, type Command, type ConfirmRequest, type Observation,
   ProtocolError, type RiskLevel, type SessionInfo, type UiNode, isAction, isEmptyRect, nodeAt,
   observationIdOf, requiredCapabilities, validateCommand,
 } from "./protocol.js";
@@ -71,9 +71,27 @@ export function evaluate(command: Command, ctx: DeviceContext): Decision {
   return { kind: "allow", risk: assessment.risk };
 }
 
-interface Assessment { risk: RiskLevel; title: string; detail: string }
+interface Assessment { risk: RiskLevel; title: string; detail: string; remember?: string }
+
+const CONSEQUENTIAL_DETAIL = "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo.";
+const CRITICAL_DETAIL = "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time.";
+
+/** How much human attention an action needs (mirrors latch_policy::Consequence). */
+export type Consequence = "none" | "consequential" | "critical";
+
+const medium = (title: string): Assessment => ({ risk: "medium", title, detail: AGENT_DETAIL });
+
+function judged(consequence: Consequence, title: string, key: string): Assessment {
+  if (consequence === "consequential") {
+    return { risk: "high", title, detail: CONSEQUENTIAL_DETAIL, remember: [...key].slice(0, MAX_REMEMBER_CHARS).join("") };
+  }
+  if (consequence === "critical") return { risk: "high", title, detail: CRITICAL_DETAIL };
+  return medium(title);
+}
 
 const GLOBAL_NAMES = { back: "Back", home: "Home", recents: "Recents" } as const;
+
+const place = (pkg: string | undefined) => (pkg !== undefined ? ` in ${pkg}` : "");
 
 function assess(command: Command, observation: Observation | undefined): Assessment {
   const low = (title: string): Assessment => ({ risk: "low", title, detail: AGENT_DETAIL });
@@ -86,14 +104,16 @@ function assess(command: Command, observation: Observation | undefined): Assessm
     case "ui.observe": return low(command.params.include_screenshot ? "Read the screen and take a screenshot" : "Read the screen");
     case "app.list": return low("List installed apps");
     case "nav.global": return low(`Press ${GLOBAL_NAMES[command.params.action]}`);
-    case "app.launch": return { risk: "medium", title: `Open ${command.params.package}`, detail: AGENT_DETAIL };
+    case "app.launch": return medium(`Open ${command.params.package}`);
     case "input.swipe": {
       const obs = need();
       const { from, to } = command.params;
       checkOnScreen(obs, from.x, from.y);
       checkOnScreen(obs, to.x, to.y);
       if (nodeAt(obs, from.x, from.y)?.sensitive) throw sensitive();
-      return { risk: "medium", title: "Swipe on the screen", detail: AGENT_DETAIL };
+      // In a phone app a swipe can answer, decline, or place a call.
+      const consequence: Consequence = obs.package !== undefined && isCallPackage(obs.package) ? "consequential" : "none";
+      return judged(consequence, `Swipe on the screen${place(obs.package)}`, `swipe|${obs.package ?? "?"}|`);
     }
     case "input.tap": {
       const obs = need();
@@ -102,24 +122,84 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       let node: UiNode | undefined;
       if ("element" in t) node = resolve(obs, t.element);
       else { checkOnScreen(obs, t.x, t.y); node = nodeAt(obs, t.x, t.y); }
-      if (!node) return { risk: "medium", title: `${verb} on the screen`, detail: AGENT_DETAIL };
-      if (node.sensitive) throw sensitive();
-      const place = obs.package !== undefined ? ` in ${obs.package}` : "";
-      const title = `${verb} “${labelOf(node)}”${place}`;
-      if (isConsequential(node)) {
-        return { risk: "high", title, detail: `${AGENT_DETAIL} This control may send, buy, delete, publish, or change something that is hard to undo.` };
+      if (!node) {
+        return judged(classify([], obs.package), `${verb} on the screen${place(obs.package)}`, `${verb.toLowerCase()}|${obs.package ?? "?"}|`);
       }
-      return { risk: "medium", title, detail: AGENT_DETAIL };
+      if (node.sensitive) throw sensitive();
+      const scope = scopeOf(obs, node);
+      const found = scope.map(ownLabel).find((l) => l !== undefined);
+      const label = found !== undefined ? shorten(found) : labelOf(node);
+      return judged(
+        classify(scope, obs.package),
+        `${verb} “${label}”${place(obs.package)}`,
+        `${verb.toLowerCase()}|${obs.package ?? "?"}|${label.toLowerCase()}`,
+      );
     }
     case "input.type": {
       const obs = need();
       const node = resolve(obs, command.params.element);
       if (node.sensitive || looksLikeSecretField(node)) throw sensitive();
       if (!node.editable) throw new ProtocolError("invalid_request", "that element is not an editable text field");
-      return { risk: "medium", title: `Type ${[...command.params.text].length} characters into “${labelOf(node)}”`, detail: AGENT_DETAIL };
+      return medium(`Type ${[...command.params.text].length} characters into “${labelOf(node)}”`);
     }
   }
 }
+
+/** Most descendants of a tapped element that are read for its meaning. */
+const MAX_SCOPE_NODES = 64;
+
+/**
+ * The elements that say what a tap on `node` does: the node, what is drawn
+ * inside it, and when none of those has a label, the nearest labeled ancestor.
+ */
+export function scopeOf(obs: Observation, node: UiNode): UiNode[] {
+  const scope = [node];
+  const frontier = [node.id];
+  while (frontier.length > 0) {
+    const parent = frontier.pop()!;
+    for (const child of obs.nodes) {
+      if (child.parent !== parent) continue;
+      if (scope.length >= MAX_SCOPE_NODES) break;
+      // Guard against malformed trees that loop back to an included node.
+      if (scope.some((s) => s.id === child.id)) continue;
+      scope.push(child);
+      frontier.push(child.id);
+    }
+  }
+  if (scope.every((n) => ownLabel(n) === undefined)) {
+    let cursor = node.parent;
+    for (let i = 0; i < 3 && cursor !== undefined; i++) {
+      const parent = obs.nodes.find((n) => n.id === cursor);
+      if (!parent) break;
+      if (ownLabel(parent) !== undefined) { scope.push(parent); break; }
+      cursor = parent.parent;
+    }
+  }
+  return scope;
+}
+
+/** Judges what a tap acts on. Screen text only ever raises the outcome. */
+export function classify(scope: UiNode[], pkg: string | undefined): Consequence {
+  if ((pkg !== undefined && (WORDS.critical_packages as readonly string[]).includes(pkg))
+    || scope.some((n) => matches(n, WORDS.critical_words, WORDS.critical_phrases))) return "critical";
+  if ((pkg !== undefined && isCallPackage(pkg)) || scope.some((n) => isConsequential(n) || showsPhoneNumber(n))) return "consequential";
+  return "none";
+}
+
+const isCallPackage = (pkg: string) => (WORDS.call_packages as readonly string[]).includes(pkg);
+
+/** Tapping a phone number usually starts a call. */
+export function showsPhoneNumber(node: UiNode): boolean {
+  return [node.text, node.description].some((raw) => {
+    if (raw === undefined) return false;
+    const t = raw.trim();
+    const digits = [...t].filter((c) => c >= "0" && c <= "9").length;
+    return digits >= 7 && digits <= 15 && /^[0-9 +\-().\u00a0]*$/.test(t);
+  });
+}
+
+const nonBlank = (t?: string) => (t !== undefined && t.trim() !== "" ? t : undefined);
+const ownLabel = (n: UiNode) => nonBlank(n.text) ?? nonBlank(n.description);
 
 const sensitive = () => new ProtocolError("sensitive_target", "that element is a password, PIN, one-time code, or payment field");
 
@@ -139,8 +219,11 @@ function checkOnScreen(obs: Observation, x: number, y: number) {
 
 /** Short human label for approval prompts. Untrusted text. */
 export function labelOf(node: UiNode): string {
-  const nonBlank = (t?: string) => (t !== undefined && t.trim() !== "" ? t : undefined);
-  const raw = nonBlank(node.text) ?? nonBlank(node.description) ?? node.resource_id ?? node.role;
+  return shorten(nonBlank(node.text) ?? nonBlank(node.description) ?? node.resource_id ?? node.role);
+}
+
+/** One line of at most 48 characters, for approval prompts. */
+function shorten(raw: string): string {
   const single = raw.split(/\s+/u).filter(Boolean).join(" ");
   const chars = [...single];
   return chars.length > 48 ? chars.slice(0, 48).join("") + "…" : single;

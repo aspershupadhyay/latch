@@ -18,7 +18,9 @@ mod observation;
 pub mod validate;
 
 pub use capability::{Capability, CapabilityState, CapabilityStatus};
-pub use command::{Command, ConfirmRequest, GlobalAction, Point, RiskLevel, Target};
+pub use command::{
+    Command, ConfirmRequest, GlobalAction, MAX_REMEMBER_CHARS, Point, RiskLevel, Target,
+};
 pub use error::{ErrorCode, ProtocolError};
 pub use message::{
     ActionResult, AppEntry, AppList, CommandEnvelope, DeviceDescriptor, DeviceInfo,
@@ -30,7 +32,7 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.2";
+pub const PROTOCOL_VERSION: &str = "1.3";
 
 /// Returns true when a peer advertising `version` can talk to this crate.
 pub fn is_compatible(version: &str) -> bool {

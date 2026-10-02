@@ -153,6 +153,9 @@ pub enum RiskLevel {
     High,
 }
 
+/// Longest `ConfirmRequest::remember` key.
+pub const MAX_REMEMBER_CHARS: usize = 160;
+
 /// Attached to a command when a human must approve it on the phone first.
 ///
 /// The device shows `title` and `detail` verbatim, waits for the owner, and
@@ -163,4 +166,11 @@ pub struct ConfirmRequest {
     pub title: String,
     pub detail: String,
     pub risk: RiskLevel,
+    /// Since 1.3: present when the owner may answer "allow for this session"
+    /// or "always allow in this app" instead of only "once". Absent for
+    /// critical actions (money, permissions, installs, account deletion),
+    /// which are asked every time. The phone matches saved answers by this
+    /// exact key and may still ignore it after its own live check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remember: Option<String>,
 }

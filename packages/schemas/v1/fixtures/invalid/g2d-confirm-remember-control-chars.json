@@ -1,0 +1,7 @@
+{
+  "type": "command",
+  "id": "c_0011",
+  "deadline_ms": 120000,
+  "command": { "name": "input.tap", "params": { "observation_id": "o_7", "target": { "element": "n9" }, "long_press": false } },
+  "confirm": { "title": "Tap “Share”", "detail": "Requested by an AI agent connected through Latch.", "risk": "high", "remember": "tap|x|share\n" }
+}
