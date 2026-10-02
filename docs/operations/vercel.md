@@ -20,7 +20,7 @@ AI app ──MCP (HTTPS)──▶ your Vercel project (servers/vercel) ◀──
 4. **Paste your address** (for example `latch-gateway-you.vercel.app`) back into the app and tap **Connect this phone**. The app checks the gateway, creates its own pairing code with the owner key, and pairs itself.
 5. In the app open **Connect**, create a key for your AI app, and paste it there.
 
-Without the app, use the button: [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=At%20least%2032%20random%20characters.%20Generate%20with%3A%20openssl%20rand%20-hex%2032&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D) and generate the key yourself (`openssl rand -hex 32`).
+Without the app, use the button: [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=Paste+the+owner+key+shown+in+the+Latch+app.+It+stays+in+your+Vercel+project+and+on+your+phone.&envLink=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Fblob%2Fmain%2Fdocs%2Foperations%2Fvercel.md&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D) and generate the key yourself (`openssl rand -hex 32`).
 
 ## Connecting an AI app
 

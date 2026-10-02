@@ -47,14 +47,21 @@ That's it. Every step below is just one of these.
 
 In the Latch app, tap **Create my own gateway**, then tap **copy** next to **Owner key**.
 
-> ⚠️ Don't leave this screen until Step 4. Keep this key secret.
+> ⚠️ Don't leave this screen until Step 4 (you can switch to your browser and come back). Keep this key secret.
 
 ### Step 3: Paste it into Vercel ☁️
 
-1. In the app, tap **Open Vercel** and sign in.
+Open Vercel **either way**, whichever is easier. Both open the exact same page:
+
+- **On your phone:** tap **Open Vercel** in the Latch app, **or**
+- **On a computer:** click this button 👉 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=Paste+the+owner+key+shown+in+the+Latch+app.+It+stays+in+your+Vercel+project+and+on+your+phone.&envLink=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Fblob%2Fmain%2Fdocs%2Foperations%2Fvercel.md&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D)
+
+Then on Vercel:
+
+1. Sign in (or make a free account). If it asks for a plan, pick **Hobby** (free).
 2. **Git repository:** keep the name and keep it **private**. Click **Create**.
-3. **Upstash Redis:** click **Add**. Region **`us-east-1`**, read regions **none**, plan **Free**.
-4. **`LATCH_ADMIN_TOKEN`:** paste thing #1 (the owner key).
+3. **Upstash Redis:** click **Add**. Plan **Free**, region **`us-east-1`**, read regions **none**.
+4. **`LATCH_ADMIN_TOKEN`:** paste thing #1 (the owner key from the app).
 5. Click **Deploy** and wait about a minute.
 
 ### Step 4: Copy thing #2, the address, back into the app 🔗
@@ -174,7 +181,7 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 
 ### Other ways to run the gateway
 
-- **Deploy without the app:** [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=At%20least%2032%20random%20characters%20(the%20Latch%20app%20generates%20one%20for%20you)&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D). Make your own key with `openssl rand -hex 32`. Full guide: [docs/operations/vercel.md](docs/operations/vercel.md).
+- **Deploy from this page:** use the button in [Step 3](#step-3-paste-it-into-vercel-). Bring your own owner key if you skip the app: at least 32 random characters, e.g. `openssl rand -hex 32`, then in the app choose **Connect to a gateway → I own it**. Full guide: [docs/operations/vercel.md](docs/operations/vercel.md).
 - **Your own server:** a small container (`deploy/docker-compose.yml`). See [docs/operations/gateway.md](docs/operations/gateway.md).
 - **Try it with no phone at all** (needs Rust): `scripts/dev.sh` starts a gateway and a pretend phone.
 
