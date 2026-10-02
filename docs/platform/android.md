@@ -31,10 +31,14 @@ Release builds are minified and signed in CI when `LATCH_KEYSTORE_BASE64`, `LATC
 
 1. Install the APK (allow installs from your browser or file manager when Android asks).
 2. Open Latch, enter the gateway address and the pairing code from the console.
-3. Home → *Turn on the Latch accessibility service* → Android Settings → Accessibility → Latch remote control → on.
-   - Android 13+ may say the setting is **restricted** for sideloaded apps. Open *App info* for Latch, tap **⋮ → Allow restricted settings**, then try again.
-4. Capabilities → switch on only what you want (everything except device information starts off).
-5. Home → choose a session length → *Start session*. A red "● Latch · Stop" pill stays on screen until the session ends.
+3. The app opens **Set up your phone** right after pairing and asks for each permission in turn, saying why:
+   1. Notifications (Android 13+): the session notification with its Stop button. Skippable.
+   2. Screen access: Android Settings → Accessibility → Latch remote control → on. Required; the step stays open until the service is on.
+      - Android 13+ may say the setting is **restricted** for sideloaded apps. The step links to *App info*: **⋮ → Allow restricted settings**, then try again.
+   3. Battery: an exemption from battery optimization, so the system does not cut a running session. Skippable.
+   4. Access: a starting preset (*Just look*, *Look and tap*, *Everything*); nothing is chosen for the owner. Fine-tune each switch later in the Access tab.
+   The owner can finish later; Home then shows *Finish setup*, and *Start session* opens the setup instead of starting a session that could do nothing. Settings → *Permissions and setup* reopens it.
+4. Home → choose a session length → *Start session*. A red "● Latch · Stop" pill stays on screen until the session ends.
 
 ## What the app enforces on the phone
 

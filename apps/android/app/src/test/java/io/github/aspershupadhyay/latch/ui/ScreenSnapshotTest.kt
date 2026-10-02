@@ -113,6 +113,16 @@ class ScreenSnapshotTest {
         )
     }
 
+    private val setup = SetupState(
+        notificationsNeeded = true, notificationsOn = true, notificationsBlocked = false, notificationsSkipped = false,
+        accessibilityOn = false, batteryOn = false, batterySkipped = false, preset = null, approveEveryAction = false, reducedMotion = true,
+    )
+
+    @Test fun setup_accessibility_dark() = snap(true) { SetupScreen(setup, SetupActions()) }
+    @Test fun setup_presets_light() = snap(false) {
+        SetupScreen(setup.copy(accessibilityOn = true, batteryOn = true, preset = AccessPreset.LOOK_AND_TAP), SetupActions())
+    }
+
     @Test fun activity_dark() = snap(true) {
         ActivityScreen(
             listOf(

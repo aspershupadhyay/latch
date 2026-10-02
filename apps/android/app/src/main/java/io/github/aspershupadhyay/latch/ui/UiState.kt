@@ -39,6 +39,7 @@ class HomeActions(
     val goCapabilities: () -> Unit = {},
     val goConnect: () -> Unit = {},
     val goActivity: () -> Unit = {},
+    val openSetup: () -> Unit = {},
 )
 
 data class ConnectState(

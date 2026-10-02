@@ -10,6 +10,20 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PersistableBundle
+import android.os.PowerManager
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import android.provider.Settings as AndroidSettings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -18,11 +32,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -37,7 +49,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -76,7 +87,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab(val label: String) { HOME("Home"), CAPABILITIES("Allow"), CONNECT("Connect"), ACTIVITY("Activity"), SETTINGS("Settings") }
+enum class Tab(val label: String, val icon: ImageVector) {
+    HOME("Home", LatchIcons.Home),
+    CAPABILITIES("Access", LatchIcons.ShieldCheck),
+    CONNECT("Connect", LatchIcons.Plug),
+    ACTIVITY("Activity", LatchIcons.Pulse),
+    SETTINGS("Settings", LatchIcons.Sliders),
+}
 
 private enum class Onboarding { WELCOME, CREATE, JOIN }
 
@@ -173,7 +190,20 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
 @Composable
 private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
+    val prefs by app.settings.preferences.collectAsStateWithLifecycle()
+    var setupOpen by rememberSaveable { mutableStateOf(false) }
     val signal = LocalSignal.current
+
+    // Right after pairing, and whenever the owner asks, walk through every permission in a row.
+    if (!prefs.setupDone || setupOpen) {
+        BackHandler(enabled = prefs.setupDone) { setupOpen = false }
+        SetupRoute(app, reducedMotion) {
+            app.settings.update { it.copy(setupDone = true) }
+            setupOpen = false
+        }
+        return
+    }
+
     Scaffold(
         containerColor = signal.canvas,
         bottomBar = {
@@ -182,30 +212,120 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                     NavigationBarItem(
                         selected = tab == t,
                         onClick = { tab = t },
-                        icon = { Box(Modifier.size(if (tab == t) 10.dp else 7.dp).clip(CircleShape).background(if (tab == t) signal.accent else signal.disabled)) },
+                        icon = { Icon(t.icon, contentDescription = null, modifier = Modifier.size(24.dp)) },
                         label = { Text(t.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = signal.accent,
+                            selectedTextColor = signal.accent,
+                            indicatorColor = signal.accent.copy(alpha = 0.14f),
+                            unselectedIconColor = signal.text2,
+                            unselectedTextColor = signal.text2,
+                        ),
                     )
                 }
             }
         },
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            when (tab) {
-                Tab.HOME -> HomeRoute(app, reducedMotion) { tab = it }
-                Tab.CAPABILITIES -> CapabilitiesRoute(app)
-                Tab.CONNECT -> ConnectRoute(app)
-                Tab.ACTIVITY -> {
-                    val entries by app.log.entries.collectAsStateWithLifecycle()
-                    ActivityScreen(entries, app.log::clear)
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    if (reducedMotion) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        (fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 30 }) togetherWith fadeOut(tween(120))
+                    }
+                },
+                label = "tabs",
+            ) { current ->
+                when (current) {
+                    Tab.HOME -> HomeRoute(app, reducedMotion, go = { tab = it }, openSetup = { setupOpen = true })
+                    Tab.CAPABILITIES -> CapabilitiesRoute(app) { setupOpen = true }
+                    Tab.CONNECT -> ConnectRoute(app)
+                    Tab.ACTIVITY -> {
+                        val entries by app.log.entries.collectAsStateWithLifecycle()
+                        ActivityScreen(entries, app.log::clear)
+                    }
+                    Tab.SETTINGS -> SettingsRoute(app) { setupOpen = true }
                 }
-                Tab.SETTINGS -> SettingsRoute(app)
             }
         }
     }
 }
 
+/** Live permission state for the setup screen; re-read whenever the owner comes back from Settings. */
 @Composable
-private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, go: (Tab) -> Unit) {
+private fun SetupRoute(app: LatchApp, reducedMotion: Boolean, onFinish: () -> Unit) {
+    val context = LocalContext.current
+    val prefs by app.settings.preferences.collectAsStateWithLifecycle()
+    val service by app.bridge.service.collectAsStateWithLifecycle()
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        resumes++
+        onPauseOrDispose { }
+    }
+    val needsNotificationPermission = Build.VERSION.SDK_INT >= 33
+    val notificationsOn = remember(resumes) {
+        !needsNotificationPermission ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+    val batteryOn = remember(resumes) {
+        context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
+    }
+    var notificationsBlocked by rememberSaveable { mutableStateOf(false) }
+    var notificationsSkipped by rememberSaveable { mutableStateOf(false) }
+    var batterySkipped by rememberSaveable { mutableStateOf(false) }
+    var asked by rememberSaveable { mutableStateOf(false) }
+    val notificationRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        resumes++
+        // A second refusal makes Android stop showing the dialog; send the owner to Settings instead.
+        if (!granted && asked) notificationsBlocked = true
+        asked = true
+    }
+    var preset by rememberSaveable { mutableStateOf(AccessPreset.matching(prefs.enabled)) }
+
+    SetupScreen(
+        SetupState(
+            notificationsNeeded = needsNotificationPermission,
+            notificationsOn = notificationsOn,
+            notificationsBlocked = notificationsBlocked,
+            notificationsSkipped = notificationsSkipped,
+            accessibilityOn = service != null,
+            batteryOn = batteryOn,
+            batterySkipped = batterySkipped,
+            preset = preset,
+            approveEveryAction = prefs.approveEveryAction,
+            reducedMotion = reducedMotion,
+        ),
+        SetupActions(
+            allowNotifications = {
+                if (needsNotificationPermission) notificationRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+            },
+            openNotificationSettings = {
+                context.startActivity(Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName))
+            },
+            skipNotifications = { notificationsSkipped = true },
+            openAccessibility = { context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) },
+            openAppInfo = { context.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) },
+            allowBattery = {
+                val request = Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:${context.packageName}".toUri())
+                runCatching { context.startActivity(request) }
+                    .onFailure { context.startActivity(Intent(AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+            },
+            skipBattery = { batterySkipped = true },
+            choosePreset = { chosen ->
+                preset = chosen
+                app.settings.update { it.copy(enabled = chosen.capabilities) }
+            },
+            setApproveEveryAction = { v -> app.settings.update { it.copy(approveEveryAction = v) } },
+            finish = onFinish,
+            later = onFinish,
+        ),
+    )
+}
+
+@Composable
+private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, go: (Tab) -> Unit, openSetup: () -> Unit) {
     val context = LocalContext.current
     val state by app.session.state.collectAsStateWithLifecycle()
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
@@ -263,13 +383,18 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, go: (Tab) -> Unit) 
         ),
         HomeActions(
             start = {
-                app.session.clearFailure()
-                if (Build.VERSION.SDK_INT >= 33 &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                if (service == null) {
+                    // Without screen access a session could do nothing; finish setup instead of starting silently.
+                    openSetup()
+                } else {
+                    app.session.clearFailure()
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    app.session.start()
                 }
-                app.session.start()
             },
             stop = { app.session.stop() },
             setPaused = app.session::setPaused,
@@ -280,12 +405,13 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, go: (Tab) -> Unit) 
             goCapabilities = { go(Tab.CAPABILITIES) },
             goConnect = { go(Tab.CONNECT) },
             goActivity = { go(Tab.ACTIVITY) },
+            openSetup = openSetup,
         ),
     )
 }
 
 @Composable
-private fun CapabilitiesRoute(app: LatchApp) {
+private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     val service by app.bridge.service.collectAsStateWithLifecycle()
     CapabilitiesScreen(
@@ -294,6 +420,7 @@ private fun CapabilitiesRoute(app: LatchApp) {
         approveEveryAction = prefs.approveEveryAction,
         onToggle = { c, on -> app.settings.update { p -> p.copy(enabled = if (on) p.enabled + c else p.enabled - c) } },
         onApproveEveryAction = { v -> app.settings.update { it.copy(approveEveryAction = v) } },
+        onOpenSetup = openSetup,
     )
 }
 
@@ -339,7 +466,7 @@ private fun ConnectRoute(app: LatchApp) {
 }
 
 @Composable
-private fun SettingsRoute(app: LatchApp) {
+private fun SettingsRoute(app: LatchApp, openSetup: () -> Unit) {
     val context = LocalContext.current
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
@@ -353,5 +480,6 @@ private fun SettingsRoute(app: LatchApp) {
         onForget = { app.session.forget() },
         onOpenAccessibility = { context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) },
         onOpenConsole = { context.startActivity(Intent(Intent.ACTION_VIEW, p.gatewayUrl.toUri())) },
+        onOpenSetup = openSetup,
     )
 }

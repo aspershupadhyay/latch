@@ -70,30 +70,28 @@ Then on Vercel:
    No such page? Go to the [Vercel dashboard](https://vercel.com/dashboard) → your project → the address next to **Domains**.
 2. In the Latch app, paste it into **Paste your gateway address** → tap **Connect this phone**. Done ✅
 
-### Step 5: Let Latch see the screen 👀
+### Step 5: Follow the setup the app shows you 👀
 
-Android keeps this switched off until you say yes, which is good.
+Right after connecting, Latch walks you through everything it needs, one step at a time. Nothing turns on without you:
 
-1. In the app, tap **Turn on the Latch accessibility service**.
-2. Find **Latch** in the list and switch it on.
-3. **Android 13 or newer** might say the setting is **restricted**. That's normal for apps that don't come from the Play Store. To allow it:
-   - Open your phone's **Settings → Apps → Latch**.
-   - Tap the **⋮** menu (top right) → **Allow restricted settings**.
-   - Go back and switch Latch on again.
+1. **Notifications:** tap **Allow**, so you always see when a session is running and can stop it.
+2. **Screen access:** tap **Open accessibility settings**, find **Latch**, and switch it on. This one is required.
+   - **Android 13 or newer** might say the setting is **restricted**. That's normal for apps that aren't from the Play Store. Tap **Open App info** in Latch → **⋮** (top right) → **Allow restricted settings**, then switch Latch on again.
+3. **Stay connected:** tap **Allow**, so your phone doesn't cut the session when the screen is off. You can skip this one.
+
+You can open this setup again any time from **Settings → Permissions and setup**.
 
 ### Step 6: Choose what the AI may do ✅
 
-Open the **Capabilities** tab. Everything starts **off**. Turn on only what you want, for example:
+The last setup step asks you to pick a starting point:
 
-| Switch | What it lets the AI do |
+| Choice | What the AI can do |
 |---|---|
-| Read screen | Read what's on screen (buttons, text) |
-| Screenshots | Take a picture of the screen |
-| Tap & swipe | Press buttons and scroll |
-| Type | Type into text boxes |
-| Open apps | See your app list and open apps |
+| **Just look** | Read what's on screen |
+| **Look and tap** | Read, tap, scroll, go back, open apps |
+| **Everything** | Also take screenshots and type |
 
-Want to approve **every single** action? Turn on **Ask me before every action**.
+Change single switches any time in the **Access** tab. Want to approve **every single** action? Turn on **Ask me before every action**.
 
 ### Step 7: Give thing #3, the AI key, to your AI 🤖
 

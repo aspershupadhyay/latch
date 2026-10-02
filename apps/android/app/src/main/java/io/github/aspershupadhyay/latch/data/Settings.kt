@@ -23,6 +23,8 @@ data class Preferences(
     val enabled: Set<Capability> = setOf(Capability.DEVICE_INFO),
     val approveEveryAction: Boolean = false,
     val sessionMinutes: Int = 30,
+    /** The owner went through the permission setup after pairing (or chose to finish it later). */
+    val setupDone: Boolean = false,
 )
 
 /**
@@ -58,6 +60,7 @@ class Settings(context: Context) {
             enabled = enabled + Capability.DEVICE_INFO,
             approveEveryAction = prefs.getBoolean("approve_every_action", false),
             sessionMinutes = prefs.getInt("session_minutes", 30),
+            setupDone = prefs.getBoolean("setup_done", false),
         )
     }
 
@@ -89,7 +92,9 @@ class Settings(context: Context) {
             remove("gateway_url")
             remove("device_id")
             remove("device_name")
+            remove("setup_done")
         }
+        _preferences.value = _preferences.value.copy(setupDone = false)
         _pairing.value = null
     }
 
@@ -99,6 +104,7 @@ class Settings(context: Context) {
             putStringSet("enabled", next.enabled.map { it.wire }.toSet())
             putBoolean("approve_every_action", next.approveEveryAction)
             putInt("session_minutes", next.sessionMinutes)
+            putBoolean("setup_done", next.setupDone)
         }
         _preferences.value = next
     }
