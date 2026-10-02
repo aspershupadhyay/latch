@@ -35,6 +35,7 @@ This AGENTS.md file provides operating rules; the handbook provides the product 
 - Keep secrets, tokens, device data, screenshots, and private logs out of the repository.
 - Make small, reviewable commits. Never hide unrelated changes in a task.
 - The project owner's standing instruction: commit and push every change to the session's branch as soon as it is made and verified. Never leave work only in the cloud container, which is discarded when the session ends.
+- The project owner's standing instruction: do not leave pull requests pending. Once a PR's CI is green and no review thread is open, merge it into main without waiting to be asked. Every push to main republishes the newest testable Android app at https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk (`.github/workflows/test-build.yml`); give the owner that link after each merge.
 
 ## Product and architecture direction
 

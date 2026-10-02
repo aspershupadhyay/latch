@@ -23,6 +23,8 @@ cd apps/android
 # APK: app/build/outputs/apk/debug/app-debug.apk  (package io.github.aspershupadhyay.latch.debug)
 ```
 
+Every push to `main` also publishes the debug APK to the `test-build` pre-release (`.github/workflows/test-build.yml`), so the newest testable app is always at `releases/download/test-build/latch-android-debug.apk`.
+
 Release builds are minified and signed in CI when `LATCH_KEYSTORE_BASE64`, `LATCH_KEYSTORE_PASSWORD`, `LATCH_KEY_ALIAS`, and `LATCH_KEY_PASSWORD` repository secrets exist.
 
 ## Owner setup on the phone
