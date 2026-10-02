@@ -6,6 +6,23 @@
 
 import { Redis } from "@upstash/redis";
 
+/**
+ * One operation of a [Store.batch]. A batch is sent as a single pipeline (one
+ * network round trip) and runs in order, but is not atomic.
+ */
+export type BatchOp =
+  | { op: "get"; key: string }
+  | { op: "getdel"; key: string }
+  | { op: "set"; key: string; value: string; px?: number }
+  | { op: "del"; key: string }
+  /** Deletes the key only while it still holds `value` (lock release). */
+  | { op: "delIfEquals"; key: string; value: string }
+  | { op: "pexpire"; key: string; px: number }
+  | { op: "lpush"; key: string; value: string; px: number }
+  | { op: "ltrim"; key: string; start: number; stop: number };
+
+const DEL_IF_EQUALS = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
 export interface Store {
   get(key: string): Promise<string | null>;
   /** Returns false when `nx` is set and the key already exists. */
@@ -21,6 +38,10 @@ export interface Store {
   hset(key: string, field: string, value: string): Promise<void>;
   hdel(key: string, field: string): Promise<boolean>;
   hgetall(key: string): Promise<Record<string, string>>;
+  hget(key: string, field: string): Promise<string | null>;
+  mget(keys: string[]): Promise<(string | null)[]>;
+  /** Runs `ops` in one round trip. Returns the value of each `get`/`getdel` (null for other ops). */
+  batch(ops: BatchOp[]): Promise<(string | null)[]>;
 }
 
 /** Upstash Redis over REST: works from Vercel Functions without a socket. */
@@ -63,6 +84,33 @@ export class UpstashStore implements Store {
       return out;
     }
     return raw as Record<string, string>;
+  }
+  async hget(key: string, field: string) { return (await this.redis.hget<string>(key, field)) ?? null; }
+  async mget(keys: string[]) {
+    if (keys.length === 0) return [];
+    return (await this.redis.mget<(string | null)[]>(...keys)).map((v) => v ?? null);
+  }
+  async batch(ops: BatchOp[]) {
+    if (ops.length === 0) return [];
+    const p = this.redis.pipeline();
+    // Pipeline position of each op's own reply (lpush adds a pexpire after it).
+    const at: number[] = [];
+    let n = 0;
+    for (const o of ops) {
+      at.push(n++);
+      switch (o.op) {
+        case "get": p.get(o.key); break;
+        case "getdel": p.getdel(o.key); break;
+        case "set": if (o.px !== undefined) p.set(o.key, o.value, { px: o.px }); else p.set(o.key, o.value); break;
+        case "del": p.del(o.key); break;
+        case "delIfEquals": p.eval(DEL_IF_EQUALS, [o.key], [o.value]); break;
+        case "pexpire": p.pexpire(o.key, o.px); break;
+        case "lpush": p.lpush(o.key, o.value); p.pexpire(o.key, o.px); n++; break;
+        case "ltrim": p.ltrim(o.key, o.start, o.stop); break;
+      }
+    }
+    const replies = await p.exec<unknown[]>();
+    return ops.map((o, i) => (o.op === "get" || o.op === "getdel") && typeof replies[at[i]!] === "string" ? (replies[at[i]!] as string) : null);
   }
 }
 
@@ -124,6 +172,26 @@ export class MemoryStore implements Store {
   async hset(key: string, field: string, value: string) { this.hash(key, true)!.set(field, value); }
   async hdel(key: string, field: string) { return this.hash(key)?.delete(field) ?? false; }
   async hgetall(key: string) { return Object.fromEntries(this.hash(key) ?? new Map()); }
+  async hget(key: string, field: string) { return this.hash(key)?.get(field) ?? null; }
+  async mget(keys: string[]) { return Promise.all(keys.map((k) => this.get(k))); }
+  async batch(ops: BatchOp[]) {
+    const out: (string | null)[] = [];
+    for (const o of ops) {
+      let value: string | null = null;
+      switch (o.op) {
+        case "get": value = await this.get(o.key); break;
+        case "getdel": value = await this.getdel(o.key); break;
+        case "set": await this.set(o.key, o.value, { px: o.px }); break;
+        case "del": await this.del(o.key); break;
+        case "delIfEquals": if ((await this.get(o.key)) === o.value) await this.del(o.key); break;
+        case "pexpire": await this.pexpire(o.key, o.px); break;
+        case "lpush": await this.lpush(o.key, o.value, o.px); break;
+        case "ltrim": await this.ltrim(o.key, o.start, o.stop); break;
+      }
+      out.push(value);
+    }
+    return out;
+  }
 }
 
 /** Picks the store from the environment Vercel's Upstash integration provides. */

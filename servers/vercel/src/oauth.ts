@@ -333,10 +333,9 @@ export class OAuth {
   }
 
   /** The AI app an access token belongs to, if the token is live and the app was not revoked. */
-  async appForAccessToken(token: string): Promise<string | undefined> {
-    const appId = await this.store.get(K.access(token));
-    if (!appId || !(await this.host.appExists(appId))) return undefined;
-    return appId;
+  /** The app an access token was issued to, without checking the app still exists. */
+  async accessTokenApp(token: string): Promise<string | undefined> {
+    return (await this.store.get(K.access(token))) ?? undefined;
   }
 
   private async saveRequest(req: AuthRequest, ttl = REQUEST_TTL_MS) {

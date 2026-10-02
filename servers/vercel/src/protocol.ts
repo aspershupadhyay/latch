@@ -91,6 +91,20 @@ export type Command =
 
 export type RiskLevel = "low" | "medium" | "high";
 export interface ConfirmRequest { title: string; detail: string; risk: RiskLevel }
+/**
+ * Since protocol 1.2: after a successful action the phone waits `settle_ms`,
+ * observes the screen, and returns the observation inside the action result,
+ * which saves the agent loop a whole second round trip.
+ */
+export interface ObserveAfter { settle_ms: number; include_screenshot: boolean; max_nodes: number }
+export const MAX_SETTLE_MS = 3_000;
+
+/** True when a phone that sent `hello` with this protocol version understands `observe_after`. */
+export function supportsObserveAfter(version: string | undefined): boolean {
+  const minor = Number(String(version ?? "").split(".")[1]);
+  return isCompatible(String(version ?? "")) && minor >= 2;
+}
+
 export type Outcome = { status: "ok"; data: unknown } | { status: "error"; error: { code: ErrorCode; message: string } };
 
 export function requiredCapabilities(c: Command): Capability[] {
