@@ -21,6 +21,9 @@ import kotlin.math.min
  * touch shows a finger mark and ripple; a long press fills a ring; a pinch
  * shows both fingers.
  *
+ * It appears when the AI acts and fades away a few seconds after its last
+ * action, so it is gone once a task is done.
+ *
  * It can never press anything (the window is not touchable or focusable), is
  * hidden from screen readers, and is hidden while a screenshot is taken so
  * the AI never sees it. It is one window for the whole session, so it adds
@@ -128,9 +131,16 @@ class CursorOverlay(private val context: Context) {
         private var press: Press? = null
         private var pressAt = 0L
         private var typingUntil = 0L
-        private var lastActivity = 0L
+        /** When the current action's visuals end; the pointer lingers a moment, then fades away. */
+        private var busyUntil = 0L
 
         private fun now() = SystemClock.uptimeMillis()
+
+        /** 1 while the AI is acting, fading to 0 once it has been idle for [LINGER_MS]. */
+        private fun visibility(t: Long): Float {
+            val idle = t - busyUntil - LINGER_MS
+            return if (idle <= 0) 1f else max(0f, 1f - idle.toFloat() / FADE_MS)
+        }
 
         fun press(tx: Float, ty: Float, kind: Pointer, how: Press, typing: Boolean = false) {
             val t = now()
@@ -140,7 +150,12 @@ class CursorOverlay(private val context: Context) {
             press = how
             pressAt = t + GLIDE_MS
             typingUntil = if (typing) t + GLIDE_MS + TYPING_MS else 0
-            lastActivity = t
+            val held = when (how) {
+                Press.LONG_PRESS -> LONG_PRESS_MS
+                Press.DOUBLE -> DOUBLE_GAP_MS
+                Press.TAP -> 0L
+            }
+            busyUntil = max(pressAt + held + RIPPLE_MS, typingUntil)
             postInvalidateOnAnimation()
         }
 
@@ -155,14 +170,16 @@ class CursorOverlay(private val context: Context) {
             strokeMs = max(1, durationMs)
             press = null
             typingUntil = 0
-            lastActivity = t
+            busyUntil = strokeStart + holdMs + strokeMs + TRAIL_FADE_MS
             postInvalidateOnAnimation()
         }
 
         private fun glideTo(tx: Float, ty: Float, t: Long) {
+            // After it faded away the pointer reappears at the target instead of flying in.
+            val shown = x >= 0 && visibility(t) > 0f
             val (cx, cy) = position(t)
-            fromX = if (x < 0) tx else cx
-            fromY = if (y < 0) ty else cy
+            fromX = if (shown) cx else tx
+            fromY = if (shown) cy else ty
             x = tx
             y = ty
             glideStart = t
@@ -186,18 +203,21 @@ class CursorOverlay(private val context: Context) {
             val loc = IntArray(2).also(::getLocationOnScreen)
             canvas.save()
             canvas.translate(-loc[0].toFloat(), -loc[1].toFloat())
-            // Like a computer pointer it stays where it was, dimmed when the AI is idle.
-            val alpha = if (t - lastActivity < IDLE_MS) 1f else 0.55f
-            var animating = t - lastActivity < IDLE_MS + 50
+            // Shown while the AI works; once it stops acting the pointer fades away.
+            val alpha = visibility(t)
+            if (alpha <= 0f) {
+                canvas.restore()
+                return
+            }
 
             drawStrokes(canvas, t)
             drawPress(canvas, t)
             val (px, py) = position(t)
             drawPointer(canvas, px, py, alpha, t)
-            if (t < typingUntil) animating = true
 
             canvas.restore()
-            if (animating) postInvalidateOnAnimation()
+            // Keep drawing until the fade has finished; then nothing is redrawn until the next action.
+            postInvalidateOnAnimation()
         }
 
         private fun drawStrokes(canvas: Canvas, t: Long) {
@@ -373,7 +393,9 @@ class CursorOverlay(private val context: Context) {
             const val TRAIL_FADE_MS = 350L
             const val TYPING_MS = 1_200L
             const val CARET_BLINK_MS = 300L
-            const val IDLE_MS = 4_000L
+            /** How long the pointer stays after the AI's last action before fading (it is usually thinking). */
+            const val LINGER_MS = 4_000L
+            const val FADE_MS = 400L
             const val FINGER_DP = 9f
         }
     }

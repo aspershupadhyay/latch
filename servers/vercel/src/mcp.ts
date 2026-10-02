@@ -344,11 +344,12 @@ function appNote(protocol: string): string {
 
 export async function renderDevices(devices: Devices): Promise<string> {
   const records: DeviceRecord[] = await devices.records();
+  // Which gateway answered: an AI app holding an old tool list shows up here.
+  let out = `Latch gateway, protocol ${PROTOCOL_VERSION}, ${TOOLS.length} tools.\n`;
   if (records.length === 0) {
-    return "No phones are paired yet. The gateway owner creates a pairing code in the Latch admin page.\n";
+    return out + "No phones are paired yet. The gateway owner creates a pairing code in the Latch admin page.\n";
   }
   const online = await devices.online();
-  let out = "";
   // Connected phones first: those are the ones an agent can use.
   const ordered = [...records].sort((a, b) => Number(!online.some((o) => o.device_id === a.id)) - Number(!online.some((o) => o.device_id === b.id)));
   for (const d of ordered) {

@@ -1055,9 +1055,15 @@ fn render_devices(state: &AppState) -> String {
     use std::fmt::Write;
     let online = state.devices.online();
     let store = state.store();
-    let mut out = String::new();
+    // Which gateway answered: an AI app holding an old tool list shows up here.
+    let mut out = format!(
+        "Latch gateway, protocol {}, {} tools.\n",
+        latch_protocol::PROTOCOL_VERSION,
+        tool_definitions().len()
+    );
     if store.devices().is_empty() {
-        return "No phones are paired yet. The gateway owner creates a pairing code in the Latch admin page.\n".into();
+        out.push_str("No phones are paired yet. The gateway owner creates a pairing code in the Latch admin page.\n");
+        return out;
     }
     // Connected phones first: those are the ones an agent can use.
     let mut records: Vec<_> = store.devices().iter().collect();

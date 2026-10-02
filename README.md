@@ -97,7 +97,7 @@ Change single switches any time in the **Access** tab. Want to approve **every s
 
 On the same tab, under **While the AI works**:
 
-- **Show where the AI taps** (on by default): a computer-style pointer glides to each spot the AI uses. It's an arrow, turns into a hand over buttons and links, a text cursor over text boxes, and a grabbing hand while swiping, scrolling, or dragging. Every touch shows a fingertip mark; a long press fills a ring; a pinch shows both fingers. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
+- **Show where the AI taps** (on by default): a computer-style pointer glides to each spot the AI uses. It's an arrow, turns into a hand over buttons and links, a text cursor over text boxes, and a grabbing hand while swiping, scrolling, or dragging. Every touch shows a fingertip mark; a long press fills a ring; a pinch shows both fingers. It appears when the AI acts and fades away a few seconds after its last action, so it's gone when the task is done. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
 - **Keep the screen on** (on by default): during a session the screen stays on, so a task isn't cut off by the lock screen. Turn it off to save battery.
 
 ### Step 7: Connect your AI 🤖
@@ -225,7 +225,13 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Keep your own copy and review each version first:** when you want an update, download the newest Latch code (GitHub → **Code → Download ZIP** on `aspershupadhyay/latch`), replace the files in your copy with it, commit, and push. Vercel deploys your copy by itself.
 3. **Deploy:** Vercel → **Deployments** → ⋯ on the newest one → **Redeploy**. Wait until it says **Ready**.
 4. **Check again:** `https://<your-address>/healthz` shows the new `protocol`.
-5. **Refresh your AI:** in Claude / ChatGPT / your AI app, disconnect Latch and connect it again (or start a new chat), so it loads the new list of tools. Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
+5. **Refresh your AI.** AI apps remember Latch's list of tools from when you connected, so they don't see new ones until you refresh:
+   - **ChatGPT:** Settings → **Apps & Connectors** → Latch → **Refresh** (or remove it and add it again), then start a new chat.
+   - **Claude:** Settings → **Connectors** → Latch → **Disconnect**, then **Connect** again, then start a new chat.
+   - **Claude Code / Codex / other apps:** restart them.
+
+   Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.3, 12 tools.` If the AI still can't see `scroll_to`, `wait_for`, or `pinch` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 
