@@ -61,7 +61,7 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 | S2 Gateway | Policy, MCP (HTTP + stdio), device channel, pairing, revocation, console, audit | DONE | 12 end-to-end tests (WebSocket and long-poll) with fake device; official TS SDK client; container smoke test |
 | S2b Own-gateway hosting | Long-poll transport (protocol 1.1), per-app MCP keys + secret links, Vercel gateway with shared contracts, one-click deploy | IN_REVIEW | Vercel gateway e2e with official SDK client on in-memory and Redis/Upstash-REST stores; Rust and TS pass the same 34 policy cases and byte-identical rendering. Not yet deployed to a real Vercel account. |
 | S3 Android app | Owner setup (create or join a gateway), pairing, observe, act, approvals, stop, AI-key management, bento UI | IN_REVIEW | Builds, lint clean; app transport and setup code tested on the JVM against both gateways; screens snapshot-tested. **Not yet run on a phone.** |
-| S4 Real-device gate | Clean install → create gateway → pair → enable one capability → observe → harmless tap → approval → stop → revoke, on ≥2 phones | BLOCKED | Needs a physical Android phone (owner) or a device farm with accessibility-service support. Checklist: `docs/platform/android.md`. |
+| S4 Real-device gate | Clean install → create gateway → pair → enable one capability → observe → harmless tap → approval → stop → revoke, on ≥2 phones | IN_PROGRESS | First real run 2026-10-02: realme C55 (Android 15) completed the agent loop with all nine tools through the Vercel gateway; Redmi K50i blocked at install and at "Restricted setting" (§8). Full checklist on ≥2 phones still open: `docs/platform/android.md`. |
 | S5 Hardening | OAuth 2.1 for MCP, per-app allowlist, per-client rate limits, device-key signatures, audit export, owner-key rotation flow | IN_PROGRESS | OAuth 2.1 for MCP on the Vercel gateway: discovery (RFC 9728/8414), dynamic registration and client ID metadata documents, PKCE S256, rotating refresh tokens, owner approval in the app or with the owner key; tested end to end with the official MCP SDK client. Container gateway: OAuth still TODO. |
 | S6 Alpha release | Signed APK, GHCR image, SBOM, attestations, install docs, known limitations | TODO (pipeline ready) | `.github/workflows/release.yml` |
 | S7 iOS companion | Honest subset: broadcast-based screen viewing (ReplayKit), links/Shortcuts, app-owned actions — no cross-app control (no public API) | TODO | Needs a macOS runner and an Apple developer account. |
@@ -94,3 +94,20 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 ## 7. Decisions recorded
 
 ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout — see `docs/adr/`.
+
+## 8. Real-device feedback (2026-10-02)
+
+The owner's first audit (realme C55, Android 15, Vercel gateway, one session, not a statistical benchmark) found every tool working but slow: ~11–12 s per action, 5.8–7.4 s per observe, 10.3 s for `list_apps` (147 apps). Install was blocked by Play Protect on one phone and by "Restricted setting" on another.
+
+| Finding | Cause | Change | Status |
+|---|---|---|---|
+| ~11 s per action | ~20 sequential Upstash REST calls per phone command (~200 ms each when function and database are in different regions), and two phone commands per action (act, then observe) | Batched storage (one pipeline per step, compare-and-delete lock release); protocol 1.2 `observe_after` returns the screen in the action's own answer; faster polling while an agent is active (`hot=1`); region guidance | IN_REVIEW: needs a re-run on the phone for new numbers |
+| No way to see where time goes | — | `_meta["latch/timing"]` on tool results: lock wait, phone round trip, total | IN_REVIEW |
+| `list_apps` returns everything | — | Optional `query` filter (both gateways) | IN_REVIEW |
+| Scrolling with the keyboard open changed a search query ("Bluetooth" → "Bluetooth by") | The whole-screen scroll swipe started on the on-screen keyboard: glide typing | The phone refuses swipes that start or end on the keyboard, with a hint (press back, or swipe above it) | IN_REVIEW |
+| `observe`/`press` refused while Latch was in front, with no way out | Own-app rule (correct) without an exit | `press home` is allowed from Latch's own screen; errors and server instructions say to use `launch_app` or home | IN_REVIEW |
+| "App blocked to protect your device" | Play Protect enhanced fraud protection blocks accessibility apps installed from a browser, messaging app, or file manager (India since 2024) | Documented legitimate paths (ADB install, store distribution, developer verification, review). **No workaround in the app, by design.** | DONE (docs) · store and verification: TODO |
+| "Restricted setting" on Redmi K50i | Android 13+ restricts accessibility for apps installed from files until allowed in App info | Brand-specific steps in setup, ADB fallback, install guide | IN_REVIEW |
+| WhatsApp send and a SIM 2 call completed without a clearly surfaced approval | **OPEN:** needs tracing; the call path may be an unlabeled control or a button text not in the consequential-word list | Investigate before S4 can pass | TODO |
+
+Not done, deliberately: caching app lists or observations in the gateway (a cached answer would skip the policy and capability check of the moment), and compound actions (`tap → type → submit` under one policy check), which need their own threat review.
