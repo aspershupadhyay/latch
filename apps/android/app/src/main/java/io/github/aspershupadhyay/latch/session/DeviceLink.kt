@@ -56,6 +56,8 @@ class DeviceLink(
         fun incompatible(gatewayVersion: String)
         /** The gateway asked to cancel a command (best effort). */
         fun cancel(commandId: String)
+        /** The protocol version the gateway answered `hello` with, on every (re)connect. */
+        fun gatewayProtocol(version: String) = Unit
     }
 
     private val base = gatewayUrl.trimEnd('/')
@@ -128,6 +130,7 @@ class DeviceLink(
                         failures = 0
                         everConnected = true
                         connection = r.connection
+                        events.gatewayProtocol(r.protocol)
                         events.connected()
                         r.connection
                     }
@@ -161,7 +164,7 @@ class DeviceLink(
     }
 
     private sealed interface HelloResult {
-        data class Ok(val connection: String) : HelloResult
+        data class Ok(val connection: String, val protocol: String) : HelloResult
         data object Rejected : HelloResult
         data class Incompatible(val version: String) : HelloResult
     }
@@ -179,7 +182,7 @@ class DeviceLink(
                     } ?: throw IOException("gateway sent an unexpected answer to hello")
                     if (!Protocol.isCompatible(welcome.protocol)) return HelloResult.Incompatible(welcome.protocol.take(8))
                     val conn = welcome.connection ?: return HelloResult.Incompatible(welcome.protocol.take(8))
-                    return HelloResult.Ok(conn)
+                    return HelloResult.Ok(conn, welcome.protocol.take(16))
                 }
                 401 -> return HelloResult.Rejected
                 422 -> return HelloResult.Incompatible("?")

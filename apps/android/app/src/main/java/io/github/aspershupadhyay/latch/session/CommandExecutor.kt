@@ -270,7 +270,9 @@ class CommandExecutor(
         } else {
             // Opening an app or going home starts with an animation that sends few events.
             val floor = if (command is Command.LaunchApp || command is Command.Global) TRANSITION_FLOOR_MS else 0L
-            service.awaitQuiet(quiet.toLong(), after.settleMs.toLong(), floor)
+            // An app that is still starting would be observed as the previous app: wait for it first.
+            val waited = if (command is Command.LaunchApp) service.awaitForeground(command.packageName, after.settleMs.toLong()) else 0L
+            service.awaitQuiet(quiet.toLong(), (after.settleMs - waited).coerceAtLeast(quiet.toLong()), (floor - waited).coerceAtLeast(0))
         }
         val (session, capabilities) = current()
         val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)

@@ -92,6 +92,16 @@ class LatchAccessibilityService : AccessibilityService() {
         if (event.packageName?.toString() != packageName) lastUiEventAtMs = SystemClock.uptimeMillis()
     }
 
+    /** Waits until [target] is the app in front, at most [maxMs]. Returns the time spent. */
+    suspend fun awaitForeground(target: String, maxMs: Long): Long {
+        val start = SystemClock.uptimeMillis()
+        while (SystemClock.uptimeMillis() - start < maxMs) {
+            if ((rootInActiveWindow?.packageName?.toString() ?: foregroundPackage) == target) break
+            delay(20)
+        }
+        return SystemClock.uptimeMillis() - start
+    }
+
     /**
      * Returns once the screen has not changed for [quietMs] (counting from now
      * at the earliest, so an app that has not reacted yet still gets that long),
@@ -478,6 +488,14 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** Like a computer: a hand over things that can be tapped, a text cursor over fields. */
+    private fun pointerFor(node: UiNode?): CursorOverlay.Pointer = when {
+        node == null -> CursorOverlay.Pointer.ARROW
+        node.editable -> CursorOverlay.Pointer.TEXT
+        node.clickable || node.longClickable -> CursorOverlay.Pointer.HAND
+        else -> CursorOverlay.Pointer.ARROW
+    }
+
     // ---- Freshness ----
 
     /** The snapshot an action cites, if it is still the screen being shown. */
@@ -588,10 +606,10 @@ class LatchAccessibilityService : AccessibilityService() {
     suspend fun tap(observationId: String, target: Target, longPress: Boolean, double: Boolean = false) {
         val snap = requireFresh(observationId)
         invalidate()
-        val kind = when {
-            longPress -> CursorOverlay.TapKind.LONG_PRESS
-            double -> CursorOverlay.TapKind.DOUBLE
-            else -> CursorOverlay.TapKind.TAP
+        val press = when {
+            longPress -> CursorOverlay.Press.LONG_PRESS
+            double -> CursorOverlay.Press.DOUBLE
+            else -> CursorOverlay.Press.TAP
         }
         val (x, y) = when (target) {
             is Target.Element -> {
@@ -602,7 +620,7 @@ class LatchAccessibilityService : AccessibilityService() {
                     val action = if (longPress) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
                     val canAct = if (longPress) node.isLongClickable else node.isClickable
                     if (canAct) {
-                        if (cursorOn) cursor.tap(r.centerX(), r.centerY(), kind)
+                        if (cursorOn) cursor.press(r.centerX(), r.centerY(), pointerFor(snap.ui[target.element]), press)
                         if (node.performAction(action)) return
                     }
                 }
@@ -611,7 +629,11 @@ class LatchAccessibilityService : AccessibilityService() {
             is Target.Point -> target.x to target.y
         }
         checkGesturePoint(x, y, snap)
-        if (cursorOn) cursor.tap(x, y, kind)
+        if (cursorOn) {
+            val under = (target as? Target.Element)?.let { snap.ui[it.element] }
+                ?: io.github.aspershupadhyay.latch.policy.Consequences.nodeAt(snap.ui.values.toList(), x, y)
+            cursor.press(x, y, pointerFor(under), press)
+        }
         if (double) {
             // Two short presses 160 ms apart, inside the double-tap window of every Android version.
             val first = GestureDescription.StrokeDescription(Path().apply { moveTo(x.toFloat(), y.toFloat()) }, 0, 50)
@@ -640,7 +662,7 @@ class LatchAccessibilityService : AccessibilityService() {
                 throw ProtocolException(ErrorCode.POLICY_REFUSED, "the on-screen keyboard is where this pinch would run; press back to hide it")
             }
         }
-        if (cursorOn) cursor.pinch(fingers, durationMs.toLong())
+        if (cursorOn) cursor.stroke(fingers, durationMs.toLong())
         val builder = GestureDescription.Builder()
         for (f in fingers) {
             val path = Path().apply {
@@ -671,8 +693,11 @@ class LatchAccessibilityService : AccessibilityService() {
             }
         }
         if (cursorOn) {
-            cursor.tap(fromX, fromY, if (holdMs > 0) CursorOverlay.TapKind.LONG_PRESS else CursorOverlay.TapKind.TAP)
-            cursor.stroke(fromX, fromY, toX, toY, holdMs + durationMs.toLong())
+            cursor.stroke(
+                listOf(CursorOverlay.Stroke(fromX.toFloat(), fromY.toFloat(), toX.toFloat(), toY.toFloat())),
+                durationMs.toLong(),
+                holdMs.toLong(),
+            )
         }
         if (holdMs > 0) {
             // A drag: hold still first (the app picks the item up), then move without lifting.
@@ -707,6 +732,11 @@ class LatchAccessibilityService : AccessibilityService() {
         val node = liveNode(snap, elementId)
         if (!node.isEditable || node.isPassword) {
             throw ProtocolException(ErrorCode.INVALID_REQUEST, "that element is not an editable text field")
+        }
+        if (cursorOn) {
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            cursor.type(r.centerX(), r.centerY())
         }
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply {
@@ -756,7 +786,11 @@ class LatchAccessibilityService : AccessibilityService() {
             if (showsText(text)) return true
             if (attempt == maxSwipes) return false
             val before = signature(container)
-            if (container == null || !scrollOnce(container, direction)) scrollByGesture(container, direction, snap)
+            if (container != null && scrollOnce(container, direction)) {
+                showScroll(container, direction)
+            } else {
+                scrollByGesture(container, direction, snap)
+            }
             awaitQuiet(SCROLL_QUIET_MS, SCROLL_MAX_SETTLE_MS)
             if (container?.refresh() == false) container = largestScrollable()
             // Nothing moved: the list is at its end.
@@ -820,6 +854,20 @@ class LatchAccessibilityService : AccessibilityService() {
         return node.performAction(generic)
     }
 
+    /** The list scrolled by itself; show the owner a grabbing hand moving the way the content went. */
+    private fun showScroll(container: AccessibilityNodeInfo, direction: Direction) {
+        if (!cursorOn) return
+        val r = android.graphics.Rect()
+        container.getBoundsInScreen(r)
+        val (from, to) = when (direction) {
+            Direction.DOWN -> (r.centerX() to r.top + r.height() * 2 / 3) to (r.centerX() to r.top + r.height() / 3)
+            Direction.UP -> (r.centerX() to r.top + r.height() / 3) to (r.centerX() to r.top + r.height() * 2 / 3)
+            Direction.RIGHT -> (r.left + r.width() * 2 / 3 to r.centerY()) to (r.left + r.width() / 3 to r.centerY())
+            Direction.LEFT -> (r.left + r.width() / 3 to r.centerY()) to (r.left + r.width() * 2 / 3 to r.centerY())
+        }
+        cursor.stroke(listOf(CursorOverlay.Stroke(from.first.toFloat(), from.second.toFloat(), to.first.toFloat(), to.second.toFloat())), 250)
+    }
+
     /** Fallback for lists that do not offer scroll actions: a swipe across the middle of the area, above the keyboard. */
     private suspend fun scrollByGesture(container: AccessibilityNodeInfo?, direction: Direction, snap: Snapshot) {
         val area = android.graphics.Rect()
@@ -835,7 +883,9 @@ class LatchAccessibilityService : AccessibilityService() {
             Direction.LEFT -> (area.left + area.width() / 5 to cy) to (area.left + area.width() * 4 / 5 to cy)
         }
         checkGesturePoint(from.first, from.second, snap)
-        if (cursorOn) cursor.stroke(from.first, from.second, to.first, to.second, 300)
+        if (cursorOn) {
+            cursor.stroke(listOf(CursorOverlay.Stroke(from.first.toFloat(), from.second.toFloat(), to.first.toFloat(), to.second.toFloat())), 300)
+        }
         gesture(from.first, from.second, to.first, to.second, 300)
     }
 

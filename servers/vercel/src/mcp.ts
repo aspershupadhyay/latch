@@ -4,7 +4,7 @@
 
 import { SERVER } from "./generated/contract.js";
 import type { CommandTiming, Devices, DeviceRecord, Live } from "./devices.js";
-import { type Command, type Direction, LIMITS, type Observation, ProtocolError } from "./protocol.js";
+import { type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
@@ -336,6 +336,12 @@ async function scrollCommand(ctx: McpContext, deviceId: string, observationId: s
   return { name: "input.swipe", params: { observation_id: observationId, from: { x: from[0], y: from[1] }, to: { x: to[0], y: to[1] }, duration_ms: 400, hold_ms: 0 } };
 }
 
+/** Tells the agent when the phone's app is too old for the newest tools. */
+function appNote(protocol: string): string {
+  if ((minorVersion(protocol) ?? 0) >= (minorVersion(PROTOCOL_VERSION) ?? 0)) return "";
+  return `; Latch app speaks protocol ${truncate(protocol, 16)} (scroll_to, wait_for, pinch, double taps, drags, and type_text submit need an app update)`;
+}
+
 export async function renderDevices(devices: Devices): Promise<string> {
   const records: DeviceRecord[] = await devices.records();
   if (records.length === 0) {
@@ -343,13 +349,15 @@ export async function renderDevices(devices: Devices): Promise<string> {
   }
   const online = await devices.online();
   let out = "";
-  for (const d of records) {
+  // Connected phones first: those are the ones an agent can use.
+  const ordered = [...records].sort((a, b) => Number(!online.some((o) => o.device_id === a.id)) - Number(!online.some((o) => o.device_id === b.id)));
+  for (const d of ordered) {
     const live = online.find((o) => o.device_id === d.id);
     if (live) {
       const enabled = live.capabilities.filter((c) => c.status === "enabled").map((c) => c.capability);
       out += `- ${d.id} "${truncate(d.name, 40)}" (${live.platform} ${live.os_version}, ${truncate(live.model, 40)}) connected`
         + `${live.session.paused ? ", PAUSED by owner" : ""}; enabled: ${enabled.length === 0 ? "nothing" : enabled.join(", ")}`
-        + `${live.session.approve_every_action ? "; owner approves every action" : ""}\n`;
+        + `${live.session.approve_every_action ? "; owner approves every action" : ""}${appNote(live.protocol)}\n`;
     } else {
       out += `- ${d.id} "${truncate(d.name, 40)}" (${truncate(d.model, 40)}) not connected\n`;
     }

@@ -32,6 +32,12 @@ object Protocol {
         encodeDefaults = true
     }
 
+    /** This app's minor protocol version. */
+    val MINOR: Int = VERSION.substringAfter('.').toInt()
+
+    /** Minor version of a compatible `major.minor` string, or null. */
+    fun minorOf(version: String): Int? = if (isCompatible(version)) version.substringAfter('.').toIntOrNull() else null
+
     fun isCompatible(version: String): Boolean {
         val parts = version.split('.')
         return parts.size == 2 && parts[0] == VERSION.substringBefore('.') && parts[1].toIntOrNull() != null

@@ -980,3 +980,47 @@ async fn pinch_drag_and_double_tap_reach_the_phone() {
     assert!(executed.iter().any(|c| c == "input.pinch"), "{executed:?}");
     phone.task.abort();
 }
+
+/// Regression from the 2026-10-02 speed test: the agent picked a paired phone
+/// that was not connected. Connected phones come first, and the error names them.
+#[tokio::test]
+async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
+    let gw = start_gateway().await;
+    let old = connect_phone(&gw, &Capability::ALL).await;
+    let old_id = old
+        .state
+        .lock()
+        .expect("lock")
+        .device_id
+        .clone()
+        .expect("id");
+    old.control.send(Control::Stop).await.expect("stop");
+    old.task.await.expect("join").expect("clean stop");
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let new_id = phone
+        .state
+        .lock()
+        .expect("lock")
+        .device_id
+        .clone()
+        .expect("id");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
+    let lines: Vec<&str> = devices.lines().collect();
+    assert!(
+        lines[0].contains(&new_id) && lines[0].contains("connected"),
+        "{devices}"
+    );
+    assert!(
+        lines[1].contains(&old_id) && lines[1].contains("not connected"),
+        "{devices}"
+    );
+
+    let (is_error, text, _) = call(&gw, "observe", json!({"device_id": old_id})).await;
+    assert!(
+        is_error && text.contains(&format!("connected now: {new_id}")),
+        "{text}"
+    );
+    phone.task.abort();
+}

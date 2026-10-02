@@ -62,6 +62,13 @@ class SessionController(
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
+    /**
+     * The gateway's protocol when it is older than this app's, so the owner can be
+     * told to update it (an old gateway hides newer tools from the AI). Null when current.
+     */
+    private val _outdatedGateway = MutableStateFlow<String?>(null)
+    val outdatedGateway: StateFlow<String?> = _outdatedGateway.asStateFlow()
+
     private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName)
     private var link: DeviceLink? = null
     private var wanted = false
@@ -214,6 +221,11 @@ class SessionController(
 
         override fun incompatible(gatewayVersion: String) {
             scope.launch { fail("The gateway speaks protocol $gatewayVersion; this app needs ${Protocol.VERSION}. Update one of them.") }
+        }
+
+        override fun gatewayProtocol(version: String) {
+            val behind = Protocol.minorOf(version)?.let { it < Protocol.MINOR } ?: false
+            scope.launch { _outdatedGateway.value = if (behind) version else null }
         }
 
         override fun cancel(commandId: String) {
