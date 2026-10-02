@@ -114,11 +114,14 @@ fun copyToClipboard(context: Context, label: String, value: String, sensitive: B
     if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "$label copied", Toast.LENGTH_SHORT).show()
 }
 
-/** Opens Latch's own accessibility switch where Android allows it (12+), else the accessibility list. */
+/** Not in the public SDK; Settings on Android 12+ handles it, and older or other builds fall back below. */
+private const val ACCESSIBILITY_DETAILS = "android.settings.ACCESSIBILITY_DETAILS_SETTINGS"
+
+/** Opens Latch's own accessibility switch where the phone supports it, else the accessibility list. */
 fun openAccessibilityFor(context: Context) {
     val opened = Build.VERSION.SDK_INT >= 31 && runCatching {
         val service = ComponentName(context, LatchAccessibilityService::class.java).flattenToString()
-        context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS).putExtra(Intent.EXTRA_COMPONENT_NAME, service))
+        context.startActivity(Intent(ACCESSIBILITY_DETAILS).putExtra(Intent.EXTRA_COMPONENT_NAME, service))
     }.isSuccess
     if (!opened) context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
 }
