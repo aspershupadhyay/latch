@@ -97,6 +97,25 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
         }
 
         AnimatedVisibility(
+            visible = state.signInRequests.isNotEmpty(),
+            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
+            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
+        ) {
+            state.signInRequests.firstOrNull()?.let { request ->
+                Card(color = signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
+                    ListRow(
+                        icon = LatchIcons.Sparkle,
+                        title = "${request.clientName} wants to connect",
+                        subtitle = "Code ${request.match} · tap to review",
+                        tint = signal.accent,
+                        onClick = actions.reviewSignIns,
+                        onClickLabel = "Review sign-in request",
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
             visible = !state.accessibilityOn,
             enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
             exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
@@ -157,10 +176,10 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
 private fun HeroCard(state: HomeState, actions: HomeActions) {
     val motion = !state.reducedMotion
     val (start, end) = when {
-        state.pending != null -> Color(0xFFB45309) to Color(0xFFC2410C)
-        state.phase == Phase.ACTIVE -> Color(0xFF3F3FD8) to Color(0xFF7C3AED)
-        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> Color(0xFFB91C1C) to Color(0xFF9F1239)
-        else -> Color(0xFF1E2233) to Color(0xFF2D3350)
+        state.pending != null -> Color(0xFF7C2D12) to Color(0xFF9A3412)
+        state.phase == Phase.ACTIVE -> Color(0xFF064E3B) to Color(0xFF0B3B30)
+        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> Color(0xFF7F1D1D) to Color(0xFF881337)
+        else -> Color(0xFF18181B) to Color(0xFF26262B)
     }
     val spec = tween<Color>(if (motion) 600 else 0)
     val from by animateColorAsState(start, spec, label = "heroStart")
@@ -222,7 +241,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                         colors = FilterChipDefaults.filterChipColors(
                             labelColor = Color.White,
                             selectedContainerColor = Color.White,
-                            selectedLabelColor = Color(0xFF1E2233),
+                            selectedLabelColor = Color(0xFF0A0A0B),
                         ),
                         border = FilterChipDefaults.filterChipBorder(enabled = true, selected = state.sessionMinutes == m, borderColor = Color.White.copy(alpha = 0.35f)),
                     )
@@ -234,7 +253,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                 if (state.accessibilityOn) actions.start else actions.openSetup,
                 Modifier.fillMaxWidth(),
                 container = Color.White,
-                content = Color(0xFF1E2233),
+                content = Color(0xFF0A0A0B),
             )
         }
     }

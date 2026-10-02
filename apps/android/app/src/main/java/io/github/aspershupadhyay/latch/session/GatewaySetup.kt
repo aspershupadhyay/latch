@@ -38,6 +38,18 @@ data class McpClient(
     val name: String,
     @SerialName("created_at_ms") val createdAtMs: Long,
     @SerialName("last_used_ms") val lastUsedMs: Long? = null,
+    /** "oauth" when the app signed in with the MCP URL; "key" for a key or secret link. */
+    val kind: String = "key",
+)
+
+/** An AI app asking to sign in. The owner approves it when [match] equals the code on its sign-in page. */
+@Serializable
+data class SignInRequest(
+    val id: String,
+    @SerialName("client_name") val clientName: String,
+    val match: String,
+    @SerialName("return_to") val returnTo: String = "",
+    @SerialName("created_at_ms") val createdAtMs: Long,
 )
 
 /** A new MCP client credential. [token] is shown once and never stored by the app. */
@@ -215,6 +227,21 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
 
     suspend fun revokeClient(id: String) {
         val (status, _) = send("DELETE", "clients/${URLEncoder.encode(id, "UTF-8")}")
+        check(status, ok = 204)
+    }
+
+    /** AI apps waiting for the owner's approval. Empty on gateways without sign-in support. */
+    suspend fun signInRequests(): List<SignInRequest> {
+        val (status, body) = send("GET", "oauth/requests")
+        if (status == 404) return emptyList()
+        check(status)
+        val list = Protocol.json.parseToJsonElement(body).jsonObject.getValue("requests").jsonArray
+        return Protocol.json.decodeFromJsonElement(ListSerializer(SignInRequest.serializer()), list)
+    }
+
+    suspend fun answerSignIn(id: String, approve: Boolean) {
+        val (status, _) = send("POST", "oauth/requests/${URLEncoder.encode(id, "UTF-8")}", """{"approve":$approve}""")
+        if (status == 404) throw SetupException("That request expired. Connect again from your AI app.")
         check(status, ok = 204)
     }
 }

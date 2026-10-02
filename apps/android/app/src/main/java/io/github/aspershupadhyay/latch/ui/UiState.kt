@@ -5,6 +5,7 @@ import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.McpClient
 import io.github.aspershupadhyay.latch.session.NewMcpClient
 import io.github.aspershupadhyay.latch.session.PendingApproval
+import io.github.aspershupadhyay.latch.session.SignInRequest
 
 /** Plain state for each screen, so screens are previewable and snapshot-tested. */
 
@@ -26,6 +27,8 @@ data class HomeState(
     val activityCount: Int,
     val isOwner: Boolean,
     val reducedMotion: Boolean,
+    /** AI apps waiting for the owner's approval. */
+    val signInRequests: List<SignInRequest> = emptyList(),
 )
 
 class HomeActions(
@@ -40,6 +43,7 @@ class HomeActions(
     val goConnect: () -> Unit = {},
     val goActivity: () -> Unit = {},
     val openSetup: () -> Unit = {},
+    val reviewSignIns: () -> Unit = {},
 )
 
 data class ConnectState(
@@ -49,6 +53,8 @@ data class ConnectState(
     val loading: Boolean,
     val error: String?,
     val created: NewMcpClient?,
+    /** AI apps waiting for the owner to approve their sign-in. */
+    val requests: List<SignInRequest> = emptyList(),
 )
 
 class ConnectActions(
@@ -57,6 +63,7 @@ class ConnectActions(
     val dismissCreated: () -> Unit = {},
     val copy: (label: String, value: String, sensitive: Boolean) -> Unit = { _, _, _ -> },
     val refresh: () -> Unit = {},
+    val answer: (id: String, approve: Boolean) -> Unit = { _, _ -> },
 )
 
 data class CreateGatewayState(

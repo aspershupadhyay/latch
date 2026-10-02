@@ -16,9 +16,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Signal Field tokens, bento edition: colours are named by meaning. Tiles sit
- * on a quiet canvas; colour is reserved for state (active, attention, stop)
- * and for the one hero tile, so it still carries meaning.
+ * Latch tokens: graphite neutrals, one emerald accent, and colour only where
+ * it means something (live, attention, stop). Primary actions are ink on paper
+ * (white on black in dark mode), so they read as buttons at a glance.
  */
 @Immutable
 data class Signal(
@@ -36,28 +36,31 @@ data class Signal(
     val warning: Color,
     val danger: Color,
     val disabled: Color,
+    /** Filled primary buttons. */
+    val ink: Color,
+    val onInk: Color,
 ) {
-    /** Hero tile backgrounds by state. White text stays above 4.5:1 on every stop. */
-    val activeBrush get() = Brush.linearGradient(listOf(Color(0xFF3F3FD8), Color(0xFF7C3AED)))
-    val idleBrush get() = Brush.linearGradient(listOf(Color(0xFF1E2233), Color(0xFF2D3350)))
-    val attentionBrush get() = Brush.linearGradient(listOf(Color(0xFFB45309), Color(0xFFC2410C)))
-    val stopBrush get() = Brush.linearGradient(listOf(Color(0xFFB91C1C), Color(0xFF9F1239)))
+    /** Backgrounds for the status card and alerts. White text stays above 4.5:1 on every stop. */
+    val activeBrush get() = Brush.linearGradient(listOf(Color(0xFF064E3B), Color(0xFF0B3B30)))
+    val idleBrush get() = Brush.linearGradient(listOf(Color(0xFF18181B), Color(0xFF232327)))
+    val attentionBrush get() = Brush.linearGradient(listOf(Color(0xFF7C2D12), Color(0xFF9A3412)))
+    val stopBrush get() = Brush.linearGradient(listOf(Color(0xFF7F1D1D), Color(0xFF881337)))
 }
 
 private val Light = Signal(
     dark = false,
-    canvas = Color(0xFFF2F3F8), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFEBEDF5), border = Color(0xFFE1E4EE),
-    text = Color(0xFF0F1222), text2 = Color(0xFF586074), accent = Color(0xFF4B4BE0), accent2 = Color(0xFF7C3AED),
-    mint = Color(0xFF0E8F83), success = Color(0xFF13834A), warning = Color(0xFFA65F00), danger = Color(0xFFC92A30),
-    disabled = Color(0xFF9AA0AE),
+    canvas = Color(0xFFF7F7F5), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFF1F1EF), border = Color(0xFFE4E4E2),
+    text = Color(0xFF0A0A0B), text2 = Color(0xFF5B5B63), accent = Color(0xFF047857), accent2 = Color(0xFF2563EB),
+    mint = Color(0xFF0F766E), success = Color(0xFF047857), warning = Color(0xFFB45309), danger = Color(0xFFDC2626),
+    disabled = Color(0xFFA1A1AA), ink = Color(0xFF0A0A0B), onInk = Color(0xFFFAFAFA),
 )
 
 private val Dark = Signal(
     dark = true,
-    canvas = Color(0xFF0A0B10), surface = Color(0xFF14161D), surface2 = Color(0xFF1C1F29), border = Color(0xFF262A36),
-    text = Color(0xFFF2F4F8), text2 = Color(0xFF9EA6B8), accent = Color(0xFF8E8EFF), accent2 = Color(0xFFB794FF),
-    mint = Color(0xFF3ED9C7), success = Color(0xFF3DD68C), warning = Color(0xFFFFB224), danger = Color(0xFFFF6B70),
-    disabled = Color(0xFF596070),
+    canvas = Color(0xFF09090B), surface = Color(0xFF131316), surface2 = Color(0xFF1C1C20), border = Color(0xFF2A2A2F),
+    text = Color(0xFFFAFAFA), text2 = Color(0xFFA1A1AA), accent = Color(0xFF34D399), accent2 = Color(0xFF60A5FA),
+    mint = Color(0xFF2DD4BF), success = Color(0xFF34D399), warning = Color(0xFFFBBF24), danger = Color(0xFFF87171),
+    disabled = Color(0xFF52525B), ink = Color(0xFFFAFAFA), onInk = Color(0xFF09090B),
 )
 
 val LocalSignal = staticCompositionLocalOf { Light }

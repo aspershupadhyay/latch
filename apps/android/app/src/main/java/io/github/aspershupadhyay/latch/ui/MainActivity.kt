@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -19,6 +20,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,6 +59,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.aspershupadhyay.latch.BuildConfig
 import io.github.aspershupadhyay.latch.LatchApp
+import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.Pairing as SavedPairing
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
@@ -67,10 +71,13 @@ import io.github.aspershupadhyay.latch.session.Paired
 import io.github.aspershupadhyay.latch.session.Pairing
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.session.SetupException
+import io.github.aspershupadhyay.latch.session.SignInRequest
 import io.github.aspershupadhyay.latch.session.deviceDescriptor
 import io.github.aspershupadhyay.latch.ui.theme.LatchTheme
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -105,6 +112,15 @@ fun copyToClipboard(context: Context, label: String, value: String, sensitive: B
     }
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
     if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "$label copied", Toast.LENGTH_SHORT).show()
+}
+
+/** Opens Latch's own accessibility switch where Android allows it (12+), else the accessibility list. */
+fun openAccessibilityFor(context: Context) {
+    val opened = Build.VERSION.SDK_INT >= 31 && runCatching {
+        val service = ComponentName(context, LatchAccessibilityService::class.java).flattenToString()
+        context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS).putExtra(Intent.EXTRA_COMPONENT_NAME, service))
+    }.isSuccess
+    if (!opened) context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
 }
 
 private fun Paired.save(app: LatchApp) = app.settings.savePairing(SavedPairing(gatewayUrl, deviceId, name), deviceToken)
@@ -193,6 +209,24 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     var setupOpen by rememberSaveable { mutableStateOf(false) }
     val signal = LocalSignal.current
+    val pairing by app.settings.pairing.collectAsStateWithLifecycle()
+    val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
+    // AI apps waiting for approval, checked every few seconds while Latch is on screen.
+    var requestsTick by remember { mutableIntStateOf(0) }
+    val requestsFlow = remember(pairing, isOwner, requestsTick) {
+        val owner = pairing?.let { p -> app.settings.ownerKey()?.let { OwnerClient(app.http, p.gatewayUrl, it) } }
+        if (owner == null) {
+            flowOf(emptyList<SignInRequest>())
+        } else {
+            flow {
+                while (true) {
+                    emit(runCatching { owner.signInRequests() }.getOrDefault(emptyList()))
+                    delay(3_000)
+                }
+            }
+        }
+    }
+    val signInRequests by requestsFlow.collectAsStateWithLifecycle(emptyList())
 
     // Right after pairing, and whenever the owner asks, walk through every permission in a row.
     if (!prefs.setupDone || setupOpen) {
@@ -212,7 +246,15 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                     NavigationBarItem(
                         selected = tab == t,
                         onClick = { tab = t },
-                        icon = { Icon(t.icon, contentDescription = null, modifier = Modifier.size(24.dp)) },
+                        icon = {
+                            if (t == Tab.CONNECT && signInRequests.isNotEmpty()) {
+                                BadgedBox(badge = { Badge { Text("${signInRequests.size}") } }) {
+                                    Icon(t.icon, contentDescription = "${signInRequests.size} waiting", modifier = Modifier.size(24.dp))
+                                }
+                            } else {
+                                Icon(t.icon, contentDescription = null, modifier = Modifier.size(24.dp))
+                            }
+                        },
                         label = { Text(t.label) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = signal.accent,
@@ -239,9 +281,9 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                 label = "tabs",
             ) { current ->
                 when (current) {
-                    Tab.HOME -> HomeRoute(app, reducedMotion, go = { tab = it }, openSetup = { setupOpen = true })
+                    Tab.HOME -> HomeRoute(app, reducedMotion, signInRequests, go = { tab = it }, openSetup = { setupOpen = true })
                     Tab.CAPABILITIES -> CapabilitiesRoute(app) { setupOpen = true }
-                    Tab.CONNECT -> ConnectRoute(app)
+                    Tab.CONNECT -> ConnectRoute(app, signInRequests) { requestsTick++ }
                     Tab.ACTIVITY -> {
                         val entries by app.log.entries.collectAsStateWithLifecycle()
                         ActivityScreen(entries, app.log::clear)
@@ -305,7 +347,7 @@ private fun SetupRoute(app: LatchApp, reducedMotion: Boolean, onFinish: () -> Un
                 context.startActivity(Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName))
             },
             skipNotifications = { notificationsSkipped = true },
-            openAccessibility = { context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) },
+            openAccessibility = { openAccessibilityFor(context) },
             openAppInfo = { context.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) },
             allowBattery = {
                 val request = Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:${context.packageName}".toUri())
@@ -325,7 +367,7 @@ private fun SetupRoute(app: LatchApp, reducedMotion: Boolean, onFinish: () -> Un
 }
 
 @Composable
-private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, go: (Tab) -> Unit, openSetup: () -> Unit) {
+private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: List<SignInRequest>, go: (Tab) -> Unit, openSetup: () -> Unit) {
     val context = LocalContext.current
     val state by app.session.state.collectAsStateWithLifecycle()
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
@@ -380,6 +422,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, go: (Tab) -> Unit, 
             activityCount = entries.size,
             isOwner = isOwner,
             reducedMotion = reducedMotion,
+            signInRequests = signInRequests,
         ),
         HomeActions(
             start = {
@@ -400,12 +443,13 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, go: (Tab) -> Unit, 
             setPaused = app.session::setPaused,
             setMinutes = { m -> app.settings.update { it.copy(sessionMinutes = m) } },
             answer = app.approvals::answer,
-            openAccessibilitySettings = { context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) },
+            openAccessibilitySettings = { openAccessibilityFor(context) },
             openAppInfo = { context.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) },
             goCapabilities = { go(Tab.CAPABILITIES) },
             goConnect = { go(Tab.CONNECT) },
             goActivity = { go(Tab.ACTIVITY) },
             openSetup = openSetup,
+            reviewSignIns = { go(Tab.CONNECT) },
         ),
     )
 }
@@ -425,7 +469,7 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
 }
 
 @Composable
-private fun ConnectRoute(app: LatchApp) {
+private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequestsChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
@@ -451,16 +495,23 @@ private fun ConnectRoute(app: LatchApp) {
             }
         }
     }
-    LaunchedEffect(owner) { run { clients = it.clients() } }
+    LaunchedEffect(owner, requests.size) { run { clients = it.clients() } }
 
     ConnectScreen(
-        ConnectState("${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created),
+        ConnectState("${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests),
         ConnectActions(
             create = { name -> run { created = it.createClient(name); clients = it.clients() } },
             revoke = { id -> run { it.revokeClient(id); clients = it.clients() } },
             dismissCreated = { created = null },
             copy = { label, value, sensitive -> copyToClipboard(context, label, value, sensitive) },
             refresh = { run { clients = it.clients() } },
+            answer = { id, approve ->
+                run {
+                    it.answerSignIn(id, approve)
+                    onRequestsChanged()
+                    clients = it.clients()
+                }
+            },
         ),
     )
 }
@@ -478,7 +529,7 @@ private fun SettingsRoute(app: LatchApp, openSetup: () -> Unit) {
         isOwner = isOwner,
         version = BuildConfig.VERSION_NAME,
         onForget = { app.session.forget() },
-        onOpenAccessibility = { context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) },
+        onOpenAccessibility = { openAccessibilityFor(context) },
         onOpenConsole = { context.startActivity(Intent(Intent.ACTION_VIEW, p.gatewayUrl.toUri())) },
         onOpenSetup = openSetup,
     )

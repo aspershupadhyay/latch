@@ -158,13 +158,16 @@ fun SetupScreen(state: SetupState, actions: SetupActions) {
             }
 
             StepCard(state, SetupStep.ACCESSIBILITY, LatchIcons.Person, "Screen access", "Required. Lets Latch read the screen and tap for you.") {
-                StepText("Android allows this only through the accessibility service. Latch uses it only during a session you start, and never in password, PIN, or payment fields.")
-                StepButtons(primary = "Open accessibility settings" to actions.openAccessibility)
+                StepText("Android allows this only through an accessibility service. Latch uses it only during a session you start, never in password, PIN, or payment fields.")
+                StepButtons(primary = "Turn on screen access" to actions.openAccessibility)
                 Hint(
-                    "Says “Restricted setting”?",
-                    "Tap App info below → ⋮ (top right) → Allow restricted settings. Then come back and try again.",
+                    "Greyed out, or “Restricted setting”?",
+                    "Android blocks this for apps installed from a file, until you allow it:\n" +
+                        "1. Try to switch Latch on once, so Android shows the warning.\n" +
+                        "2. Tap Open App info below, then ⋮ (top right) → Allow restricted settings, and confirm.\n" +
+                        "3. Come back and tap Turn on screen access again.",
                 )
-                TextButton(onClick = actions.openAppInfo) { Text("Open App info") }
+                SecondaryButton("Open App info", actions.openAppInfo, Modifier.fillMaxWidth())
             }
 
             StepCard(state, SetupStep.BATTERY, LatchIcons.Battery, "Stay connected", "Keeps a session alive when the screen is off.") {

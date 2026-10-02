@@ -116,8 +116,8 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
         enabled = enabled,
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = color ?: signal.accent,
-            contentColor = contentColor ?: if (signal.dark && color == null) Color.Black else Color.White,
+            containerColor = color ?: signal.ink,
+            contentColor = contentColor ?: if (color == null) signal.onInk else Color.White,
         ),
         modifier = modifier.heightIn(min = 52.dp),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
