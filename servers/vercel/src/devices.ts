@@ -2,13 +2,13 @@
 // Mirrors servers/mcp/src/devices.rs: one command at a time per phone, policy
 // before anything leaves the gateway, typed results, redacted audit.
 
-import { evaluate } from "./policy";
+import { evaluate } from "./policy.js";
 import {
   type CapabilityState, type Command, type ConfirmRequest, type Hello, type Observation, type Outcome,
   ProtocolError, type SessionInfo, isAction, normalizeObservation,
-} from "./protocol";
-import { newId } from "./secret";
-import type { Store } from "./store";
+} from "./protocol.js";
+import { newId } from "./secret.js";
+import type { Store } from "./store.js";
 
 export const COMMAND_DEADLINE_MS = 20_000;
 export const CONFIRM_DEADLINE_MS = 120_000;

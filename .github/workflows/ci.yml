@@ -64,7 +64,7 @@ jobs:
         run: scripts/sync-vercel.sh --check
       - run: cargo build -p latch-fake-device
       - working-directory: servers/vercel
-        run: npm ci && npm run typecheck && npm test
+        run: npm ci && npm run typecheck && npm run smoke && npm test
       - name: End to end against Redis through the Upstash REST protocol
         working-directory: servers/vercel
         env:

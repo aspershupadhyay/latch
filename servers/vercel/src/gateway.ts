@@ -2,11 +2,11 @@
 // as the Rust gateway (servers/mcp/src/http.rs and device_http.rs), so the
 // phone app and the owner console work against either.
 
-import { type DeviceRecord, Devices, type Timing } from "./devices";
-import { handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp";
-import { type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, validateHello } from "./protocol";
-import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret";
-import type { Store } from "./store";
+import { type DeviceRecord, Devices, type Timing } from "./devices.js";
+import { handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
+import { type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, validateHello } from "./protocol.js";
+import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret.js";
+import type { Store } from "./store.js";
 
 export interface GatewayConfig {
   /** Owner secret (LATCH_ADMIN_TOKEN). Undefined or too short puts the gateway in setup mode. */

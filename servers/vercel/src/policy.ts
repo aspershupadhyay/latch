@@ -2,12 +2,12 @@
 // every case in packages/schemas/v1/policy/cases.json (see test/policy.test.ts).
 // Screen content is untrusted: it may only raise scrutiny, never lower it.
 
-import { WORDS } from "./generated/policy-words";
+import { WORDS } from "./generated/policy-words.js";
 import {
   CAPABILITY_DESCRIPTIONS, type CapabilityState, type Command, type ConfirmRequest, type Observation,
   ProtocolError, type RiskLevel, type SessionInfo, type UiNode, isAction, isEmptyRect, nodeAt,
   observationIdOf, requiredCapabilities, validateCommand,
-} from "./protocol";
+} from "./protocol.js";
 
 export const MAX_OBSERVATION_AGE_MS = 60_000;
 

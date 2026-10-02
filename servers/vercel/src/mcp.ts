@@ -2,10 +2,10 @@
 // texts, and errors as servers/mcp/src/mcp.rs; the shared contract tests in
 // test/ hold both to packages/schemas/v1/mcp.
 
-import { SERVER } from "./generated/contract";
-import type { Devices, DeviceRecord } from "./devices";
-import { type Command, type Observation, ProtocolError } from "./protocol";
-import { quote, renderObservation, textResult, toolError, truncate } from "./render";
+import { SERVER } from "./generated/contract.js";
+import type { Devices, DeviceRecord } from "./devices.js";
+import { type Command, type Observation, ProtocolError } from "./protocol.js";
+import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
 type Tool = (typeof SERVER.tools)[number];

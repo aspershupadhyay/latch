@@ -1,7 +1,7 @@
 // Text the AI client sees. Must match the Rust gateway byte for byte; see
 // packages/schemas/v1/mcp/render-expected.txt and tool-errors.json.
 
-import { type Observation, type ProtocolError, RECOVERY_HINTS, RETRYABLE, type UiNode } from "./protocol";
+import { type Observation, type ProtocolError, RECOVERY_HINTS, RETRYABLE, type UiNode } from "./protocol.js";
 
 export function truncate(s: string, max: number): string {
   const chars = [...s];

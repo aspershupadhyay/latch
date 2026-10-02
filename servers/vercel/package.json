@@ -5,11 +5,14 @@
   "description": "Latch gateway for Vercel: MCP for AI clients and an HTTP long-poll channel for phones, backed by Upstash Redis.",
   "license": "Apache-2.0",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "dev": "tsx src/local.ts"
+    "dev": "tsx src/local.ts",
+    "smoke": "rm -rf .smoke && tsc --outDir .smoke --noEmit false && node scripts/smoke.mjs"
   },
   "dependencies": {
     "@upstash/redis": "1.39.0"

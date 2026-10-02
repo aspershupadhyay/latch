@@ -11,3 +11,4 @@ apps/android/.kotlin/
 *.keystore
 *.jks
 .env
+servers/vercel/.smoke/

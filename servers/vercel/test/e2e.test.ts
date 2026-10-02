@@ -9,9 +9,9 @@ import { fileURLToPath } from "node:url";
 import type { Server } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { Gateway, configFromEnv } from "../src/gateway";
-import { MemoryStore, type Store, UpstashStore } from "../src/store";
-import { startLocal } from "../src/local";
+import { Gateway, configFromEnv } from "../src/gateway.js";
+import { MemoryStore, type Store, UpstashStore } from "../src/store.js";
+import { startLocal } from "../src/local.js";
 
 const ADMIN = "admin-token-0123456789abcdef0123456789";
 const FAKE = fileURLToPath(new URL("../../../target/debug/latch-fake-device", import.meta.url));

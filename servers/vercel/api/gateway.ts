@@ -1,7 +1,7 @@
 // Vercel Function entry point. vercel.json rewrites /mcp, /healthz, and /v1/*
 // here; the owner console is served from public/.
-import { Gateway, configFromEnv } from "../src/gateway";
-import { storeFromEnv } from "../src/store";
+import { Gateway, configFromEnv } from "../src/gateway.js";
+import { storeFromEnv } from "../src/store.js";
 
 const store = storeFromEnv(process.env);
 const gateway = store ? new Gateway(store, configFromEnv(process.env)) : undefined;

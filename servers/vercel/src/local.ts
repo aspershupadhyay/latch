@@ -3,8 +3,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { Gateway, configFromEnv } from "./gateway";
-import { MemoryStore, storeFromEnv } from "./store";
+import { Gateway, configFromEnv } from "./gateway.js";
+import { MemoryStore, storeFromEnv } from "./store.js";
 
 const STATIC: Record<string, [string, string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],

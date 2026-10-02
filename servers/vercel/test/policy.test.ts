@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { evaluate } from "../src/policy";
-import { CAPABILITIES, type CapabilityState, type CapabilityStatus, normalizeObservation, parseCommand } from "../src/protocol";
-import { shared } from "./shared";
+import { evaluate } from "../src/policy.js";
+import { CAPABILITIES, type CapabilityState, type CapabilityStatus, normalizeObservation, parseCommand } from "../src/protocol.js";
+import { shared } from "./shared.js";
 
 const doc = JSON.parse(shared("policy/cases.json"));
 

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderObservation, toolError } from "../src/render";
-import { ProtocolError, normalizeObservation } from "../src/protocol";
-import { shared } from "./shared";
+import { renderObservation, toolError } from "../src/render.js";
+import { ProtocolError, normalizeObservation } from "../src/protocol.js";
+import { shared } from "./shared.js";
 
 test("observation rendering matches the Rust gateway byte for byte", () => {
   const input = JSON.parse(shared("mcp/render-input.json"));
