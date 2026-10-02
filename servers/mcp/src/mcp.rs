@@ -1037,6 +1037,20 @@ pub fn render_observation(device_id: &str, obs: &Observation, screenshot_withhel
     out
 }
 
+/// Tells the agent when the phone's app is too old for the newest tools.
+fn app_note(protocol: &str) -> String {
+    let phone = latch_protocol::minor_version(protocol).unwrap_or(0);
+    let gateway = latch_protocol::minor_version(latch_protocol::PROTOCOL_VERSION).unwrap_or(0);
+    if phone < gateway {
+        format!(
+            "; Latch app speaks protocol {} (scroll_to, wait_for, pinch, double taps, drags, and type_text submit need an app update)",
+            truncate(protocol, 16)
+        )
+    } else {
+        String::new()
+    }
+}
+
 fn render_devices(state: &AppState) -> String {
     use std::fmt::Write;
     let online = state.devices.online();
@@ -1045,7 +1059,10 @@ fn render_devices(state: &AppState) -> String {
     if store.devices().is_empty() {
         return "No phones are paired yet. The gateway owner creates a pairing code in the Latch admin page.\n".into();
     }
-    for device in store.devices() {
+    // Connected phones first: those are the ones an agent can use.
+    let mut records: Vec<_> = store.devices().iter().collect();
+    records.sort_by_key(|d| !online.iter().any(|o| o.device_id == d.id));
+    for device in records {
         match online.iter().find(|o| o.device_id == device.id) {
             Some(live) => {
                 let enabled: Vec<&str> = live
@@ -1056,7 +1073,7 @@ fn render_devices(state: &AppState) -> String {
                     .collect();
                 let _ = writeln!(
                     out,
-                    "- {} \"{}\" ({} {}, {}) connected{}; enabled: {}{}",
+                    "- {} \"{}\" ({} {}, {}) connected{}; enabled: {}{}{}",
                     device.id,
                     truncate(&device.name, 40),
                     live.platform,
@@ -1077,6 +1094,7 @@ fn render_devices(state: &AppState) -> String {
                     } else {
                         ""
                     },
+                    app_note(&live.protocol),
                 );
             }
             None => {

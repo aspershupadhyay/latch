@@ -106,6 +106,23 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
         }
 
         AnimatedVisibility(
+            visible = state.outdatedGateway != null,
+            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
+            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
+        ) {
+            Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
+                ListRow(
+                    icon = LatchIcons.Warning,
+                    title = "Update your gateway",
+                    subtitle = "It runs an older version (protocol ${state.outdatedGateway}), so your AI can't use the newest, faster tools. Tap for the steps.",
+                    tint = signal.warning,
+                    onClick = actions.openGatewayUpdateHelp,
+                    onClickLabel = "Show how to update the gateway",
+                )
+            }
+        }
+
+        AnimatedVisibility(
             visible = state.signInRequests.isNotEmpty(),
             enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
             exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,

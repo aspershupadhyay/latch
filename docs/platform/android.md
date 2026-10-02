@@ -58,6 +58,7 @@ Release builds are minified and signed in CI when `LATCH_KEYSTORE_BASE64`, `LATC
 - Screenshots are scaled to a 1280 px long edge; the platform limits them to roughly one per second.
 - Apps that set `FLAG_SECURE` (banking, some video apps) cannot be captured; their element tree may still be readable unless they mark data sensitive.
 - `type_text` replaces the field's whole content. With `submit` it then presses the field's IME action (`ACTION_IME_ENTER`); fields that do not handle it report an error after the text was typed.
+- After `launch_app` the phone waits until the opened app is in front (within the settle budget) before observing, so the agent does not get the previous app's screen.
 - Smart settle relies on accessibility events; an app that animates without pause (video, spinners) uses the whole 1.5 s budget.
 - An agent with gestures can operate Android Settings (outside the shade). Turn on *Ask me before every action* when that matters; a per-app allowlist is planned.
 - Google Play's accessibility policy may not allow this use (**to verify** before any store submission); Android developer verification requirements for sideloaded apps must be checked before each release.
@@ -79,6 +80,7 @@ Run on at least two phones (for example a Pixel-class device on Android 16 and a
 11. TalkBack on: the Home screen, capability switches, and approval card are announced with their text; large font (200%) does not clip the Stop button.
 12. Regression for the 2026-10-02 run: in WhatsApp, `type_text` then `tap` Send, and separately `type_text` with `submit` → each shows an approval card; tapping a contact's phone number or a SIM choice in the dialer → approval card.
 13. Approve with **Always in WhatsApp** → the same Send asks no more; **Access → Always allowed** lists it; Remove → it asks again. A *Pay* or *Install* button never offers "Always".
-14. Cursor on: the dot moves to each tap and swipe and is absent from `observe` screenshots; TalkBack does not announce it. Cursor off: no dot.
+14. Cursor on: the pointer glides to each target: a hand over buttons and links, a text cursor while typing, a grabbing hand on swipes, scrolls, and drags, two fingertips on a pinch, a filling ring on a long press. It is absent from `observe` screenshots, and TalkBack does not announce it. Cursor off: no pointer.
+17. Gateway update warning: with a gateway older than the app (protocol below 1.3), Home shows **Update your gateway**; after updating it and starting a new session, the card is gone.
 15. Keep the screen on: the screen stays on for 5 minutes of an idle session; switched off, it times out normally.
 16. Speed: compare `_meta["latch/timing"]` for `tap` with the 2026-10-02 numbers; `wait_for`, `scroll_to` (Settings → "About phone"), `pinch` on Maps, double-tap, and a `hold_ms` drag on the home screen each work in one call.

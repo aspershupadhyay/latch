@@ -97,7 +97,7 @@ Change single switches any time in the **Access** tab. Want to approve **every s
 
 On the same tab, under **While the AI works**:
 
-- **Show where the AI taps** (on by default): a dot glides to every tap, pulses on the tap, and draws a line for swipes. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
+- **Show where the AI taps** (on by default): a computer-style pointer glides to each spot the AI uses. It's an arrow, turns into a hand over buttons and links, a text cursor over text boxes, and a grabbing hand while swiping, scrolling, or dragging. Every touch shows a fingertip mark; a long press fills a ring; a pinch shows both fingers. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
 - **Keep the screen on** (on by default): during a session the screen stays on, so a task isn't cut off by the lock screen. Turn it off to save battery.
 
 ### Step 7: Connect your AI 🤖
@@ -212,6 +212,20 @@ Some phones close background apps to save battery, which ends your session. Allo
 - **Pixel and others:** **Settings → Apps → Latch → App battery usage** → **Unrestricted**.
 
 Also keep **Accessibility → Latch** on. Some phones switch it off after a battery-saver cleanup. If the app says screen access is off, switch it on again.
+
+### Fix: Update your gateway
+
+**What you see:** the Latch app shows **Update your gateway**, or your AI says tools like `scroll_to`, `wait_for`, or `pinch` don't exist.
+
+**Why:** the phone app updates when you install a new APK, but your gateway on Vercel only updates when Vercel deploys new code. The Deploy button makes a **copy** of Latch in your own GitHub (usually called `latch-gateway`), and that copy doesn't receive new versions by itself.
+
+1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.3"` or newer. It also shows `commit` and `repository`.
+2. **Update the code Vercel deploys.** Pick one:
+   - **Follow Latch directly** (simplest; every Latch release reaches you automatically): Vercel → your project → **Settings → Git** → **Disconnect**, then **Connect Git Repository** → `aspershupadhyay/latch`. Then **Settings → Build and Deployment → Root Directory** → `servers/vercel` → **Save**. This means you trust each new Latch release as soon as it's published.
+   - **Keep your own copy and review each version first:** when you want an update, download the newest Latch code (GitHub → **Code → Download ZIP** on `aspershupadhyay/latch`), replace the files in your copy with it, commit, and push. Vercel deploys your copy by itself.
+3. **Deploy:** Vercel → **Deployments** → ⋯ on the newest one → **Redeploy**. Wait until it says **Ready**.
+4. **Check again:** `https://<your-address>/healthz` shows the new `protocol`.
+5. **Refresh your AI:** in Claude / ChatGPT / your AI app, disconnect Latch and connect it again (or start a new chat), so it loads the new list of tools. Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
 
 ### Fix: AI actions are slow
 

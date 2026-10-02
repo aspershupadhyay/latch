@@ -69,6 +69,8 @@ export interface Live {
 
 export interface LiveSummary {
   device_id: string; platform: string; model: string; os_version: string; app_version: string;
+  /** Protocol version from the phone's hello, e.g. "1.3". */
+  protocol: string;
   capabilities: CapabilityState[]; session: SessionInfo; connected_at_ms: number;
 }
 
@@ -229,7 +231,7 @@ export class Devices {
       const l = JSON.parse(raw) as Live;
       out.push({
         device_id: record.id, platform: l.device.platform, model: l.device.model, os_version: l.device.os_version,
-        app_version: l.device.app_version, capabilities: l.capabilities, session: l.session, connected_at_ms: l.connected_at_ms,
+        app_version: l.device.app_version, protocol: String(l.protocol ?? "1.0").slice(0, 16), capabilities: l.capabilities, session: l.session, connected_at_ms: l.connected_at_ms,
       });
     }
     return out.sort((a, b) => a.device_id.localeCompare(b.device_id));
@@ -252,7 +254,13 @@ export class Devices {
       const live = await this.live(requested);
       if (live) return { id: requested, live };
       if (await this.record(requested)) {
-        throw new ProtocolError("device_unavailable", "that device is paired but not connected; the owner needs to start a session in the Latch app");
+        const connected = (await this.online()).map((d) => d.device_id);
+        throw new ProtocolError(
+          "device_unavailable",
+          connected.length === 0
+            ? "that device is paired but not connected; the owner needs to start a session in the Latch app"
+            : `that device is paired but not connected; connected now: ${connected.join(", ")}`,
+        );
       }
       throw new ProtocolError("invalid_request", "no paired device has that id");
     }

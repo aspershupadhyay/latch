@@ -38,6 +38,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
   };
 }
 
+/** Which commit this deployment runs (Vercel sets these), so an owner can tell whether it is up to date. */
+const BUILD = process.env.VERCEL_GIT_COMMIT_SHA
+  ? { commit: process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7), repository: `${process.env.VERCEL_GIT_REPO_OWNER ?? "?"}/${process.env.VERCEL_GIT_REPO_SLUG ?? "?"}` }
+  : {};
+
 const PAIR_TTL_MS = 10 * 60 * 1000;
 /** `last_used_ms` of an MCP client is a hint for the owner; writing it on every call costs a round trip. */
 const LAST_USED_WRITE_MS = 60_000;
@@ -148,6 +153,7 @@ export class Gateway {
       status: this.setupMode ? "setup_required" : "ok",
       version: "0.1.0",
       protocol: PROTOCOL_VERSION,
+      ...BUILD,
       devices_connected: this.setupMode ? 0 : (await this.devices.online()).length,
     });
   }
@@ -158,6 +164,7 @@ export class Gateway {
       implementation: "vercel",
       version: "0.1.0",
       protocol: PROTOCOL_VERSION,
+      ...BUILD,
       transports: ["poll"],
       mcp_path: "/mcp",
       mcp_auth: ["oauth", "bearer", "secret_link"],

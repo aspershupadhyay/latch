@@ -380,6 +380,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
     val pending by app.approvals.pending.collectAsStateWithLifecycle()
     val entries by app.log.entries.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
+    val outdatedGateway by app.session.outdatedGateway.collectAsStateWithLifecycle()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -427,6 +428,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             isOwner = isOwner,
             reducedMotion = reducedMotion,
             signInRequests = signInRequests,
+            outdatedGateway = outdatedGateway,
         ),
         HomeActions(
             start = {
@@ -454,6 +456,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             goActivity = { go(Tab.ACTIVITY) },
             openSetup = openSetup,
             reviewSignIns = { go(Tab.CONNECT) },
+            openGatewayUpdateHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, GATEWAY_UPDATE_HELP.toUri())) },
         ),
     )
 }
@@ -546,3 +549,6 @@ private fun SettingsRoute(app: LatchApp, openSetup: () -> Unit) {
         onOpenSetup = openSetup,
     )
 }
+
+/** README steps for bringing a Vercel gateway up to date. */
+private const val GATEWAY_UPDATE_HELP = "https://github.com/aspershupadhyay/latch#fix-update-your-gateway"

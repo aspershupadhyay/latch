@@ -65,6 +65,8 @@ pub struct LiveSummary {
     pub model: String,
     pub os_version: String,
     pub app_version: String,
+    /// Protocol version from the phone's `hello`, e.g. "1.3".
+    pub protocol: String,
     pub capabilities: Vec<CapabilityState>,
     pub session: SessionInfo,
     pub connected_at_ms: u64,
@@ -242,6 +244,7 @@ impl Registry {
                 model: l.hello.device.model.clone(),
                 os_version: l.hello.device.os_version.clone(),
                 app_version: l.hello.device.app_version.clone(),
+                protocol: l.hello.protocol.chars().take(16).collect(),
                 capabilities: l.capabilities.clone(),
                 session: l.session,
                 connected_at_ms: l.connected_at_ms,
@@ -269,9 +272,22 @@ pub fn resolve_device(state: &AppState, requested: Option<&str>) -> Result<Strin
             if state.devices.is_online(id) {
                 Ok(id.to_owned())
             } else if state.store().get(id).is_some() {
+                let connected: Vec<String> = state
+                    .devices
+                    .online()
+                    .into_iter()
+                    .map(|d| d.device_id)
+                    .collect();
                 Err(ProtocolError::new(
                     ErrorCode::DeviceUnavailable,
-                    "that device is paired but not connected; the owner needs to start a session in the Latch app",
+                    if connected.is_empty() {
+                        "that device is paired but not connected; the owner needs to start a session in the Latch app".to_owned()
+                    } else {
+                        format!(
+                            "that device is paired but not connected; connected now: {}",
+                            connected.join(", ")
+                        )
+                    },
                 ))
             } else {
                 Err(ProtocolError::new(

@@ -30,6 +30,8 @@ data class HomeState(
     val reducedMotion: Boolean,
     /** AI apps waiting for the owner's approval. */
     val signInRequests: List<SignInRequest> = emptyList(),
+    /** The gateway's protocol when it is older than the app's; the AI then misses newer tools. */
+    val outdatedGateway: String? = null,
 )
 
 class HomeActions(
@@ -45,6 +47,7 @@ class HomeActions(
     val goActivity: () -> Unit = {},
     val openSetup: () -> Unit = {},
     val reviewSignIns: () -> Unit = {},
+    val openGatewayUpdateHelp: () -> Unit = {},
 )
 
 data class ConnectState(
