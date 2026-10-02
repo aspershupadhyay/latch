@@ -18,11 +18,13 @@ mod observation;
 pub mod validate;
 
 pub use capability::{Capability, CapabilityState, CapabilityStatus};
-pub use command::{Command, ConfirmRequest, GlobalAction, Point, RiskLevel, Target};
+pub use command::{
+    Command, ConfirmRequest, Direction, GlobalAction, MAX_REMEMBER_CHARS, Point, RiskLevel, Target,
+};
 pub use error::{ErrorCode, ProtocolError};
 pub use message::{
     ActionResult, AppEntry, AppList, CommandEnvelope, DeviceDescriptor, DeviceInfo,
-    DeviceToGateway, GatewayToDevice, Hello, ObserveAfter, Outcome, SessionInfo,
+    DeviceToGateway, GatewayToDevice, Hello, ObserveAfter, Outcome, SessionInfo, WaitResult,
 };
 pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 
@@ -30,7 +32,15 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.2";
+pub const PROTOCOL_VERSION: &str = "1.3";
+
+/// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
+pub fn minor_version(version: &str) -> Option<u32> {
+    if !is_compatible(version) {
+        return None;
+    }
+    version.split('.').nth(1)?.parse().ok()
+}
 
 /// Returns true when a peer advertising `version` can talk to this crate.
 pub fn is_compatible(version: &str) -> bool {

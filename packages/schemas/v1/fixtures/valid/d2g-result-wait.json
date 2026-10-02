@@ -1,0 +1,19 @@
+{
+  "type": "result",
+  "id": "c_0020",
+  "outcome": {
+    "status": "ok",
+    "data": {
+      "matched": true,
+      "observation": {
+        "observation_id": "o_8",
+        "captured_at_ms": 1800000000000,
+        "package": "com.example.chat",
+        "screen": { "width": 1080, "height": 2400, "rotation": 0 },
+        "nodes": [ { "id": "n0", "role": "TextView", "text": "Delivered", "bounds": { "left": 0, "top": 0, "right": 500, "bottom": 100 } } ],
+        "redacted_count": 0,
+        "truncated": false
+      }
+    }
+  }
+}

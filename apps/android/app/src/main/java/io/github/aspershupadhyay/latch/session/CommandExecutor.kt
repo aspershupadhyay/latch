@@ -6,6 +6,10 @@ import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
 import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
+import io.github.aspershupadhyay.latch.data.ApprovalGrants
+import io.github.aspershupadhyay.latch.policy.Consequence
+import io.github.aspershupadhyay.latch.policy.Consequences
+import io.github.aspershupadhyay.latch.policy.Judgement
 import io.github.aspershupadhyay.latch.protocol.ActionResult
 import io.github.aspershupadhyay.latch.protocol.AppList
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -24,6 +28,7 @@ import io.github.aspershupadhyay.latch.protocol.ProtocolException
 import io.github.aspershupadhyay.latch.protocol.ScreenInfo
 import io.github.aspershupadhyay.latch.protocol.SessionInfo
 import io.github.aspershupadhyay.latch.protocol.Target
+import io.github.aspershupadhyay.latch.protocol.WaitResult
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 
@@ -39,12 +44,23 @@ fun deviceDescriptor() = DeviceDescriptor(
 fun describe(command: Command): String = when (command) {
     Command.DeviceInfoCommand -> "Read device information"
     is Command.Observe -> if (command.includeScreenshot) "Read the screen and take a screenshot" else "Read the screen"
-    is Command.Tap -> when (val t = command.target) {
-        is Target.Element -> if (command.longPress) "Long-press an element" else "Tap an element"
-        is Target.Point -> if (command.longPress) "Long-press at (${t.x}, ${t.y})" else "Tap at (${t.x}, ${t.y})"
+    is Command.Tap -> {
+        val verb = when {
+            command.longPress -> "Long-press"
+            command.double -> "Double-tap"
+            else -> "Tap"
+        }
+        when (val t = command.target) {
+            is Target.Element -> "$verb an element"
+            is Target.Point -> "$verb at (${t.x}, ${t.y})"
+        }
     }
-    is Command.Swipe -> "Swipe on the screen"
-    is Command.TypeText -> "Type ${command.text.codePointCount(0, command.text.length)} characters"
+    is Command.Swipe -> if (command.holdMs > 0) "Drag on the screen" else "Swipe on the screen"
+    is Command.Pinch -> if (command.endSpan > command.startSpan) "Pinch to zoom in" else "Pinch to zoom out"
+    is Command.TypeText ->
+        "Type ${command.text.codePointCount(0, command.text.length)} characters" + if (command.submit) " and press Enter" else ""
+    is Command.WaitFor -> if (command.gone) "Wait for text to disappear" else "Wait for text to appear"
+    is Command.ScrollTo -> "Scroll to text"
     is Command.Global -> when (command.action) {
         GlobalAction.BACK -> "Press Back"
         GlobalAction.HOME -> "Press Home"
@@ -58,10 +74,23 @@ fun describe(command: Command): String = when (command) {
  * Runs one command on this phone after the device-side checks. The gateway
  * has already applied policy; these checks hold even if it did not.
  */
+/** Least time to let an app open or the home screen appear before smart settle may answer. */
+private const val TRANSITION_FLOOR_MS = 300L
+
+private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
+private const val CONSEQUENTIAL_DETAIL =
+    "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
+private const val CRITICAL_DETAIL =
+    "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time."
+
 class CommandExecutor(
     private val bridge: DeviceBridge,
     private val approvals: ApprovalBroker,
     private val log: ActivityLog,
+    private val grants: ApprovalGrants,
+    private val consequences: Consequences,
+    /** Human name of an app, for the "Always in …" button. */
+    private val appName: (String) -> String? = { null },
 ) {
     /**
      * [current] reads the owner's session and switches again later, so an
@@ -87,25 +116,7 @@ class CommandExecutor(
             }
         }
 
-        val needsApproval = command.isAction && (envelope.confirm != null || session.approveEveryAction)
-        if (needsApproval) {
-            val title = envelope.confirm?.title ?: describe(command)
-            val detail = envelope.confirm?.detail ?: "Requested by an AI agent connected through Latch."
-            log.add(ActivityKind.APPROVAL, "Asked you: $title")
-            // Leave the gateway a little time to receive the answer before its deadline.
-            val outcome = approvals.request(title, detail, envelope.confirm?.risk ?: "medium", (envelope.deadlineMs - 2_000).coerceAtLeast(5_000))
-            when (outcome) {
-                ApprovalOutcome.APPROVED -> log.add(ActivityKind.APPROVAL, "You approved: $title")
-                ApprovalOutcome.DENIED -> {
-                    log.add(ActivityKind.APPROVAL, "You denied: $title")
-                    throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
-                }
-                ApprovalOutcome.EXPIRED -> {
-                    log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
-                    throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
-                }
-            }
-        }
+        if (command.isAction) approve(envelope, session)
 
         if (command == Command.DeviceInfoCommand) {
             val service = bridge.service.value
@@ -135,19 +146,109 @@ class CommandExecutor(
                 log.add(ActivityKind.OBSERVE, describe(command))
                 Protocol.json.encodeToJsonElement(AppList.serializer(), AppList(service.listApps()))
             }
+            is Command.WaitFor -> {
+                // The searched-for text is the agent's, not screen content, but the log stays content-free anyway.
+                val waited = service.waitFor(command.text, command.gone, command.timeoutMs, command.maxNodes)
+                log.add(ActivityKind.OBSERVE, "${describe(command)} · ${if (waited.matched) "done" else "timed out"}")
+                Protocol.json.encodeToJsonElement(WaitResult.serializer(), waited)
+            }
             else -> {
+                var found: Boolean? = null
                 when (command) {
-                    is Command.Tap -> service.tap(command.observationId, command.target, command.longPress)
-                    is Command.Swipe -> service.swipe(command.observationId, command.fromX, command.fromY, command.toX, command.toY, command.durationMs)
-                    is Command.TypeText -> service.typeText(command.observationId, command.element, command.text)
+                    is Command.Tap -> service.tap(command.observationId, command.target, command.longPress, command.double)
+                    is Command.Swipe -> service.swipe(
+                        command.observationId, command.fromX, command.fromY, command.toX, command.toY, command.durationMs, command.holdMs,
+                    )
+                    is Command.Pinch ->
+                        service.pinch(command.observationId, command.centerX, command.centerY, command.startSpan, command.endSpan, command.durationMs)
+                    is Command.TypeText -> service.typeText(command.observationId, command.element, command.text, command.submit)
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName)
+                    is Command.ScrollTo ->
+                        found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
                 }
                 log.add(ActivityKind.ACTION, describe(command))
-                var result = action.copy(`package` = service.currentPackage())
-                envelope.observeAfter?.let { result = observeAfter(service, it, result, current) }
+                var result = action.copy(`package` = service.currentPackage(), found = found)
+                envelope.observeAfter?.let { result = observeAfter(command, service, it, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
+        }
+    }
+
+    /**
+     * Decides whether the owner must approve, from the gateway's request and
+     * the phone's own check of the same screen (whichever is stricter), and
+     * waits for the answer or uses one the owner saved.
+     */
+    private suspend fun approve(envelope: CommandEnvelope, session: SessionInfo) {
+        val command = envelope.command
+        val confirm = envelope.confirm
+        val judgement = judge(command)
+        val deviceAsks = judgement != null && judgement.consequence != Consequence.NONE
+        if (confirm == null && !session.approveEveryAction && !deviceAsks) return
+
+        // Critical by either judge: asked every time. A gateway older than 1.3 never sends
+        // remember keys, so its high-risk prompts are treated the same way.
+        val critical = judgement?.consequence == Consequence.CRITICAL || (confirm != null && confirm.risk == "high" && confirm.remember == null)
+        val key = when {
+            critical || session.approveEveryAction -> null
+            confirm != null -> confirm.remember
+            deviceAsks -> judgement.rememberKey
+            else -> null
+        }
+        val title = confirm?.title ?: judgement?.takeIf { deviceAsks }?.title ?: describe(command)
+        val detail = confirm?.detail ?: when {
+            !deviceAsks -> AGENT_DETAIL
+            critical -> CRITICAL_DETAIL
+            else -> CONSEQUENTIAL_DETAIL
+        }
+        val risk = confirm?.risk ?: if (deviceAsks) "high" else "medium"
+
+        if (key != null && grants.allows(key)) {
+            log.add(ActivityKind.APPROVAL, "Allowed by your saved choice: $title")
+            return
+        }
+        log.add(ActivityKind.APPROVAL, "Asked you: $title")
+        // Leave the gateway a little time to receive the answer before its deadline.
+        val timeout = (envelope.deadlineMs - 2_000).coerceAtLeast(5_000)
+        val app = bridge.service.value?.currentPackage()?.let(appName)
+        when (approvals.request(title, detail, risk, timeout, rememberable = key != null, appName = app)) {
+            ApprovalOutcome.APPROVED_ONCE -> log.add(ActivityKind.APPROVAL, "You approved: $title")
+            ApprovalOutcome.APPROVED_SESSION -> {
+                grants.allowForSession(key!!)
+                log.add(ActivityKind.APPROVAL, "You approved for this session: $title")
+            }
+            ApprovalOutcome.APPROVED_ALWAYS -> {
+                grants.allowAlways(key!!)
+                log.add(ActivityKind.APPROVAL, "You always allow: $title")
+            }
+            ApprovalOutcome.DENIED -> {
+                log.add(ActivityKind.APPROVAL, "You denied: $title")
+                throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
+            }
+            ApprovalOutcome.EXPIRED -> {
+                log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
+                throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
+            }
+        }
+    }
+
+    /** The phone's own judgement of a tap or swipe, or null for other commands. */
+    private fun judge(command: Command): Judgement? {
+        val service = bridge.service.value ?: return null
+        return when (command) {
+            is Command.Tap -> service.tapContext(command.observationId, command.target)?.let {
+                consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double)
+            }
+            is Command.Swipe -> consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
+            is Command.TypeText -> if (!command.submit) {
+                null
+            } else {
+                service.tapContext(command.observationId, Target.Element(command.element))?.let { context ->
+                    context.node?.let { consequences.judgeEnter(context.observation, it, command.text.codePointCount(0, command.text.length)) }
+                }
+            }
+            else -> null
         }
     }
 
@@ -157,12 +258,20 @@ class CommandExecutor(
      * trip. The action already happened, so problems are reported, not thrown.
      */
     private suspend fun observeAfter(
+        command: Command,
         service: LatchAccessibilityService,
         after: ObserveAfter,
         result: ActionResult,
         current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
     ): ActionResult {
-        delay(after.settleMs.toLong())
+        val quiet = after.quietMs
+        if (quiet == null) {
+            delay(after.settleMs.toLong())
+        } else {
+            // Opening an app or going home starts with an animation that sends few events.
+            val floor = if (command is Command.LaunchApp || command is Command.Global) TRANSITION_FLOOR_MS else 0L
+            service.awaitQuiet(quiet.toLong(), after.settleMs.toLong(), floor)
+        }
         val (session, capabilities) = current()
         val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
         val refusal = when {

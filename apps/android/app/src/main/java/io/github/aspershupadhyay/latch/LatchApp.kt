@@ -11,6 +11,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
 import io.github.aspershupadhyay.latch.data.ActivityLog
+import io.github.aspershupadhyay.latch.data.ApprovalGrants
+import io.github.aspershupadhyay.latch.data.PrefsGrantStore
+import io.github.aspershupadhyay.latch.policy.Consequences
+import io.github.aspershupadhyay.latch.policy.PolicyWords
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.session.ApprovalBroker
 import io.github.aspershupadhyay.latch.session.Pairing
@@ -37,6 +41,9 @@ class LatchApp : Application() {
     val approvals = ApprovalBroker()
     lateinit var session: SessionController
         private set
+    /** The owner's saved approval answers. */
+    lateinit var grants: ApprovalGrants
+        private set
     lateinit var setup: GatewaySetup
         private set
     val http = Pairing.client()
@@ -44,11 +51,18 @@ class LatchApp : Application() {
     override fun onCreate() {
         super.onCreate()
         settings = Settings(this)
-        session = SessionController(scope, settings, bridge, approvals, log, http)
+        grants = ApprovalGrants(PrefsGrantStore(this))
+        val consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
+        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel)
         setup = GatewaySetup(http)
         createChannels()
         observeIndicators()
     }
+
+    /** The name an app shows in the launcher, or null if it has none. */
+    fun appLabel(packageName: String): String? = runCatching {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString().take(40)
+    }.getOrNull()
 
     private fun createChannels() {
         val manager = getSystemService(NotificationManager::class.java)
@@ -62,10 +76,11 @@ class LatchApp : Application() {
     /** Keeps the overlay, the approval card, and the ongoing notification in step with the session. */
     private fun observeIndicators() {
         scope.launch {
-            combine(session.state, bridge.service) { state, service -> state to service }.collect { (state, service) ->
+            combine(session.state, bridge.service, settings.preferences) { state, service, prefs -> Triple(state, service, prefs) }.collect { (state, service, prefs) ->
                 val live = state is SessionState.Active || state is SessionState.Reconnecting || state is SessionState.Connecting
                 if (live) {
                     service?.showOverlay { session.stop() }
+                    service?.applyOverlayPreferences(prefs.showCursor, prefs.keepAwake)
                     showSessionNotification(state)
                 } else {
                     service?.hideOverlay()
@@ -76,7 +91,7 @@ class LatchApp : Application() {
         scope.launch {
             combine(approvals.pending, bridge.service) { pending, service -> pending to service }.collect { (pending, service) ->
                 if (pending != null) {
-                    service?.showApproval(pending) { approve -> approvals.answer(pending.nonce, approve) }
+                    service?.showApproval(pending) { choice -> approvals.answer(pending.nonce, choice) }
                 } else {
                     service?.hideApproval()
                 }

@@ -252,8 +252,11 @@ async fn mcp_handshake_and_discovery() {
             "observe",
             "tap",
             "type_text",
+            "scroll_to",
+            "wait_for",
             "scroll",
             "swipe",
+            "pinch",
             "press",
             "list_apps",
             "launch_app"
@@ -884,4 +887,96 @@ async fn console_created_client_tokens_grant_and_lose_mcp_access() {
             .0,
         401
     );
+}
+
+#[tokio::test]
+async fn one_call_tools_save_round_trips() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+
+    // wait_for answers from the screen at hand, and its observation can be acted on.
+    let (is_error, screen, images) = call(&gw, "wait_for", json!({"text": "settings"})).await;
+    assert!(!is_error, "{screen}");
+    assert!(screen.starts_with("\"settings\" is on screen."), "{screen}");
+    assert_eq!(images, 0, "wait_for takes no screenshot unless asked");
+    let (is_error, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Settings")})).await;
+    assert!(!is_error, "{screen}");
+    let (_, missing, _) = call(
+        &gw,
+        "wait_for",
+        json!({"text": "Bluetooth", "timeout_ms": 100}),
+    )
+    .await;
+    assert!(
+        missing.contains("did not appear within 100 ms"),
+        "{missing}"
+    );
+
+    // scroll_to brings a list item into view in one call.
+    let (is_error, screen, _) = call(
+        &gw,
+        "scroll_to",
+        json!({"observation_id": observation_id(&missing), "text": "about phone"}),
+    )
+    .await;
+    assert!(!is_error, "{screen}");
+    assert!(screen.starts_with("Found \"about phone\"."), "{screen}");
+    assert!(screen.contains("\"About phone\""), "{screen}");
+
+    // Actions come back with the new screen from the same phone command (observe_after).
+    {
+        let s = phone.state.lock().expect("lock");
+        let observes = s.executed.iter().filter(|c| *c == "ui.observe").count();
+        let commands = s.executed.len();
+        assert_eq!(commands, 6, "{:?}", s.executed);
+        assert_eq!(
+            observes, 2,
+            "one per action, inside the action: {:?}",
+            s.executed
+        );
+    }
+
+    // type_text + submit sends in one call, and sending asks the owner first.
+    let (_, screen, _) = call(&gw, "launch_app", json!({"package": "org.latch.demo.chat"})).await;
+    let (is_error, screen, _) = call(&gw, "type_text", json!({"observation_id": observation_id(&screen), "element_id": "n1", "text": "on my way", "submit": true})).await;
+    assert!(!is_error, "{screen}");
+    let s = phone.state.lock().expect("lock");
+    assert_eq!(s.phone.sent_messages, ["on my way"]);
+    assert_eq!(
+        s.approval_requests.last().map(String::as_str),
+        Some("Type 9 characters into “Message” and press Enter in org.latch.demo.chat")
+    );
+    drop(s);
+    phone.task.abort();
+}
+
+#[tokio::test]
+async fn pinch_drag_and_double_tap_reach_the_phone() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let (_, screen, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    let (is_error, screen, _) = call(
+        &gw,
+        "pinch",
+        json!({"observation_id": observation_id(&screen), "zoom": "in"}),
+    )
+    .await;
+    assert!(!is_error && screen.starts_with("Done."), "{screen}");
+    let (is_error, screen, _) = call(&gw, "swipe", json!({"observation_id": observation_id(&screen), "from_x": 500, "from_y": 400, "to_x": 500, "to_y": 900, "hold_ms": 600})).await;
+    assert!(!is_error, "{screen}");
+    let (is_error, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Chat"), "double": true})).await;
+    assert!(!is_error, "{screen}");
+    let (is_error, text, _) = call(
+        &gw,
+        "pinch",
+        json!({"observation_id": observation_id(&screen), "zoom": "sideways"}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("zoom must be in or out"),
+        "{text}"
+    );
+    let executed = phone.state.lock().expect("lock").executed.clone();
+    assert!(executed.iter().any(|c| c == "input.pinch"), "{executed:?}");
+    phone.task.abort();
 }

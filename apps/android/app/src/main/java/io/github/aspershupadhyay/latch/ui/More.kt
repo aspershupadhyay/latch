@@ -98,6 +98,13 @@ fun CapabilitiesScreen(
     onToggle: (Capability, Boolean) -> Unit,
     onApproveEveryAction: (Boolean) -> Unit,
     onOpenSetup: () -> Unit = {},
+    showCursor: Boolean = true,
+    keepAwake: Boolean = true,
+    onShowCursor: (Boolean) -> Unit = {},
+    onKeepAwake: (Boolean) -> Unit = {},
+    saved: List<SavedApprovalRow> = emptyList(),
+    onRemoveSaved: (String) -> Unit = {},
+    onRemoveAllSaved: () -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
@@ -169,8 +176,72 @@ fun CapabilitiesScreen(
                 }
             }
         }
+
+        SectionCaption("While the AI works")
+        Card {
+            ListRow(
+                LatchIcons.Tap,
+                "Show where the AI taps",
+                "A dot moves to each tap and swipe. It cannot press anything, and the AI never sees it.",
+                tint = signal.accent,
+                trailing = {
+                    Switch(
+                        checked = showCursor,
+                        onCheckedChange = onShowCursor,
+                        modifier = Modifier.semantics { contentDescription = "Show where the AI taps" },
+                    )
+                },
+            )
+            RowDivider()
+            ListRow(
+                LatchIcons.Phone,
+                "Keep the screen on",
+                "During a session the screen stays on, so a task is not cut off by the lock screen. Uses more battery.",
+                tint = signal.accent,
+                trailing = {
+                    Switch(
+                        checked = keepAwake,
+                        onCheckedChange = onKeepAwake,
+                        modifier = Modifier.semantics { contentDescription = "Keep the screen on during a session" },
+                    )
+                },
+            )
+        }
+
+        SectionCaption("Always allowed")
+        Card {
+            if (saved.isEmpty()) {
+                ListRow(
+                    LatchIcons.ShieldCheck,
+                    "Nothing saved",
+                    "When a send, post, or call asks you, choose “Always in this app” to stop being asked for that button there. Payments, installs, and permissions always ask.",
+                    tint = signal.text2,
+                )
+            } else {
+                saved.forEachIndexed { index, row ->
+                    if (index > 0) RowDivider()
+                    ListRow(
+                        LatchIcons.ShieldCheck,
+                        row.action,
+                        "in ${row.app}",
+                        tint = signal.accent,
+                        trailing = {
+                            TextButton(
+                                onClick = { onRemoveSaved(row.key) },
+                                modifier = Modifier.semantics { contentDescription = "Stop always allowing ${row.action} in ${row.app}" },
+                            ) { Text("Remove") }
+                        },
+                    )
+                }
+                RowDivider()
+                TextButton(onClick = onRemoveAllSaved, modifier = Modifier.padding(start = 60.dp)) { Text("Remove all") }
+            }
+        }
     }
 }
+
+/** One "always allow" answer, ready to show. [action] quotes untrusted app text. */
+data class SavedApprovalRow(val key: String, val action: String, val app: String)
 
 private fun iconFor(kind: ActivityKind) = when (kind) {
     ActivityKind.SESSION -> LatchIcons.Clock

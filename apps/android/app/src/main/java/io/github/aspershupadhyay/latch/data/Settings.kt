@@ -25,6 +25,10 @@ data class Preferences(
     val sessionMinutes: Int = 30,
     /** The owner went through the permission setup after pairing (or chose to finish it later). */
     val setupDone: Boolean = false,
+    /** Show a pointer where the AI taps and swipes. */
+    val showCursor: Boolean = true,
+    /** Keep the screen on during a session so a task is not cut off by the lock screen. */
+    val keepAwake: Boolean = true,
 )
 
 /**
@@ -61,6 +65,8 @@ class Settings(context: Context) {
             approveEveryAction = prefs.getBoolean("approve_every_action", false),
             sessionMinutes = prefs.getInt("session_minutes", 30),
             setupDone = prefs.getBoolean("setup_done", false),
+            showCursor = prefs.getBoolean("show_cursor", true),
+            keepAwake = prefs.getBoolean("keep_awake", true),
         )
     }
 
@@ -105,6 +111,8 @@ class Settings(context: Context) {
             putBoolean("approve_every_action", next.approveEveryAction)
             putInt("session_minutes", next.sessionMinutes)
             putBoolean("setup_done", next.setupDone)
+            putBoolean("show_cursor", next.showCursor)
+            putBoolean("keep_awake", next.keepAwake)
         }
         _preferences.value = next
     }

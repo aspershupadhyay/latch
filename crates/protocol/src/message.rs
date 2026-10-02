@@ -96,6 +96,11 @@ pub struct ObserveAfter {
     pub include_screenshot: bool,
     #[serde(default = "default_max_nodes")]
     pub max_nodes: u32,
+    /// Since 1.3: observe as soon as the screen has not changed for this many
+    /// milliseconds (at most 1000), waiting at most `settle_ms` in all. Older
+    /// phones ignore it and wait the full `settle_ms`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiet_ms: Option<u32>,
 }
 
 fn default_max_nodes() -> u32 {
@@ -151,6 +156,18 @@ pub struct ActionResult {
     /// Why the phone could not observe after the action. The action itself succeeded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observation_error: Option<ProtocolError>,
+    /// `ui.scroll_to` only (since 1.3): whether the text is now on screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub found: Option<bool>,
+}
+
+/// Result of `ui.wait` (since 1.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WaitResult {
+    /// True when the condition was met before the timeout.
+    pub matched: bool,
+    /// The screen when the wait ended; it becomes the latest observation.
+    pub observation: Observation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0023", "deadline_ms": 20000, "command": { "name": "ui.wait", "params": { "text": "Delivered", "timeout_ms": 60000 } } }

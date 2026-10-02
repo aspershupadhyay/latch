@@ -1,0 +1,12 @@
+{
+  "type": "command",
+  "id": "c_0010",
+  "deadline_ms": 120000,
+  "command": { "name": "input.tap", "params": { "observation_id": "o_7", "target": { "element": "n9" }, "long_press": false } },
+  "confirm": {
+    "title": "Tap “Share” in com.instagram.android",
+    "detail": "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo.",
+    "risk": "high",
+    "remember": "tap|com.instagram.android|share"
+  }
+}

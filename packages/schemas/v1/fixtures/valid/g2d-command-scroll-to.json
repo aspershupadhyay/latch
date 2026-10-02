@@ -1,0 +1,7 @@
+{
+  "type": "command",
+  "id": "c_0021",
+  "deadline_ms": 20000,
+  "command": { "name": "ui.scroll_to", "params": { "observation_id": "o_7", "text": "About phone", "direction": "down", "container": "n3", "max_swipes": 10 } },
+  "observe_after": { "settle_ms": 1500, "quiet_ms": 150, "include_screenshot": false, "max_nodes": 400 }
+}

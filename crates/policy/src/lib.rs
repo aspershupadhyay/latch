@@ -134,6 +134,7 @@ pub fn evaluate(command: &Command, ctx: &DeviceContext<'_>) -> Decision {
             title: assessment.title,
             detail: assessment.detail,
             risk: assessment.risk,
+            remember: assessment.remember,
         })
     } else {
         Decision::Allow {
@@ -146,9 +147,59 @@ struct Assessment {
     risk: RiskLevel,
     title: String,
     detail: String,
+    /// Key under which the owner may save "this session" or "always" answers.
+    remember: Option<String>,
 }
 
 const AGENT_DETAIL: &str = "Requested by an AI agent connected through Latch.";
+const CONSEQUENTIAL_DETAIL: &str = "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo.";
+const CRITICAL_DETAIL: &str = "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time.";
+
+/// How much human attention an action needs, judged from its labels and app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Consequence {
+    /// No sign of an effect beyond the screen.
+    None,
+    /// Sends, calls, posts, deletes, or similar: the owner approves, and may
+    /// save that answer for the session or for this app.
+    Consequential,
+    /// Money, installs, permissions, account deletion: approved every time.
+    Critical,
+}
+
+impl Assessment {
+    fn medium(title: String) -> Self {
+        Assessment {
+            risk: RiskLevel::Medium,
+            title,
+            detail: AGENT_DETAIL.into(),
+            remember: None,
+        }
+    }
+
+    /// `key` identifies the action for saved answers, e.g. `tap|com.example|send`.
+    fn judged(consequence: Consequence, title: String, key: String) -> Self {
+        match consequence {
+            Consequence::None => Assessment::medium(title),
+            Consequence::Consequential => Assessment {
+                risk: RiskLevel::High,
+                title,
+                detail: CONSEQUENTIAL_DETAIL.into(),
+                remember: Some(
+                    key.chars()
+                        .take(latch_protocol::MAX_REMEMBER_CHARS)
+                        .collect(),
+                ),
+            },
+            Consequence::Critical => Assessment {
+                risk: RiskLevel::High,
+                title,
+                detail: CRITICAL_DETAIL.into(),
+                remember: None,
+            },
+        }
+    }
+}
 
 fn assess(
     command: &Command,
@@ -158,6 +209,7 @@ fn assess(
         risk: RiskLevel::Low,
         title,
         detail: AGENT_DETAIL.into(),
+        remember: None,
     };
     match command {
         Command::DeviceInfo {} => Ok(low("Read device information".into())),
@@ -170,12 +222,27 @@ fn assess(
         })),
         Command::ListApps {} => Ok(low("List installed apps".into())),
         Command::Global { action } => Ok(low(format!("Press {action:?}"))),
-        Command::LaunchApp { package } => Ok(Assessment {
-            risk: RiskLevel::Medium,
-            title: format!("Open {package}"),
-            detail: AGENT_DETAIL.into(),
-        }),
-        Command::Swipe { from, to, .. } => {
+        Command::LaunchApp { package } => Ok(Assessment::medium(format!("Open {package}"))),
+        Command::Pinch {
+            center,
+            start_span,
+            end_span,
+            ..
+        } => {
+            let obs = observation.ok_or_else(internal_missing_observation)?;
+            check_on_screen(obs, center.x, center.y)?;
+            if obs.node_at(center.x, center.y).is_some_and(|n| n.sensitive) {
+                return Err(sensitive());
+            }
+            let way = if end_span > start_span { "in" } else { "out" };
+            Ok(Assessment::medium(format!(
+                "Pinch to zoom {way}{}",
+                place(obs.package.as_deref())
+            )))
+        }
+        Command::Swipe {
+            from, to, hold_ms, ..
+        } => {
             let obs = observation.ok_or_else(internal_missing_observation)?;
             for (x, y) in [(from.x, from.y), (to.x, to.y)] {
                 check_on_screen(obs, x, y)?;
@@ -185,17 +252,32 @@ fn assess(
             {
                 return Err(sensitive());
             }
-            Ok(Assessment {
-                risk: RiskLevel::Medium,
-                title: "Swipe on the screen".into(),
-                detail: AGENT_DETAIL.into(),
-            })
+            // In a phone app a swipe can answer, decline, or place a call.
+            let package = obs.package.as_deref();
+            let consequence = if package.is_some_and(is_call_package) {
+                Consequence::Consequential
+            } else {
+                Consequence::None
+            };
+            let verb = if *hold_ms > 0 { "Drag" } else { "Swipe" };
+            Ok(Assessment::judged(
+                consequence,
+                format!("{verb} on the screen{}", place(package)),
+                format!("{}|{}|", verb.to_lowercase(), package.unwrap_or("?")),
+            ))
         }
         Command::Tap {
-            target, long_press, ..
+            target,
+            long_press,
+            double,
+            ..
         } => {
             let obs = observation.ok_or_else(internal_missing_observation)?;
-            let verb = if *long_press { "Long-press" } else { "Tap" };
+            let verb = match (*long_press, *double) {
+                (true, _) => "Long-press",
+                (_, true) => "Double-tap",
+                _ => "Tap",
+            };
             let node = match target {
                 Target::Element { element } => Some(resolve(obs, element)?),
                 Target::Point { x, y } => {
@@ -203,38 +285,39 @@ fn assess(
                     obs.node_at(*x, *y)
                 }
             };
-            if let Some(node) = node {
-                if node.sensitive {
-                    return Err(sensitive());
-                }
-                let label = label_of(node);
-                let place = obs
-                    .package
-                    .as_deref()
-                    .map(|p| format!(" in {p}"))
-                    .unwrap_or_default();
-                if is_consequential(node) {
-                    return Ok(Assessment {
-                        risk: RiskLevel::High,
-                        title: format!("{verb} “{label}”{place}"),
-                        detail: format!(
-                            "{AGENT_DETAIL} This control may send, buy, delete, publish, or change something that is hard to undo."
-                        ),
-                    });
-                }
-                return Ok(Assessment {
-                    risk: RiskLevel::Medium,
-                    title: format!("{verb} “{label}”{place}"),
-                    detail: AGENT_DETAIL.into(),
-                });
+            let package = obs.package.as_deref();
+            let Some(node) = node else {
+                return Ok(Assessment::judged(
+                    classify(&[], package),
+                    format!("{verb} on the screen{}", place(package)),
+                    format!("{}|{}|", verb.to_lowercase(), package.unwrap_or("?")),
+                ));
+            };
+            if node.sensitive {
+                return Err(sensitive());
             }
-            Ok(Assessment {
-                risk: RiskLevel::Medium,
-                title: format!("{verb} on the screen"),
-                detail: AGENT_DETAIL.into(),
-            })
+            let scope = scope_of(obs, node);
+            let label = scope
+                .iter()
+                .find_map(|n| own_label(n))
+                .map_or_else(|| label_of(node), shorten);
+            Ok(Assessment::judged(
+                classify(&scope, package),
+                format!("{verb} “{label}”{}", place(package)),
+                format!(
+                    "{}|{}|{}",
+                    verb.to_lowercase(),
+                    package.unwrap_or("?"),
+                    label.to_lowercase()
+                ),
+            ))
         }
-        Command::TypeText { element, text, .. } => {
+        Command::TypeText {
+            element,
+            text,
+            submit,
+            ..
+        } => {
             let obs = observation.ok_or_else(internal_missing_observation)?;
             let node = resolve(obs, element)?;
             if node.sensitive || looks_like_secret_field(node) {
@@ -246,17 +329,175 @@ fn assess(
                     "that element is not an editable text field",
                 ));
             }
-            Ok(Assessment {
-                risk: RiskLevel::Medium,
-                title: format!(
-                    "Type {} characters into “{}”",
-                    text.chars().count(),
+            let count = text.chars().count();
+            if !*submit {
+                return Ok(Assessment::medium(format!(
+                    "Type {count} characters into “{}”",
                     label_of(node)
+                )));
+            }
+            // Enter in a chat box sends; in a search box it searches. The field's
+            // own text is what is being typed, so it is never used as its name.
+            let package = obs.package.as_deref();
+            let name = field_label(node);
+            let consequence = match classify(&[node], package) {
+                Consequence::None if is_search_field(node) => Consequence::None,
+                Consequence::None => Consequence::Consequential,
+                raised => raised,
+            };
+            Ok(Assessment::judged(
+                consequence,
+                format!(
+                    "Type {count} characters into “{name}” and press Enter{}",
+                    place(package)
                 ),
-                detail: AGENT_DETAIL.into(),
-            })
+                format!("enter|{}|{}", package.unwrap_or("?"), name.to_lowercase()),
+            ))
+        }
+        Command::WaitFor { text, gone, .. } => Ok(low(format!(
+            "Wait for “{}” to {}",
+            shorten(text),
+            if *gone { "disappear" } else { "appear" }
+        ))),
+        Command::ScrollTo {
+            text, container, ..
+        } => {
+            let obs = observation.ok_or_else(internal_missing_observation)?;
+            if let Some(container) = container
+                && resolve(obs, container)?.sensitive
+            {
+                return Err(sensitive());
+            }
+            Ok(Assessment::medium(format!(
+                "Scroll to “{}”{}",
+                shorten(text),
+                place(obs.package.as_deref())
+            )))
         }
     }
+}
+
+fn place(package: Option<&str>) -> String {
+    package.map(|p| format!(" in {p}")).unwrap_or_default()
+}
+
+/// Most descendants of a tapped element that are read for its meaning.
+const MAX_SCOPE_NODES: usize = 64;
+
+/// The elements that say what a tap on `node` does: the node itself, then
+/// what is drawn inside it (an unlabeled button often holds a labeled icon),
+/// and, when none of those has a label, the nearest labeled ancestor.
+pub fn scope_of<'a>(obs: &'a Observation, node: &'a UiNode) -> Vec<&'a UiNode> {
+    let mut scope = vec![node];
+    let mut frontier = vec![node.id.as_str()];
+    while let Some(parent) = frontier.pop() {
+        for child in obs
+            .nodes
+            .iter()
+            .filter(|n| n.parent.as_deref() == Some(parent))
+        {
+            if scope.len() >= MAX_SCOPE_NODES {
+                break;
+            }
+            // Guard against malformed trees that loop back to an included node.
+            if scope.iter().any(|s| s.id == child.id) {
+                continue;
+            }
+            scope.push(child);
+            frontier.push(child.id.as_str());
+        }
+    }
+    if scope.iter().all(|n| own_label(n).is_none()) {
+        let mut cursor = node.parent.as_deref();
+        for _ in 0..3 {
+            let Some(parent) = cursor.and_then(|id| obs.node(id)) else {
+                break;
+            };
+            if own_label(parent).is_some() {
+                scope.push(parent);
+                break;
+            }
+            cursor = parent.parent.as_deref();
+        }
+    }
+    scope
+}
+
+/// Judges the elements a tap acts on, in the app that shows them.
+/// Screen text only ever raises the outcome; it can never lower it.
+pub fn classify(scope: &[&UiNode], package: Option<&str>) -> Consequence {
+    let package_critical = package.is_some_and(|p| CRITICAL_PACKAGES.contains(&p));
+    if package_critical
+        || scope
+            .iter()
+            .any(|n| matches(n, CRITICAL_WORDS, CRITICAL_PHRASES))
+    {
+        return Consequence::Critical;
+    }
+    if package.is_some_and(is_call_package)
+        || scope
+            .iter()
+            .any(|n| is_consequential(n) || shows_phone_number(n))
+    {
+        return Consequence::Consequential;
+    }
+    Consequence::None
+}
+
+fn is_call_package(package: &str) -> bool {
+    CALL_PACKAGES.contains(&package)
+}
+
+/// Tapping a phone number usually starts a call.
+pub fn shows_phone_number(node: &UiNode) -> bool {
+    [node.text.as_deref(), node.description.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|t| {
+            let t = t.trim();
+            let digits = t.chars().filter(char::is_ascii_digit).count();
+            (7..=15).contains(&digits)
+                && t.chars()
+                    .all(|c| c.is_ascii_digit() || " +-().\u{a0}".contains(c))
+        })
+}
+
+/// A text field's name for prompts: its description or resource id, never its
+/// content (which is what the agent is typing).
+fn field_label(node: &UiNode) -> String {
+    let raw = node
+        .description
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| {
+            node.resource_id
+                .as_deref()
+                .map(|r| r.rsplit('/').next().unwrap_or(r))
+        })
+        .unwrap_or(&node.role);
+    shorten(raw)
+}
+
+/// Search, address, and URL boxes, where Enter only looks something up.
+pub fn is_search_field(node: &UiNode) -> bool {
+    [node.description.as_deref(), node.resource_id.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|field| {
+            let ws = words(field);
+            let compact = ws.concat();
+            ws.iter().any(|w| SEARCH_FIELD_WORDS.contains(&w.as_str()))
+                || SEARCH_FIELD_WORDS
+                    .iter()
+                    .any(|w| w.len() >= 5 && compact.contains(w))
+        })
+}
+
+fn own_label(node: &UiNode) -> Option<&str> {
+    node.text
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+        .or(node.description.as_deref().filter(|t| !t.trim().is_empty()))
 }
 
 fn internal_missing_observation() -> ProtocolError {
@@ -322,6 +563,11 @@ fn label_of(node: &UiNode) -> String {
         .or(node.description.as_deref().filter(|t| !t.trim().is_empty()))
         .or(node.resource_id.as_deref())
         .unwrap_or(&node.role);
+    shorten(raw)
+}
+
+/// One line of at most 48 characters, for approval prompts.
+fn shorten(raw: &str) -> String {
     let single_line: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut label: String = single_line.chars().take(48).collect();
     if single_line.chars().count() > 48 {
@@ -359,6 +605,7 @@ const CONSEQUENTIAL_WORDS: &[&str] = &[
     "reserve",
     "call",
     "dial",
+    "sim",
     "block",
     "report",
     "reset",
@@ -406,6 +653,75 @@ const CONSEQUENTIAL_PHRASES: &[&str] = &[
     "delete account",
     "close account",
     "make payment",
+];
+
+/// Words that mark money, installs, or account deletion: asked every time.
+const CRITICAL_WORDS: &[&str] = &[
+    "pay",
+    "buy",
+    "purchase",
+    "checkout",
+    "transfer",
+    "withdraw",
+    "deposit",
+    "donate",
+    "install",
+    "uninstall",
+    "wipe",
+    "pagar",
+    "comprar",
+    "kaufen",
+    "payer",
+    "acheter",
+];
+
+const CRITICAL_PHRASES: &[&str] = &[
+    "place order",
+    "pay now",
+    "buy now",
+    "factory reset",
+    "send money",
+    "add money",
+    "confirm payment",
+    "make payment",
+    "delete account",
+    "close account",
+    "erase all data",
+];
+
+/// Apps where every tap is critical: Android permission prompts and app installers.
+const CRITICAL_PACKAGES: &[&str] = &[
+    "com.android.permissioncontroller",
+    "com.google.android.permissioncontroller",
+    "com.android.packageinstaller",
+    "com.google.android.packageinstaller",
+];
+
+/// Phone and in-call apps, where a tap or swipe can place, answer, or end a call.
+const CALL_PACKAGES: &[&str] = &[
+    "com.android.dialer",
+    "com.google.android.dialer",
+    "com.samsung.android.dialer",
+    "com.samsung.android.incallui",
+    "com.android.incallui",
+    "com.android.server.telecom",
+    "com.android.phone",
+    "com.oplus.dialer",
+    "com.coloros.phonemanager",
+];
+
+/// Field names where pressing Enter looks something up instead of sending.
+const SEARCH_FIELD_WORDS: &[&str] = &[
+    "search",
+    "find",
+    "query",
+    "url",
+    "address",
+    "omnibox",
+    "lookup",
+    "buscar",
+    "suche",
+    "recherche",
 ];
 
 const SECRET_FIELD_WORDS: &[&str] = &[

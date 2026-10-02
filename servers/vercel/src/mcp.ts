@@ -4,7 +4,7 @@
 
 import { SERVER } from "./generated/contract.js";
 import type { CommandTiming, Devices, DeviceRecord, Live } from "./devices.js";
-import { type Command, type Observation, ProtocolError } from "./protocol.js";
+import { type Command, type Direction, LIMITS, type Observation, ProtocolError } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
@@ -143,21 +143,56 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       if (element !== undefined && x === undefined && y === undefined) target = { element };
       else if (element === undefined && x !== undefined && y !== undefined) target = { x, y };
       else throw bad("pass either element_id, or both x and y");
-      command = { name: "input.tap", params: { observation_id: observationId, target, long_press: argBool(args, "long_press", false) } };
+      command = {
+        name: "input.tap",
+        params: { observation_id: observationId, target, long_press: argBool(args, "long_press", false), double: argBool(args, "double", false) },
+      };
       break;
     }
     case "type_text":
-      command = { name: "input.type", params: { observation_id: reqStr(args, "observation_id"), element: reqStr(args, "element_id"), text: reqStr(args, "text") } };
+      command = {
+        name: "input.type",
+        params: {
+          observation_id: reqStr(args, "observation_id"), element: reqStr(args, "element_id"), text: reqStr(args, "text"),
+          submit: argBool(args, "submit", false),
+        },
+      };
       break;
+    case "scroll_to": {
+      const direction = argStr(args, "direction") ?? "down";
+      if (!["up", "down", "left", "right"].includes(direction)) throw bad("direction must be up, down, left, or right");
+      const container = argStr(args, "element_id");
+      command = {
+        name: "ui.scroll_to",
+        params: {
+          observation_id: reqStr(args, "observation_id"), text: reqStr(args, "text"), direction: direction as Direction,
+          ...(container !== undefined ? { container } : {}),
+          max_swipes: positive(argInt(args, "max_swipes") ?? 10, "max_swipes"),
+        },
+      };
+      break;
+    }
+    case "wait_for": {
+      const text = reqStr(args, "text");
+      const gone = argBool(args, "gone", false);
+      const timeoutMs = positive(argInt(args, "timeout_ms") ?? 5_000, "timeout_ms");
+      return waitFor(ctx, deviceId, live, { name: "ui.wait", params: { text, gone, timeout_ms: timeoutMs, max_nodes: 400 } }, argBool(args, "screenshot", false));
+    }
     case "swipe": {
       const observationId = reqStr(args, "observation_id");
       const from = { x: reqInt(args, "from_x"), y: reqInt(args, "from_y") };
       const to = { x: reqInt(args, "to_x"), y: reqInt(args, "to_y") };
       const duration = argInt(args, "duration_ms") ?? 300;
       if (duration < 0) throw bad("duration_ms must be positive");
-      command = { name: "input.swipe", params: { observation_id: observationId, from, to, duration_ms: duration } };
+      command = {
+        name: "input.swipe",
+        params: { observation_id: observationId, from, to, duration_ms: duration, hold_ms: positive(argInt(args, "hold_ms") ?? 0, "hold_ms") },
+      };
       break;
     }
+    case "pinch":
+      command = await pinchCommand(ctx, deviceId, args);
+      break;
     case "scroll":
       command = await scrollCommand(ctx, deviceId, reqStr(args, "observation_id"), reqStr(args, "direction"), argStr(args, "element_id"));
       break;
@@ -174,17 +209,23 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       throw new ProtocolError("internal", "unexpected result type from the phone");
   }
 
-  // The phone (protocol 1.2+) lets the UI settle and observes in the same
-  // round trip, so the agent never acts on a stale view and never waits twice.
+  // The phone (1.2+) lets the UI settle and observes in the same round trip;
+  // 1.3 phones stop waiting as soon as the screen is still.
   const run = await ctx.devices.execute(deviceId, command, {
-    observeAfter: { settle_ms: ctx.settleMs, include_screenshot: screenshotAfter, max_nodes: 400 },
+    observeAfter: { settle_ms: SETTLE_MAX_MS, quiet_ms: QUIET_MS, include_screenshot: screenshotAfter, max_nodes: 400 },
+    legacySettleMs: ctx.settleMs,
   });
+  const finding = command.name === "ui.scroll_to" ? command.params.text : undefined;
+  const found = (run.data as { found?: unknown }).found === true;
+  const doneText = finding === undefined
+    ? "Done."
+    : found ? `Found ${quote(finding, 60)}.` : `Did not find ${quote(finding, 60)} after scrolling.`;
   const done = (result: ToolResult) => {
-    result.content.unshift({ type: "text", text: "Done. The screen after the action:" });
+    result.content.unshift({ type: "text", text: `${doneText} The screen after the action:` });
     return result;
   };
   const failedObserve = (err: ProtocolError) =>
-    textResult(`Done. Could not observe the screen afterwards (${err.code}: ${err.message}). Call observe.`);
+    textResult(`${doneText} Could not observe the screen afterwards (${err.code}: ${err.message}). Call observe.`);
   if (run.observation) return withTiming(done(observationResult(deviceId, run.observation, screenshotAfter && !screenshotAllowed(live))), run.timing);
   if (run.observationError) return withTiming(failedObserve(run.observationError), run.timing);
   // Older phones: settle here, then observe with a second command.
@@ -194,6 +235,32 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
   } catch (e) {
     return failedObserve(e instanceof ProtocolError ? e : new ProtocolError("internal", "unexpected gateway error"));
   }
+}
+
+/** Longest the phone waits for the screen to settle after an action (1.3+ phones). */
+const SETTLE_MAX_MS = 1_500;
+/** The screen counts as settled after this long without changes. */
+const QUIET_MS = 150;
+
+function positive(value: number, name: string): number {
+  if (value < 0) throw bad(`${name} must be positive`);
+  return value;
+}
+
+async function waitFor(ctx: McpContext, deviceId: string, live: Live, command: Extract<Command, { name: "ui.wait" }>, wantScreenshot: boolean) {
+  const run = await ctx.devices.execute(deviceId, command);
+  const matched = (run.data as { matched?: unknown }).matched === true;
+  const { text, gone, timeout_ms: timeoutMs } = command.params;
+  const quoted = quote(text, 60);
+  const headline = matched
+    ? (gone ? `${quoted} is gone. The screen:` : `${quoted} is on screen. The screen:`)
+    : (gone ? `${quoted} was still on screen after ${timeoutMs} ms. The screen:` : `${quoted} did not appear within ${timeoutMs} ms. The screen:`);
+  // A wait never carries a screenshot; take one only when asked and allowed.
+  const result = wantScreenshot && screenshotAllowed(live)
+    ? await observe(ctx, deviceId, live, true, 400)
+    : withTiming(observationResult(deviceId, run.observation!, wantScreenshot), run.timing);
+  result.content.unshift({ type: "text", text: headline });
+  return result;
 }
 
 type ToolResult = { content: { type: string; text?: string; data?: string; mimeType?: string }[]; _meta?: Record<string, unknown> };
@@ -222,6 +289,26 @@ async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreen
   return withTiming(observationResult(deviceId, run.data as Observation, wantScreenshot && !allowed), run.timing);
 }
 
+/**
+ * Zoom with two fingers around a point (default: the middle of the screen),
+ * from a fifth to three fifths of the shorter screen side, or back.
+ */
+async function pinchCommand(ctx: McpContext, deviceId: string, args: Record<string, unknown>): Promise<Command> {
+  const observationId = reqStr(args, "observation_id");
+  const screen = await ctx.devices.latestObservation(deviceId);
+  if (!screen || screen.observation_id !== observationId) throw new ProtocolError("stale_observation", "observe before pinching");
+  const { width, height } = screen.screen;
+  const x = argInt(args, "x") ?? Math.trunc(width / 2);
+  const y = argInt(args, "y") ?? Math.trunc(height / 2);
+  const short = Math.min(width, height);
+  const small = Math.max(Math.trunc(short / 5), LIMITS.minPinchSpan);
+  const large = Math.max(Math.trunc((short * 3) / 5), LIMITS.minPinchSpan + 1);
+  const zoom = reqStr(args, "zoom");
+  if (zoom !== "in" && zoom !== "out") throw bad("zoom must be in or out");
+  const [start, end] = zoom === "in" ? [small, large] : [large, small];
+  return { name: "input.pinch", params: { observation_id: observationId, center: { x, y }, start_span: start, end_span: end, duration_ms: 400 } };
+}
+
 async function scrollCommand(ctx: McpContext, deviceId: string, observationId: string, direction: string, element?: string): Promise<Command> {
   const screen = await ctx.devices.latestObservation(deviceId);
   if (!screen || screen.observation_id !== observationId) throw new ProtocolError("stale_observation", "observe before scrolling");
@@ -246,7 +333,7 @@ async function scrollCommand(ctx: McpContext, deviceId: string, observationId: s
     case "left": from = [area.left + div(w, 5), cy]; to = [area.left + div(w * 4, 5), cy]; break;
     default: throw bad("direction must be up, down, left, or right");
   }
-  return { name: "input.swipe", params: { observation_id: observationId, from: { x: from[0], y: from[1] }, to: { x: to[0], y: to[1] }, duration_ms: 400 } };
+  return { name: "input.swipe", params: { observation_id: observationId, from: { x: from[0], y: from[1] }, to: { x: to[0], y: to[1] }, duration_ms: 400, hold_ms: 0 } };
 }
 
 export async function renderDevices(devices: Devices): Promise<string> {

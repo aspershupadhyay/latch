@@ -59,6 +59,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.aspershupadhyay.latch.BuildConfig
 import io.github.aspershupadhyay.latch.LatchApp
+import io.github.aspershupadhyay.latch.data.SavedApproval
 import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.Pairing as SavedPairing
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -460,6 +461,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
 @Composable
 private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
+    val always by app.grants.always.collectAsStateWithLifecycle()
     val service by app.bridge.service.collectAsStateWithLifecycle()
     CapabilitiesScreen(
         enabled = prefs.enabled,
@@ -468,6 +470,13 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         onToggle = { c, on -> app.settings.update { p -> p.copy(enabled = if (on) p.enabled + c else p.enabled - c) } },
         onApproveEveryAction = { v -> app.settings.update { it.copy(approveEveryAction = v) } },
         onOpenSetup = openSetup,
+        showCursor = prefs.showCursor,
+        keepAwake = prefs.keepAwake,
+        onShowCursor = { v -> app.settings.update { it.copy(showCursor = v) } },
+        onKeepAwake = { v -> app.settings.update { it.copy(keepAwake = v) } },
+        saved = always.map(::SavedApproval).map { SavedApprovalRow(it.key, it.action, app.appLabel(it.packageName) ?: it.packageName) },
+        onRemoveSaved = app.grants::remove,
+        onRemoveAllSaved = app.grants::clearAll,
     )
 }
 

@@ -143,6 +143,10 @@
             "params": {
               "type": "object",
               "properties": {
+                "double": {
+                  "description": "Since 1.3: two quick taps (zoom a map, like a photo). Not with `long_press`.",
+                  "type": "boolean"
+                },
                 "long_press": {
                   "type": "boolean",
                   "default": false
@@ -184,6 +188,12 @@
                 "from": {
                   "$ref": "#/$defs/Point"
                 },
+                "hold_ms": {
+                  "description": "Since 1.3: press and hold at `from` this long before moving, which\ndrags (icons, list items, sliders) instead of scrolling.",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
                 "observation_id": {
                   "type": "string"
                 },
@@ -195,6 +205,53 @@
                 "observation_id",
                 "from",
                 "to"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.3: two fingers moving apart (`end_span` > `start_span`, zoom\nin) or together (zoom out) around `center`, horizontally.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "input.pinch"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "center": {
+                  "$ref": "#/$defs/Point"
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 300,
+                  "minimum": 0
+                },
+                "end_span": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "observation_id": {
+                  "type": "string"
+                },
+                "start_span": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "observation_id",
+                "center",
+                "start_span",
+                "end_span"
               ]
             }
           },
@@ -220,6 +277,10 @@
                 "observation_id": {
                   "type": "string"
                 },
+                "submit": {
+                  "description": "Since 1.3: then press the keyboard's action key (Enter, Search,\nSend, Go, Done) in that field. Sent only to 1.3+ phones.",
+                  "type": "boolean"
+                },
                 "text": {
                   "type": "string"
                 }
@@ -228,6 +289,92 @@
                 "observation_id",
                 "element",
                 "text"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.3: wait until an element whose text or description contains\n`text` (case-insensitive) is on screen, or until none is when `gone`.\nAnswers with a [`crate::WaitResult`] whose observation becomes the latest.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "ui.wait"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "gone": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "max_nodes": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 400,
+                  "minimum": 0
+                },
+                "text": {
+                  "type": "string"
+                },
+                "timeout_ms": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 5000,
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.3: scroll `container` (or the largest scrollable element) in\n`direction` until an element containing `text` is visible, at most\n`max_swipes` times. Answers with an [`crate::ActionResult`] whose\n`found` says whether it got there.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "ui.scroll_to"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "container": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "direction": {
+                  "$ref": "#/$defs/Direction"
+                },
+                "max_swipes": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 10,
+                  "minimum": 0
+                },
+                "observation_id": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "observation_id",
+                "text",
+                "direction"
               ]
             }
           },
@@ -353,6 +500,13 @@
         "detail": {
           "type": "string"
         },
+        "remember": {
+          "description": "Since 1.3: present when the owner may answer \"allow for this session\"\nor \"always allow in this app\" instead of only \"once\". Absent for\ncritical actions (money, permissions, installs, account deletion),\nwhich are asked every time. The phone matches saved answers by this\nexact key and may still ignore it after its own live check.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "risk": {
           "$ref": "#/$defs/RiskLevel"
         },
@@ -364,6 +518,16 @@
         "title",
         "detail",
         "risk"
+      ]
+    },
+    "Direction": {
+      "description": "Scroll direction, named after the content being revealed: `down` shows\nwhat is further down.",
+      "type": "string",
+      "enum": [
+        "up",
+        "down",
+        "left",
+        "right"
       ]
     },
     "GlobalAction": {
@@ -386,6 +550,15 @@
           "type": "integer",
           "format": "uint32",
           "default": 400,
+          "minimum": 0
+        },
+        "quiet_ms": {
+          "description": "Since 1.3: observe as soon as the screen has not changed for this many\nmilliseconds (at most 1000), waiting at most `settle_ms` in all. Older\nphones ignore it and wait the full `settle_ms`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
           "minimum": 0
         },
         "settle_ms": {

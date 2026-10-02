@@ -58,6 +58,13 @@ android {
     sourceSets {
         // Shared protocol fixtures, read by the same tests that run in Rust.
         getByName("test").resources.srcDir("../../../packages/schemas/v1")
+        // The gateway's word lists, so the phone re-checks taps with exactly the same rules.
+        getByName("main").assets.srcDir("../../../packages/schemas/v1/policy")
+    }
+
+    androidResources {
+        // Only words.json is needed at runtime; the conformance table is for tests.
+        ignoreAssetsPatterns += "cases.json"
     }
 
     lint {

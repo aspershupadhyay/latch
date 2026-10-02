@@ -14,7 +14,7 @@ use latch_protocol::{
     ActionResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
     DeviceDescriptor, DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello,
     Observation, Outcome, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo,
-    Target, validate,
+    Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
@@ -233,14 +233,25 @@ pub fn handle(
             state.latest = None;
             done(state)
         }
-        Command::TypeText { element, text, .. } => {
+        Command::TypeText {
+            element,
+            text,
+            submit,
+            ..
+        } => {
             match target_effect(&Target::Element {
                 element: element.clone(),
             })? {
+                // In the chat app the keyboard's action key sends, like most messengers.
+                Effect::EditDraft if *submit => state.phone.sent_messages.push(text.clone()),
                 Effect::EditDraft => state.phone.draft = text.clone(),
                 Effect::EditUsername => state.phone.username = text.clone(),
                 _ => return Err(err(ErrorCode::InvalidRequest, "not editable")),
             }
+            state.latest = None;
+            done(state)
+        }
+        Command::Pinch { .. } => {
             state.latest = None;
             done(state)
         }
@@ -258,6 +269,33 @@ pub fn handle(
             }
             state.latest = None;
             done(state)
+        }
+        Command::WaitFor {
+            text,
+            gone,
+            max_nodes,
+            ..
+        } => {
+            // The fake screen never changes on its own, so the answer is immediate.
+            let present = shows_text(&state.phone.render(), text);
+            let observation = observe(state, false, *max_nodes);
+            state.executed.push("ui.wait".into());
+            serde_json::to_value(WaitResult {
+                matched: present != *gone,
+                observation,
+            })
+            .map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::ScrollTo { text, .. } => {
+            // Only the settings list is longer than the screen.
+            if !shows_text(&state.phone.render(), text) && state.phone.screen == Screen::Settings {
+                state.phone.settings_scrolled = true;
+            }
+            let found = shows_text(&state.phone.render(), text);
+            state.latest = None;
+            let mut value = done(state)?;
+            value["found"] = serde_json::Value::Bool(found);
+            Ok(value)
         }
         Command::ListApps {} => serde_json::to_value(AppList {
             apps: screens::apps(),
@@ -280,6 +318,18 @@ pub fn handle(
             done(state)
         }
     }
+}
+
+/// Whether a non-sensitive element's text or description contains `text`, ignoring case.
+fn shows_text(nodes: &[screens::Node], text: &str) -> bool {
+    let needle = text.to_lowercase();
+    nodes.iter().any(|n| {
+        !n.node.sensitive
+            && [n.node.text.as_deref(), n.node.description.as_deref()]
+                .into_iter()
+                .flatten()
+                .any(|t| t.to_lowercase().contains(&needle))
+    })
 }
 
 /// Captures the fake screen and makes it the latest observation.
@@ -662,6 +712,7 @@ mod tests {
                 settle_ms: 0,
                 include_screenshot: false,
                 max_nodes: 400,
+                quiet_ms: None,
             }),
         }
     }
@@ -684,6 +735,7 @@ mod tests {
                 element: "n1".into(),
             },
             long_press: false,
+            double: false,
         };
         handle(&mut state, &envelope(tap, false)).expect("fresh observation accepted");
 

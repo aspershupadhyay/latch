@@ -19,6 +19,13 @@ pub const MAX_PACKAGE_CHARS: usize = 255;
 pub const MAX_NODE_TEXT_CHARS: usize = 4_000;
 pub const MAX_SCREENSHOT_BASE64_BYTES: usize = 6 * 1024 * 1024;
 pub const MAX_SETTLE_MS: u32 = 3_000;
+pub const MAX_QUIET_MS: u32 = 1_000;
+pub const MAX_WAIT_MS: u32 = 15_000;
+pub const MIN_WAIT_MS: u32 = 100;
+pub const MAX_FIND_TEXT_CHARS: usize = 200;
+pub const MAX_SCROLL_SWIPES: u32 = 20;
+pub const MAX_HOLD_MS: u32 = 3_000;
+pub const MIN_PINCH_SPAN: u32 = 20;
 
 fn invalid(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(ErrorCode::InvalidRequest, message)
@@ -71,6 +78,19 @@ fn check_id(name: &str, id: &str) -> Result<(), ProtocolError> {
 /// A whole command as a device receives it: the command and, since 1.2, `observe_after`.
 pub fn envelope(envelope: &CommandEnvelope) -> Result<(), ProtocolError> {
     command(&envelope.command)?;
+    if let Some(key) = envelope
+        .confirm
+        .as_ref()
+        .and_then(|c| c.remember.as_deref())
+        && (key.is_empty()
+            || key.chars().count() > crate::MAX_REMEMBER_CHARS
+            || key.chars().any(char::is_control))
+    {
+        return Err(invalid(format!(
+            "confirm.remember must be 1-{} characters without control characters",
+            crate::MAX_REMEMBER_CHARS
+        )));
+    }
     if let Some(after) = &envelope.observe_after {
         if !envelope.command.is_action() {
             return Err(invalid("observe_after is only allowed on actions"));
@@ -78,6 +98,11 @@ pub fn envelope(envelope: &CommandEnvelope) -> Result<(), ProtocolError> {
         if after.settle_ms > MAX_SETTLE_MS {
             return Err(invalid(format!(
                 "observe_after.settle_ms must be at most {MAX_SETTLE_MS}"
+            )));
+        }
+        if after.quiet_ms.is_some_and(|q| q > MAX_QUIET_MS) {
+            return Err(invalid(format!(
+                "observe_after.quiet_ms must be at most {MAX_QUIET_MS}"
             )));
         }
         if after.max_nodes == 0 || after.max_nodes > MAX_NODES {
@@ -89,8 +114,86 @@ pub fn envelope(envelope: &CommandEnvelope) -> Result<(), ProtocolError> {
     Ok(())
 }
 
+/// Text to look for on screen: 1-200 characters, no control characters.
+fn check_find_text(text: &str) -> Result<(), ProtocolError> {
+    if text.trim().is_empty() || text.chars().count() > MAX_FIND_TEXT_CHARS {
+        return Err(invalid(format!(
+            "text must be 1-{MAX_FIND_TEXT_CHARS} characters"
+        )));
+    }
+    if text.chars().any(char::is_control) {
+        return Err(invalid("text must not contain control characters"));
+    }
+    Ok(())
+}
+
 pub fn command(command: &Command) -> Result<(), ProtocolError> {
     match command {
+        Command::Pinch {
+            observation_id,
+            center,
+            start_span,
+            end_span,
+            duration_ms,
+        } => {
+            check_id("observation_id", observation_id)?;
+            check_coordinate("center.x", center.x)?;
+            check_coordinate("center.y", center.y)?;
+            for (name, span) in [("start_span", start_span), ("end_span", end_span)] {
+                if *span < MIN_PINCH_SPAN || *span > MAX_COORDINATE as u32 {
+                    return Err(invalid(format!(
+                        "{name} must be between {MIN_PINCH_SPAN} and {MAX_COORDINATE}"
+                    )));
+                }
+            }
+            if start_span == end_span {
+                return Err(invalid("start_span and end_span must differ"));
+            }
+            if *duration_ms < 50 || *duration_ms > MAX_SWIPE_MS {
+                return Err(invalid(format!(
+                    "duration_ms must be between 50 and {MAX_SWIPE_MS}"
+                )));
+            }
+            Ok(())
+        }
+        Command::WaitFor {
+            text,
+            timeout_ms,
+            max_nodes,
+            ..
+        } => {
+            check_find_text(text)?;
+            if !(MIN_WAIT_MS..=MAX_WAIT_MS).contains(timeout_ms) {
+                return Err(invalid(format!(
+                    "timeout_ms must be between {MIN_WAIT_MS} and {MAX_WAIT_MS}"
+                )));
+            }
+            if *max_nodes == 0 || *max_nodes > MAX_NODES {
+                return Err(invalid(format!(
+                    "max_nodes must be between 1 and {MAX_NODES}"
+                )));
+            }
+            Ok(())
+        }
+        Command::ScrollTo {
+            observation_id,
+            text,
+            container,
+            max_swipes,
+            ..
+        } => {
+            check_id("observation_id", observation_id)?;
+            check_find_text(text)?;
+            if let Some(container) = container {
+                check_id("container", container)?;
+            }
+            if *max_swipes == 0 || *max_swipes > MAX_SCROLL_SWIPES {
+                return Err(invalid(format!(
+                    "max_swipes must be between 1 and {MAX_SCROLL_SWIPES}"
+                )));
+            }
+            Ok(())
+        }
         Command::DeviceInfo {} | Command::ListApps {} | Command::Global { .. } => Ok(()),
         Command::Observe { max_nodes, .. } => {
             if *max_nodes == 0 || *max_nodes > MAX_NODES {
@@ -104,9 +207,13 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
         Command::Tap {
             observation_id,
             target,
-            ..
+            long_press,
+            double,
         } => {
             check_id("observation_id", observation_id)?;
+            if *long_press && *double {
+                return Err(invalid("a tap is either long_press or double, not both"));
+            }
             match target {
                 Target::Element { element } => check_id("element", element),
                 Target::Point { x, y } => {
@@ -120,8 +227,12 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             from,
             to,
             duration_ms,
+            hold_ms,
         } => {
             check_id("observation_id", observation_id)?;
+            if *hold_ms > MAX_HOLD_MS {
+                return Err(invalid(format!("hold_ms must be at most {MAX_HOLD_MS}")));
+            }
             for (name, v) in [
                 ("from.x", from.x),
                 ("from.y", from.y),
@@ -144,6 +255,7 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             observation_id,
             element,
             text,
+            ..
         } => {
             check_id("observation_id", observation_id)?;
             check_id("element", element)?;
@@ -271,6 +383,7 @@ mod tests {
             observation_id: "o_1".into(),
             target: Target::Point { x: -1, y: 5 },
             long_press: false,
+            double: false,
         };
         assert_eq!(
             command(&tap).map_err(|e| e.code),
@@ -282,6 +395,7 @@ mod tests {
             from: Point { x: 1, y: 1 },
             to: Point { x: 1, y: 1 },
             duration_ms: 300,
+            hold_ms: 0,
         };
         assert!(command(&swipe).is_err());
 
@@ -289,6 +403,7 @@ mod tests {
             observation_id: "o_1".into(),
             element: "n1".into(),
             text: "x".repeat(MAX_TEXT_CHARS + 1),
+            submit: false,
         };
         assert!(command(&long_text).is_err());
 
@@ -296,6 +411,7 @@ mod tests {
             observation_id: "o_1".into(),
             element: "n1".into(),
             text: "abc\u{0007}".into(),
+            submit: false,
         };
         assert!(command(&control).is_err());
 

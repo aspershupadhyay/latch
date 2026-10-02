@@ -30,6 +30,25 @@ pub enum GlobalAction {
     Recents,
 }
 
+/// Scroll direction, named after the content being revealed: `down` shows
+/// what is further down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 /// One device operation. Serialized as `{"name": "...", "params": {...}}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "name", content = "params")]
@@ -52,6 +71,9 @@ pub enum Command {
         target: Target,
         #[serde(default)]
         long_press: bool,
+        /// Since 1.3: two quick taps (zoom a map, like a photo). Not with `long_press`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        double: bool,
     },
 
     #[serde(rename = "input.swipe")]
@@ -59,6 +81,22 @@ pub enum Command {
         observation_id: String,
         from: Point,
         to: Point,
+        #[serde(default = "default_swipe_ms")]
+        duration_ms: u32,
+        /// Since 1.3: press and hold at `from` this long before moving, which
+        /// drags (icons, list items, sliders) instead of scrolling.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        hold_ms: u32,
+    },
+
+    /// Since 1.3: two fingers moving apart (`end_span` > `start_span`, zoom
+    /// in) or together (zoom out) around `center`, horizontally.
+    #[serde(rename = "input.pinch")]
+    Pinch {
+        observation_id: String,
+        center: Point,
+        start_span: u32,
+        end_span: u32,
         #[serde(default = "default_swipe_ms")]
         duration_ms: u32,
     },
@@ -69,6 +107,39 @@ pub enum Command {
         observation_id: String,
         element: String,
         text: String,
+        /// Since 1.3: then press the keyboard's action key (Enter, Search,
+        /// Send, Go, Done) in that field. Sent only to 1.3+ phones.
+        #[serde(default, skip_serializing_if = "is_false")]
+        submit: bool,
+    },
+
+    /// Since 1.3: wait until an element whose text or description contains
+    /// `text` (case-insensitive) is on screen, or until none is when `gone`.
+    /// Answers with a [`crate::WaitResult`] whose observation becomes the latest.
+    #[serde(rename = "ui.wait")]
+    WaitFor {
+        text: String,
+        #[serde(default)]
+        gone: bool,
+        #[serde(default = "default_wait_ms")]
+        timeout_ms: u32,
+        #[serde(default = "default_max_nodes")]
+        max_nodes: u32,
+    },
+
+    /// Since 1.3: scroll `container` (or the largest scrollable element) in
+    /// `direction` until an element containing `text` is visible, at most
+    /// `max_swipes` times. Answers with an [`crate::ActionResult`] whose
+    /// `found` says whether it got there.
+    #[serde(rename = "ui.scroll_to")]
+    ScrollTo {
+        observation_id: String,
+        text: String,
+        direction: Direction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        container: Option<String>,
+        #[serde(default = "default_max_swipes")]
+        max_swipes: u32,
     },
 
     #[serde(rename = "nav.global")]
@@ -89,6 +160,14 @@ fn default_swipe_ms() -> u32 {
     300
 }
 
+fn default_wait_ms() -> u32 {
+    5_000
+}
+
+fn default_max_swipes() -> u32 {
+    10
+}
+
 impl Command {
     /// Wire name, e.g. `input.tap`.
     pub fn name(&self) -> &'static str {
@@ -101,6 +180,9 @@ impl Command {
             Command::Global { .. } => "nav.global",
             Command::ListApps {} => "app.list",
             Command::LaunchApp { .. } => "app.launch",
+            Command::WaitFor { .. } => "ui.wait",
+            Command::ScrollTo { .. } => "ui.scroll_to",
+            Command::Pinch { .. } => "input.pinch",
         }
     }
 
@@ -117,10 +199,14 @@ impl Command {
                     vec![Capability::UiObserve]
                 }
             }
-            Command::Tap { .. } | Command::Swipe { .. } => vec![Capability::InputGesture],
+            Command::Tap { .. } | Command::Swipe { .. } | Command::Pinch { .. } => {
+                vec![Capability::InputGesture]
+            }
             Command::TypeText { .. } => vec![Capability::InputText],
             Command::Global { .. } => vec![Capability::NavGlobal],
             Command::ListApps {} | Command::LaunchApp { .. } => vec![Capability::AppLaunch],
+            Command::WaitFor { .. } => vec![Capability::UiObserve],
+            Command::ScrollTo { .. } => vec![Capability::UiObserve, Capability::InputGesture],
         }
     }
 
@@ -128,8 +214,22 @@ impl Command {
     pub fn is_action(&self) -> bool {
         !matches!(
             self,
-            Command::DeviceInfo {} | Command::Observe { .. } | Command::ListApps {}
+            Command::DeviceInfo {}
+                | Command::Observe { .. }
+                | Command::ListApps {}
+                | Command::WaitFor { .. }
         )
+    }
+
+    /// The lowest protocol minor version a phone must speak to understand this
+    /// command exactly (older phones would refuse it or ignore a field).
+    pub fn min_minor_version(&self) -> u32 {
+        match self {
+            Command::WaitFor { .. } | Command::ScrollTo { .. } | Command::Pinch { .. } => 3,
+            Command::TypeText { submit: true, .. } | Command::Tap { double: true, .. } => 3,
+            Command::Swipe { hold_ms, .. } if *hold_ms > 0 => 3,
+            _ => 0,
+        }
     }
 
     /// The observation an action was planned against, if any.
@@ -137,7 +237,9 @@ impl Command {
         match self {
             Command::Tap { observation_id, .. }
             | Command::Swipe { observation_id, .. }
-            | Command::TypeText { observation_id, .. } => Some(observation_id),
+            | Command::TypeText { observation_id, .. }
+            | Command::ScrollTo { observation_id, .. }
+            | Command::Pinch { observation_id, .. } => Some(observation_id),
             _ => None,
         }
     }
@@ -153,6 +255,9 @@ pub enum RiskLevel {
     High,
 }
 
+/// Longest `ConfirmRequest::remember` key.
+pub const MAX_REMEMBER_CHARS: usize = 160;
+
 /// Attached to a command when a human must approve it on the phone first.
 ///
 /// The device shows `title` and `detail` verbatim, waits for the owner, and
@@ -163,4 +268,11 @@ pub struct ConfirmRequest {
     pub title: String,
     pub detail: String,
     pub risk: RiskLevel,
+    /// Since 1.3: present when the owner may answer "allow for this session"
+    /// or "always allow in this app" instead of only "once". Absent for
+    /// critical actions (money, permissions, installs, account deletion),
+    /// which are asked every time. The phone matches saved answers by this
+    /// exact key and may still ignore it after its own live check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remember: Option<String>,
 }

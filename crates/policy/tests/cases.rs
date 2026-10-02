@@ -87,6 +87,9 @@ fn shared_policy_cases() {
                 if let Some(title) = expect.get("title") {
                     assert_eq!(title, &Value::String(c.title.clone()), "{name}");
                 }
+                if let Some(remember) = expect.get("remember") {
+                    assert_eq!(remember, &serde_json::json!(c.remember), "{name}");
+                }
             }
             ("deny", Decision::Deny(e)) => assert_eq!(
                 expect["code"],

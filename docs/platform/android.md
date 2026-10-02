@@ -46,7 +46,9 @@ Release builds are minified and signed in CI when `LATCH_KEYSTORE_BASE64`, `LATC
 - Actions must cite the latest observation; the foreground app must be unchanged and the target element visible, enabled, and within 8 px of where it was.
 - Sensitive elements (password input types, `isAccessibilityDataSensitive`, and editable fields labelled like PIN, OTP, CVV, card number…) are sent without text and can never be tapped, swiped from, or typed into.
 - Agents cannot observe or act while Latch itself, the notification shade, or the lock screen (`com.android.systemui`) is in front; gestures cannot start in the status bar or on the Stop pill; `launch_app` refuses Latch and System UI.
-- Approval requests appear as a card over the current app; Approve enables after 1 s; unanswered requests expire before the command deadline.
+- Approval requests appear as a card over the current app; the allow buttons enable after 1 s; unanswered requests expire before the command deadline.
+- The phone judges every tap, swipe, and type-and-Enter itself with the gateway's rules and word lists (`packages/schemas/v1/policy/words.json`, bundled as an asset), using its own copy of the screen plus what the target shows right now, and asks the owner even when the gateway did not. Critical actions (money, installs, permission prompts, account deletion) are asked every time; others may be saved for the session or "always in this app". Saved answers stay on the phone, are listed under **Access → Always allowed**, and are wiped when the phone forgets the gateway.
+- The cursor overlay is a separate untouchable, unfocusable window hidden from screen readers and from screenshots. *Keep the screen on* sets `FLAG_KEEP_SCREEN_ON` on the Stop pill window for the session.
 - Pause, Stop (pill, notification, or app), session expiry, revocation, and switching off the accessibility service all stop command execution immediately.
 - The device token is encrypted with a non-exportable Android Keystore key; backups and device transfer exclude all app data.
 
@@ -55,7 +57,8 @@ Release builds are minified and signed in CI when `LATCH_KEYSTORE_BASE64`, `LATC
 - Only the active window's element tree is read; dialogs from other windows and the on-screen keyboard are not included.
 - Screenshots are scaled to a 1280 px long edge; the platform limits them to roughly one per second.
 - Apps that set `FLAG_SECURE` (banking, some video apps) cannot be captured; their element tree may still be readable unless they mark data sensitive.
-- `type_text` replaces the field's whole content and never presses Enter.
+- `type_text` replaces the field's whole content. With `submit` it then presses the field's IME action (`ACTION_IME_ENTER`); fields that do not handle it report an error after the text was typed.
+- Smart settle relies on accessibility events; an app that animates without pause (video, spinners) uses the whole 1.5 s budget.
 - An agent with gestures can operate Android Settings (outside the shade). Turn on *Ask me before every action* when that matters; a per-app allowlist is planned.
 - Google Play's accessibility policy may not allow this use (**to verify** before any store submission); Android developer verification requirements for sideloaded apps must be checked before each release.
 
@@ -74,3 +77,8 @@ Run on at least two phones (for example a Pixel-class device on Android 16 and a
 9. Revoke the phone in the console → the app shows "revoked"; reconnect attempts fail.
 10. Switch off the accessibility service mid-session → actions return `permission_missing`; the Stop pill disappears.
 11. TalkBack on: the Home screen, capability switches, and approval card are announced with their text; large font (200%) does not clip the Stop button.
+12. Regression for the 2026-10-02 run: in WhatsApp, `type_text` then `tap` Send, and separately `type_text` with `submit` → each shows an approval card; tapping a contact's phone number or a SIM choice in the dialer → approval card.
+13. Approve with **Always in WhatsApp** → the same Send asks no more; **Access → Always allowed** lists it; Remove → it asks again. A *Pay* or *Install* button never offers "Always".
+14. Cursor on: the dot moves to each tap and swipe and is absent from `observe` screenshots; TalkBack does not announce it. Cursor off: no dot.
+15. Keep the screen on: the screen stays on for 5 minutes of an idle session; switched off, it times out normally.
+16. Speed: compare `_meta["latch/timing"]` for `tap` with the 2026-10-02 numbers; `wait_for`, `scroll_to` (Settings → "About phone"), `pinch` on Maps, double-tap, and a `hold_ms` drag on the home screen each work in one call.
