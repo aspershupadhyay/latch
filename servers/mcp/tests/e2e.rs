@@ -1008,6 +1008,11 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
 
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
+    assert_eq!(
+        lines[0], "Latch gateway, protocol 1.3, 12 tools.",
+        "{devices}"
+    );
+    let lines = &lines[1..];
     assert!(
         lines[0].contains(&new_id) && lines[0].contains("connected"),
         "{devices}"
