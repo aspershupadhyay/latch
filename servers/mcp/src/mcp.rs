@@ -216,6 +216,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "x": { "type": "integer", "minimum": 0, "description": "Screen x in pixels; use with y instead of element_id." },
                 "y": { "type": "integer", "minimum": 0 },
                 "long_press": { "type": "boolean", "default": false },
+                "double": { "type": "boolean", "default": false, "description": "Two quick taps, e.g. to zoom a map or like a photo." },
                 "screenshot_after": screenshot_after_schema(),
             }),
             &["observation_id"],
@@ -305,9 +306,29 @@ pub fn tool_definitions() -> Vec<Value> {
                 "to_x": { "type": "integer", "minimum": 0 },
                 "to_y": { "type": "integer", "minimum": 0 },
                 "duration_ms": { "type": "integer", "minimum": 50, "maximum": 5000, "default": 300 },
+                "hold_ms": {
+                    "type": "integer", "minimum": 0, "maximum": 3000, "default": 0,
+                    "description": "Press and hold at the start this long before moving: drags icons, list items, and sliders instead of scrolling. Try 600."
+                },
                 "screenshot_after": screenshot_after_schema(),
             }),
             &["observation_id", "from_x", "from_y", "to_x", "to_y"],
+        ),
+        tool(
+            "pinch",
+            "Pinch to zoom",
+            "Zoom in or out with two fingers around a point (default: the middle of the screen), \
+             e.g. on a map or photo. Returns the new observation.",
+            false,
+            json!({
+                "device_id": device_id_schema(),
+                "observation_id": observation_id_schema(),
+                "zoom": { "type": "string", "enum": ["in", "out"] },
+                "x": { "type": "integer", "minimum": 0 },
+                "y": { "type": "integer", "minimum": 0 },
+                "screenshot_after": screenshot_after_schema(),
+            }),
+            &["observation_id", "zoom"],
         ),
         tool(
             "press",
@@ -528,6 +549,7 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
                 observation_id,
                 target,
                 long_press: arg_bool(args, "long_press", false).map_err(bad)?,
+                double: arg_bool(args, "double", false).map_err(bad)?,
             }
         }
         "type_text" => Command::TypeText {
@@ -588,7 +610,12 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
                 .map_err(|_| {
                     ProtocolError::new(ErrorCode::InvalidRequest, "duration_ms must be positive")
                 })?,
+            hold_ms: positive(
+                arg_int(args, "hold_ms").map_err(bad)?.unwrap_or(0),
+                "hold_ms",
+            )?,
         },
+        "pinch" => pinch_command(state, &device_id, args)?,
         "scroll" => {
             let observation_id = req_str(args, "observation_id").map_err(bad)?;
             let direction = req_str(args, "direction").map_err(bad)?;
@@ -820,6 +847,52 @@ fn scroll_command(
             y: from.1,
         },
         to: Point { x: to.0, y: to.1 },
+        duration_ms: 400,
+        hold_ms: 0,
+    })
+}
+
+/// Zoom with two fingers around a point (default: the middle of the screen),
+/// from a fifth to three fifths of the shorter screen side, or back.
+fn pinch_command(
+    state: &AppState,
+    device_id: &str,
+    args: &Value,
+) -> Result<Command, ProtocolError> {
+    let bad = |e: ArgError| ProtocolError::new(ErrorCode::InvalidRequest, e.0);
+    let observation_id = req_str(args, "observation_id").map_err(bad)?;
+    let screen = state
+        .devices
+        .latest_observation(device_id)
+        .filter(|o| o.observation_id == observation_id)
+        .ok_or_else(|| ProtocolError::new(ErrorCode::StaleObservation, "observe before pinching"))?
+        .screen;
+    let x = arg_int(args, "x")
+        .map_err(bad)?
+        .unwrap_or(screen.width as i32 / 2);
+    let y = arg_int(args, "y")
+        .map_err(bad)?
+        .unwrap_or(screen.height as i32 / 2);
+    let short = screen.width.min(screen.height);
+    let (small, large) = (
+        (short / 5).max(latch_protocol::validate::MIN_PINCH_SPAN),
+        (short * 3 / 5).max(latch_protocol::validate::MIN_PINCH_SPAN + 1),
+    );
+    let (start_span, end_span) = match req_str(args, "zoom").map_err(bad)? {
+        "in" => (small, large),
+        "out" => (large, small),
+        _ => {
+            return Err(ProtocolError::new(
+                ErrorCode::InvalidRequest,
+                "zoom must be in or out",
+            ));
+        }
+    };
+    Ok(Command::Pinch {
+        observation_id: observation_id.to_owned(),
+        center: Point { x, y },
+        start_span,
+        end_span,
         duration_ms: 400,
     })
 }

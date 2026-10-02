@@ -52,8 +52,12 @@ class Consequences(private val words: PolicyWords) {
     }
 
     /** Judges a tap on [node] (null: a point on no element) in [observation]. */
-    fun judgeTap(observation: Observation, node: UiNode?, longPress: Boolean, extra: List<UiNode> = emptyList()): Judgement {
-        val verb = if (longPress) "Long-press" else "Tap"
+    fun judgeTap(observation: Observation, node: UiNode?, longPress: Boolean, extra: List<UiNode> = emptyList(), double: Boolean = false): Judgement {
+        val verb = when {
+            longPress -> "Long-press"
+            double -> "Double-tap"
+            else -> "Tap"
+        }
         val pkg = observation.`package`
         val place = pkg?.let { " in $it" } ?: ""
         if (node == null) {
@@ -90,9 +94,10 @@ class Consequences(private val words: PolicyWords) {
         ws.any { it in words.searchFieldWords } || words.searchFieldWords.any { it.length >= 5 && compact.contains(it) }
     }
 
-    fun judgeSwipe(packageName: String?): Judgement {
+    fun judgeSwipe(packageName: String?, drag: Boolean = false): Judgement {
         val consequence = if (packageName != null && packageName in words.callPackages) Consequence.CONSEQUENTIAL else Consequence.NONE
-        return Judgement(consequence, "Swipe on the screen${packageName?.let { " in $it" } ?: ""}", "swipe|${packageName ?: "?"}|")
+        val verb = if (drag) "Drag" else "Swipe"
+        return Judgement(consequence, "$verb on the screen${packageName?.let { " in $it" } ?: ""}", "${verb.lowercase()}|${packageName ?: "?"}|")
     }
 
     private fun words(text: String): List<String> = text.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }

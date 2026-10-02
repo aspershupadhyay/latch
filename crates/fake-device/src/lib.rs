@@ -251,6 +251,10 @@ pub fn handle(
             state.latest = None;
             done(state)
         }
+        Command::Pinch { .. } => {
+            state.latest = None;
+            done(state)
+        }
         Command::Swipe { .. } => {
             if state.phone.screen == Screen::Settings {
                 state.phone.settings_scrolled = true;
@@ -731,6 +735,7 @@ mod tests {
                 element: "n1".into(),
             },
             long_press: false,
+            double: false,
         };
         handle(&mut state, &envelope(tap, false)).expect("fresh observation accepted");
 

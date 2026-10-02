@@ -108,6 +108,7 @@ fn tap(element: &str) -> Command {
             element: element.into(),
         },
         long_press: false,
+        double: false,
     }
 }
 
@@ -149,6 +150,7 @@ fn coordinate_tap_on_consequential_control_also_requires_confirmation() {
         observation_id: "o_1".into(),
         target: Target::Point { x: 1000, y: 2300 },
         long_press: false,
+        double: false,
     };
     assert!(matches!(
         decide(&cmd, &all_enabled(), session(), Some((&obs, NOW))),
@@ -298,6 +300,7 @@ fn sensitive_fields_are_never_targeted() {
         from: Point { x: 10, y: 350 },
         to: Point { x: 10, y: 900 },
         duration_ms: 300,
+        hold_ms: 0,
     };
     assert_eq!(
         code(decide(
@@ -358,6 +361,7 @@ fn missing_disabled_and_offscreen_targets_are_refused() {
         observation_id: "o_1".into(),
         target: Target::Point { x: 5000, y: 10 },
         long_press: false,
+        double: false,
     };
     assert_eq!(
         code(decide(&off, &all_enabled(), session(), ctx)),
@@ -498,6 +502,7 @@ fn judge(obs: &Observation, target: Target) -> Decision {
             observation_id: "o_1".into(),
             target,
             long_press: false,
+            double: false,
         },
         &DeviceContext {
             capabilities: &caps,

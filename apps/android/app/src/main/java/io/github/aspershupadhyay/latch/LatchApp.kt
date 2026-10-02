@@ -76,10 +76,11 @@ class LatchApp : Application() {
     /** Keeps the overlay, the approval card, and the ongoing notification in step with the session. */
     private fun observeIndicators() {
         scope.launch {
-            combine(session.state, bridge.service) { state, service -> state to service }.collect { (state, service) ->
+            combine(session.state, bridge.service, settings.preferences) { state, service, prefs -> Triple(state, service, prefs) }.collect { (state, service, prefs) ->
                 val live = state is SessionState.Active || state is SessionState.Reconnecting || state is SessionState.Connecting
                 if (live) {
                     service?.showOverlay { session.stop() }
+                    service?.applyOverlayPreferences(prefs.showCursor, prefs.keepAwake)
                     showSessionNotification(state)
                 } else {
                     service?.hideOverlay()

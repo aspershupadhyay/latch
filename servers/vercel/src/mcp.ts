@@ -4,7 +4,7 @@
 
 import { SERVER } from "./generated/contract.js";
 import type { CommandTiming, Devices, DeviceRecord, Live } from "./devices.js";
-import { type Command, type Direction, type Observation, ProtocolError } from "./protocol.js";
+import { type Command, type Direction, LIMITS, type Observation, ProtocolError } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
@@ -143,7 +143,10 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       if (element !== undefined && x === undefined && y === undefined) target = { element };
       else if (element === undefined && x !== undefined && y !== undefined) target = { x, y };
       else throw bad("pass either element_id, or both x and y");
-      command = { name: "input.tap", params: { observation_id: observationId, target, long_press: argBool(args, "long_press", false) } };
+      command = {
+        name: "input.tap",
+        params: { observation_id: observationId, target, long_press: argBool(args, "long_press", false), double: argBool(args, "double", false) },
+      };
       break;
     }
     case "type_text":
@@ -181,9 +184,15 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       const to = { x: reqInt(args, "to_x"), y: reqInt(args, "to_y") };
       const duration = argInt(args, "duration_ms") ?? 300;
       if (duration < 0) throw bad("duration_ms must be positive");
-      command = { name: "input.swipe", params: { observation_id: observationId, from, to, duration_ms: duration } };
+      command = {
+        name: "input.swipe",
+        params: { observation_id: observationId, from, to, duration_ms: duration, hold_ms: positive(argInt(args, "hold_ms") ?? 0, "hold_ms") },
+      };
       break;
     }
+    case "pinch":
+      command = await pinchCommand(ctx, deviceId, args);
+      break;
     case "scroll":
       command = await scrollCommand(ctx, deviceId, reqStr(args, "observation_id"), reqStr(args, "direction"), argStr(args, "element_id"));
       break;
@@ -280,6 +289,26 @@ async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreen
   return withTiming(observationResult(deviceId, run.data as Observation, wantScreenshot && !allowed), run.timing);
 }
 
+/**
+ * Zoom with two fingers around a point (default: the middle of the screen),
+ * from a fifth to three fifths of the shorter screen side, or back.
+ */
+async function pinchCommand(ctx: McpContext, deviceId: string, args: Record<string, unknown>): Promise<Command> {
+  const observationId = reqStr(args, "observation_id");
+  const screen = await ctx.devices.latestObservation(deviceId);
+  if (!screen || screen.observation_id !== observationId) throw new ProtocolError("stale_observation", "observe before pinching");
+  const { width, height } = screen.screen;
+  const x = argInt(args, "x") ?? Math.trunc(width / 2);
+  const y = argInt(args, "y") ?? Math.trunc(height / 2);
+  const short = Math.min(width, height);
+  const small = Math.max(Math.trunc(short / 5), LIMITS.minPinchSpan);
+  const large = Math.max(Math.trunc((short * 3) / 5), LIMITS.minPinchSpan + 1);
+  const zoom = reqStr(args, "zoom");
+  if (zoom !== "in" && zoom !== "out") throw bad("zoom must be in or out");
+  const [start, end] = zoom === "in" ? [small, large] : [large, small];
+  return { name: "input.pinch", params: { observation_id: observationId, center: { x, y }, start_span: start, end_span: end, duration_ms: 400 } };
+}
+
 async function scrollCommand(ctx: McpContext, deviceId: string, observationId: string, direction: string, element?: string): Promise<Command> {
   const screen = await ctx.devices.latestObservation(deviceId);
   if (!screen || screen.observation_id !== observationId) throw new ProtocolError("stale_observation", "observe before scrolling");
@@ -304,7 +333,7 @@ async function scrollCommand(ctx: McpContext, deviceId: string, observationId: s
     case "left": from = [area.left + div(w, 5), cy]; to = [area.left + div(w * 4, 5), cy]; break;
     default: throw bad("direction must be up, down, left, or right");
   }
-  return { name: "input.swipe", params: { observation_id: observationId, from: { x: from[0], y: from[1] }, to: { x: to[0], y: to[1] }, duration_ms: 400 } };
+  return { name: "input.swipe", params: { observation_id: observationId, from: { x: from[0], y: from[1] }, to: { x: to[0], y: to[1] }, duration_ms: 400, hold_ms: 0 } };
 }
 
 export async function renderDevices(devices: Devices): Promise<string> {

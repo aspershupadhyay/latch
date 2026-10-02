@@ -105,6 +105,13 @@ function assess(command: Command, observation: Observation | undefined): Assessm
     case "app.list": return low("List installed apps");
     case "nav.global": return low(`Press ${GLOBAL_NAMES[command.params.action]}`);
     case "app.launch": return medium(`Open ${command.params.package}`);
+    case "input.pinch": {
+      const obs = need();
+      const { center, start_span: startSpan, end_span: endSpan } = command.params;
+      checkOnScreen(obs, center.x, center.y);
+      if (nodeAt(obs, center.x, center.y)?.sensitive) throw sensitive();
+      return medium(`Pinch to zoom ${endSpan > startSpan ? "in" : "out"}${place(obs.package)}`);
+    }
     case "input.swipe": {
       const obs = need();
       const { from, to } = command.params;
@@ -113,11 +120,12 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       if (nodeAt(obs, from.x, from.y)?.sensitive) throw sensitive();
       // In a phone app a swipe can answer, decline, or place a call.
       const consequence: Consequence = obs.package !== undefined && isCallPackage(obs.package) ? "consequential" : "none";
-      return judged(consequence, `Swipe on the screen${place(obs.package)}`, `swipe|${obs.package ?? "?"}|`);
+      const verb = (command.params.hold_ms ?? 0) > 0 ? "Drag" : "Swipe";
+      return judged(consequence, `${verb} on the screen${place(obs.package)}`, `${verb.toLowerCase()}|${obs.package ?? "?"}|`);
     }
     case "input.tap": {
       const obs = need();
-      const verb = command.params.long_press ? "Long-press" : "Tap";
+      const verb = command.params.long_press ? "Long-press" : command.params.double === true ? "Double-tap" : "Tap";
       const t = command.params.target;
       let node: UiNode | undefined;
       if ("element" in t) node = resolve(obs, t.element);

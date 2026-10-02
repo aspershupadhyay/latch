@@ -143,6 +143,10 @@
             "params": {
               "type": "object",
               "properties": {
+                "double": {
+                  "description": "Since 1.3: two quick taps (zoom a map, like a photo). Not with `long_press`.",
+                  "type": "boolean"
+                },
                 "long_press": {
                   "type": "boolean",
                   "default": false
@@ -184,6 +188,12 @@
                 "from": {
                   "$ref": "#/$defs/Point"
                 },
+                "hold_ms": {
+                  "description": "Since 1.3: press and hold at `from` this long before moving, which\ndrags (icons, list items, sliders) instead of scrolling.",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
                 "observation_id": {
                   "type": "string"
                 },
@@ -195,6 +205,53 @@
                 "observation_id",
                 "from",
                 "to"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.3: two fingers moving apart (`end_span` > `start_span`, zoom\nin) or together (zoom out) around `center`, horizontally.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "input.pinch"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "center": {
+                  "$ref": "#/$defs/Point"
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 300,
+                  "minimum": 0
+                },
+                "end_span": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "observation_id": {
+                  "type": "string"
+                },
+                "start_span": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "observation_id",
+                "center",
+                "start_span",
+                "end_span"
               ]
             }
           },

@@ -44,11 +44,19 @@ fun deviceDescriptor() = DeviceDescriptor(
 fun describe(command: Command): String = when (command) {
     Command.DeviceInfoCommand -> "Read device information"
     is Command.Observe -> if (command.includeScreenshot) "Read the screen and take a screenshot" else "Read the screen"
-    is Command.Tap -> when (val t = command.target) {
-        is Target.Element -> if (command.longPress) "Long-press an element" else "Tap an element"
-        is Target.Point -> if (command.longPress) "Long-press at (${t.x}, ${t.y})" else "Tap at (${t.x}, ${t.y})"
+    is Command.Tap -> {
+        val verb = when {
+            command.longPress -> "Long-press"
+            command.double -> "Double-tap"
+            else -> "Tap"
+        }
+        when (val t = command.target) {
+            is Target.Element -> "$verb an element"
+            is Target.Point -> "$verb at (${t.x}, ${t.y})"
+        }
     }
-    is Command.Swipe -> "Swipe on the screen"
+    is Command.Swipe -> if (command.holdMs > 0) "Drag on the screen" else "Swipe on the screen"
+    is Command.Pinch -> if (command.endSpan > command.startSpan) "Pinch to zoom in" else "Pinch to zoom out"
     is Command.TypeText ->
         "Type ${command.text.codePointCount(0, command.text.length)} characters" + if (command.submit) " and press Enter" else ""
     is Command.WaitFor -> if (command.gone) "Wait for text to disappear" else "Wait for text to appear"
@@ -147,8 +155,12 @@ class CommandExecutor(
             else -> {
                 var found: Boolean? = null
                 when (command) {
-                    is Command.Tap -> service.tap(command.observationId, command.target, command.longPress)
-                    is Command.Swipe -> service.swipe(command.observationId, command.fromX, command.fromY, command.toX, command.toY, command.durationMs)
+                    is Command.Tap -> service.tap(command.observationId, command.target, command.longPress, command.double)
+                    is Command.Swipe -> service.swipe(
+                        command.observationId, command.fromX, command.fromY, command.toX, command.toY, command.durationMs, command.holdMs,
+                    )
+                    is Command.Pinch ->
+                        service.pinch(command.observationId, command.centerX, command.centerY, command.startSpan, command.endSpan, command.durationMs)
                     is Command.TypeText -> service.typeText(command.observationId, command.element, command.text, command.submit)
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName)
@@ -226,9 +238,9 @@ class CommandExecutor(
         val service = bridge.service.value ?: return null
         return when (command) {
             is Command.Tap -> service.tapContext(command.observationId, command.target)?.let {
-                consequences.judgeTap(it.observation, it.node, command.longPress, it.live)
+                consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double)
             }
-            is Command.Swipe -> consequences.judgeSwipe(service.currentPackage())
+            is Command.Swipe -> consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
             is Command.TypeText -> if (!command.submit) {
                 null
             } else {

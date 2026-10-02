@@ -84,8 +84,9 @@ const DIRECTIONS: readonly string[] = ["up", "down", "left", "right"];
 export type Command =
   | { name: "device.info"; params: Record<string, never> }
   | { name: "ui.observe"; params: { include_screenshot: boolean; max_nodes: number } }
-  | { name: "input.tap"; params: { observation_id: string; target: Target; long_press: boolean } }
-  | { name: "input.swipe"; params: { observation_id: string; from: { x: number; y: number }; to: { x: number; y: number }; duration_ms: number } }
+  | { name: "input.tap"; params: { observation_id: string; target: Target; long_press: boolean; double?: boolean } }
+  | { name: "input.swipe"; params: { observation_id: string; from: { x: number; y: number }; to: { x: number; y: number }; duration_ms: number; hold_ms?: number } }
+  | { name: "input.pinch"; params: { observation_id: string; center: { x: number; y: number }; start_span: number; end_span: number; duration_ms: number } }
   | { name: "input.type"; params: { observation_id: string; element: string; text: string; submit?: boolean } }
   | { name: "ui.wait"; params: { text: string; gone: boolean; timeout_ms: number; max_nodes: number } }
   | { name: "ui.scroll_to"; params: { observation_id: string; text: string; direction: Direction; container?: string; max_swipes: number } }
@@ -121,8 +122,10 @@ export function minorVersion(version: string | undefined): number | undefined {
 
 /** Lowest minor version a phone must speak to run this command exactly. */
 export function minMinorVersion(c: Command): number {
-  if (c.name === "ui.wait" || c.name === "ui.scroll_to") return 3;
+  if (c.name === "ui.wait" || c.name === "ui.scroll_to" || c.name === "input.pinch") return 3;
   if (c.name === "input.type" && c.params.submit === true) return 3;
+  if (c.name === "input.tap" && c.params.double === true) return 3;
+  if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   return 0;
 }
 
@@ -133,7 +136,7 @@ export function requiredCapabilities(c: Command): Capability[] {
   switch (c.name) {
     case "device.info": return ["device.info"];
     case "ui.observe": return c.params.include_screenshot ? ["ui.observe", "screen.capture"] : ["ui.observe"];
-    case "input.tap": case "input.swipe": return ["input.gesture"];
+    case "input.tap": case "input.swipe": case "input.pinch": return ["input.gesture"];
     case "input.type": return ["input.text"];
     case "nav.global": return ["nav.global"];
     case "app.list": case "app.launch": return ["app.launch"];
@@ -145,7 +148,7 @@ export function requiredCapabilities(c: Command): Capability[] {
 export const isAction = (c: Command) => !["device.info", "ui.observe", "app.list", "ui.wait"].includes(c.name);
 
 export function observationIdOf(c: Command): string | undefined {
-  return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" || c.name === "ui.scroll_to"
+  return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" || c.name === "ui.scroll_to" || c.name === "input.pinch"
     ? c.params.observation_id
     : undefined;
 }
@@ -155,7 +158,7 @@ export function observationIdOf(c: Command): string | undefined {
 export const LIMITS = {
   maxTextChars: 2_000, maxNodes: 2_000, maxSwipeMs: 5_000, maxCoordinate: 20_000, maxIdChars: 64,
   maxPackageChars: 255, maxNodeTextChars: 4_000, maxScreenshotBase64: 6 * 1024 * 1024,
-  maxMessageBytes: 8 * 1024 * 1024, minWaitMs: 100, maxWaitMs: 15_000, maxFindTextChars: 200, maxScrollSwipes: 20,
+  maxMessageBytes: 8 * 1024 * 1024, minWaitMs: 100, maxWaitMs: 15_000, maxFindTextChars: 200, maxScrollSwipes: 20, maxHoldMs: 3_000, minPinchSpan: 20,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
@@ -205,8 +208,20 @@ export function validateCommand(c: Command): void {
     case "ui.observe":
       if (c.params.max_nodes < 1 || c.params.max_nodes > LIMITS.maxNodes) throw invalid(`max_nodes must be between 1 and ${LIMITS.maxNodes}`);
       return;
+    case "input.pinch": {
+      const p = c.params;
+      id("observation_id", p.observation_id);
+      coordinate("center.x", p.center.x); coordinate("center.y", p.center.y);
+      for (const [name, span] of [["start_span", p.start_span], ["end_span", p.end_span]] as const) {
+        if (span < LIMITS.minPinchSpan || span > LIMITS.maxCoordinate) throw invalid(`${name} must be between ${LIMITS.minPinchSpan} and ${LIMITS.maxCoordinate}`);
+      }
+      if (p.start_span === p.end_span) throw invalid("start_span and end_span must differ");
+      if (p.duration_ms < 50 || p.duration_ms > LIMITS.maxSwipeMs) throw invalid(`duration_ms must be between 50 and ${LIMITS.maxSwipeMs}`);
+      return;
+    }
     case "input.tap": {
       id("observation_id", c.params.observation_id);
+      if (c.params.long_press && c.params.double === true) throw invalid("a tap is either long_press or double, not both");
       const t = c.params.target;
       if ("element" in t) id("element", t.element);
       else { coordinate("x", t.x); coordinate("y", t.y); }
@@ -215,6 +230,7 @@ export function validateCommand(c: Command): void {
     case "input.swipe": {
       const p = c.params;
       id("observation_id", p.observation_id);
+      if ((p.hold_ms ?? 0) > LIMITS.maxHoldMs) throw invalid(`hold_ms must be at most ${LIMITS.maxHoldMs}`);
       coordinate("from.x", p.from.x); coordinate("from.y", p.from.y); coordinate("to.x", p.to.x); coordinate("to.y", p.to.y);
       if (p.duration_ms < 50 || p.duration_ms > LIMITS.maxSwipeMs) throw invalid(`duration_ms must be between 50 and ${LIMITS.maxSwipeMs}`);
       if (p.from.x === p.to.x && p.from.y === p.to.y) throw invalid("swipe start and end must differ");
@@ -251,9 +267,24 @@ export function parseCommand(raw: unknown): Command {
       const t = p.target as Record<string, unknown> | undefined;
       if (!t) throw invalid("target is required");
       const target: Target = typeof t.element === "string" ? { element: t.element } : { x: int(t.x, "x"), y: int(t.y, "y") };
-      return { name, params: { observation_id: str("observation_id"), target, long_press: bool("long_press", false) } };
+      return { name, params: { observation_id: str("observation_id"), target, long_press: bool("long_press", false), double: bool("double", false) } };
     }
-    case "input.swipe": return { name, params: { observation_id: str("observation_id"), from: point("from"), to: point("to"), duration_ms: p.duration_ms === undefined ? 300 : int(p.duration_ms, "duration_ms") } };
+    case "input.swipe": return {
+      name,
+      params: {
+        observation_id: str("observation_id"), from: point("from"), to: point("to"),
+        duration_ms: p.duration_ms === undefined ? 300 : int(p.duration_ms, "duration_ms"),
+        hold_ms: p.hold_ms === undefined ? 0 : int(p.hold_ms, "hold_ms"),
+      },
+    };
+    case "input.pinch": return {
+      name,
+      params: {
+        observation_id: str("observation_id"), center: point("center"),
+        start_span: int(p.start_span, "start_span"), end_span: int(p.end_span, "end_span"),
+        duration_ms: p.duration_ms === undefined ? 300 : int(p.duration_ms, "duration_ms"),
+      },
+    };
     case "input.type": return { name, params: { observation_id: str("observation_id"), element: str("element"), text: str("text"), submit: bool("submit", false) } };
     case "ui.wait": return {
       name,

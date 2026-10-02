@@ -95,6 +95,11 @@ The last setup step asks you to pick a starting point:
 
 Change single switches any time in the **Access** tab. Want to approve **every single** action? Turn on **Ask me before every action**.
 
+On the same tab, under **While the AI works**:
+
+- **Show where the AI taps** (on by default): a dot glides to every tap, pulses on the tap, and draws a line for swipes. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
+- **Keep the screen on** (on by default): during a session the screen stays on, so a task isn't cut off by the lock screen. Turn it off to save battery.
+
 ### Step 7: Connect your AI 🤖
 
 Works the same in every MCP app (Claude, ChatGPT, Codex, Cursor, VS Code…):
@@ -243,7 +248,9 @@ We built Latch so the AI can't sneak around you:
 
 - **Everything starts off.** You switch on each power yourself.
 - **Sessions end on their own** when the timer runs out, and the red **Stop** button is always on screen.
-- **Big actions need your OK.** Before the AI taps things like *Send, Buy, Pay, Delete,* or *Allow*, a card pops up on your phone asking you.
+- **Big actions need your OK.** Before the AI taps things like *Send, Post, Call, Delete,* or presses Enter in a chat, a card pops up on your phone. Tap **Allow once**, or save your answer: **This session**, or **Always in Instagram** (for example). Saved answers are listed under **Access → Always allowed**, where you can remove them.
+- **Money, installs, permissions, and deleting accounts always ask.** Buttons like *Pay, Buy, Transfer, Install,* Android permission prompts, and *Delete account* can't be saved as "always". You're asked every time.
+- **The phone double-checks.** Even if the gateway missed a risky button, the phone checks the same rules on what it sees right now and asks you anyway.
 - **Passwords, PINs, one-time codes, and card numbers are hidden** from the AI, and it can't type into those boxes.
 - **Off-limits areas:** the AI can't touch the Latch app itself, your notification shade, or your lock screen.
 - **No sneaky stuff exists in the app:** no file access, no reading notifications, no command line.
@@ -278,7 +285,10 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 |---|---|
 | `list_devices` | Lists your paired phones, whether they're online, and what's switched on |
 | `observe` | Reads the screen (buttons, text, positions) and, if allowed, takes a screenshot |
-| `tap`, `type_text`, `scroll`, `swipe`, `press` | Act on the latest screen reading; each one returns the next reading |
+| `tap`, `type_text`, `scroll`, `swipe`, `press` | Act on the latest screen reading; each one returns the next reading. `tap` can double-tap; `swipe` with `hold_ms` drags; `type_text` with `submit` also presses Enter/Search/Send |
+| `scroll_to` | Scrolls until a text is visible, in one call |
+| `wait_for` | Waits until a text appears (or disappears), in one call |
+| `pinch` | Zooms in or out with two fingers |
 | `list_apps`, `launch_app` | See and open installed apps |
 
 ### Other ways to run the gateway

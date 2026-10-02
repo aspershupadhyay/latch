@@ -274,7 +274,8 @@ sealed interface Command {
         override val isAction = false
     }
 
-    data class Tap(override val observationId: String, val target: Target, val longPress: Boolean) : Command {
+    /** [double] (since 1.3): two quick taps. */
+    data class Tap(override val observationId: String, val target: Target, val longPress: Boolean, val double: Boolean = false) : Command {
         override val name = "input.tap"
         override val requiredCapabilities = listOf(Capability.INPUT_GESTURE)
     }
@@ -283,8 +284,23 @@ sealed interface Command {
         override val observationId: String,
         val fromX: Int, val fromY: Int, val toX: Int, val toY: Int,
         val durationMs: Int,
+        /** Since 1.3: press and hold at the start this long before moving (a drag). */
+        val holdMs: Int = 0,
     ) : Command {
         override val name = "input.swipe"
+        override val requiredCapabilities = listOf(Capability.INPUT_GESTURE)
+    }
+
+    /** Since 1.3: two fingers apart (zoom in) or together (zoom out) around a point. */
+    data class Pinch(
+        override val observationId: String,
+        val centerX: Int,
+        val centerY: Int,
+        val startSpan: Int,
+        val endSpan: Int,
+        val durationMs: Int,
+    ) : Command {
+        override val name = "input.pinch"
         override val requiredCapabilities = listOf(Capability.INPUT_GESTURE)
     }
 
@@ -437,7 +453,17 @@ object GatewayParser {
                 params.bool("include_screenshot", false),
                 if (params.containsKey("max_nodes")) params.int("max_nodes") else 400,
             )
-            "input.tap" -> Command.Tap(params.str("observation_id"), parseTarget(params.obj("target")), params.bool("long_press", false))
+            "input.tap" -> Command.Tap(
+                params.str("observation_id"), parseTarget(params.obj("target")), params.bool("long_press", false), params.bool("double", false),
+            )
+            "input.pinch" -> {
+                val center = params.obj("center")
+                Command.Pinch(
+                    params.str("observation_id"), center.int("x"), center.int("y"),
+                    params.int("start_span"), params.int("end_span"),
+                    if (params.containsKey("duration_ms")) params.int("duration_ms") else 300,
+                )
+            }
             "input.swipe" -> {
                 val from = params.obj("from")
                 val to = params.obj("to")
@@ -445,6 +471,7 @@ object GatewayParser {
                     params.str("observation_id"),
                     from.int("x"), from.int("y"), to.int("x"), to.int("y"),
                     if (params.containsKey("duration_ms")) params.int("duration_ms") else 300,
+                    if (params.containsKey("hold_ms")) params.int("hold_ms") else 0,
                 )
             }
             "input.type" -> Command.TypeText(
@@ -507,6 +534,8 @@ object Limits {
     const val MAX_WAIT_MS = 15_000
     const val MAX_FIND_TEXT_CHARS = 200
     const val MAX_SCROLL_SWIPES = 20
+    const val MAX_HOLD_MS = 3_000
+    const val MIN_PINCH_SPAN = 20
 
     fun isValidId(id: String) =
         id.isNotEmpty() && id.length <= MAX_ID_CHARS && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '-' }
@@ -551,6 +580,7 @@ object Validation {
             is Command.Observe -> if (command.maxNodes !in 1..Limits.MAX_NODES) invalid("max_nodes out of range")
             is Command.Tap -> {
                 id(command.observationId)
+                if (command.longPress && command.double) invalid("a tap is either long_press or double, not both")
                 when (val t = command.target) {
                     is Target.Element -> id(t.element)
                     is Target.Point -> { coordinate(t.x); coordinate(t.y) }
@@ -561,6 +591,7 @@ object Validation {
                 listOf(command.fromX, command.fromY, command.toX, command.toY).forEach(::coordinate)
                 if (command.durationMs !in 50..Limits.MAX_SWIPE_MS) invalid("duration_ms out of range")
                 if (command.fromX == command.toX && command.fromY == command.toY) invalid("swipe start and end must differ")
+                if (command.holdMs !in 0..Limits.MAX_HOLD_MS) invalid("hold_ms out of range")
             }
             is Command.TypeText -> {
                 id(command.observationId)
@@ -569,6 +600,16 @@ object Validation {
                 if (command.text.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
             is Command.LaunchApp -> if (!Limits.isValidPackage(command.packageName)) invalid("bad package name")
+            is Command.Pinch -> {
+                id(command.observationId)
+                coordinate(command.centerX)
+                coordinate(command.centerY)
+                for (span in listOf(command.startSpan, command.endSpan)) {
+                    if (span !in Limits.MIN_PINCH_SPAN..Limits.MAX_COORDINATE) invalid("span out of range")
+                }
+                if (command.startSpan == command.endSpan) invalid("start_span and end_span must differ")
+                if (command.durationMs !in 50..Limits.MAX_SWIPE_MS) invalid("duration_ms out of range")
+            }
             is Command.WaitFor -> {
                 findText(command.text)
                 if (command.timeoutMs !in Limits.MIN_WAIT_MS..Limits.MAX_WAIT_MS) invalid("timeout_ms out of range")

@@ -50,7 +50,7 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 
 ## 3. MCP tool surface (stable names)
 
-`list_devices`, `observe`, `tap`, `type_text`, `scroll`, `swipe`, `press`, `list_apps`, `launch_app`. No shell, file, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
+`list_devices`, `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9). No shell, file, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
 
 ## 4. Revised delivery: slices and gates
 
@@ -108,7 +108,7 @@ The owner's first audit (realme C55, Android 15, Vercel gateway, one session, no
 | `observe`/`press` refused while Latch was in front, with no way out | Own-app rule (correct) without an exit | `press home` is allowed from Latch's own screen; errors and server instructions say to use `launch_app` or home | IN_REVIEW |
 | "App blocked to protect your device" | Play Protect enhanced fraud protection blocks accessibility apps installed from a browser, messaging app, or file manager (India since 2024) | Documented legitimate paths (ADB install, store distribution, developer verification, review). **No workaround in the app, by design.** | DONE (docs) · store and verification: TODO |
 | "Restricted setting" on Redmi K50i | Android 13+ restricts accessibility for apps installed from files until allowed in App info | Brand-specific steps in setup, ADB fallback, install guide | IN_REVIEW |
-| WhatsApp send and a SIM 2 call completed without a clearly surfaced approval | **OPEN:** needs tracing; the call path may be an unlabeled control or a button text not in the consequential-word list | Investigate before S4 can pass | TODO |
+| WhatsApp send and a SIM 2 call completed without a clearly surfaced approval | Most likely: a tap judged only by the tapped element's own label (an unlabeled button around a labeled "Send" icon, a phone number, a SIM choice). Not reproduced on the phone, so the exact path is still an assumption | Taps are judged by the element, what is drawn inside it, and the nearest labeled ancestor; phone numbers, "SIM", and phone/in-call apps ask; the phone re-checks every tap with the same rules on its live screen (§9) | IN_REVIEW: needs a re-run of the same WhatsApp and call steps on the phone |
 
 Not done, deliberately: caching app lists or observations in the gateway (a cached answer would skip the policy and capability check of the moment), and compound actions (`tap → type → submit` under one policy check), which need their own threat review.
 
@@ -116,11 +116,12 @@ Not done, deliberately: caching app lists or observations in the gateway (a cach
 
 The owner asked for the full feature list, ordered by priority, to be built one wave at a time. Every feature gets its own capability switch (off by default), protocol and fixture changes, tests on both gateways, and README steps. Items that change §3 ("no file or credential tools") or a chapter 08 rule need an ADR in the same change. All items are TODO unless marked otherwise.
 
-**P0 — blocker before new features**
+**P0 — blocker before new features** · IN_REVIEW (built 2026-10-02, not yet run on a phone)
 
 - Trace and fix the WhatsApp send / SIM 2 call that completed without a surfaced approval (§8). New capabilities must not build on a broken approval path.
+- Approval tiers chosen by the owner: *normal* actions run without asking; *consequential* ones (send, post, call, delete, Enter in a chat) ask and may be saved for the session or "always in this app"; *critical* ones (money, installs, Android permission prompts, account deletion) are asked every time (`confirm.remember`, protocol 1.3). Saved answers live only on the phone. Approving inside the AI app (MCP elicitation) is not built: whoever holds the AI key would see that prompt too, so it would only ever cover consequential actions, behind an owner switch. TODO, needs its own threat review.
 
-**Wave 1 — speed and visibility**
+**Wave 1 — speed and visibility** · IN_REVIEW (built 2026-10-02, not yet run on a phone): smart settle (`observe_after.quiet_ms`), `wait_for`, `scroll_to`, `type_text submit`, cursor overlay, keep-awake, double tap, drag (`hold_ms`), pinch. Tap-by-text was not built: every action already returns fresh element ids, so it would save no round trip. The Rust gateway now also observes inside the action's own phone command.
 
 | Feature | Outcome |
 |---|---|

@@ -77,6 +77,11 @@ export const SERVER = {
             "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
             "type": "string"
           },
+          "double": {
+            "default": false,
+            "description": "Two quick taps, e.g. to zoom a map or like a photo.",
+            "type": "boolean"
+          },
           "element_id": {
             "description": "Element id such as n12.",
             "type": "string"
@@ -343,6 +348,13 @@ export const SERVER = {
             "minimum": 0,
             "type": "integer"
           },
+          "hold_ms": {
+            "default": 0,
+            "description": "Press and hold at the start this long before moving: drags icons, list items, and sliders instead of scrolling. Try 600.",
+            "maximum": 3000,
+            "minimum": 0,
+            "type": "integer"
+          },
           "observation_id": {
             "description": "observation_id from the latest observe result (or the observation returned by the previous action).",
             "type": "string"
@@ -372,6 +384,56 @@ export const SERVER = {
       },
       "name": "swipe",
       "title": "Swipe"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Pinch to zoom"
+      },
+      "description": "Zoom in or out with two fingers around a point (default: the middle of the screen), e.g. on a map or photo. Returns the new observation.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          },
+          "observation_id": {
+            "description": "observation_id from the latest observe result (or the observation returned by the previous action).",
+            "type": "string"
+          },
+          "screenshot_after": {
+            "default": false,
+            "description": "Also return a screenshot of the screen after the action. Default false (element tree only).",
+            "type": "boolean"
+          },
+          "x": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "y": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "zoom": {
+            "enum": [
+              "in",
+              "out"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "observation_id",
+          "zoom"
+        ],
+        "type": "object"
+      },
+      "name": "pinch",
+      "title": "Pinch to zoom"
     },
     {
       "annotations": {

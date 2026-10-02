@@ -45,6 +45,10 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 /// One device operation. Serialized as `{"name": "...", "params": {...}}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "name", content = "params")]
@@ -67,6 +71,9 @@ pub enum Command {
         target: Target,
         #[serde(default)]
         long_press: bool,
+        /// Since 1.3: two quick taps (zoom a map, like a photo). Not with `long_press`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        double: bool,
     },
 
     #[serde(rename = "input.swipe")]
@@ -74,6 +81,22 @@ pub enum Command {
         observation_id: String,
         from: Point,
         to: Point,
+        #[serde(default = "default_swipe_ms")]
+        duration_ms: u32,
+        /// Since 1.3: press and hold at `from` this long before moving, which
+        /// drags (icons, list items, sliders) instead of scrolling.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        hold_ms: u32,
+    },
+
+    /// Since 1.3: two fingers moving apart (`end_span` > `start_span`, zoom
+    /// in) or together (zoom out) around `center`, horizontally.
+    #[serde(rename = "input.pinch")]
+    Pinch {
+        observation_id: String,
+        center: Point,
+        start_span: u32,
+        end_span: u32,
         #[serde(default = "default_swipe_ms")]
         duration_ms: u32,
     },
@@ -159,6 +182,7 @@ impl Command {
             Command::LaunchApp { .. } => "app.launch",
             Command::WaitFor { .. } => "ui.wait",
             Command::ScrollTo { .. } => "ui.scroll_to",
+            Command::Pinch { .. } => "input.pinch",
         }
     }
 
@@ -175,7 +199,9 @@ impl Command {
                     vec![Capability::UiObserve]
                 }
             }
-            Command::Tap { .. } | Command::Swipe { .. } => vec![Capability::InputGesture],
+            Command::Tap { .. } | Command::Swipe { .. } | Command::Pinch { .. } => {
+                vec![Capability::InputGesture]
+            }
             Command::TypeText { .. } => vec![Capability::InputText],
             Command::Global { .. } => vec![Capability::NavGlobal],
             Command::ListApps {} | Command::LaunchApp { .. } => vec![Capability::AppLaunch],
@@ -199,8 +225,9 @@ impl Command {
     /// command exactly (older phones would refuse it or ignore a field).
     pub fn min_minor_version(&self) -> u32 {
         match self {
-            Command::WaitFor { .. } | Command::ScrollTo { .. } => 3,
-            Command::TypeText { submit: true, .. } => 3,
+            Command::WaitFor { .. } | Command::ScrollTo { .. } | Command::Pinch { .. } => 3,
+            Command::TypeText { submit: true, .. } | Command::Tap { double: true, .. } => 3,
+            Command::Swipe { hold_ms, .. } if *hold_ms > 0 => 3,
             _ => 0,
         }
     }
@@ -211,7 +238,8 @@ impl Command {
             Command::Tap { observation_id, .. }
             | Command::Swipe { observation_id, .. }
             | Command::TypeText { observation_id, .. }
-            | Command::ScrollTo { observation_id, .. } => Some(observation_id),
+            | Command::ScrollTo { observation_id, .. }
+            | Command::Pinch { observation_id, .. } => Some(observation_id),
             _ => None,
         }
     }

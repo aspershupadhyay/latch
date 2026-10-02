@@ -98,6 +98,10 @@ fun CapabilitiesScreen(
     onToggle: (Capability, Boolean) -> Unit,
     onApproveEveryAction: (Boolean) -> Unit,
     onOpenSetup: () -> Unit = {},
+    showCursor: Boolean = true,
+    keepAwake: Boolean = true,
+    onShowCursor: (Boolean) -> Unit = {},
+    onKeepAwake: (Boolean) -> Unit = {},
     saved: List<SavedApprovalRow> = emptyList(),
     onRemoveSaved: (String) -> Unit = {},
     onRemoveAllSaved: () -> Unit = {},
@@ -171,6 +175,37 @@ fun CapabilitiesScreen(
                     }
                 }
             }
+        }
+
+        SectionCaption("While the AI works")
+        Card {
+            ListRow(
+                LatchIcons.Tap,
+                "Show where the AI taps",
+                "A dot moves to each tap and swipe. It cannot press anything, and the AI never sees it.",
+                tint = signal.accent,
+                trailing = {
+                    Switch(
+                        checked = showCursor,
+                        onCheckedChange = onShowCursor,
+                        modifier = Modifier.semantics { contentDescription = "Show where the AI taps" },
+                    )
+                },
+            )
+            RowDivider()
+            ListRow(
+                LatchIcons.Phone,
+                "Keep the screen on",
+                "During a session the screen stays on, so a task is not cut off by the lock screen. Uses more battery.",
+                tint = signal.accent,
+                trailing = {
+                    Switch(
+                        checked = keepAwake,
+                        onCheckedChange = onKeepAwake,
+                        modifier = Modifier.semantics { contentDescription = "Keep the screen on during a session" },
+                    )
+                },
+            )
         }
 
         SectionCaption("Always allowed")

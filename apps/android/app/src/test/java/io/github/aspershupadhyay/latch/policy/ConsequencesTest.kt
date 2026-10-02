@@ -42,7 +42,9 @@ class ConsequencesTest {
             val node = target["element"]?.let { e -> observation.nodes.first { it.id == e.jsonPrimitive.content } }
                 ?: Consequences.nodeAt(observation.nodes, target.getValue("x").jsonPrimitive.int, target.getValue("y").jsonPrimitive.int)
             val longPress = (params["long_press"])?.jsonPrimitive?.boolean ?: false
-            val judgement = consequences.judgeTap(observation, node, longPress)
+            val double = (params["double"])?.jsonPrimitive?.boolean ?: false
+            if (longPress && double) continue
+            val judgement = consequences.judgeTap(observation, node, longPress, double = double)
             val name = case.getValue("name").jsonPrimitive.content
             val want = when {
                 decision == "allow" -> Consequence.NONE

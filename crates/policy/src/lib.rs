@@ -223,7 +223,26 @@ fn assess(
         Command::ListApps {} => Ok(low("List installed apps".into())),
         Command::Global { action } => Ok(low(format!("Press {action:?}"))),
         Command::LaunchApp { package } => Ok(Assessment::medium(format!("Open {package}"))),
-        Command::Swipe { from, to, .. } => {
+        Command::Pinch {
+            center,
+            start_span,
+            end_span,
+            ..
+        } => {
+            let obs = observation.ok_or_else(internal_missing_observation)?;
+            check_on_screen(obs, center.x, center.y)?;
+            if obs.node_at(center.x, center.y).is_some_and(|n| n.sensitive) {
+                return Err(sensitive());
+            }
+            let way = if end_span > start_span { "in" } else { "out" };
+            Ok(Assessment::medium(format!(
+                "Pinch to zoom {way}{}",
+                place(obs.package.as_deref())
+            )))
+        }
+        Command::Swipe {
+            from, to, hold_ms, ..
+        } => {
             let obs = observation.ok_or_else(internal_missing_observation)?;
             for (x, y) in [(from.x, from.y), (to.x, to.y)] {
                 check_on_screen(obs, x, y)?;
@@ -240,17 +259,25 @@ fn assess(
             } else {
                 Consequence::None
             };
+            let verb = if *hold_ms > 0 { "Drag" } else { "Swipe" };
             Ok(Assessment::judged(
                 consequence,
-                format!("Swipe on the screen{}", place(package)),
-                format!("swipe|{}|", package.unwrap_or("?")),
+                format!("{verb} on the screen{}", place(package)),
+                format!("{}|{}|", verb.to_lowercase(), package.unwrap_or("?")),
             ))
         }
         Command::Tap {
-            target, long_press, ..
+            target,
+            long_press,
+            double,
+            ..
         } => {
             let obs = observation.ok_or_else(internal_missing_observation)?;
-            let verb = if *long_press { "Long-press" } else { "Tap" };
+            let verb = match (*long_press, *double) {
+                (true, _) => "Long-press",
+                (_, true) => "Double-tap",
+                _ => "Tap",
+            };
             let node = match target {
                 Target::Element { element } => Some(resolve(obs, element)?),
                 Target::Point { x, y } => {

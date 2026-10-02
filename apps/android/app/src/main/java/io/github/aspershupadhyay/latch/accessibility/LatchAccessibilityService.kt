@@ -130,7 +130,21 @@ class LatchAccessibilityService : AccessibilityService() {
 
     // ---- Overlay: always-visible session indicator and emergency stop ----
 
+    /** Shows where the AI acts; present while a session runs and the owner wants it. */
+    private val cursor by lazy { CursorOverlay(this) }
+    @Volatile private var cursorOn = false
+
+    private fun preferences() = LatchApp.get(this).settings.preferences.value
+
+    /**
+     * The session indicator. With keepAwake, it also keeps the screen on (and so
+     * unlocked) while the session runs, so a task is not cut off by the lock screen.
+     */
     fun showOverlay(onStop: () -> Unit) {
+        if (preferences().showCursor && !cursorOn) {
+            cursor.attach()
+            cursorOn = true
+        }
         if (overlay != null) return
         val wm = getSystemService(WindowManager::class.java)
         val density = resources.displayMetrics.density
@@ -152,7 +166,7 @@ class LatchAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or (if (preferences().keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0),
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -170,7 +184,31 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** Applies the owner's cursor and keep-awake switches to a running session at once. */
+    fun applyOverlayPreferences(showCursor: Boolean, keepAwake: Boolean) {
+        if (showCursor && !cursorOn) {
+            cursor.attach()
+            cursorOn = true
+        } else if (!showCursor && cursorOn) {
+            cursor.detach()
+            cursorOn = false
+        }
+        val view = overlay ?: return
+        val params = view.layoutParams as? WindowManager.LayoutParams ?: return
+        val flags = if (keepAwake) {
+            params.flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        } else {
+            params.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON.inv()
+        }
+        if (flags != params.flags) {
+            params.flags = flags
+            runCatching { getSystemService(WindowManager::class.java).updateViewLayout(view, params) }
+        }
+    }
+
     fun hideOverlay() {
+        cursor.detach()
+        cursorOn = false
         overlay?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }
         overlay = null
         overlayBounds = null
@@ -329,7 +367,7 @@ class LatchAccessibilityService : AccessibilityService() {
             `package` = packageName,
             screen = screen,
             nodes = ui.values.toList(),
-            screenshot = if (includeScreenshot) screenshot() else null,
+            screenshot = if (includeScreenshot) withoutCursor { screenshot() } else null,
             redactedCount = redacted,
             truncated = truncated,
         )
@@ -403,6 +441,18 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     private class ScreenshotError(val code: Int) : Exception()
+
+    /** The AI must see the app, not Latch's pointer. */
+    private suspend fun <T> withoutCursor(block: suspend () -> T): T {
+        if (!cursorOn) return block()
+        val restore = cursor.hideForCapture()
+        try {
+            delay(CURSOR_HIDE_MS)
+            return block()
+        } finally {
+            restore()
+        }
+    }
 
     private fun encode(shot: ScreenshotResult): Screenshot {
         val buffer = shot.hardwareBuffer
@@ -535,28 +585,74 @@ class LatchAccessibilityService : AccessibilityService() {
         latest = null
     }
 
-    suspend fun tap(observationId: String, target: Target, longPress: Boolean) {
+    suspend fun tap(observationId: String, target: Target, longPress: Boolean, double: Boolean = false) {
         val snap = requireFresh(observationId)
         invalidate()
-        when (target) {
+        val kind = when {
+            longPress -> CursorOverlay.TapKind.LONG_PRESS
+            double -> CursorOverlay.TapKind.DOUBLE
+            else -> CursorOverlay.TapKind.TAP
+        }
+        val (x, y) = when (target) {
             is Target.Element -> {
                 val node = liveNode(snap, target.element)
-                val action = if (longPress) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
-                val canAct = if (longPress) node.isLongClickable else node.isClickable
-                if (canAct && node.performAction(action)) return
                 val r = android.graphics.Rect()
                 node.getBoundsInScreen(r)
-                checkGesturePoint(r.centerX(), r.centerY(), snap)
-                gesture(r.centerX(), r.centerY(), r.centerX(), r.centerY(), if (longPress) 650 else 60)
+                if (!double) {
+                    val action = if (longPress) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
+                    val canAct = if (longPress) node.isLongClickable else node.isClickable
+                    if (canAct) {
+                        if (cursorOn) cursor.tap(r.centerX(), r.centerY(), kind)
+                        if (node.performAction(action)) return
+                    }
+                }
+                r.centerX() to r.centerY()
             }
-            is Target.Point -> {
-                checkGesturePoint(target.x, target.y, snap)
-                gesture(target.x, target.y, target.x, target.y, if (longPress) 650 else 60)
-            }
+            is Target.Point -> target.x to target.y
+        }
+        checkGesturePoint(x, y, snap)
+        if (cursorOn) cursor.tap(x, y, kind)
+        if (double) {
+            // Two short presses 160 ms apart, inside the double-tap window of every Android version.
+            val first = GestureDescription.StrokeDescription(Path().apply { moveTo(x.toFloat(), y.toFloat()) }, 0, 50)
+            val second = GestureDescription.StrokeDescription(Path().apply { moveTo(x.toFloat(), y.toFloat()) }, 160, 50)
+            dispatch(GestureDescription.Builder().addStroke(first).addStroke(second).build())
+        } else {
+            gesture(x, y, x, y, if (longPress) 650 else 60)
         }
     }
 
-    suspend fun swipe(observationId: String, fromX: Int, fromY: Int, toX: Int, toY: Int, durationMs: Int) {
+    /** Two fingers moving apart or together, horizontally around a point. */
+    suspend fun pinch(observationId: String, cx: Int, cy: Int, startSpan: Int, endSpan: Int, durationMs: Int) {
+        val snap = requireFresh(observationId)
+        invalidate()
+        checkGesturePoint(cx, cy, snap)
+        val screen = screenInfo()
+        fun clampX(v: Int) = v.coerceIn(0, screen.width - 1)
+        val fingers = listOf(-1, 1).map { side ->
+            CursorOverlay.Stroke(
+                clampX(cx + side * startSpan / 2).toFloat(), cy.toFloat(),
+                clampX(cx + side * endSpan / 2).toFloat(), cy.toFloat(),
+            )
+        }
+        keyboardBounds()?.let { keyboard ->
+            if (fingers.any { keyboard.contains(it.fromX.toInt(), cy) || keyboard.contains(it.toX.toInt(), cy) }) {
+                throw ProtocolException(ErrorCode.POLICY_REFUSED, "the on-screen keyboard is where this pinch would run; press back to hide it")
+            }
+        }
+        if (cursorOn) cursor.pinch(fingers, durationMs.toLong())
+        val builder = GestureDescription.Builder()
+        for (f in fingers) {
+            val path = Path().apply {
+                moveTo(f.fromX, f.fromY)
+                lineTo(f.toX, f.toY)
+            }
+            builder.addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.toLong()))
+        }
+        dispatch(builder.build())
+    }
+
+    suspend fun swipe(observationId: String, fromX: Int, fromY: Int, toX: Int, toY: Int, durationMs: Int, holdMs: Int = 0) {
         val snap = requireFresh(observationId)
         invalidate()
         checkGesturePoint(fromX, fromY, snap)
@@ -574,7 +670,27 @@ class LatchAccessibilityService : AccessibilityService() {
                 )
             }
         }
-        gesture(fromX, fromY, toX, toY, durationMs.toLong())
+        if (cursorOn) {
+            cursor.tap(fromX, fromY, if (holdMs > 0) CursorOverlay.TapKind.LONG_PRESS else CursorOverlay.TapKind.TAP)
+            cursor.stroke(fromX, fromY, toX, toY, holdMs + durationMs.toLong())
+        }
+        if (holdMs > 0) {
+            // A drag: hold still first (the app picks the item up), then move without lifting.
+            val hold = GestureDescription.StrokeDescription(
+                Path().apply { moveTo(fromX.toFloat(), fromY.toFloat()) }, 0, holdMs.toLong(), true,
+            )
+            dispatch(GestureDescription.Builder().addStroke(hold).build())
+            val move = hold.continueStroke(
+                Path().apply {
+                    moveTo(fromX.toFloat(), fromY.toFloat())
+                    lineTo(toX.toFloat(), toY.toFloat())
+                },
+                0, durationMs.toLong(), false,
+            )
+            dispatch(GestureDescription.Builder().addStroke(move).build())
+        } else {
+            gesture(fromX, fromY, toX, toY, durationMs.toLong())
+        }
     }
 
     /** Screen area of the on-screen keyboard while it is shown. */
@@ -719,6 +835,7 @@ class LatchAccessibilityService : AccessibilityService() {
             Direction.LEFT -> (area.left + area.width() / 5 to cy) to (area.left + area.width() * 4 / 5 to cy)
         }
         checkGesturePoint(from.first, from.second, snap)
+        if (cursorOn) cursor.stroke(from.first, from.second, to.first, to.second, 300)
         gesture(from.first, from.second, to.first, to.second, 300)
     }
 
@@ -767,9 +884,13 @@ class LatchAccessibilityService : AccessibilityService() {
             lineTo(toX.toFloat(), toY.toFloat())
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, durationMs.coerceAtLeast(1))
+        dispatch(GestureDescription.Builder().addStroke(stroke).build())
+    }
+
+    private suspend fun dispatch(description: GestureDescription) {
         val completed = suspendCancellableCoroutine { cont ->
             val dispatched = dispatchGesture(
-                GestureDescription.Builder().addStroke(stroke).build(),
+                description,
                 object : GestureResultCallback() {
                     override fun onCompleted(gestureDescription: GestureDescription?) = cont.resume(true)
                     override fun onCancelled(gestureDescription: GestureDescription?) = cont.resume(false)
@@ -787,6 +908,7 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val MOVE_TOLERANCE_PX = 8
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L
         private const val LIVE_SCOPE_NODES = 64
+        private const val CURSOR_HIDE_MS = 50L
         private const val MAX_SEARCH_NODES = 2_000
         private const val SCROLL_QUIET_MS = 120L
         private const val SCROLL_MAX_SETTLE_MS = 800L

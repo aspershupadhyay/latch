@@ -33,6 +33,13 @@
     "observation_age_ms": 0
   },
   "cases": [
+    { "name": "double-tap on a consequential control asks", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n2" }, "double": true } }, "expect": { "decision": "confirm", "risk": "high", "title": "Double-tap “Send” in com.example.chat", "remember": "double-tap|com.example.chat|send" } },
+    { "name": "double and long press together", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" }, "double": true, "long_press": true } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "drag", "command": { "name": "input.swipe", "params": { "observation_id": "o_1", "from": { "x": 500, "y": 150 }, "to": { "x": 500, "y": 650 }, "hold_ms": 600 } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "hold too long", "command": { "name": "input.swipe", "params": { "observation_id": "o_1", "from": { "x": 500, "y": 150 }, "to": { "x": 500, "y": 650 }, "hold_ms": 10000 } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "pinch to zoom", "command": { "name": "input.pinch", "params": { "observation_id": "o_1", "center": { "x": 540, "y": 150 }, "start_span": 200, "end_span": 600 } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "pinch off screen", "command": { "name": "input.pinch", "params": { "observation_id": "o_1", "center": { "x": 5000, "y": 150 }, "start_span": 200, "end_span": 600 } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "pinch on a sensitive field", "command": { "name": "input.pinch", "params": { "observation_id": "o_1", "center": { "x": 540, "y": 350 }, "start_span": 200, "end_span": 600 } }, "expect": { "decision": "deny", "code": "sensitive_target" } },
     { "name": "type and search runs at once", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n14", "text": "wifi", "submit": true } }, "expect": { "decision": "allow", "risk": "medium" } },
     { "name": "type and press enter in a chat asks the owner", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n15", "text": "on my way", "submit": true } }, "expect": { "decision": "confirm", "risk": "high", "title": "Type 9 characters into “Message” and press Enter in com.example.chat", "remember": "enter|com.example.chat|message" } },
     { "name": "type without submit stays medium", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n15", "text": "on my way" } }, "expect": { "decision": "allow", "risk": "medium" } },

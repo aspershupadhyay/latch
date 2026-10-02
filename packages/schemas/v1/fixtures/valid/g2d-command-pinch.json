@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0030", "deadline_ms": 20000, "command": { "name": "input.pinch", "params": { "observation_id": "o_7", "center": { "x": 540, "y": 1200 }, "start_span": 216, "end_span": 648, "duration_ms": 400 } } }

@@ -24,6 +24,8 @@ pub const MAX_WAIT_MS: u32 = 15_000;
 pub const MIN_WAIT_MS: u32 = 100;
 pub const MAX_FIND_TEXT_CHARS: usize = 200;
 pub const MAX_SCROLL_SWIPES: u32 = 20;
+pub const MAX_HOLD_MS: u32 = 3_000;
+pub const MIN_PINCH_SPAN: u32 = 20;
 
 fn invalid(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(ErrorCode::InvalidRequest, message)
@@ -127,6 +129,33 @@ fn check_find_text(text: &str) -> Result<(), ProtocolError> {
 
 pub fn command(command: &Command) -> Result<(), ProtocolError> {
     match command {
+        Command::Pinch {
+            observation_id,
+            center,
+            start_span,
+            end_span,
+            duration_ms,
+        } => {
+            check_id("observation_id", observation_id)?;
+            check_coordinate("center.x", center.x)?;
+            check_coordinate("center.y", center.y)?;
+            for (name, span) in [("start_span", start_span), ("end_span", end_span)] {
+                if *span < MIN_PINCH_SPAN || *span > MAX_COORDINATE as u32 {
+                    return Err(invalid(format!(
+                        "{name} must be between {MIN_PINCH_SPAN} and {MAX_COORDINATE}"
+                    )));
+                }
+            }
+            if start_span == end_span {
+                return Err(invalid("start_span and end_span must differ"));
+            }
+            if *duration_ms < 50 || *duration_ms > MAX_SWIPE_MS {
+                return Err(invalid(format!(
+                    "duration_ms must be between 50 and {MAX_SWIPE_MS}"
+                )));
+            }
+            Ok(())
+        }
         Command::WaitFor {
             text,
             timeout_ms,
@@ -178,9 +207,13 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
         Command::Tap {
             observation_id,
             target,
-            ..
+            long_press,
+            double,
         } => {
             check_id("observation_id", observation_id)?;
+            if *long_press && *double {
+                return Err(invalid("a tap is either long_press or double, not both"));
+            }
             match target {
                 Target::Element { element } => check_id("element", element),
                 Target::Point { x, y } => {
@@ -194,8 +227,12 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             from,
             to,
             duration_ms,
+            hold_ms,
         } => {
             check_id("observation_id", observation_id)?;
+            if *hold_ms > MAX_HOLD_MS {
+                return Err(invalid(format!("hold_ms must be at most {MAX_HOLD_MS}")));
+            }
             for (name, v) in [
                 ("from.x", from.x),
                 ("from.y", from.y),
@@ -346,6 +383,7 @@ mod tests {
             observation_id: "o_1".into(),
             target: Target::Point { x: -1, y: 5 },
             long_press: false,
+            double: false,
         };
         assert_eq!(
             command(&tap).map_err(|e| e.code),
@@ -357,6 +395,7 @@ mod tests {
             from: Point { x: 1, y: 1 },
             to: Point { x: 1, y: 1 },
             duration_ms: 300,
+            hold_ms: 0,
         };
         assert!(command(&swipe).is_err());
 
