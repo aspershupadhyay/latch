@@ -17,6 +17,7 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -239,7 +240,10 @@ class LatchAccessibilityService : AccessibilityService() {
         when {
             packageName == null -> Unit
             packageName == this.packageName ->
-                throw ProtocolException(ErrorCode.POLICY_REFUSED, "Latch itself is in the foreground; agents cannot see or operate Latch")
+                throw ProtocolException(
+                    ErrorCode.POLICY_REFUSED,
+                    "Latch itself is in the foreground; agents cannot see or operate Latch. Open the app you need with launch_app, or press home",
+                )
             packageName == SYSTEM_UI ->
                 throw ProtocolException(ErrorCode.POLICY_REFUSED, "the notification shade, lock screen, and system UI are not available to agents")
         }
@@ -478,7 +482,25 @@ class LatchAccessibilityService : AccessibilityService() {
         if (toX !in 0 until screen.width || toY !in 0 until screen.height) {
             throw ProtocolException(ErrorCode.INVALID_REQUEST, "swipe ends outside the screen")
         }
+        // A swipe across the on-screen keyboard is glide typing: it would type words into
+        // the focused field instead of scrolling. Text goes through type_text only.
+        keyboardBounds()?.let { keyboard ->
+            if (keyboard.contains(fromX, fromY) || keyboard.contains(toX, toY)) {
+                throw ProtocolException(
+                    ErrorCode.POLICY_REFUSED,
+                    "the on-screen keyboard is open where this swipe would run and would type text; press back to hide it, or swipe above the keyboard",
+                )
+            }
+        }
         gesture(fromX, fromY, toX, toY, durationMs.toLong())
+    }
+
+    /** Screen area of the on-screen keyboard while it is shown. */
+    private fun keyboardBounds(): android.graphics.Rect? {
+        val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } ?: return null
+        val r = android.graphics.Rect()
+        ime.getBoundsInScreen(r)
+        return r.takeUnless { it.isEmpty }
     }
 
     fun typeText(observationId: String, elementId: String, text: String) {
@@ -498,7 +520,9 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     fun global(action: GlobalAction) {
-        refuseRestrictedPackage(rootInActiveWindow?.packageName?.toString())
+        val current = rootInActiveWindow?.packageName?.toString()
+        // Home only leaves the current app, so it is how an agent gets out of Latch's own screen.
+        if (!(action == GlobalAction.HOME && current == packageName)) refuseRestrictedPackage(current)
         invalidate()
         val ok = performGlobalAction(
             when (action) {

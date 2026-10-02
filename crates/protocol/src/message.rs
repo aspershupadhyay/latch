@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{CapabilityState, Command, ConfirmRequest, ProtocolError, ScreenInfo};
+use crate::{CapabilityState, Command, ConfirmRequest, Observation, ProtocolError, ScreenInfo};
 
 /// Static facts about the phone, sent once per connection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -78,6 +78,28 @@ pub struct CommandEnvelope {
     pub command: Command,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirm: Option<ConfirmRequest>,
+    /// Since 1.2, actions only: observe after the action succeeded and return
+    /// the observation inside its result, saving the gateway a second command.
+    /// Gateways send it only to phones that said `hello` with 1.2 or later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observe_after: Option<ObserveAfter>,
+}
+
+/// How to observe after an action (since 1.2). The phone applies the same
+/// rules as `ui.observe`: the `ui.observe` capability (and `screen.capture`
+/// for a screenshot) must be enabled, and restricted screens are refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ObserveAfter {
+    /// Milliseconds to let the UI settle before observing, at most 3000.
+    pub settle_ms: u32,
+    #[serde(default)]
+    pub include_screenshot: bool,
+    #[serde(default = "default_max_nodes")]
+    pub max_nodes: u32,
+}
+
+fn default_max_nodes() -> u32 {
+    400
 }
 
 /// Messages the gateway sends to a phone.
@@ -123,6 +145,12 @@ pub struct ActionResult {
     /// Foreground package shortly after the action, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    /// The screen after the action, when the command asked with `observe_after` (since 1.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation: Option<Observation>,
+    /// Why the phone could not observe after the action. The action itself succeeded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_error: Option<ProtocolError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

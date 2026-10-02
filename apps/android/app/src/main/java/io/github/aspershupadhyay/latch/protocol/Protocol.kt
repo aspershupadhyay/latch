@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.1"
+    const val VERSION = "1.2"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -160,8 +160,18 @@ data class DeviceInfo(
     val session: SessionInfo,
 )
 
+/** Error details inside a successful result, e.g. why the phone could not observe after an action. */
 @Serializable
-data class ActionResult(val `package`: String? = null)
+data class ErrorBody(val code: String, val message: String)
+
+@Serializable
+data class ActionResult(
+    val `package`: String? = null,
+    /** The screen after the action, when the command asked with `observe_after` (since 1.2). */
+    val observation: Observation? = null,
+    /** Why the phone did not observe after the action. The action itself succeeded. */
+    @SerialName("observation_error") val observationError: ErrorBody? = null,
+)
 
 @Serializable
 data class AppEntry(val `package`: String, val label: String)
@@ -285,7 +295,16 @@ sealed interface Command {
     }
 }
 
-data class CommandEnvelope(val id: String, val deadlineMs: Long, val command: Command, val confirm: ConfirmRequest?)
+/** Since 1.2: observe after a successful action and return it in the same result. */
+data class ObserveAfter(val settleMs: Int, val includeScreenshot: Boolean, val maxNodes: Int)
+
+data class CommandEnvelope(
+    val id: String,
+    val deadlineMs: Long,
+    val command: Command,
+    val confirm: ConfirmRequest?,
+    val observeAfter: ObserveAfter? = null,
+)
 
 sealed interface GatewayMessage {
     data class Welcome(val protocol: String, val deviceId: String, val serverTimeMs: Long, val connection: String?) : GatewayMessage
@@ -342,7 +361,15 @@ object GatewayParser {
                 }
                 val command = parseCommand(root.obj("command"))
                 Validation.command(command)
-                GatewayMessage.CommandMessage(CommandEnvelope(id, root.long("deadline_ms"), command, confirm))
+                val observeAfter = (root["observe_after"] as? JsonObject)?.let {
+                    ObserveAfter(
+                        it.int("settle_ms"),
+                        it.bool("include_screenshot", false),
+                        if (it.containsKey("max_nodes")) it.int("max_nodes") else 400,
+                    )
+                }
+                if (observeAfter != null) Validation.observeAfter(command, observeAfter)
+                GatewayMessage.CommandMessage(CommandEnvelope(id, root.long("deadline_ms"), command, confirm, observeAfter))
             }
             else -> invalid("unknown message type")
         }
@@ -404,6 +431,7 @@ object Limits {
     const val MAX_PACKAGE_CHARS = 255
     const val MAX_GATEWAY_FRAME_CHARS = 64 * 1024
     const val MAX_NODE_TEXT_CHARS = 4_000
+    const val MAX_SETTLE_MS = 3_000
 
     fun isValidId(id: String) =
         id.isNotEmpty() && id.length <= MAX_ID_CHARS && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '-' }
@@ -428,6 +456,12 @@ object Validation {
 
     private fun id(value: String) {
         if (!Limits.isValidId(value)) invalid("bad identifier")
+    }
+
+    fun observeAfter(command: Command, after: ObserveAfter) {
+        if (!command.isAction) invalid("observe_after is only allowed on actions")
+        if (after.settleMs !in 0..Limits.MAX_SETTLE_MS) invalid("observe_after.settle_ms out of range")
+        if (after.maxNodes !in 1..Limits.MAX_NODES) invalid("observe_after.max_nodes out of range")
     }
 
     fun command(command: Command) {

@@ -3,7 +3,7 @@
 // test/ hold both to packages/schemas/v1/mcp.
 
 import { SERVER } from "./generated/contract.js";
-import type { Devices, DeviceRecord } from "./devices.js";
+import type { CommandTiming, Devices, DeviceRecord, Live } from "./devices.js";
 import { type Command, type Observation, ProtocolError } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 
@@ -110,21 +110,29 @@ async function callTool(ctx: McpContext, name: string, args: Record<string, unkn
 async function runTool(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === "list_devices") return textResult(await renderDevices(ctx.devices));
 
-  const deviceId = await ctx.devices.resolveDevice(argStr(args, "device_id"));
+  const { id: deviceId, live } = await ctx.devices.resolveDevice(argStr(args, "device_id"));
   const screenshotAfter = argBool(args, "screenshot_after", false);
   let command: Command;
   switch (name) {
     case "observe": {
       const maxNodes = argInt(args, "max_nodes") ?? 400;
       if (maxNodes < 0) throw bad("max_nodes must be positive");
-      return observe(ctx, deviceId, argBool(args, "screenshot", true), maxNodes);
+      return observe(ctx, deviceId, live, argBool(args, "screenshot", true), maxNodes);
     }
     case "list_apps": {
-      const list = (await ctx.devices.execute(deviceId, { name: "app.list", params: {} })) as { apps?: { package: string; label: string }[] };
-      const apps = Array.isArray(list.apps) ? list.apps : [];
-      let text = `${apps.length} launchable apps on ${deviceId} (labels are untrusted app content):\n`;
+      const query = argStr(args, "query")?.trim().toLowerCase() || undefined;
+      if (query !== undefined && [...query].length > 100) throw bad("query must be at most 100 characters");
+      const run = await ctx.devices.execute(deviceId, { name: "app.list", params: {} });
+      const list = run.data as { apps?: { package: string; label: string }[] };
+      const all = Array.isArray(list.apps) ? list.apps : [];
+      const apps = query === undefined
+        ? all
+        : all.filter((a) => String(a.label).toLowerCase().includes(query) || String(a.package).toLowerCase().includes(query));
+      let text = query === undefined
+        ? `${all.length} launchable apps on ${deviceId} (labels are untrusted app content):\n`
+        : `${apps.length} of ${all.length} launchable apps on ${deviceId} match ${quote(query, 60)} (labels are untrusted app content):\n`;
       for (const app of apps.slice(0, 500)) text += `- ${app.package} ${quote(String(app.label), 60)}\n`;
-      return textResult(text);
+      return withTiming(textResult(text), run.timing);
     }
     case "tap": {
       const observationId = reqStr(args, "observation_id");
@@ -166,34 +174,52 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       throw new ProtocolError("internal", "unexpected result type from the phone");
   }
 
-  await ctx.devices.execute(deviceId, command);
-  // Give the UI a moment to settle, then hand the agent the new screen so it
-  // never has to act on a stale view.
-  await new Promise((r) => setTimeout(r, ctx.settleMs));
-  try {
-    const result = await observe(ctx, deviceId, screenshotAfter, 400);
+  // The phone (protocol 1.2+) lets the UI settle and observes in the same
+  // round trip, so the agent never acts on a stale view and never waits twice.
+  const run = await ctx.devices.execute(deviceId, command, {
+    observeAfter: { settle_ms: ctx.settleMs, include_screenshot: screenshotAfter, max_nodes: 400 },
+  });
+  const done = (result: ToolResult) => {
     result.content.unshift({ type: "text", text: "Done. The screen after the action:" });
     return result;
+  };
+  const failedObserve = (err: ProtocolError) =>
+    textResult(`Done. Could not observe the screen afterwards (${err.code}: ${err.message}). Call observe.`);
+  if (run.observation) return withTiming(done(observationResult(deviceId, run.observation, screenshotAfter && !screenshotAllowed(live))), run.timing);
+  if (run.observationError) return withTiming(failedObserve(run.observationError), run.timing);
+  // Older phones: settle here, then observe with a second command.
+  await new Promise((r) => setTimeout(r, ctx.settleMs));
+  try {
+    return done(await observe(ctx, deviceId, live, screenshotAfter, 400));
   } catch (e) {
-    const err = e instanceof ProtocolError ? e : new ProtocolError("internal", "unexpected gateway error");
-    return textResult(`Done. Could not observe the screen afterwards (${err.code}: ${err.message}). Call observe.`);
+    return failedObserve(e instanceof ProtocolError ? e : new ProtocolError("internal", "unexpected gateway error"));
   }
 }
 
-async function observe(ctx: McpContext, deviceId: string, wantScreenshot: boolean, maxNodes: number) {
-  // Only ask for a screenshot when the owner allowed it, so a tree-only grant
-  // still works with the default arguments.
-  const live = (await ctx.devices.online()).find((d) => d.device_id === deviceId);
-  const allowed = live?.capabilities.some((c) => c.capability === "screen.capture" && c.status === "enabled") ?? false;
-  const obs = (await ctx.devices.execute(deviceId, {
-    name: "ui.observe",
-    params: { include_screenshot: wantScreenshot && allowed, max_nodes: maxNodes },
-  })) as Observation;
-  const content: { type: string; text?: string; data?: string; mimeType?: string }[] = [
-    { type: "text", text: renderObservation(deviceId, obs, wantScreenshot && !allowed) },
-  ];
+type ToolResult = { content: { type: string; text?: string; data?: string; mimeType?: string }[]; _meta?: Record<string, unknown> };
+
+/** Attaches where the time went, so slow setups can be diagnosed from any MCP client. */
+function withTiming<T extends object>(result: T, timing: CommandTiming): T {
+  return { ...result, _meta: { "latch/timing": timing } };
+}
+
+// Only ask for a screenshot when the owner allowed it, so a tree-only grant
+// still works with the default arguments.
+const screenshotAllowed = (live: Live) => live.capabilities.some((c) => c.capability === "screen.capture" && c.status === "enabled");
+
+function observationResult(deviceId: string, obs: Observation, screenshotWithheld: boolean): ToolResult {
+  const content: ToolResult["content"] = [{ type: "text", text: renderObservation(deviceId, obs, screenshotWithheld) }];
   if (obs.screenshot) content.push({ type: "image", data: obs.screenshot.data_base64, mimeType: obs.screenshot.mime });
   return { content };
+}
+
+async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreenshot: boolean, maxNodes: number): Promise<ToolResult> {
+  const allowed = screenshotAllowed(live);
+  const run = await ctx.devices.execute(deviceId, {
+    name: "ui.observe",
+    params: { include_screenshot: wantScreenshot && allowed, max_nodes: maxNodes },
+  });
+  return withTiming(observationResult(deviceId, run.data as Observation, wantScreenshot && !allowed), run.timing);
 }
 
 async function scrollCommand(ctx: McpContext, deviceId: string, observationId: string, direction: string, element?: string): Promise<Command> {

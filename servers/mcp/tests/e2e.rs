@@ -433,6 +433,15 @@ async fn sending_a_message_waits_for_the_owner() {
     let gw = start_gateway().await;
     let phone = connect_phone(&gw, &Capability::ALL).await;
 
+    let (is_error, apps, _) = call(&gw, "list_apps", json!({"query": " CHAT "})).await;
+    assert!(!is_error, "{apps}");
+    assert!(apps.starts_with("1 of 3 launchable apps on "), "{apps}");
+    assert!(
+        apps.contains("match \"chat\"") && apps.contains("org.latch.demo.chat"),
+        "{apps}"
+    );
+    assert!(!apps.contains("com.android.settings"), "{apps}");
+
     let (_, screen, _) = call(&gw, "launch_app", json!({"package": "org.latch.demo.chat"})).await;
     let (_, screen, _) = call(&gw, "type_text", json!({"observation_id": observation_id(&screen), "element_id": "n1", "text": "hello from the agent"})).await;
     assert!(screen.contains("hello from the agent"), "{screen}");
@@ -665,7 +674,7 @@ async fn poll_transport_runs_the_full_agent_loop() {
 
     let (status, info) = http(&gw, "GET", "/v1/info", None, None, &[]).await;
     assert_eq!(status, 200);
-    assert_eq!(info["protocol"], "1.1");
+    assert_eq!(info["protocol"], latch_protocol::PROTOCOL_VERSION);
     assert!(
         info["transports"]
             .as_array()

@@ -162,10 +162,9 @@ fun SetupScreen(state: SetupState, actions: SetupActions) {
                 StepButtons(primary = "Turn on screen access" to actions.openAccessibility)
                 Hint(
                     "Greyed out, or “Restricted setting”?",
-                    "Android blocks this for apps installed from a file, until you allow it:\n" +
-                        "1. Try to switch Latch on once, so Android shows the warning.\n" +
-                        "2. Tap Open App info below, then ⋮ (top right) → Allow restricted settings, and confirm.\n" +
-                        "3. Come back and tap Turn on screen access again.",
+                    "Android protects this setting for apps installed from a file, until you allow it:\n" +
+                        RestrictedSettings.steps(android.os.Build.MANUFACTURER ?: "").mapIndexed { i, step -> "${i + 1}. $step" }.joinToString("\n") +
+                        "\n" + RestrictedSettings.FALLBACK,
                 )
                 SecondaryButton("Open App info", actions.openAppInfo, Modifier.fillMaxWidth())
             }

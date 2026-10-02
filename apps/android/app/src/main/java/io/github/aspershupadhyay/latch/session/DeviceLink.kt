@@ -67,6 +67,8 @@ class DeviceLink(
     private val commands = Channel<CommandEnvelope>(Channel.UNLIMITED)
     @Volatile private var connection: String? = null
     @Volatile private var activeCall: Call? = null
+    /** When the last command arrived; polls say `hot=1` for a while after, so gateways check sooner. */
+    @Volatile private var lastCommandAtMs = 0L
 
     fun start() {
         if (loop != null) return
@@ -194,8 +196,9 @@ class DeviceLink(
     }
 
     private fun pollOnce(conn: String): Poll {
+        val hot = if (System.currentTimeMillis() - lastCommandAtMs < HOT_WINDOW_MS) "&hot=1" else ""
         val request = Request.Builder()
-            .url("$base/v1/device/poll?connection=$conn&wait=25")
+            .url("$base/v1/device/poll?connection=$conn&wait=25$hot")
             .header("Authorization", "Bearer $token")
             .get()
             .build()
@@ -221,7 +224,10 @@ class DeviceLink(
             return
         }
         when (message) {
-            is GatewayMessage.CommandMessage -> commands.send(message.envelope)
+            is GatewayMessage.CommandMessage -> {
+                lastCommandAtMs = System.currentTimeMillis()
+                commands.send(message.envelope)
+            }
             is GatewayMessage.Cancel -> events.cancel(message.id)
             is GatewayMessage.Revoked -> {
                 events.rejected(revoked = true)
@@ -229,5 +235,10 @@ class DeviceLink(
             }
             is GatewayMessage.Welcome -> Unit
         }
+    }
+
+    private companion object {
+        /** An agent loop sends its next command within seconds of reading a result. */
+        const val HOT_WINDOW_MS = 60_000L
     }
 }

@@ -51,12 +51,28 @@ The container gateway (`servers/mcp`) supports keys and secret links; OAuth ther
 | `LATCH_PUBLIC_URL` | no | Custom domain to show in links. |
 | `LATCH_ALLOWED_ORIGINS` | no | Browser origins allowed to call `/mcp`. |
 | `LATCH_POLL_INTERVAL_MS` | no | How often a waiting phone poll checks for work (default 500). Lower is snappier but uses more Redis commands. |
+| `LATCH_HOT_POLL_INTERVAL_MS` | no | The same while an agent is actively using the phone (the phone sends `hot=1` for 60 s after each command; default 100). |
+| `LATCH_RESULT_INTERVAL_MS` | no | How often a waiting tool call checks for the phone's answer (default 100). |
+| `LATCH_SETTLE_MS` | no | How long the phone lets the screen settle after an action before observing it (default 500, at most 3000). |
+
+## Speed
+
+One phone action costs about a dozen Redis round trips (authentication, lock, queue, the phone's poll and answer, the audit write), batched where possible. Each round trip takes as long as the network path between your **Vercel function region** and your **Upstash region**:
+
+- Same region (e.g. `iad1` and `us-east-1`, the defaults in the README): a few milliseconds each, so an action takes well under a second plus the 500 ms settle time.
+- Different continents (e.g. Vercel `iad1` and Upstash in Mumbai): ~200 ms each, which adds several seconds to **every** action.
+
+If your phone and AI are far from the US, move both: create the Upstash database in the region nearest to you and set Vercel → **Settings → Functions → Function Region** to the matching region, then redeploy.
+
+**Diagnose:** every tool result carries `_meta["latch/timing"]` with `lock_wait_ms` (waiting for an earlier command), `phone_ms` (from queueing until the phone's answer: transport, phone work, and approval), and `total_ms` (everything the gateway spent). A large `total_ms - phone_ms` points at slow storage round trips; a large `phone_ms` at the phone's network or work. The owner console's activity table shows the same total as latency.
+
+Since protocol 1.2 the phone returns the screen after an action in the same answer, so an action costs one phone round trip, not two. Agents should not call `observe` again after an action.
 
 ## Costs and limits (check the providers' current pricing)
 
 - **Vercel Hobby** is free for personal, non-commercial use. Functions run up to 300 s, which covers the 120 s approval wait.
-- **Upstash Redis free tier** has a monthly command allowance. A connected phone costs about one command per second while a session is active (the long-poll checks), plus a few per AI action, so an hour of active session is roughly 4,000 commands. Sessions end on their own; idle phones cost nothing.
-- Phone commands arrive within about one poll interval (≤ 1 s by default); a self-hosted container (`deploy/docker-compose.yml`) delivers them instantly.
+- **Upstash Redis free tier** has a monthly command allowance. A connected, idle phone costs about two commands per second while a session is active (the long-poll checks), about ten per second for a minute after each AI action (faster checks while an agent is working), plus about a dozen per action. An idle session hour is roughly 7,000 commands; an hour of continuous agent work roughly 40,000. Sessions end on their own; idle phones cost nothing.
+- Phone commands arrive within about one poll interval (≤ 0.5 s idle, ≤ 0.1 s while an agent is working); a self-hosted container (`deploy/docker-compose.yml`) delivers them instantly.
 
 ## Privacy
 

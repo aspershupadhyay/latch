@@ -30,14 +30,17 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
     allowedOrigins: (env.LATCH_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean),
     timing: {
       pollIntervalMs: Number(env.LATCH_POLL_INTERVAL_MS ?? 500),
-      resultIntervalMs: Number(env.LATCH_RESULT_INTERVAL_MS ?? 200),
+      hotPollIntervalMs: Number(env.LATCH_HOT_POLL_INTERVAL_MS ?? 100),
+      resultIntervalMs: Number(env.LATCH_RESULT_INTERVAL_MS ?? 100),
     },
-    settleMs: Number(env.LATCH_SETTLE_MS ?? 600),
+    settleMs: Number(env.LATCH_SETTLE_MS ?? 500),
     maxPollWaitMs: 25_000,
   };
 }
 
 const PAIR_TTL_MS = 10 * 60 * 1000;
+/** `last_used_ms` of an MCP client is a hint for the owner; writing it on every call costs a round trip. */
+const LAST_USED_WRITE_MS = 60_000;
 const MAX_PAIR_FAILURES_PER_MINUTE = 20;
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -62,6 +65,8 @@ async function readJson(request: Request, limit: number): Promise<unknown> {
 export class Gateway {
   readonly devices: Devices;
   readonly oauth: OAuth;
+  /** When this instance last wrote `last_used_ms` per MCP client. */
+  private readonly lastUsedWrites = new Map<string, number>();
 
   constructor(private readonly store: Store, private readonly config: GatewayConfig) {
     this.devices = new Devices(store, config.timing);
@@ -75,7 +80,7 @@ export class Gateway {
         await store.hset("latch:clients", record.id, JSON.stringify(record));
         return record.id;
       },
-      appExists: async (id) => (await store.hgetall("latch:clients"))[id] !== undefined,
+      appExists: async (id) => (await store.hget("latch:clients", id)) !== null,
     });
   }
 
@@ -195,21 +200,19 @@ export class Gateway {
 
   // ---- MCP ----
 
+  /** Checks an MCP credential on every request (revocation is immediate). Two round trips. */
   private async isMcpClient(token: string | undefined): Promise<boolean> {
     if (token === undefined || token === "") return false;
     if (this.config.mcpToken && secretsEqual(token, this.config.mcpToken)) return true;
-    if (token.startsWith("lat_")) {
-      const app = await this.oauth.appForAccessToken(token);
-      if (!app) return false;
-      const raw = (await this.store.hgetall("latch:clients"))[app];
-      if (raw) await this.store.hset("latch:clients", app, JSON.stringify({ ...JSON.parse(raw), last_used_ms: Date.now() }));
-      return true;
-    }
-    const id = await this.store.get(`latch:clienttoken:${sha256(token)}`);
+    const id = token.startsWith("lat_") ? await this.oauth.accessTokenApp(token) : await this.store.get(`latch:clienttoken:${sha256(token)}`);
     if (!id) return false;
-    const raw = (await this.store.hgetall("latch:clients"))[id];
+    const raw = await this.store.hget("latch:clients", id);
     if (!raw) return false;
-    await this.store.hset("latch:clients", id, JSON.stringify({ ...JSON.parse(raw), last_used_ms: Date.now() }));
+    const now = Date.now();
+    if (now - (this.lastUsedWrites.get(id) ?? 0) > LAST_USED_WRITE_MS) {
+      this.lastUsedWrites.set(id, now);
+      await this.store.hset("latch:clients", id, JSON.stringify({ ...JSON.parse(raw), last_used_ms: now }));
+    }
     return true;
   }
 
@@ -289,7 +292,8 @@ export class Gateway {
     const conn = url.searchParams.get("connection") ?? "";
     if (!(await this.devices.current(id, conn))) return error(409, "connection replaced or expired; send hello again");
     const wait = Math.min(Number(url.searchParams.get("wait") ?? "25") * 1000 || this.config.maxPollWaitMs, this.config.maxPollWaitMs);
-    const message = await this.devices.nextMessage(id, conn, wait);
+    // Phones since protocol 1.2 send hot=1 while an agent is actively using them.
+    const message = await this.devices.nextMessage(id, conn, wait, url.searchParams.get("hot") === "1");
     // Refresh presence after a long wait so a live phone does not expire.
     const stillCurrent = await this.devices.current(id, conn);
     if (message) return new Response(message, { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -300,8 +304,7 @@ export class Gateway {
     const id = await this.device(request);
     if (!id) return error(401, "unknown or revoked device credential");
     const conn = new URL(request.url).searchParams.get("connection") ?? "";
-    const live = await this.devices.current(id, conn);
-    if (!live) return error(409, "connection replaced or expired; send hello again");
+    const replaced = () => error(409, "connection replaced or expired; send hello again");
     let message: Record<string, unknown>;
     try {
       message = (await readJson(request, LIMITS.maxMessageBytes)) as Record<string, unknown>;
@@ -309,12 +312,15 @@ export class Gateway {
       // Do not echo the body: it may contain screen content.
       return error(400, "unparseable device message");
     }
+    // Results are on every command's critical path: their presence check rides along in one batch.
+    if (message?.type === "result") {
+      if (typeof message.id !== "string" || typeof message.outcome !== "object") return error(400, "unparseable device message");
+      return (await this.devices.deliverResult(id, conn, message.id, message.outcome as Outcome)) ? noContent() : replaced();
+    }
+    const live = await this.devices.current(id, conn);
+    if (!live) return replaced();
     const now = Date.now();
     switch (message?.type) {
-      case "result":
-        if (typeof message.id !== "string" || typeof message.outcome !== "object") return error(400, "unparseable device message");
-        await this.devices.deliverResult(id, conn, message.id, message.outcome as Outcome);
-        break;
       case "state":
         await this.devices.updateState(id, live, message.capabilities as Hello["capabilities"], message.session as Hello["session"], message.device_time_ms as number | undefined, now);
         break;

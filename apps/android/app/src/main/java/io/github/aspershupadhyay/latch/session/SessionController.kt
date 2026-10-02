@@ -230,7 +230,7 @@ class SessionController(
         runningCommandId = envelope.id
         try {
             val data = withTimeout(envelope.deadlineMs.coerceIn(1_000, 180_000)) {
-                executor.execute(envelope, sessionInfo(), capabilityStatuses())
+                executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() }
             }
             Outgoing.ok(envelope.id, data)
         } catch (e: ProtocolException) {

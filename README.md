@@ -41,6 +41,7 @@ That's it. Every step below is just one of these.
 
 1. On your phone, download the app: **[latch-android-debug.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk)**
 2. Open the file. If Android says *"For your security, your phone is not allowed to install unknown apps"*, tap **Settings**, turn on **Allow from this source**, then go back and tap **Install**.
+   - **"App blocked to protect your device" (Google Play Protect)?** Play Protect blocks apps that use accessibility when they come from a browser or file manager (it's on by default in India). That's a real safety feature and Latch doesn't work around it. Install from a computer with `adb install`, or see [the install guide](docs/platform/android-install.md) for every option.
 3. Open **Latch**.
 
 ### Step 2: Copy thing #1, the owner key 🔑
@@ -61,6 +62,7 @@ Then on Vercel:
 1. Sign in (or make a free account). If it asks for a plan, pick **Hobby** (free).
 2. **Git repository:** keep the name and keep it **private**. Click **Create**.
 3. **Upstash Redis:** click **Add**. Plan **Free**, region **`us-east-1`**, read regions **none**.
+   Keep `us-east-1`: it is next to Vercel's default function region (`iad1`, Washington). If you pick another Redis region, set the same place in Vercel → **Settings → Functions → Function Region**, or every phone action gets several seconds slower.
 4. **`LATCH_ADMIN_TOKEN`:** paste thing #1 (the owner key from the app).
 5. Click **Deploy** and wait about a minute.
 
@@ -76,7 +78,7 @@ Right after connecting, Latch walks you through everything it needs, one step at
 
 1. **Notifications:** tap **Allow**, so you always see when a session is running and can stop it.
 2. **Screen access:** tap **Open accessibility settings**, find **Latch**, and switch it on. This one is required.
-   - **Android 13 or newer** might say the setting is **restricted**. That's normal for apps that aren't from the Play Store. Tap **Open App info** in Latch → **⋮** (top right) → **Allow restricted settings**, then switch Latch on again.
+   - **Android 13 or newer** might say the setting is **restricted**. That's normal for apps that aren't from an app store. First try to switch Latch on once (so Android shows the warning), then tap **Open App info** in Latch → **⋮** (top right) → **Allow restricted settings**, then switch Latch on again. Xiaomi/Redmi and other brands: see [the install guide](docs/platform/android-install.md#2-restricted-setting-when-switching-latch-on-in-accessibility).
 3. **Stay connected:** tap **Allow**, so your phone doesn't cut the session when the screen is off. You can skip this one.
 
 You can open this setup again any time from **Settings → Permissions and setup**.

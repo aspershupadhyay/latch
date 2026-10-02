@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_10", "deadline_ms": 20000, "command": { "name": "ui.observe", "params": { "include_screenshot": false, "max_nodes": 400 } }, "observe_after": { "settle_ms": 500, "include_screenshot": false, "max_nodes": 400 } }

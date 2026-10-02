@@ -21,7 +21,7 @@ let phone: ChildProcess | undefined;
 
 const config = () => ({
   ...configFromEnv({ LATCH_ADMIN_TOKEN: ADMIN }),
-  timing: { pollIntervalMs: 20, resultIntervalMs: 20 },
+  timing: { pollIntervalMs: 20, hotPollIntervalMs: 10, resultIntervalMs: 20 },
   settleMs: 0,
 });
 
@@ -108,8 +108,16 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const tools = (await client.listTools()).tools.map((t) => t.name);
   assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll", "swipe", "press", "list_apps", "launch_app"]);
 
+  // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
+  const apps = await client.callTool({ name: "list_apps", arguments: { query: " CHAT " } });
+  assert.match(text(apps), /^1 of 3 launchable apps on \S+ match "chat" /);
+  assert.match(text(apps), /org\.latch\.demo\.chat/);
+  assert.doesNotMatch(text(apps), /com\.android\.settings/);
+
   let screen = await client.callTool({ name: "observe", arguments: {} });
   assert.ok(!screen.isError, text(screen));
+  const timing = (screen._meta as Record<string, { total_ms: number; phone_ms: number }>)["latch/timing"]!;
+  assert.ok(timing.total_ms >= timing.phone_ms && timing.phone_ms >= 0, JSON.stringify(timing));
   assert.equal((screen.content as { type: string }[]).filter((c) => c.type === "image").length, 1);
 
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Settings") } });
@@ -136,6 +144,9 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const audit = await api("/v1/admin/audit");
   const auditText = JSON.stringify(audit.body);
   assert.match(auditText, /input.tap/);
+  // Protocol 1.2: actions bring their observation back in the same phone command,
+  // so only the explicit observe call above sent ui.observe.
+  assert.equal((audit.body.events as { command: string }[]).filter((e) => e.command === "ui.observe").length, 1, auditText);
   assert.doesNotMatch(auditText, /hello from vercel|Wi-Fi|hunter2/, "audit must not contain content");
 
   // Revoke: the phone learns on its next poll and exits; tools report it gone.
