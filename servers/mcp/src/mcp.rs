@@ -737,6 +737,15 @@ pub fn render_observation(device_id: &str, obs: &Observation, screenshot_withhel
     if screenshot_withheld {
         out.push_str("No screenshot: the owner has not enabled screen.capture.\n");
     }
+    if let Some(shot) = &obs.screenshot
+        && (shot.width != obs.screen.width || shot.height != obs.screen.height)
+    {
+        let _ = writeln!(
+            out,
+            "The screenshot is scaled to {}x{}. Element bounds and x/y arguments use screen pixels ({}x{}).",
+            shot.width, shot.height, obs.screen.width, obs.screen.height
+        );
+    }
     out
 }
 
@@ -857,6 +866,32 @@ mod tests {
         assert!(!text.contains("[n0]"));
         assert!(text.contains("Untrusted screen content"));
         assert!(text.contains("No screenshot"));
+    }
+
+    #[test]
+    fn scaled_screenshots_explain_the_coordinate_space() {
+        let obs = Observation {
+            observation_id: "o_1".into(),
+            captured_at_ms: 0,
+            package: None,
+            screen: ScreenInfo {
+                width: 1080,
+                height: 2400,
+                rotation: 0,
+            },
+            nodes: vec![],
+            screenshot: Some(latch_protocol::Screenshot {
+                mime: "image/jpeg".into(),
+                width: 576,
+                height: 1280,
+                data_base64: String::new(),
+            }),
+            redacted_count: 0,
+            truncated: false,
+        };
+        let text = render_observation("d_1", &obs, false);
+        assert!(text.contains("scaled to 576x1280"), "{text}");
+        assert!(text.contains("screen pixels (1080x2400)"), "{text}");
     }
 
     #[test]

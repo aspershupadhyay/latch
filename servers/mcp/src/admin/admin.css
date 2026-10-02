@@ -11,14 +11,14 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--canvas); color: var(--text); font-size: 16px; line-height: 1.5; }
-main { max-width: 1040px; margin: 0 auto; padding: var(--s3) var(--s2); display: grid; gap: var(--s2); }
+main { min-width: 0; max-width: 1040px; margin: 0 auto; padding: var(--s3) var(--s2); display: grid; gap: var(--s2); }
 #app { display: grid; gap: var(--s2); }
 #app[hidden] { display: none; }
 h1, h2 { margin: 0 0 var(--s1); font-weight: 600; letter-spacing: -0.01em; }
 h1 { font-size: 1.5rem; } h2 { font-size: 1.125rem; }
 code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.875rem; }
-pre.mono { white-space: pre-wrap; word-break: break-all; background: var(--canvas); border: 1px solid var(--border); border-radius: 8px; padding: var(--s1); margin: 4px 0 var(--s2); }
-.bar { display: flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); border-bottom: 1px solid var(--border); background: var(--surface); }
+pre.mono { white-space: pre; overflow-x: auto; background: var(--canvas); border: 1px solid var(--border); border-radius: 8px; padding: var(--s1); margin: 4px 0 var(--s2); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); border-bottom: 1px solid var(--border); background: var(--surface); }
 .brand { font-weight: 700; display: flex; align-items: center; gap: var(--s1); margin-right: auto; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s3); min-width: 0; }
 .narrow { max-width: 480px; margin: 10vh auto 0; }
@@ -61,5 +61,8 @@ table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 th { color: var(--text-2); font-weight: 500; }
 td.ok { color: var(--success); } td.bad { color: var(--danger); } td.ask { color: var(--warning); }
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow-x: auto; max-width: 100%; }
+td { white-space: nowrap; }
+#health { min-width: 0; }
+@media (max-width: 560px) { #health { order: 3; flex-basis: 100%; } }
 @media (max-width: 560px) { .device { grid-template-columns: auto 1fr; } .device button { grid-column: 1 / -1; } }
