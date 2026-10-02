@@ -34,6 +34,7 @@ This AGENTS.md file provides operating rules; the handbook provides the product 
 - The project owner authorized implementation on 2026-10-02. Current status, changed decisions, and the next gate are in handbook/17-plan-review-and-revised-delivery.md; read it before starting work.
 - Keep secrets, tokens, device data, screenshots, and private logs out of the repository.
 - Make small, reviewable commits. Never hide unrelated changes in a task.
+- The project owner's standing instruction: commit and push every change to the session's branch as soon as it is made and verified. Never leave work only in the cloud container, which is discarded when the session ends.
 
 ## Product and architecture direction
 
