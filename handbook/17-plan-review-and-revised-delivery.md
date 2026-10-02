@@ -58,12 +58,13 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 |---|---|---|---|
 | S0 Foundation | Repo layout, license (Apache-2.0), CI, scripts, security policy | DONE | `.github/workflows/ci.yml`, `scripts/check.sh` |
 | S1 Protocol | Types, limits, JSON Schema, shared valid/invalid fixtures (Rust + Kotlin) | DONE | `cargo test -p latch-protocol`; Android `ProtocolFixturesTest` |
-| S2 Gateway | Policy, MCP (HTTP + stdio), device channel, pairing, revocation, console, audit | DONE | 8 end-to-end tests with fake device; official TS SDK client; container smoke test |
-| S3 Android app | Pairing, observe, act, approvals, stop, capability UI | IN_REVIEW | Builds, unit tests, lint clean. **Not yet run on a phone.** |
-| S4 Real-device gate | Clean install → pair → enable one capability → observe → harmless tap → approval → stop → revoke, measured on ≥2 phones | BLOCKED | Needs a physical Android phone (owner) or a device farm with accessibility-service support. Checklist: `docs/platform/android.md`. |
-| S5 Hardening | OAuth 2.1 for MCP, per-app allowlist, rate limits per client, device-key signatures, audit export, key rotation | TODO | |
+| S2 Gateway | Policy, MCP (HTTP + stdio), device channel, pairing, revocation, console, audit | DONE | 12 end-to-end tests (WebSocket and long-poll) with fake device; official TS SDK client; container smoke test |
+| S2b Own-gateway hosting | Long-poll transport (protocol 1.1), per-app MCP keys + secret links, Vercel gateway with shared contracts, one-click deploy | IN_REVIEW | Vercel gateway e2e with official SDK client on in-memory and Redis/Upstash-REST stores; Rust and TS pass the same 34 policy cases and byte-identical rendering. Not yet deployed to a real Vercel account. |
+| S3 Android app | Owner setup (create or join a gateway), pairing, observe, act, approvals, stop, AI-key management, bento UI | IN_REVIEW | Builds, lint clean; app transport and setup code tested on the JVM against both gateways; screens snapshot-tested. **Not yet run on a phone.** |
+| S4 Real-device gate | Clean install → create gateway → pair → enable one capability → observe → harmless tap → approval → stop → revoke, on ≥2 phones | BLOCKED | Needs a physical Android phone (owner) or a device farm with accessibility-service support. Checklist: `docs/platform/android.md`. |
+| S5 Hardening | OAuth 2.1 for MCP, per-app allowlist, per-client rate limits, device-key signatures, audit export, owner-key rotation flow | TODO | |
 | S6 Alpha release | Signed APK, GHCR image, SBOM, attestations, install docs, known limitations | TODO (pipeline ready) | `.github/workflows/release.yml` |
-| S7 iOS companion | Honest subset, macOS runner | TODO | |
+| S7 iOS companion | Honest subset: broadcast-based screen viewing (ReplayKit), links/Shortcuts, app-owned actions — no cross-app control (no public API) | TODO | Needs a macOS runner and an Apple developer account. |
 
 Every slice still runs the handbook's per-phase cycle (chapter 13): decide, threat-model, fixtures, smallest vertical slice, normal/refused/stale/cancelled/revoked tests, review, gate evidence.
 
@@ -92,4 +93,4 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 
 ## 7. Decisions recorded
 
-ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time — see `docs/adr/`.
+ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout — see `docs/adr/`.

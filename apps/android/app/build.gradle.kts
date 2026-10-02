@@ -67,6 +67,17 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric renders the real Compose screens for snapshot tests.
+        unitTests.isIncludeAndroidResources = true
+        // Snapshot mode: ./gradlew testDebugUnitTest -Psnapshots=record (or verify).
+        unitTests.all { test ->
+            // Optional mirror for Robolectric's Android runtime download (rate-limited CI/sandbox networks).
+            System.getenv("ROBOLECTRIC_DEPENDENCY_REPO_URL")?.let { test.systemProperty("robolectric.dependency.repo.url", it) }
+            when (project.findProperty("snapshots")) {
+                "record" -> test.systemProperty("roborazzi.test.record", "true")
+                "verify" -> test.systemProperty("roborazzi.test.verify", "true")
+            }
+        }
     }
 }
 
@@ -92,4 +103,10 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

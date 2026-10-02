@@ -31,7 +31,12 @@ data class Preferences(
  */
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("latch", Context.MODE_PRIVATE)
-    private val vault = TokenVault(context)
+    private val vault = TokenVault(context, "latch_device_token")
+    /** Present only when this phone's owner also owns the gateway. */
+    private val ownerVault = TokenVault(context, "latch_owner_key")
+
+    private val _isOwner = MutableStateFlow(ownerVault.load() != null)
+    val isOwner: StateFlow<Boolean> = _isOwner.asStateFlow()
 
     private val _pairing = MutableStateFlow(readPairing())
     val pairing: StateFlow<Pairing?> = _pairing.asStateFlow()
@@ -68,8 +73,18 @@ class Settings(context: Context) {
 
     fun token(): String? = vault.load()
 
+    /** The gateway owner key (LATCH_ADMIN_TOKEN), when this phone set the gateway up. */
+    fun ownerKey(): String? = ownerVault.load()
+
+    fun saveOwnerKey(key: String) {
+        ownerVault.store(key)
+        _isOwner.value = true
+    }
+
     fun forgetPairing() {
         vault.clear()
+        ownerVault.clear()
+        _isOwner.value = false
         prefs.edit {
             remove("gateway_url")
             remove("device_id")
@@ -93,15 +108,15 @@ class Settings(context: Context) {
  * Keeps the device token encrypted with a non-exportable AES key in the
  * Android Keystore. Backups and other apps only ever see ciphertext.
  */
-class TokenVault(context: Context) {
-    private val prefs = context.getSharedPreferences("latch_vault", Context.MODE_PRIVATE)
+class TokenVault(context: Context, private val alias: String) {
+    private val prefs = context.getSharedPreferences("${alias}_vault", Context.MODE_PRIVATE)
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        (store.getKey(alias, null) as? SecretKey)?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         generator.init(
-            KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
@@ -131,11 +146,10 @@ class TokenVault(context: Context) {
 
     fun clear() {
         prefs.edit { clear() }
-        runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) }
+        runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias) }
     }
 
     private companion object {
-        const val ALIAS = "latch_device_token"
         const val TRANSFORM = "AES/GCM/NoPadding"
     }
 }

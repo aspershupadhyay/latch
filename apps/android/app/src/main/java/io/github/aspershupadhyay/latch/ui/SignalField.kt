@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.contentDescription
@@ -29,9 +30,16 @@ enum class FieldState { READY, CONNECTED, CONNECTING, DISCONNECTED, AWAITING_APP
  * entirely when the system asks for reduced motion.
  */
 @Composable
-fun SignalField(state: FieldState, description: String, reducedMotion: Boolean, modifier: Modifier = Modifier, size: Dp = 120.dp) {
+fun SignalField(
+    state: FieldState,
+    description: String,
+    reducedMotion: Boolean,
+    modifier: Modifier = Modifier,
+    size: Dp = 120.dp,
+    tint: Color? = null,
+) {
     val signal = LocalSignal.current
-    val color = when (state) {
+    val color = tint ?: when (state) {
         FieldState.READY -> signal.accent
         FieldState.CONNECTED -> signal.success
         FieldState.CONNECTING -> signal.accent

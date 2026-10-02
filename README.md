@@ -4,15 +4,21 @@
 
 Latch is an open-source runtime with three parts:
 
-- **Gateway** (Rust, one small binary or container): an MCP server for AI clients and the endpoint phones connect to. Run it in any cloud container, on a VPS, or at home. There is no Latch-operated relay.
-- **Android app** (Kotlin, Jetpack Compose): pairs with your gateway and, during a session you start, reads the screen and taps, swipes, and types through an accessibility service.
-- **Device protocol v1**: a versioned, MCP-independent contract with JSON Schemas and shared fixtures.
+- **Gateway** — the MCP server your AI connects to and the endpoint your phone connects to. Every person runs **their own**: one click on Vercel (free tier, with Upstash Redis), or a ~11 MB container on any server. Latch runs no relay and never sees your keys or screens.
+- **Android app** (Kotlin, Jetpack Compose) — sets up or joins your gateway, and during a session you start reads the screen and taps, swipes, and types through an accessibility service, within the switches you set.
+- **Device protocol 1.1** — a versioned, MCP-independent contract with JSON Schemas, shared fixtures, and shared policy and rendering contracts that both gateway implementations are tested against.
 
 ```text
-AI client ──MCP (HTTPS)──▶ latch-gateway ◀──WebSocket (phone dials out)── Android app
+Claude / ChatGPT / Cursor / any MCP app ──MCP──▶ your gateway (Vercel or container) ◀──HTTPS long-poll── Latch app on your phone
 ```
 
-> **Status: early alpha, not yet verified on real phones.** The gateway, protocol, and safety policy are tested end to end against a simulated phone and the official MCP TypeScript SDK client. The Android app builds and passes unit tests and lint; real-device verification is the next gate ([checklist](docs/platform/android.md#real-device-gate-s4)). iOS is planned as a smaller, honest companion.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=At%20least%2032%20random%20characters%20(the%20Latch%20app%20generates%20one%20for%20you)&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D)
+
+> **Status: alpha, not yet verified on a physical phone.** Both gateways (Rust and Vercel) pass end-to-end tests with the official MCP TypeScript SDK client and a simulated phone, including against Redis via the Upstash REST protocol. The Android app's real transport and setup code are tested on the JVM against both gateways; its UI is snapshot-tested. Running it on real phones is the next gate ([checklist](docs/platform/android.md#real-device-gate-s4)). The Vercel deployment itself has not been exercised from this repository's CI, because that needs a Vercel account.
+
+### iPhone
+
+iOS does not let any third-party app read other apps' screens or tap for you — there is no public API for it, and Latch will not use private ones. An honest iPhone companion is planned with what Apple allows: screen viewing while you broadcast it (ReplayKit), opening links and Shortcuts, and app-owned actions. It cannot operate other apps the way Android can. See [handbook chapter 06](handbook/06-ios-application-plan.md).
 
 ## Safety model
 
@@ -29,21 +35,18 @@ Details: [handbook chapter 08](handbook/08-safety-privacy-security.md), [chapter
 
 ## Quick start
 
-**Try it without a phone** (needs Rust):
+**On your phone (recommended):** install the Android app → **Create my own gateway** → copy the owner key → **Open Vercel** (sign in, keep the Upstash store, paste the key, Deploy) → paste your new address back → **Connect**. Then **Connect** tab → create a key for your AI app and paste it there. Full guide: [docs/operations/vercel.md](docs/operations/vercel.md).
 
-```sh
-scripts/dev.sh        # gateway on 127.0.0.1:8787 + a simulated phone; prints tokens
-claude mcp add --transport http latch http://127.0.0.1:8787/mcp --header "Authorization: Bearer <LATCH_MCP_TOKEN>"
-```
+**Connect any MCP app** with a key from the app or the web console:
 
-Then ask your AI client to "open Settings on the phone and turn off Wi-Fi".
+| The app asks for | Give it |
+|---|---|
+| Just a URL (ChatGPT, Claude.ai connectors) | the secret link `https://<you>.vercel.app/mcp/<key>` |
+| URL + headers (Claude Code, Cursor, VS Code, SDKs) | `https://<you>.vercel.app/mcp` + `Authorization: Bearer <key>` |
 
-**Run it for real:**
+**Self-host instead:** `deploy/docker-compose.yml` (VPS + automatic HTTPS) or any container platform — [docs/operations/gateway.md](docs/operations/gateway.md).
 
-1. Deploy the gateway with HTTPS: `deploy/docker-compose.yml` (VPS + automatic certificates) or any container platform — see [docs/operations/gateway.md](docs/operations/gateway.md).
-2. Open `https://your-gateway/`, enter the admin token, and create a pairing code.
-3. Install the Android app ([build](docs/platform/android.md#build) or download a release), enter the gateway address and code, turn on the accessibility service, choose capabilities, start a session.
-4. Connect your AI client to `https://your-gateway/mcp` with the MCP token.
+**Try it without a phone** (needs Rust): `scripts/dev.sh` starts a gateway and a simulated phone and prints a ready-to-paste Claude Code command.
 
 ## MCP tools
 
@@ -61,7 +64,8 @@ Then ask your AI client to "open Settings on the phone and turn off Wi-Fi".
 | `crates/protocol` | Device protocol v1 types, limits, validation |
 | `crates/policy` | Pure authorization decisions |
 | `crates/fake-device` | Simulated phone for tests and demos |
-| `servers/mcp` | `latch-gateway`: MCP, phone channel, pairing, owner console |
+| `servers/mcp` | `latch-gateway` (Rust): MCP, phone channel, pairing, owner console |
+| `servers/vercel` | The same gateway for Vercel Functions + Upstash Redis |
 | `apps/android` | Android app |
 | `packages/schemas/v1` | Generated JSON Schemas and shared fixtures |
 | `tests/interop` | Official MCP TypeScript SDK client check |

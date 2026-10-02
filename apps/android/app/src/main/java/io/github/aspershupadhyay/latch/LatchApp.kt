@@ -14,7 +14,7 @@ import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.session.ApprovalBroker
 import io.github.aspershupadhyay.latch.session.Pairing
-import io.github.aspershupadhyay.latch.session.PairingClient
+import io.github.aspershupadhyay.latch.session.GatewaySetup
 import io.github.aspershupadhyay.latch.session.SessionController
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.ui.MainActivity
@@ -37,15 +37,15 @@ class LatchApp : Application() {
     val approvals = ApprovalBroker()
     lateinit var session: SessionController
         private set
-    lateinit var pairing: PairingClient
+    lateinit var setup: GatewaySetup
         private set
+    val http = Pairing.client()
 
     override fun onCreate() {
         super.onCreate()
         settings = Settings(this)
-        val http = Pairing.client()
         session = SessionController(scope, settings, bridge, approvals, log, http)
-        pairing = PairingClient(http, settings)
+        setup = GatewaySetup(http)
         createChannels()
         observeIndicators()
     }

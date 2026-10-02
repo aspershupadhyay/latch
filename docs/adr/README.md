@@ -40,3 +40,27 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Decision:** approval requests are drawn as an accessibility overlay card above the current app, with Approve enabled after one second. Each phone runs strictly one command at a time (gateway lock and device queue). Agents cannot observe or act in Latch itself, the notification shade, or the lock screen, and gestures may not start in the status bar or on the Stop pill.
 **Why:** works without notification permission, keeps the owner in context, and makes it impossible for the agent to approve its own request.
 **Reversal trigger:** an Android change that lets other apps draw over or interact with accessibility overlays.
+
+## ADR-017 — Every owner runs their own gateway; HTTP long-poll is the phone transport
+**Status:** accepted (2026-10-02) · **Amends:** ADR-012, chapter 03 transport strategy
+**Decision:** each person deploys their own gateway — one click to their own Vercel account (with Upstash Redis), or a container they run. Phones talk to any gateway over the protocol 1.1 HTTP long-poll binding (`/v1/device/hello`, `/poll`, `/messages`); the WebSocket channel remains for compatibility.
+**Why:** serverless hosts cannot hold sockets; one phone transport for every host keeps the app simple and testable; nobody pays for anyone else's hosting and no third party sees anyone's screens.
+**Cost:** up to one poll interval (default 1 s) of extra latency on Vercel; Redis command usage while a session is active.
+**Reversal trigger:** a free serverless host with durable sockets, or measured latency that makes agents unusable.
+
+## ADR-018 — A TypeScript gateway for Vercel, held to the Rust one by shared contracts
+**Status:** accepted · **Amends:** ADR-002 (Rust owns the gateway)
+**Decision:** `servers/vercel` re-implements the gateway in TypeScript for Vercel Functions. Behaviour is pinned by shared files both implementations test against: policy cases and word lists, the MCP tool catalog and instructions, exact rendering of observations and errors, and the protocol fixtures. `scripts/sync-vercel.sh --check` runs in CI.
+**Why:** Vercel's first-class runtime is Node; a Rust-on-Vercel or WASM build would be harder for contributors to run and debug.
+**Reversal trigger:** the contracts stop catching drift (a behaviour difference reaches users), or a maintained Rust/WASM path on Vercel becomes simpler.
+
+## ADR-019 — Per-app MCP keys, including a secret-link form
+**Status:** accepted · **Amends:** single `LATCH_MCP_TOKEN`
+**Decision:** owners create one MCP key per AI app (phone or console), revocable individually. Keys work as `Authorization: Bearer` or as a secret link `/mcp/<key>` for clients that accept only a URL. The admin key never works as an MCP key.
+**Why:** "any MCP app" includes apps whose connector settings take only a URL; per-app keys limit the blast radius of a leak.
+**Risk:** URLs end up in logs and histories more easily than headers. **Next:** OAuth 2.1 for clients that support it.
+
+## ADR-020 — Bento layout for the app and console
+**Status:** accepted · **Amends:** chapter 09 visual direction
+**Decision:** screens are bento grids of rounded tiles; one gradient hero tile carries state (indigo active, amber approval, red stopped, slate idle); other colour is reserved for meaning. Signal Field, copy tone, and accessibility rules are unchanged.
+**Why:** owner feedback that the first UI felt flat; a bento grid shows the session, capabilities, AI connection, and activity at a glance.

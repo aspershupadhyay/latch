@@ -242,4 +242,47 @@ class DeviceLinkGatewayTest(private val implementation: String) {
         val (isError, text) = callTool(mcp, "observe")
         assertTrue(text, isError && text.contains("device_unavailable"))
     }
+
+    @Test
+    fun ownerSetupPairsThePhoneAndManagesAiKeys() = runBlocking {
+        startGateway()
+        val setup = GatewaySetup(http)
+        val info = setup.probe(base)
+        assertEquals("latch-gateway", info.product)
+        assertTrue("poll" in info.transports)
+
+        // A wrong owner key is refused with an actionable message.
+        val wrong = runCatching { setup.pairAsOwner(base, "lok_wrong_wrong_wrong_wrong_wrong_wrong", "Pixel", "Pixel") }.exceptionOrNull()
+        assertTrue(wrong?.message ?: "", wrong is SetupException && wrong.message!!.contains("owner key"))
+
+        val paired = setup.pairAsOwner(base, ADMIN, "Pixel 9", "Google Pixel 9")
+        assertEquals(base, paired.gatewayUrl)
+        assertTrue(paired.deviceToken.startsWith("ldt_"))
+
+        val owner = OwnerClient(http, base, ADMIN)
+        val created = owner.createClient("Claude on laptop")
+        assertEquals("$base/mcp", created.mcpUrl)
+        assertEquals(listOf("Claude on laptop"), owner.clients().map { it.name })
+        // The secret link works for URL-only clients, until revoked.
+        val ping = """{"jsonrpc":"2.0","id":1,"method":"ping"}"""
+        assertEquals(200, post(created.secretLink.removePrefix(base), ping).first)
+        owner.revokeClient(created.id)
+        assertEquals(401, post(created.secretLink.removePrefix(base), ping).first)
+        assertTrue(owner.clients().isEmpty())
+
+        // Not a gateway at all.
+        val notGateway = runCatching { setup.probe("$base/nope") }.exceptionOrNull()
+        assertTrue(notGateway is SetupException)
+    }
+
+    @Test
+    fun vercelDeployLinkCarriesTheSetup() {
+        val url = GatewaySetup.vercelDeployUrl()
+        assertTrue(url.startsWith("https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch"))
+        assertTrue(url.contains("root-directory=servers%2Fvercel"))
+        assertTrue(url.contains("env=LATCH_ADMIN_TOKEN"))
+        assertTrue(url.contains("upstash-kv"))
+        val key = GatewaySetup.newOwnerKey()
+        assertTrue(key.length >= 32 && key != GatewaySetup.newOwnerKey())
+    }
 }

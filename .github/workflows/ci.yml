@@ -87,6 +87,15 @@ jobs:
           export ANDROID_HOME="$HOME/android-sdk"
           scripts/setup-android-sdk.sh
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+      # The app's transport and setup tests run against both real gateways.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p latch-gateway
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - working-directory: servers/vercel
+        run: npm ci
       - working-directory: apps/android
         run: ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
       - uses: actions/upload-artifact@v5
