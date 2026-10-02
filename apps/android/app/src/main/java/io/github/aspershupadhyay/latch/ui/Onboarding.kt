@@ -1,5 +1,6 @@
 package io.github.aspershupadhyay.latch.ui
 
+import android.provider.Settings as AndroidSettings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,10 +21,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -48,9 +52,11 @@ private fun OnboardingPage(content: @Composable () -> Unit) {
 @Composable
 fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice: String? = null) {
     val signal = LocalSignal.current
+    val context = LocalContext.current
+    val reducedMotion = remember { AndroidSettings.Global.getFloat(context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
     OnboardingPage {
         Tile(brush = signal.activeBrush, minHeight = 240.dp) {
-            SignalField(FieldState.CONNECTED, "Latch", reducedMotion = true, size = 72.dp, tint = Color.White)
+            StatusOrb(OrbState.ACTIVE, "Latch", reducedMotion = reducedMotion, size = 80.dp)
             Push()
             Text("Latch", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
             Text("Let any AI use your phone — only the way you allow.", style = MaterialTheme.typography.headlineSmall, color = Color.White)
@@ -78,19 +84,20 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
             }
         }
         BentoRow {
-            FactTile(Modifier.weight(1f), "Off by default", "Every capability starts switched off.")
-            FactTile(Modifier.weight(1f), "Never secrets", "Passwords, PINs, and codes are never read or typed.")
+            FactTile(Modifier.weight(1f), LatchIcons.Shield, "Off by default", "Every capability starts switched off.")
+            FactTile(Modifier.weight(1f), LatchIcons.Lock, "Never secrets", "Passwords, PINs, and codes are never read or typed.")
         }
         BentoRow {
-            FactTile(Modifier.weight(1f), "You approve", "Sending, buying, deleting waits for you.")
-            FactTile(Modifier.weight(1f), "One tap stop", "A red Stop button stays on screen.")
+            FactTile(Modifier.weight(1f), LatchIcons.ShieldCheck, "You approve", "Sending, buying, deleting waits for you.")
+            FactTile(Modifier.weight(1f), LatchIcons.Stop, "One tap stop", "A red Stop button stays on screen.")
         }
     }
 }
 
 @Composable
-private fun FactTile(modifier: Modifier, title: String, note: String) {
+private fun FactTile(modifier: Modifier, icon: ImageVector, title: String, note: String) {
     Tile(modifier, color = LocalSignal.current.surface2, minHeight = 104.dp) {
+        IconBadge(icon, LocalSignal.current.accent, size = 36.dp)
         Text(title, style = MaterialTheme.typography.titleMedium, color = LocalSignal.current.text)
         TileNote(note)
     }
