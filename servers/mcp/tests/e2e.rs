@@ -30,6 +30,7 @@ async fn start_gateway() -> Gateway {
         data_dir: std::path::PathBuf::new(),
         admin_token: ADMIN.into(),
         mcp_token: Some(MCP.into()),
+        mcp_http: true,
         public_url: None,
         allowed_origins: vec!["https://allowed.example".into()],
     };
@@ -161,7 +162,17 @@ struct Phone {
     token: String,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Transport {
+    WebSocket,
+    Poll,
+}
+
 async fn connect_phone(gw: &Gateway, enabled: &[Capability]) -> Phone {
+    connect_phone_with(gw, enabled, Transport::WebSocket).await
+}
+
+async fn connect_phone_with(gw: &Gateway, enabled: &[Capability], transport: Transport) -> Phone {
     let (status, body) = http(
         gw,
         "POST",
@@ -178,11 +189,22 @@ async fn connect_phone(gw: &Gateway, enabled: &[Capability]) -> Phone {
         .expect("pair");
     let state: Shared = Arc::new(Mutex::new(FakeState::new(enabled)));
     let (control, rx) = mpsc::channel(4);
-    let url = format!("ws://{}/v1/device", gw.addr);
     let task = {
         let state = state.clone();
         let token = token.clone();
-        tokio::spawn(async move { latch_fake_device::run(&url, &token, state, rx).await })
+        let addr = gw.addr;
+        tokio::spawn(async move {
+            match transport {
+                Transport::WebSocket => {
+                    let url = format!("ws://{addr}/v1/device");
+                    latch_fake_device::run(&url, &token, state, rx).await
+                }
+                Transport::Poll => {
+                    let base = format!("http://{addr}");
+                    latch_fake_device::run_poll(&base, &token, state, rx).await
+                }
+            }
+        })
     };
     for _ in 0..100 {
         if state.lock().expect("lock").device_id.is_some() {
@@ -632,4 +654,203 @@ async fn pause_stop_and_revoke_take_effect() {
     let (_tx, rx) = mpsc::channel(1);
     let again = latch_fake_device::run(&url, &phone.token, state, rx).await;
     assert!(again.is_err());
+}
+
+// ---- HTTP long-poll transport (protocol 1.1), used by serverless gateways ----
+
+#[tokio::test]
+async fn poll_transport_runs_the_full_agent_loop() {
+    let gw = start_gateway().await;
+    let phone = connect_phone_with(&gw, &Capability::ALL, Transport::Poll).await;
+
+    let (status, info) = http(&gw, "GET", "/v1/info", None, None, &[]).await;
+    assert_eq!(status, 200);
+    assert_eq!(info["protocol"], "1.1");
+    assert!(
+        info["transports"]
+            .as_array()
+            .expect("transports")
+            .contains(&json!("poll"))
+    );
+
+    let (is_error, screen, images) = call(&gw, "observe", json!({})).await;
+    assert!(!is_error, "{screen}");
+    assert_eq!(images, 1);
+    let (_, screen, _) = call(
+        &gw,
+        "tap",
+        json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Chat")}),
+    )
+    .await;
+    let (_, screen, _) = call(&gw, "type_text", json!({"observation_id": observation_id(&screen), "element_id": "n1", "text": "over long-poll"})).await;
+    let (is_error, text, _) = call(
+        &gw,
+        "tap",
+        json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Send")}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    let s = phone.state.lock().expect("lock");
+    assert_eq!(s.phone.sent_messages, ["over long-poll"]);
+    assert_eq!(
+        s.approval_requests.last().map(String::as_str),
+        Some("Tap “Send” in org.latch.demo.chat")
+    );
+    drop(s);
+    phone.task.abort();
+}
+
+#[tokio::test]
+async fn poll_transport_honours_pause_stop_and_revoke() {
+    let gw = start_gateway().await;
+    let phone = connect_phone_with(&gw, &Capability::ALL, Transport::Poll).await;
+
+    phone.state.lock().expect("lock").session.paused = true;
+    phone.control.send(Control::PushState).await.expect("push");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (is_error, text, _) = call(&gw, "observe", json!({})).await;
+    assert!(is_error && text.contains("paused"), "{text}");
+
+    phone.control.send(Control::Stop).await.expect("stop");
+    phone.task.await.expect("join").expect("clean stop");
+    let (is_error, text, _) = call(&gw, "observe", json!({})).await;
+    assert!(is_error && text.contains("device_unavailable"), "{text}");
+
+    // Reconnect over poll, then revoke: the phone learns it on its next poll.
+    let state: Shared = Arc::new(Mutex::new(FakeState::new(&Capability::ALL)));
+    let (_tx, rx) = mpsc::channel(1);
+    let base = format!("http://{}", gw.addr);
+    let task = {
+        let (state, token, base) = (state.clone(), phone.token.clone(), base.clone());
+        tokio::spawn(async move { latch_fake_device::run_poll(&base, &token, state, rx).await })
+    };
+    let device_id = loop {
+        if let Some(id) = state.lock().expect("lock").device_id.clone() {
+            break id;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    let (status, _) = http(
+        &gw,
+        "DELETE",
+        &format!("/v1/admin/devices/{device_id}"),
+        Some(ADMIN),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, 204);
+    tokio::time::timeout(Duration::from_secs(10), task)
+        .await
+        .expect("phone noticed")
+        .expect("join")
+        .expect("ok");
+    assert!(state.lock().expect("lock").revoked);
+    let (status, _) = latch_fake_device::http(
+        &base,
+        "POST",
+        "/v1/device/hello",
+        Some(&phone.token),
+        Some("{}"),
+    )
+    .await
+    .expect("http");
+    assert_eq!(status, 401);
+}
+
+#[tokio::test]
+async fn poll_endpoints_reject_wrong_credentials_and_stale_connections() {
+    let gw = start_gateway().await;
+    let base = format!("http://{}", gw.addr);
+    let (status, _) = latch_fake_device::http(
+        &base,
+        "GET",
+        "/v1/device/poll?connection=k_0",
+        Some("ldt_forged"),
+        None,
+    )
+    .await
+    .expect("http");
+    assert_eq!(status, 401);
+    let phone = connect_phone_with(&gw, &Capability::ALL, Transport::Poll).await;
+    let (status, _) = latch_fake_device::http(
+        &base,
+        "GET",
+        "/v1/device/poll?connection=k_999999",
+        Some(&phone.token),
+        None,
+    )
+    .await
+    .expect("http");
+    assert_eq!(status, 409);
+    let (status, _) = latch_fake_device::http(
+        &base,
+        "POST",
+        "/v1/device/messages?connection=k_999999",
+        Some(&phone.token),
+        Some(r#"{"type":"bye","reason":"x"}"#),
+    )
+    .await
+    .expect("http");
+    assert_eq!(status, 409);
+    phone.task.abort();
+}
+
+#[tokio::test]
+async fn console_created_client_tokens_grant_and_lose_mcp_access() {
+    let gw = start_gateway().await;
+    let ping = json!({"jsonrpc": "2.0", "id": 1, "method": "ping"});
+    let (status, created) = http(
+        &gw,
+        "POST",
+        "/v1/admin/clients",
+        Some(ADMIN),
+        Some(json!({"name": "Claude"})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200, "{created}");
+    let token = created["token"].as_str().expect("token").to_owned();
+    assert!(created["mcp_url"].as_str().expect("url").ends_with("/mcp"));
+    assert_eq!(
+        http(&gw, "POST", "/mcp", Some(&token), Some(ping.clone()), &[])
+            .await
+            .0,
+        200
+    );
+
+    let (_, list) = http(&gw, "GET", "/v1/admin/clients", Some(ADMIN), None, &[]).await;
+    assert!(
+        !list.to_string().contains(&token),
+        "token must never be listed"
+    );
+    assert!(list["clients"][0]["last_used_ms"].is_u64());
+
+    let id = created["id"].as_str().expect("id");
+    assert_eq!(
+        http(
+            &gw,
+            "DELETE",
+            &format!("/v1/admin/clients/{id}"),
+            Some(ADMIN),
+            None,
+            &[]
+        )
+        .await
+        .0,
+        204
+    );
+    assert_eq!(
+        http(&gw, "POST", "/mcp", Some(&token), Some(ping), &[])
+            .await
+            .0,
+        401
+    );
+    // Client tokens cannot administer the gateway.
+    assert_eq!(
+        http(&gw, "GET", "/v1/admin/clients", Some(&token), None, &[])
+            .await
+            .0,
+        401
+    );
 }

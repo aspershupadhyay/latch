@@ -30,7 +30,7 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.0";
+pub const PROTOCOL_VERSION: &str = "1.1";
 
 /// Returns true when a peer advertising `version` can talk to this crate.
 pub fn is_compatible(version: &str) -> bool {

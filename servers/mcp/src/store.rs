@@ -23,35 +23,50 @@ pub struct DeviceRecord {
     pub last_seen_ms: Option<u64>,
 }
 
+/// An MCP client credential created in the owner console.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientRecord {
+    pub id: String,
+    pub name: String,
+    pub token_sha256: String,
+    pub created_at_ms: u64,
+    #[serde(default)]
+    pub last_used_ms: Option<u64>,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct StoreFile {
     version: u32,
     devices: Vec<DeviceRecord>,
+    #[serde(default)]
+    clients: Vec<ClientRecord>,
 }
 
 pub struct Store {
     path: PathBuf,
     devices: Vec<DeviceRecord>,
+    clients: Vec<ClientRecord>,
 }
 
 impl Store {
     pub fn open(data_dir: &Path) -> io::Result<Self> {
         std::fs::create_dir_all(data_dir)?;
         let path = data_dir.join("devices.json");
-        let devices = match std::fs::read_to_string(&path) {
-            Ok(text) => {
-                let file: StoreFile = serde_json::from_str(&text).map_err(|e| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("{} is corrupt: {e}", path.display()),
-                    )
-                })?;
-                file.devices
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+        let file = match std::fs::read_to_string(&path) {
+            Ok(text) => serde_json::from_str::<StoreFile>(&text).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{} is corrupt: {e}", path.display()),
+                )
+            })?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => StoreFile::default(),
             Err(e) => return Err(e),
         };
-        Ok(Self { path, devices })
+        Ok(Self {
+            path,
+            devices: file.devices,
+            clients: file.clients,
+        })
     }
 
     /// In-memory store for tests.
@@ -59,6 +74,7 @@ impl Store {
         Self {
             path: PathBuf::new(),
             devices: Vec::new(),
+            clients: Vec::new(),
         }
     }
 
@@ -67,8 +83,9 @@ impl Store {
             return Ok(());
         }
         let text = serde_json::to_string_pretty(&StoreFile {
-            version: 1,
+            version: 2,
             devices: self.devices.clone(),
+            clients: self.clients.clone(),
         })
         .map_err(io::Error::other)?;
         let tmp = self.path.with_extension("json.tmp");
@@ -110,6 +127,38 @@ impl Store {
         let before = self.devices.len();
         self.devices.retain(|d| d.id != id);
         if self.devices.len() == before {
+            return Ok(false);
+        }
+        self.save()?;
+        Ok(true)
+    }
+
+    pub fn clients(&self) -> &[ClientRecord] {
+        &self.clients
+    }
+
+    /// Finds the MCP client a bearer token belongs to, in constant time per record.
+    pub fn authenticate_client(&mut self, token: &str, now_ms: u64) -> Option<&ClientRecord> {
+        let mut found = None;
+        for (i, client) in self.clients.iter().enumerate() {
+            if secret::token_matches_hash(token, &client.token_sha256) {
+                found = Some(i);
+            }
+        }
+        let i = found?;
+        self.clients[i].last_used_ms = Some(now_ms);
+        Some(&self.clients[i])
+    }
+
+    pub fn insert_client(&mut self, record: ClientRecord) -> io::Result<()> {
+        self.clients.push(record);
+        self.save()
+    }
+
+    pub fn remove_client(&mut self, id: &str) -> io::Result<bool> {
+        let before = self.clients.len();
+        self.clients.retain(|c| c.id != id);
+        if self.clients.len() == before {
             return Ok(false);
         }
         self.save()?;

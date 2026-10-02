@@ -81,6 +81,7 @@ async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
         protocol: PROTOCOL_VERSION.into(),
         device_id: device_id.clone(),
         server_time_ms: now_ms(),
+        connection: None,
     };
     let Some(welcome) = encode(&welcome) else {
         return;

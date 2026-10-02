@@ -88,6 +88,10 @@ pub enum GatewayToDevice {
         protocol: String,
         device_id: String,
         server_time_ms: u64,
+        /// HTTP transport only: identifies this connection in later poll and
+        /// message requests. A newer `hello` replaces it (since 1.1).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        connection: Option<String>,
     },
     Command(CommandEnvelope),
     /// Abandon a command if it has not run yet. Best effort.

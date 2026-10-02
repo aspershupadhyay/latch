@@ -25,8 +25,11 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Grants pairing, device listing, and revocation. Never give it to an AI client.
     pub admin_token: String,
-    /// Grants MCP access. Absent in stdio mode, where the parent process is trusted.
+    /// Optional static MCP token from the environment. Owners can also create
+    /// per-client tokens in the console; both are accepted.
     pub mcp_token: Option<String>,
+    /// False in stdio mode, where MCP arrives over the parent's pipe instead of `/mcp`.
+    pub mcp_http: bool,
     /// Public base URL shown to phones during pairing, e.g. `https://latch.example.com`.
     pub public_url: Option<String>,
     /// Browser origins allowed to call `/mcp`. Requests without an Origin header are
@@ -55,7 +58,6 @@ fn token(name: &'static str) -> Result<String, ConfigError> {
 }
 
 impl Config {
-    /// `stdio` mode needs no MCP token because MCP arrives over the parent's pipe.
     pub fn from_env(stdio: bool) -> Result<Self, ConfigError> {
         let bind = match (std::env::var("LATCH_BIND"), std::env::var("PORT")) {
             (Ok(value), _) => value.parse().map_err(|_| ConfigError::BadAddress {
@@ -74,10 +76,9 @@ impl Config {
             (Err(_), Err(_)) => SocketAddr::from(([127, 0, 0, 1], 8787)),
         };
         let admin_token = token("LATCH_ADMIN_TOKEN")?;
-        let mcp_token = if stdio {
-            None
-        } else {
-            Some(token("LATCH_MCP_TOKEN")?)
+        let mcp_token = match std::env::var("LATCH_MCP_TOKEN") {
+            Ok(v) if !v.trim().is_empty() => Some(token("LATCH_MCP_TOKEN")?),
+            _ => None,
         };
         if mcp_token.as_deref() == Some(admin_token.as_str()) {
             return Err(ConfigError::SharedToken);
@@ -89,6 +90,7 @@ impl Config {
                 .unwrap_or_else(|| PathBuf::from("latch-data")),
             admin_token,
             mcp_token,
+            mcp_http: !stdio,
             public_url: std::env::var("LATCH_PUBLIC_URL")
                 .ok()
                 .map(|u| u.trim_end_matches('/').to_owned())

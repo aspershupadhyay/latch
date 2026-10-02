@@ -11,8 +11,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::store::DeviceRecord;
-use crate::{AppState, device_ws, mcp, now_ms, secret};
+use crate::store::{ClientRecord, DeviceRecord};
+use crate::{AppState, device_http, device_ws, mcp, now_ms, secret};
 
 const ADMIN_HTML: &str = include_str!("admin/index.html");
 const ADMIN_JS: &str = include_str!("admin/admin.js");
@@ -26,11 +26,24 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/healthz", get(health))
         .route("/mcp", post(mcp_post).get(mcp_other).delete(mcp_other))
         .route("/v1/pair", post(pair))
+        .route("/v1/info", get(device_http::info))
         .route("/v1/device", get(device_ws::upgrade))
+        .route("/v1/device/hello", post(device_http::hello))
+        .route("/v1/device/poll", get(device_http::poll))
+        .route(
+            "/v1/device/messages",
+            post(device_http::messages)
+                .layer(DefaultBodyLimit::max(device_http::MAX_MESSAGE_BYTES)),
+        )
         .route("/v1/admin/devices", get(admin_devices))
         .route("/v1/admin/devices/{id}", delete(admin_revoke))
         .route("/v1/admin/pairings", post(admin_create_pairing))
         .route("/v1/admin/audit", get(admin_audit))
+        .route(
+            "/v1/admin/clients",
+            get(admin_clients).post(admin_create_client),
+        )
+        .route("/v1/admin/clients/{id}", delete(admin_revoke_client))
         .layer(DefaultBodyLimit::max(256 * 1024))
         .with_state(state)
 }
@@ -50,6 +63,20 @@ fn unauthorized() -> Response {
 fn is_admin(state: &AppState, headers: &HeaderMap) -> bool {
     secret::bearer(headers.get(header::AUTHORIZATION))
         .is_some_and(|t| secret::secrets_equal(t, &state.config.admin_token))
+}
+
+/// Accepts the optional `LATCH_MCP_TOKEN` or any client token created in the console.
+fn is_mcp_client(state: &AppState, headers: &HeaderMap) -> bool {
+    let Some(token) = secret::bearer(headers.get(header::AUTHORIZATION)) else {
+        return false;
+    };
+    let by_env = state
+        .config
+        .mcp_token
+        .as_deref()
+        .is_some_and(|expected| secret::secrets_equal(token, expected));
+    let by_client = state.store().authenticate_client(token, now_ms()).is_some();
+    by_env || by_client
 }
 
 // ---- Static owner console ----
@@ -110,12 +137,12 @@ async fn mcp_other() -> Response {
 }
 
 async fn mcp_post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
-    let Some(expected) = state.config.mcp_token.as_deref() else {
+    if !state.config.mcp_http {
         return error(
             StatusCode::NOT_FOUND,
             "MCP over HTTP is disabled in stdio mode",
         );
-    };
+    }
     if let Some(origin) = headers.get(header::ORIGIN) {
         let origin = origin.to_str().unwrap_or_default().trim_end_matches('/');
         if !state.config.allowed_origins.iter().any(|o| o == origin) {
@@ -125,9 +152,7 @@ async fn mcp_post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: 
             );
         }
     }
-    let authorized = secret::bearer(headers.get(header::AUTHORIZATION))
-        .is_some_and(|t| secret::secrets_equal(t, expected));
-    if !authorized {
+    if !is_mcp_client(&state, &headers) {
         return unauthorized();
     }
     if let Some(version) = headers.get("mcp-protocol-version") {
@@ -329,4 +354,99 @@ async fn admin_audit(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
         return unauthorized();
     }
     Json(json!({ "events": state.audit.recent(200) })).into_response()
+}
+
+// ---- MCP client credentials ----
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateClient {
+    name: String,
+}
+
+async fn admin_clients(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    let clients: Vec<Value> = state
+        .store()
+        .clients()
+        .iter()
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "name": c.name,
+                "created_at_ms": c.created_at_ms,
+                "last_used_ms": c.last_used_ms,
+            })
+        })
+        .collect();
+    Json(json!({ "clients": clients })).into_response()
+}
+
+/// Creates an MCP client token. The token is returned exactly once.
+async fn admin_create_client(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<CreateClient>,
+) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    if !bounded(&request.name, 40) {
+        return error(StatusCode::BAD_REQUEST, "name must be 1-40 characters");
+    }
+    if state.store().clients().len() >= 50 {
+        return error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "revoke unused clients first (limit 50)",
+        );
+    }
+    let token = secret::new_token("lmt");
+    let record = ClientRecord {
+        id: secret::new_id("m"),
+        name: request.name.trim().to_owned(),
+        token_sha256: secret::sha256_hex(&token),
+        created_at_ms: now_ms(),
+        last_used_ms: None,
+    };
+    let id = record.id.clone();
+    if let Err(e) = state.store().insert_client(record) {
+        tracing::error!(error = %e, "could not persist client");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not save the client",
+        );
+    }
+    tracing::info!(client_id = %id, "mcp client created");
+    Json(json!({
+        "id": id,
+        "token": token,
+        "mcp_url": format!("{}/mcp", gateway_url(&state, &headers)),
+    }))
+    .into_response()
+}
+
+async fn admin_revoke_client(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    match state.store().remove_client(&id) {
+        Ok(true) => {
+            tracing::info!(client_id = %id, "mcp client revoked");
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(false) => error(StatusCode::NOT_FOUND, "no such client"),
+        Err(e) => {
+            tracing::error!(error = %e, "could not persist client revocation");
+            error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "revoked for now, but could not save the revocation to disk",
+            )
+        }
+    }
 }

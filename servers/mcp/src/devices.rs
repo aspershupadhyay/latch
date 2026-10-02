@@ -24,6 +24,15 @@ pub const COMMAND_DEADLINE_MS: u32 = 20_000;
 pub const CONFIRM_DEADLINE_MS: u32 = 120_000;
 /// How long a command may wait behind other commands for the same device.
 const QUEUE_WAIT: Duration = Duration::from_secs(30);
+/// A polling phone that has not polled for this long is considered gone.
+/// Polls last at most 25 s, so this tolerates one slow round trip.
+pub const POLL_STALE_MS: u64 = 45_000;
+
+/// Receiving half of a polled device's queue, plus when it last showed up.
+struct PollChannel {
+    rx: Arc<tokio::sync::Mutex<mpsc::Receiver<GatewayToDevice>>>,
+    last_seen_ms: u64,
+}
 
 struct Live {
     conn_id: u64,
@@ -37,6 +46,8 @@ struct Live {
     latest_observation: Option<(Arc<Observation>, u64)>,
     command_lock: Arc<tokio::sync::Mutex<()>>,
     connected_at_ms: u64,
+    /// Present for HTTP long-poll connections, absent for WebSockets.
+    poll: Option<PollChannel>,
 }
 
 #[derive(Default)]
@@ -76,7 +87,16 @@ fn to_gateway_clock(session: SessionInfo, device_time_ms: Option<u64>, now: u64)
 impl Registry {
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Live>> {
         // A poisoned lock means a panic mid-update; the map itself is still usable.
-        self.live.lock().unwrap_or_else(|e| e.into_inner())
+        let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        // Polled phones have no socket to close; they disappear by going quiet.
+        // Dropping the entry fails its pending commands with device_unavailable.
+        let now = now_ms();
+        live.retain(|_, l| {
+            l.poll
+                .as_ref()
+                .is_none_or(|p| now.saturating_sub(p.last_seen_ms) <= POLL_STALE_MS)
+        });
+        live
     }
 
     /// Adds a connection, replacing (and thereby closing) any previous one.
@@ -93,6 +113,7 @@ impl Registry {
         let live = Live {
             conn_id,
             tx,
+            poll: None,
             capabilities: hello.capabilities.clone(),
             session: to_gateway_clock(hello.session, hello.device_time_ms, now),
             hello,
@@ -103,6 +124,50 @@ impl Registry {
         };
         self.lock().insert(device_id.to_owned(), live);
         conn_id
+    }
+
+    /// Adds an HTTP long-poll connection, replacing any previous connection.
+    pub fn register_poll(&self, device_id: &str, hello: Hello) -> u64 {
+        let (tx, rx) = mpsc::channel(32);
+        let conn_id = self.register(device_id, hello, tx);
+        if let Some(l) = self
+            .lock()
+            .get_mut(device_id)
+            .filter(|l| l.conn_id == conn_id)
+        {
+            l.poll = Some(PollChannel {
+                rx: Arc::new(tokio::sync::Mutex::new(rx)),
+                last_seen_ms: now_ms(),
+            });
+        }
+        conn_id
+    }
+
+    /// Marks a polled connection as alive and returns its queue, if it is current.
+    pub fn poll_queue(
+        &self,
+        device_id: &str,
+        conn_id: u64,
+    ) -> Option<Arc<tokio::sync::Mutex<mpsc::Receiver<GatewayToDevice>>>> {
+        let mut live = self.lock();
+        let l = live.get_mut(device_id).filter(|l| l.conn_id == conn_id)?;
+        let poll = l.poll.as_mut()?;
+        poll.last_seen_ms = now_ms();
+        Some(poll.rx.clone())
+    }
+
+    /// True when `conn_id` is the device's current connection (and refreshes presence).
+    pub fn touch(&self, device_id: &str, conn_id: u64) -> bool {
+        let mut live = self.lock();
+        match live.get_mut(device_id).filter(|l| l.conn_id == conn_id) {
+            Some(l) => {
+                if let Some(p) = l.poll.as_mut() {
+                    p.last_seen_ms = now_ms();
+                }
+                true
+            }
+            None => false,
+        }
     }
 
     /// Removes a connection if it is still the current one. Pending commands fail.

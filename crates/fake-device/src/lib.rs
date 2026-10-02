@@ -307,43 +307,80 @@ fn screen_info() -> ScreenInfo {
     }
 }
 
+/// Minimal HTTP/1.1 request over plain TCP, for local tests and demos only.
+/// Returns the status code and body.
+pub async fn http(
+    base_url: &str,
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: Option<&str>,
+) -> Result<(u16, String), FakeError> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let io = |e: std::io::Error| FakeError::Connect(e.to_string());
+    let host = base_url
+        .strip_prefix("http://")
+        .ok_or_else(|| FakeError::Connect("the fake device only supports http:// gateways".into()))?
+        .trim_end_matches('/');
+    let body = body.unwrap_or("");
+    let auth = token
+        .map(|t| format!("Authorization: Bearer {t}\r\n"))
+        .unwrap_or_default();
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {host}\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let mut stream = tokio::net::TcpStream::connect(host).await.map_err(io)?;
+    stream.write_all(request.as_bytes()).await.map_err(io)?;
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).await.map_err(io)?;
+    let response = String::from_utf8_lossy(&raw).into_owned();
+    let (head, rest) = response
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| FakeError::Connect("malformed response".into()))?;
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| FakeError::Connect("malformed status line".into()))?;
+    let body = if head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
+        dechunk(rest)
+    } else {
+        rest.to_owned()
+    };
+    Ok((status, body))
+}
+
+fn dechunk(mut s: &str) -> String {
+    let mut out = String::new();
+    while let Some((size, rest)) = s.split_once("\r\n") {
+        let n = usize::from_str_radix(size.trim(), 16).unwrap_or(0);
+        if n == 0 || rest.len() < n {
+            break;
+        }
+        out.push_str(&rest[..n]);
+        s = rest[n..].trim_start_matches("\r\n");
+    }
+    out
+}
+
 /// Exchanges a pairing code for a device token over plain HTTP.
 ///
 /// Deliberately minimal (no TLS): the fake device is for local tests and demos.
 pub async fn pair(base_url: &str, code: &str) -> Result<(String, String), FakeError> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let host = base_url
-        .strip_prefix("http://")
-        .ok_or_else(|| FakeError::Pairing("the fake device only supports http:// gateways".into()))?
-        .trim_end_matches('/');
     let body = serde_json::json!({ "code": code, "platform": "fake", "model": "Latch fake phone" })
         .to_string();
-    let request = format!(
-        "POST /v1/pair HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let mut stream = tokio::net::TcpStream::connect(host)
+    let (status, body) = http(base_url, "POST", "/v1/pair", None, Some(&body))
         .await
         .map_err(|e| FakeError::Pairing(e.to_string()))?;
-    stream
-        .write_all(request.as_bytes())
-        .await
-        .map_err(|e| FakeError::Pairing(e.to_string()))?;
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .await
-        .map_err(|e| FakeError::Pairing(e.to_string()))?;
-    let (head, body) = response
-        .split_once("\r\n\r\n")
-        .ok_or_else(|| FakeError::Pairing("malformed response".into()))?;
-    if !head.starts_with("HTTP/1.1 200") {
-        return Err(FakeError::Pairing(
-            head.lines().next().unwrap_or_default().to_owned(),
-        ));
+    if status != 200 {
+        return Err(FakeError::Pairing(format!("HTTP {status}")));
     }
     let json: serde_json::Value =
-        serde_json::from_str(body).map_err(|e| FakeError::Pairing(e.to_string()))?;
+        serde_json::from_str(&body).map_err(|e| FakeError::Pairing(e.to_string()))?;
     let field = |k: &str| {
         json.get(k)
             .and_then(|v| v.as_str())
@@ -452,6 +489,130 @@ pub async fn run(
         }
     }
     Ok(())
+}
+
+/// Same as [`run`], over the HTTP long-poll binding (`/v1/device/hello`,
+/// `/poll`, `/messages`) that serverless gateways use.
+pub async fn run_poll(
+    base_url: &str,
+    token: &str,
+    state: Shared,
+    mut control: tokio::sync::mpsc::Receiver<Control>,
+) -> Result<(), FakeError> {
+    let protocol = |e: serde_json::Error| FakeError::Protocol(e.to_string());
+    let hello = {
+        let s = lock(&state);
+        DeviceToGateway::Hello(Hello {
+            protocol: PROTOCOL_VERSION.into(),
+            device: descriptor(),
+            capabilities: s.capabilities.clone(),
+            session: s.session,
+            device_time_ms: Some(now_ms()),
+        })
+    };
+    let hello = serde_json::to_string(&hello).map_err(protocol)?;
+    let (status, body) = http(
+        base_url,
+        "POST",
+        "/v1/device/hello",
+        Some(token),
+        Some(&hello),
+    )
+    .await?;
+    if status != 200 {
+        return Err(FakeError::Connect(format!(
+            "hello failed with HTTP {status}"
+        )));
+    }
+    let connection = match serde_json::from_str::<GatewayToDevice>(&body).map_err(protocol)? {
+        GatewayToDevice::Welcome {
+            device_id,
+            connection: Some(connection),
+            ..
+        } => {
+            lock(&state).device_id = Some(device_id);
+            connection
+        }
+        _ => {
+            return Err(FakeError::Protocol(
+                "expected welcome with a connection".into(),
+            ));
+        }
+    };
+    let poll_path = format!("/v1/device/poll?connection={connection}&wait=5");
+    let post_path = format!("/v1/device/messages?connection={connection}");
+    let post = |message: DeviceToGateway| {
+        let post_path = post_path.clone();
+        async move {
+            let text = serde_json::to_string(&message).map_err(protocol)?;
+            let (status, _) = http(base_url, "POST", &post_path, Some(token), Some(&text)).await?;
+            if status == 204 {
+                Ok(())
+            } else {
+                Err(FakeError::Connect(format!(
+                    "message rejected with HTTP {status}"
+                )))
+            }
+        }
+    };
+
+    loop {
+        let polled = tokio::select! {
+            polled = http(base_url, "GET", &poll_path, Some(token), None) => polled?,
+            action = control.recv() => {
+                match action {
+                    Some(Control::PushState) => {
+                        let message = {
+                            let s = lock(&state);
+                            DeviceToGateway::State {
+                                capabilities: s.capabilities.clone(),
+                                session: s.session,
+                                device_time_ms: Some(now_ms()),
+                            }
+                        };
+                        post(message).await?;
+                    }
+                    Some(Control::Stop) | None => {
+                        post(DeviceToGateway::Bye { reason: "user_stopped".into() }).await?;
+                        return Ok(());
+                    }
+                }
+                continue;
+            }
+        };
+        match polled {
+            (204, _) => continue,
+            (200, body) => {
+                match serde_json::from_str::<GatewayToDevice>(&body).map_err(protocol)? {
+                    GatewayToDevice::Command(envelope) => {
+                        let outcome = match handle(&mut lock(&state), &envelope) {
+                            Ok(data) => Outcome::Ok { data },
+                            Err(error) => Outcome::Error { error },
+                        };
+                        post(DeviceToGateway::Result {
+                            id: envelope.id,
+                            outcome,
+                        })
+                        .await?;
+                    }
+                    GatewayToDevice::Revoked { .. } => {
+                        lock(&state).revoked = true;
+                        return Ok(());
+                    }
+                    GatewayToDevice::Cancel { .. } | GatewayToDevice::Welcome { .. } => {}
+                }
+            }
+            (401, _) => {
+                lock(&state).revoked = true;
+                return Ok(());
+            }
+            (status, _) => {
+                return Err(FakeError::Connect(format!(
+                    "poll failed with HTTP {status}"
+                )));
+            }
+        }
+    }
 }
 
 async fn send<S>(sink: &mut S, message: &DeviceToGateway) -> Result<(), FakeError>

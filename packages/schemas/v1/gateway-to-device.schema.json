@@ -6,6 +6,13 @@
     {
       "type": "object",
       "properties": {
+        "connection": {
+          "description": "HTTP transport only: identifies this connection in later poll and\nmessage requests. A newer `hello` replaces it (since 1.1).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "device_id": {
           "type": "string"
         },

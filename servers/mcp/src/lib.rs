@@ -11,6 +11,7 @@
 
 pub mod audit;
 pub mod config;
+mod device_http;
 mod device_ws;
 pub mod devices;
 mod http;
