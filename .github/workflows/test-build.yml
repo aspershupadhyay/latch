@@ -34,6 +34,19 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           # Runner images preset ANDROID_SDK_ROOT to another SDK; AGP rejects a mismatch.
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Use the stable test-build signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.LATCH_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          # The Android Gradle Plugin signs debug builds with ~/.android/debug.keystore
+          # and makes a new one when it is missing. A fixed key lets each test build
+          # install over the previous one, so the app keeps its pairing.
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p ~/.android
+            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          else
+            echo "::warning::LATCH_DEBUG_KEYSTORE_BASE64 is not set. This APK gets a one-off key and will not install over earlier test builds."
+          fi
       - working-directory: apps/android
         run: ./gradlew --no-daemon assembleDebug
       - name: Publish to the test-build pre-release

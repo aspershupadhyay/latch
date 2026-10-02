@@ -276,6 +276,33 @@ class DeviceLinkGatewayTest(private val implementation: String) {
     }
 
     @Test
+    fun ownerApprovesAnAiAppSigningIn() = runBlocking {
+        startGateway()
+        val owner = OwnerClient(http, base, ADMIN)
+        if (implementation == "rust") {
+            // The container gateway has no OAuth yet; the app simply shows nothing to approve.
+            assertTrue(owner.signInRequests().isEmpty())
+            return@runBlocking
+        }
+        // What any MCP client does: register, then open the authorize page.
+        val clientId = obj(post("/oauth/register", """{"client_name":"Codex","redirect_uris":["http://127.0.0.1:4100/cb"]}""").second).str("client_id")
+        val challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        val page = get("/oauth/authorize?response_type=code&client_id=$clientId&redirect_uri=http%3A%2F%2F127.0.0.1%3A4100%2Fcb&code_challenge=$challenge&code_challenge_method=S256&state=xyz")
+        assertEquals(200, page.first)
+
+        val waiting = owner.signInRequests()
+        assertEquals(listOf("Codex"), waiting.map { it.clientName })
+        assertEquals("127.0.0.1:4100", waiting.single().returnTo)
+        assertTrue(page.second.contains(waiting.single().match.map { "<span>$it</span>" }.joinToString("")))
+
+        owner.answerSignIn(waiting.single().id, approve = true)
+        assertTrue(owner.signInRequests().isEmpty())
+        assertEquals(listOf("oauth"), owner.clients().map { it.kind })
+        val again = runCatching { owner.answerSignIn(waiting.single().id, approve = true) }.exceptionOrNull()
+        assertTrue(again is SetupException)
+    }
+
+    @Test
     fun vercelDeployLinkCarriesTheSetup() {
         val url = GatewaySetup.vercelDeployUrl()
         assertTrue(url.startsWith("https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch"))

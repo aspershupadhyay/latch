@@ -5,6 +5,7 @@
 import { type DeviceRecord, Devices, type Timing } from "./devices.js";
 import { handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
 import { type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, validateHello } from "./protocol.js";
+import { OAuth } from "./oauth.js";
 import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret.js";
 import type { Store } from "./store.js";
 
@@ -28,8 +29,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
     publicUrl: clean(env.LATCH_PUBLIC_URL)?.replace(/\/+$/, ""),
     allowedOrigins: (env.LATCH_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean),
     timing: {
-      pollIntervalMs: Number(env.LATCH_POLL_INTERVAL_MS ?? 1000),
-      resultIntervalMs: Number(env.LATCH_RESULT_INTERVAL_MS ?? 300),
+      pollIntervalMs: Number(env.LATCH_POLL_INTERVAL_MS ?? 500),
+      resultIntervalMs: Number(env.LATCH_RESULT_INTERVAL_MS ?? 200),
     },
     settleMs: Number(env.LATCH_SETTLE_MS ?? 600),
     maxPollWaitMs: 25_000,
@@ -60,9 +61,22 @@ async function readJson(request: Request, limit: number): Promise<unknown> {
 
 export class Gateway {
   readonly devices: Devices;
+  readonly oauth: OAuth;
 
   constructor(private readonly store: Store, private readonly config: GatewayConfig) {
     this.devices = new Devices(store, config.timing);
+    const setup = () => this.setupMode;
+    this.oauth = new OAuth(store, {
+      get adminToken() {
+        return setup() ? undefined : config.adminToken;
+      },
+      addApp: async (name, oauthClientId) => {
+        const record = { id: newId("m"), name, kind: "oauth", oauth_client_id: oauthClientId, created_at_ms: Date.now() };
+        await store.hset("latch:clients", record.id, JSON.stringify(record));
+        return record.id;
+      },
+      appExists: async (id) => (await store.hgetall("latch:clients"))[id] !== undefined,
+    });
   }
 
   private get setupMode() {
@@ -98,6 +112,10 @@ export class Gateway {
   private async route(request: Request, path: string): Promise<Response> {
     const m = request.method;
     if (path === "/healthz" && m === "GET") return this.health();
+    if (path.startsWith("/.well-known/") || path.startsWith("/oauth/")) {
+      const oauth = await this.oauthRoute(request, path, m);
+      if (oauth) return oauth;
+    }
     if (path === "/v1/info" && m === "GET") return this.info();
     if (path === "/mcp" || path.startsWith("/mcp/")) {
       if (m !== "POST") return json(405, { error: "this server does not offer a server-to-client stream; use POST" }, { allow: "POST" });
@@ -137,8 +155,42 @@ export class Gateway {
       protocol: PROTOCOL_VERSION,
       transports: ["poll"],
       mcp_path: "/mcp",
+      mcp_auth: ["oauth", "bearer", "secret_link"],
       setup_required: this.setupMode,
     });
+  }
+
+  // ---- OAuth for MCP clients ----
+
+  private async oauthRoute(request: Request, path: string, m: string): Promise<Response | undefined> {
+    const base = this.baseUrl(request);
+    if (m === "OPTIONS") return this.oauth.preflight();
+    if (m === "GET" && (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp")) {
+      return this.oauth.protectedResource(base);
+    }
+    if (m === "GET" && (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration")) {
+      return this.oauth.authorizationServer(base);
+    }
+    if (path === "/oauth/register" && m === "POST") return this.oauth.register(request);
+    if (path === "/oauth/authorize" && m === "GET") return this.oauth.authorize(request, base);
+    if (path === "/oauth/token" && m === "POST") return this.oauth.token(request);
+    if (path === "/oauth/revoke" && m === "POST") return this.oauth.revoke(request);
+    if (path.startsWith("/oauth/requests/")) {
+      const id = decodeURIComponent(path.slice("/oauth/requests/".length));
+      if (m === "GET") return this.oauth.requestStatus(id);
+      if (m === "POST") return this.oauth.decideInBrowser(request, id);
+    }
+    return undefined;
+  }
+
+  /** 401 for MCP that tells clients where to sign in (MCP authorization, RFC 9728). */
+  private mcpUnauthorized(request: Request, hadToken: boolean) {
+    const metadata = `${this.baseUrl(request)}/.well-known/oauth-protected-resource`;
+    const challenge = `Bearer resource_metadata="${metadata}", scope="phone"${hadToken ? ', error="invalid_token"' : ""}`;
+    return json(401, {
+      error: "unauthorized",
+      error_description: "Sign in: add this server by its URL in your AI app and approve it in the Latch app, or use a key from the Latch app.",
+    }, { "www-authenticate": challenge, "access-control-expose-headers": "www-authenticate" });
   }
 
   // ---- MCP ----
@@ -146,6 +198,13 @@ export class Gateway {
   private async isMcpClient(token: string | undefined): Promise<boolean> {
     if (token === undefined || token === "") return false;
     if (this.config.mcpToken && secretsEqual(token, this.config.mcpToken)) return true;
+    if (token.startsWith("lat_")) {
+      const app = await this.oauth.appForAccessToken(token);
+      if (!app) return false;
+      const raw = (await this.store.hgetall("latch:clients"))[app];
+      if (raw) await this.store.hset("latch:clients", app, JSON.stringify({ ...JSON.parse(raw), last_used_ms: Date.now() }));
+      return true;
+    }
     const id = await this.store.get(`latch:clienttoken:${sha256(token)}`);
     if (!id) return false;
     const raw = (await this.store.hgetall("latch:clients"))[id];
@@ -159,15 +218,18 @@ export class Gateway {
     if (origin !== null && !this.config.allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
       return error(403, "origin not allowed; see LATCH_ALLOWED_ORIGINS");
     }
-    if (this.setupMode || !(await this.isMcpClient(token))) return unauthorized();
-    const version = request.headers.get("mcp-protocol-version");
-    if (version !== null && !SUPPORTED_VERSIONS.includes(version)) return error(400, "unsupported MCP-Protocol-Version");
+    if (this.setupMode) return error(503, "this gateway is not set up yet");
+    if (!(await this.isMcpClient(token))) return this.mcpUnauthorized(request, token !== undefined);
     let message: unknown;
     try {
       message = await readJson(request, 256 * 1024);
     } catch {
       return json(400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
     }
+    // The version is negotiated by initialize; only later requests must carry a supported one.
+    const version = request.headers.get("mcp-protocol-version");
+    const isInitialize = typeof message === "object" && message !== null && (message as { method?: unknown }).method === "initialize";
+    if (version !== null && !isInitialize && !SUPPORTED_VERSIONS.includes(version)) return error(400, "unsupported MCP-Protocol-Version");
     const reply = await handleMcp({ devices: this.devices, settleMs: this.config.settleMs }, message);
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);
   }
@@ -295,9 +357,9 @@ export class Gateway {
     if (path === "audit" && method === "GET") return json(200, { events: await this.devices.audit(200) });
     if (path === "clients" && method === "GET") {
       const clients = Object.values(await this.store.hgetall("latch:clients"))
-        .map((v) => JSON.parse(v) as { id: string; name: string; created_at_ms: number; last_used_ms?: number })
+        .map((v) => JSON.parse(v) as { id: string; name: string; created_at_ms: number; last_used_ms?: number; kind?: string })
         .sort((a, b) => a.created_at_ms - b.created_at_ms)
-        .map((c) => ({ id: c.id, name: c.name, created_at_ms: c.created_at_ms, last_used_ms: c.last_used_ms ?? null }));
+        .map((c) => ({ id: c.id, name: c.name, created_at_ms: c.created_at_ms, last_used_ms: c.last_used_ms ?? null, kind: c.kind ?? "key" }));
       return json(200, { clients });
     }
     if (path === "clients" && method === "POST") {
@@ -315,8 +377,22 @@ export class Gateway {
       const raw = (await this.store.hgetall("latch:clients"))[id];
       if (!raw) return error(404, "no such client");
       await this.store.hdel("latch:clients", id);
-      await this.store.del(`latch:clienttoken:${(JSON.parse(raw) as { token_sha256: string }).token_sha256}`);
+      const sha = (JSON.parse(raw) as { token_sha256?: string }).token_sha256;
+      if (sha) await this.store.del(`latch:clienttoken:${sha}`);
       return noContent();
+    }
+    if (path === "oauth/requests" && method === "GET") {
+      const requests = (await this.oauth.pendingRequests()).map((r) => ({
+        id: r.id, client_name: r.client_name, match: r.match, created_at_ms: r.created_at_ms,
+        return_to: (() => { try { const u = new URL(r.redirect_uri); return u.host || u.protocol.replace(":", ""); } catch { return ""; } })(),
+      }));
+      return json(200, { requests });
+    }
+    if (path.startsWith("oauth/requests/") && method === "POST") {
+      const body = (await readJson(request, 1024)) as Record<string, unknown>;
+      if (typeof body?.approve !== "boolean") return error(400, "approve must be true or false");
+      const ok = await this.oauth.decideAsOwner(decodeURIComponent(path.slice("oauth/requests/".length)), body.approve);
+      return ok ? noContent() : error(404, "that request expired or was already decided");
     }
     return error(404, "not found");
   }

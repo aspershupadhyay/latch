@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -54,52 +57,55 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
     val signal = LocalSignal.current
     val context = LocalContext.current
     val reducedMotion = remember { AndroidSettings.Global.getFloat(context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
-    OnboardingPage {
-        Tile(brush = signal.activeBrush, minHeight = 240.dp) {
-            StatusOrb(OrbState.ACTIVE, "Latch", reducedMotion = reducedMotion, size = 80.dp)
-            Push()
-            Text("Latch", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
-            Text("Let any AI use your phone — only the way you allow.", style = MaterialTheme.typography.headlineSmall, color = Color.White)
-        }
-        notice?.let {
-            Tile(color = signal.danger.copy(alpha = 0.12f), minHeight = 0.dp) { Text(it, color = signal.danger, style = MaterialTheme.typography.bodyMedium) }
-        }
-        Tile(onClick = onCreateGateway, onClickLabel = "Create my gateway", minHeight = 150.dp) {
-            TileLabel("Recommended · free · about 3 minutes", signal.accent)
-            TileValue("Create my own gateway")
-            TileNote("One click deploys a private Latch gateway to your own Vercel account. You own it, you pay nothing on the free tier, and nobody else can reach your phone.", maxLines = 4)
-        }
-        BentoRow {
-            Tile(Modifier.weight(1f), onClick = onHaveGateway, onClickLabel = "Use an existing gateway") {
-                TileLabel("Already have one")
-                Push()
-                Text("Connect to a gateway", style = MaterialTheme.typography.titleMedium, color = signal.text)
-                TileNote("Owner key or a pairing code")
+    Box(Modifier.fillMaxSize().background(signal.canvas)) {
+        Column(
+            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(LatchIcons.ShieldCheck, signal.accent, size = 34.dp)
+                Spacer(Modifier.size(10.dp))
+                Text("Latch", style = MaterialTheme.typography.titleLarge, color = signal.text)
             }
-            Tile(Modifier.weight(1f), color = signal.surface2) {
-                TileLabel("Works with")
-                Push()
-                Text("Any MCP AI", style = MaterialTheme.typography.titleMedium, color = signal.text)
-                TileNote("Claude, ChatGPT, Cursor, VS Code, your own agents")
+            ConnectionIllustration(reducedMotion, Modifier.fillMaxWidth().height(220.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Let AI use your phone.", style = MaterialTheme.typography.displaySmall, color = signal.text)
+                Text("Only the way you allow.", style = MaterialTheme.typography.displaySmall, color = signal.text2)
             }
-        }
-        BentoRow {
-            FactTile(Modifier.weight(1f), LatchIcons.Shield, "Off by default", "Every capability starts switched off.")
-            FactTile(Modifier.weight(1f), LatchIcons.Lock, "Never secrets", "Passwords, PINs, and codes are never read or typed.")
-        }
-        BentoRow {
-            FactTile(Modifier.weight(1f), LatchIcons.ShieldCheck, "You approve", "Sending, buying, deleting waits for you.")
-            FactTile(Modifier.weight(1f), LatchIcons.Stop, "One tap stop", "A red Stop button stays on screen.")
+            Text(
+                "Claude, ChatGPT, or any AI app reaches this phone only through a gateway you own. You choose what it can do and can stop it with one tap.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = signal.text2,
+            )
+            notice?.let {
+                Card(color = signal.danger.copy(alpha = 0.12f)) { ListRow(LatchIcons.Warning, it, tint = signal.danger) }
+            }
+            Spacer(Modifier.size(4.dp))
+            IconButtonLarge("Set up a new gateway", LatchIcons.Plus, onCreateGateway, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk)
+            Text(
+                "Free · about 3 minutes · runs in your own Vercel account",
+                style = MaterialTheme.typography.bodySmall,
+                color = signal.text2,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SecondaryButton("I already have a gateway", onHaveGateway, Modifier.fillMaxWidth())
+            Spacer(Modifier.size(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Promise(Modifier.weight(1f), LatchIcons.Shield, "Off by default")
+                Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "You approve")
+                Promise(Modifier.weight(1f), LatchIcons.Stop, "One-tap stop")
+            }
         }
     }
 }
 
 @Composable
-private fun FactTile(modifier: Modifier, icon: ImageVector, title: String, note: String) {
-    Tile(modifier, color = LocalSignal.current.surface2, minHeight = 104.dp) {
-        IconBadge(icon, LocalSignal.current.accent, size = 36.dp)
-        Text(title, style = MaterialTheme.typography.titleMedium, color = LocalSignal.current.text)
-        TileNote(note)
+private fun Promise(modifier: Modifier, icon: ImageVector, text: String) {
+    val signal = LocalSignal.current
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(icon, contentDescription = null, tint = signal.accent, modifier = Modifier.size(20.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = signal.text2, textAlign = TextAlign.Center)
     }
 }
 
@@ -136,7 +142,7 @@ fun CreateGatewayScreen(state: CreateGatewayState, actions: CreateGatewayActions
                 Text("Deploy to Vercel", style = MaterialTheme.typography.titleMedium, color = signal.text)
             }
             TileNote("Sign in or create a free Vercel account, keep the Upstash Redis store it suggests, paste the owner key into LATCH_ADMIN_TOKEN, and press Deploy.", maxLines = 5)
-            PrimaryButton("Open Vercel", actions.openDeploy, Modifier.fillMaxWidth(), color = Color(0xFF111111), contentColor = Color.White)
+            PrimaryButton("Open Vercel", actions.openDeploy, Modifier.fillMaxWidth())
         }
 
         Tile {

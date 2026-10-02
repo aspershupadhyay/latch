@@ -33,7 +33,7 @@ You need: an **Android phone** (Android 11 or newer), and a free **[Vercel](http
 |---|---|---|---|
 | 1 | **Owner key** (your master password) | Latch app | Vercel, in the box called `LATCH_ADMIN_TOKEN` |
 | 2 | **Gateway address** (looks like `latch-gateway-you.vercel.app`) | Vercel, after you press Deploy | Latch app |
-| 3 | **AI key** (one for each AI app) | Latch app, **Connect** tab | Your AI app (Claude, ChatGPT…) |
+| 3 | **MCP address** `https://<your-address>/mcp` | Latch app, **Connect** tab | Your AI app (Claude, ChatGPT, Codex…), then approve in the app |
 
 That's it. Every step below is just one of these.
 
@@ -93,12 +93,24 @@ The last setup step asks you to pick a starting point:
 
 Change single switches any time in the **Access** tab. Want to approve **every single** action? Turn on **Ask me before every action**.
 
-### Step 7: Give thing #3, the AI key, to your AI 🤖
+### Step 7: Connect your AI 🤖
 
-1. In the Latch app, open **Connect** → create a key (name it after your AI app, like "Claude") → **copy** it right away (it's shown only once).
-2. Paste it into your AI app:
-   - **ChatGPT / Claude.ai** (asks for one link): paste the **secret link** the app shows.
-   - **Claude Code / Cursor / VS Code** (asks for a link and a header): link `https://<your-address>/mcp`, header `Authorization: Bearer <AI key>`.
+Works the same in every MCP app (Claude, ChatGPT, Codex, Cursor, VS Code…):
+
+1. In your AI app, add a remote MCP server with this URL: `https://<your-address>/mcp`
+2. Your browser opens a Latch page showing a 4-letter code.
+3. In the Latch app, open **Connect** → tap **Approve** on the request with the same code. (Or paste your owner key on the page.)
+
+Done. The AI app shows up in **Connect**, where you can remove it any time.
+
+<details>
+<summary>My AI app has no sign-in option (keys instead)</summary>
+
+In the Latch app, **Connect** → **Create key**, then give your app either:
+- the **secret link** `https://<your-address>/mcp/<key>` (apps that only take a URL), or
+- the URL `https://<your-address>/mcp` plus the header `Authorization: Bearer <key>`.
+
+</details>
 
 ### Step 8: Start a session and try it 🚀
 

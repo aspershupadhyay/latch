@@ -24,14 +24,22 @@ Without the app, use the button: [![Deploy with Vercel](https://vercel.com/butto
 
 ## Connecting an AI app
 
-Create one key per app (in the phone app's **Connect** tab or the web console at your gateway address). Each key gives you two forms:
+**Just the URL (recommended).** Add `https://<you>.vercel.app/mcp` as a remote MCP server in any MCP client: Claude, ChatGPT, Codex, Cursor, VS Code, Windsurf, or your own agent. The client finds the sign-in on its own (MCP authorization: OAuth 2.1 with PKCE, discovered through `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`), registers itself, and opens a Latch page in your browser. Approve it in the Latch app (**Connect** tab; check the 4-character code matches) or on that page with your owner key. The app then appears in your list of AI apps; revoke it there and its access stops at once.
+
+- Clients register with dynamic client registration (RFC 7591) or a client ID metadata document (an `https://` client_id).
+- Public clients only, authorization code + PKCE S256. Redirects must be https, loopback http (any port), or an app scheme such as `cursor://`.
+- Access tokens last 1 hour; refresh tokens 90 days and rotate on every use. Tokens are stored as SHA-256 hashes.
+
+**Keys, for clients without OAuth.** Create one key per app in the **Connect** tab or the web console. Each key comes in two forms:
 
 | Your AI app asks for | Use |
 |---|---|
-| Only a URL (ChatGPT connectors, Claude.ai custom connectors, many others) | the **secret link** `https://<you>.vercel.app/mcp/<key>` |
-| A URL and headers (Claude Code, Cursor, VS Code, Windsurf, the Claude and OpenAI APIs, agent SDKs) | URL `https://<you>.vercel.app/mcp` and header `Authorization: Bearer <key>` |
+| Only a URL | the **secret link** `https://<you>.vercel.app/mcp/<key>` |
+| A URL and headers | URL `https://<you>.vercel.app/mcp` and header `Authorization: Bearer <key>` |
 
-The secret link is a password in URL form: anyone who has it can use your phone within what you allowed. Revoke the key if it leaks. Some apps' connector features depend on their plan and settings (for example ChatGPT's developer mode); check the app's current documentation. OAuth sign-in, which some apps prefer, is planned.
+The secret link is a password in URL form: anyone who has it can use your phone within what you allowed. Revoke the key if it leaks. Some apps' connector features depend on their plan and settings (for example ChatGPT's developer mode); check the app's current documentation.
+
+The container gateway (`servers/mcp`) supports keys and secret links; OAuth there is planned.
 
 ## Settings
 
@@ -42,7 +50,7 @@ The secret link is a password in URL form: anyone who has it can use your phone 
 | `LATCH_MCP_TOKEN` | no | An extra static MCP token, if you prefer one fixed key. |
 | `LATCH_PUBLIC_URL` | no | Custom domain to show in links. |
 | `LATCH_ALLOWED_ORIGINS` | no | Browser origins allowed to call `/mcp`. |
-| `LATCH_POLL_INTERVAL_MS` | no | How often a waiting phone poll checks for work (default 1000). Lower is snappier but uses more Redis commands. |
+| `LATCH_POLL_INTERVAL_MS` | no | How often a waiting phone poll checks for work (default 500). Lower is snappier but uses more Redis commands. |
 
 ## Costs and limits (check the providers' current pricing)
 
