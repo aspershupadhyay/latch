@@ -27,40 +27,41 @@ It's free, it's open source, and **you own every piece of it.** There's no Latch
 
 You need: an **Android phone** (Android 11 or newer), and a free **[Vercel](https://vercel.com/signup)** account. You can make the Vercel account during setup.
 
+### 📋 You only copy-paste 3 things
+
+| # | What | Copy it from | Paste it into |
+|---|---|---|---|
+| 1 | **Owner key** (your master password) | Latch app | Vercel, in the box called `LATCH_ADMIN_TOKEN` |
+| 2 | **Gateway address** (looks like `latch-gateway-you.vercel.app`) | Vercel, after you press Deploy | Latch app |
+| 3 | **AI key** (one for each AI app) | Latch app, **Connect** tab | Your AI app (Claude, ChatGPT…) |
+
+That's it. Every step below is just one of these.
+
 ### Step 1: Get the app 📲
 
 1. On your phone, download the app: **[latch-android-debug.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk)**
 2. Open the file. If Android says *"For your security, your phone is not allowed to install unknown apps"*, tap **Settings**, turn on **Allow from this source**, then go back and tap **Install**.
 3. Open **Latch**.
 
-### Step 2: Copy your owner key 🔑
+### Step 2: Copy thing #1, the owner key 🔑
 
-1. In the app, tap **Create my own gateway**.
-2. Tap **copy** next to **Owner key**.
+In the Latch app, tap **Create my own gateway**, then tap **copy** next to **Owner key**.
 
-This key is like the master password for your gateway. **Don't share it with anyone, and don't post it anywhere.**
+> ⚠️ Don't leave this screen until Step 4. Keep this key secret.
 
-> ⚠️ **Stay on this screen until Step 4 is done.** If you leave it, the app may make a *new* key that won't match. (If that happens, see [Help, I'm stuck](#help-im-stuck) below. It's easy to fix.)
+### Step 3: Paste it into Vercel ☁️
 
-### Step 3: Make your gateway on Vercel ☁️
+1. In the app, tap **Open Vercel** and sign in.
+2. **Git repository:** keep the name and keep it **private**. Click **Create**.
+3. **Upstash Redis:** click **Add**. Region **`us-east-1`**, read regions **none**, plan **Free**.
+4. **`LATCH_ADMIN_TOKEN`:** paste thing #1 (the owner key).
+5. Click **Deploy** and wait about a minute.
 
-1. Tap **Open Vercel** in the app.
-2. Sign in to Vercel (or make a free account).
-3. Vercel asks you to **create a Git repository.** Give it any name (or keep `latch-gateway`). Keeping it **private** is fine and is the default.
-4. Vercel asks you to add **Upstash Redis** (this is the little database your gateway uses). Say yes and pick:
-   - **Primary region:** `US East (N. Virginia)`, i.e. `us-east-1`
-   - **Read regions:** leave empty, you don't need any
-   - The **free** plan is fine
-5. Where it asks for **`LATCH_ADMIN_TOKEN`**, paste the owner key you copied in Step 2.
-6. Press **Deploy** and wait about a minute. ☕
+### Step 4: Copy thing #2, the address, back into the app 🔗
 
-### Step 4: Connect your phone 🔗
-
-1. When Vercel shows **"Congratulations!"**, copy your gateway address. It looks like `latch-gateway-yourname.vercel.app`.
-   - Can't see it? Open your project on the [Vercel dashboard](https://vercel.com/dashboard). It's next to **Domains**.
-2. Go back to the Latch app, paste it into **Paste your gateway address**, and tap **Connect this phone**.
-
-🎉 Your phone is now connected to your own gateway.
+1. On Vercel's **"Congratulations!"** page, copy the address (`latch-gateway-….vercel.app`).
+   No such page? Go to the [Vercel dashboard](https://vercel.com/dashboard) → your project → the address next to **Domains**.
+2. In the Latch app, paste it into **Paste your gateway address** → tap **Connect this phone**. Done ✅
 
 ### Step 5: Let Latch see the screen 👀
 
@@ -87,16 +88,12 @@ Open the **Capabilities** tab. Everything starts **off**. Turn on only what you 
 
 Want to approve **every single** action? Turn on **Ask me before every action**.
 
-### Step 7: Connect your AI 🤖
+### Step 7: Give thing #3, the AI key, to your AI 🤖
 
-1. Open the **Connect** tab in the app and tap to **create a key** for your AI app (for example "Claude").
-2. The app shows the key **once**, so copy it right away.
-3. Give it to your AI app:
-
-| If your AI app asks for… | Give it |
-|---|---|
-| Just a link (ChatGPT, Claude.ai connectors) | the **secret link**: `https://<your-address>/mcp/<key>` |
-| A link and a header (Claude Code, Cursor, VS Code) | link `https://<your-address>/mcp` and header `Authorization: Bearer <key>` |
+1. In the Latch app, open **Connect** → create a key (name it after your AI app, like "Claude") → **copy** it right away (it's shown only once).
+2. Paste it into your AI app:
+   - **ChatGPT / Claude.ai** (asks for one link): paste the **secret link** the app shows.
+   - **Claude Code / Cursor / VS Code** (asks for a link and a header): link `https://<your-address>/mcp`, header `Authorization: Bearer <AI key>`.
 
 ### Step 8: Start a session and try it 🚀
 
