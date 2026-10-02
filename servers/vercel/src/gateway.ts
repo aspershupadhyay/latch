@@ -99,7 +99,12 @@ export class Gateway {
     const m = request.method;
     if (path === "/healthz" && m === "GET") return this.health();
     if (path === "/v1/info" && m === "GET") return this.info();
-    if (path === "/mcp") return m === "POST" ? this.mcp(request) : json(405, { error: "this server does not offer a server-to-client stream; use POST" }, { allow: "POST" });
+    if (path === "/mcp" || path.startsWith("/mcp/")) {
+      if (m !== "POST") return json(405, { error: "this server does not offer a server-to-client stream; use POST" }, { allow: "POST" });
+      // `/mcp/<client token>` is the secret-link form for clients that accept only a URL.
+      const linkToken = path.startsWith("/mcp/") ? decodeURIComponent(path.slice("/mcp/".length)) : undefined;
+      return this.mcp(request, linkToken ?? bearer(request.headers.get("authorization")));
+    }
     if (path === "/v1/pair" && m === "POST") return this.pair(request);
     if (path === "/v1/device/hello" && m === "POST") return this.hello(request);
     if (path === "/v1/device/poll" && m === "GET") return this.poll(request);
@@ -138,9 +143,8 @@ export class Gateway {
 
   // ---- MCP ----
 
-  private async isMcpClient(request: Request): Promise<boolean> {
-    const token = bearer(request.headers.get("authorization"));
-    if (token === undefined) return false;
+  private async isMcpClient(token: string | undefined): Promise<boolean> {
+    if (token === undefined || token === "") return false;
     if (this.config.mcpToken && secretsEqual(token, this.config.mcpToken)) return true;
     const id = await this.store.get(`latch:clienttoken:${sha256(token)}`);
     if (!id) return false;
@@ -150,12 +154,12 @@ export class Gateway {
     return true;
   }
 
-  private async mcp(request: Request): Promise<Response> {
+  private async mcp(request: Request, token: string | undefined): Promise<Response> {
     const origin = request.headers.get("origin");
     if (origin !== null && !this.config.allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
       return error(403, "origin not allowed; see LATCH_ALLOWED_ORIGINS");
     }
-    if (this.setupMode || !(await this.isMcpClient(request))) return unauthorized();
+    if (this.setupMode || !(await this.isMcpClient(token))) return unauthorized();
     const version = request.headers.get("mcp-protocol-version");
     if (version !== null && !SUPPORTED_VERSIONS.includes(version)) return error(400, "unsupported MCP-Protocol-Version");
     let message: unknown;

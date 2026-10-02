@@ -145,8 +145,14 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const gone = await client.callTool({ name: "observe", arguments: {} });
   assert.match(text(gone), /device_unavailable/);
 
+  // Secret-link form for clients that accept only a URL; the admin token never works there.
+  const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" });
+  assert.equal((await fetch(`${base}/mcp/${created.body.token}`, { method: "POST", body: ping })).status, 200);
+  assert.equal((await fetch(`${base}/mcp/${ADMIN}`, { method: "POST", body: ping })).status, 401);
+
   // Revoking the client cuts MCP access.
   assert.equal((await api(`/v1/admin/clients/${created.body.id}`, { method: "DELETE" })).status, 204);
   await assert.rejects(client.listTools());
+  assert.equal((await fetch(`${base}/mcp/${created.body.token}`, { method: "POST", body: ping })).status, 401);
   await client.close();
 });

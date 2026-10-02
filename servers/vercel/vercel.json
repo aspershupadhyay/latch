@@ -5,6 +5,7 @@
   },
   "rewrites": [
     { "source": "/mcp", "destination": "/api/gateway" },
+    { "source": "/mcp/:token", "destination": "/api/gateway" },
     { "source": "/healthz", "destination": "/api/gateway" },
     { "source": "/v1/:path*", "destination": "/api/gateway" }
   ],

@@ -25,6 +25,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/admin.css", get(admin_css))
         .route("/healthz", get(health))
         .route("/mcp", post(mcp_post).get(mcp_other).delete(mcp_other))
+        .route(
+            "/mcp/{token}",
+            post(mcp_post_link).get(mcp_other).delete(mcp_other),
+        )
         .route("/v1/pair", post(pair))
         .route("/v1/info", get(device_http::info))
         .route("/v1/device", get(device_ws::upgrade))
@@ -66,8 +70,8 @@ fn is_admin(state: &AppState, headers: &HeaderMap) -> bool {
 }
 
 /// Accepts the optional `LATCH_MCP_TOKEN` or any client token created in the console.
-fn is_mcp_client(state: &AppState, headers: &HeaderMap) -> bool {
-    let Some(token) = secret::bearer(headers.get(header::AUTHORIZATION)) else {
+fn is_mcp_client(state: &AppState, token: Option<&str>) -> bool {
+    let Some(token) = token else {
         return false;
     };
     let by_env = state
@@ -137,6 +141,27 @@ async fn mcp_other() -> Response {
 }
 
 async fn mcp_post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
+    let token = secret::bearer(headers.get(header::AUTHORIZATION)).map(str::to_owned);
+    mcp_serve(&state, &headers, token.as_deref(), body).await
+}
+
+/// Secret-link form, `/mcp/<client token>`, for MCP clients whose connector
+/// settings accept only a URL. The link is a credential: treat it like a password.
+async fn mcp_post_link(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    mcp_serve(&state, &headers, Some(&token), body).await
+}
+
+async fn mcp_serve(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    token: Option<&str>,
+    body: Bytes,
+) -> Response {
     if !state.config.mcp_http {
         return error(
             StatusCode::NOT_FOUND,
@@ -152,7 +177,7 @@ async fn mcp_post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: 
             );
         }
     }
-    if !is_mcp_client(&state, &headers) {
+    if !is_mcp_client(state, token) {
         return unauthorized();
     }
     if let Some(version) = headers.get("mcp-protocol-version") {
@@ -171,7 +196,7 @@ async fn mcp_post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: 
                 .into_response();
         }
     };
-    match mcp::handle(&state, message).await {
+    match mcp::handle(state, message).await {
         Some(reply) => Json(reply).into_response(),
         None => StatusCode::ACCEPTED.into_response(),
     }

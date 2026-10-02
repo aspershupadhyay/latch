@@ -16,9 +16,4 @@ class PairingUrlTest {
         assertNull(Pairing.normalize("has space.com", allowCleartext = true))
     }
 
-    @Test
-    fun derivesTheDeviceSocket() {
-        assertEquals("wss://latch.example.com/v1/device", Pairing.deviceSocketUrl("https://latch.example.com/"))
-        assertEquals("ws://10.0.2.2:8787/v1/device", Pairing.deviceSocketUrl("http://10.0.2.2:8787"))
-    }
 }

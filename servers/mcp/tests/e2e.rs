@@ -826,6 +826,28 @@ async fn console_created_client_tokens_grant_and_lose_mcp_access() {
     );
     assert!(list["clients"][0]["last_used_ms"].is_u64());
 
+    // Secret-link form for clients that only accept a URL.
+    let link = format!("/mcp/{token}");
+    assert_eq!(
+        http(&gw, "POST", &link, None, Some(ping.clone()), &[])
+            .await
+            .0,
+        200
+    );
+    assert_eq!(
+        http(
+            &gw,
+            "POST",
+            &format!("/mcp/{ADMIN}"),
+            None,
+            Some(ping.clone()),
+            &[]
+        )
+        .await
+        .0,
+        401
+    );
+
     let id = created["id"].as_str().expect("id");
     assert_eq!(
         http(

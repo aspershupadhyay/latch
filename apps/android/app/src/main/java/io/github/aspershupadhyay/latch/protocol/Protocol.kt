@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.0"
+    const val VERSION = "1.1"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -288,7 +288,7 @@ sealed interface Command {
 data class CommandEnvelope(val id: String, val deadlineMs: Long, val command: Command, val confirm: ConfirmRequest?)
 
 sealed interface GatewayMessage {
-    data class Welcome(val protocol: String, val deviceId: String, val serverTimeMs: Long) : GatewayMessage
+    data class Welcome(val protocol: String, val deviceId: String, val serverTimeMs: Long, val connection: String?) : GatewayMessage
     data class CommandMessage(val envelope: CommandEnvelope) : GatewayMessage
     data class Cancel(val id: String) : GatewayMessage
     data class Revoked(val reason: String) : GatewayMessage
@@ -326,7 +326,12 @@ object GatewayParser {
             invalid("not a JSON object")
         }
         return when (root.str("type")) {
-            "welcome" -> GatewayMessage.Welcome(root.str("protocol"), root.str("device_id"), root.long("server_time_ms"))
+            "welcome" -> GatewayMessage.Welcome(
+                root.str("protocol"),
+                root.str("device_id"),
+                root.long("server_time_ms"),
+                (root["connection"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
+            )
             "cancel" -> GatewayMessage.Cancel(root.str("id"))
             "revoked" -> GatewayMessage.Revoked(root.str("reason"))
             "command" -> {
