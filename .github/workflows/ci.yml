@@ -38,6 +38,40 @@ jobs:
           node-version: 22
       - run: scripts/interop.sh
 
+  vercel:
+    name: Vercel gateway (contract, typecheck, end-to-end on Redis)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+      upstash:
+        # Upstash-compatible REST proxy in front of the redis service.
+        image: hiett/serverless-redis-http:latest
+        ports: ["8079:80"]
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: ci_token
+          SRH_CONNECTION_STRING: redis://redis:6379
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Shared contract copies are current
+        run: scripts/sync-vercel.sh --check
+      - run: cargo build -p latch-fake-device
+      - working-directory: servers/vercel
+        run: npm ci && npm run typecheck && npm test
+      - name: End to end against Redis through the Upstash REST protocol
+        working-directory: servers/vercel
+        env:
+          LATCH_TEST_UPSTASH_URL: http://127.0.0.1:8079
+          LATCH_TEST_UPSTASH_TOKEN: ci_token
+        run: npx tsx --test test/e2e.test.ts
+
   android:
     name: Android (build, unit tests, lint)
     runs-on: ubuntu-latest

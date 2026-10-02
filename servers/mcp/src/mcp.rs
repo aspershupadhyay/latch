@@ -17,7 +17,7 @@ use crate::devices::{self, Output};
 /// Newest first. We answer with the client's version when we support it.
 pub const SUPPORTED_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
-const INSTRUCTIONS: &str = "\
+pub const INSTRUCTIONS: &str = "\
 Latch lets you see and operate a phone that its owner connected and controls.
 Work in a loop: call `observe`, pick an element id from the result, act with `tap`, \
 `type_text`, `scroll`, `swipe`, `press`, or `launch_app`, then read the fresh observation \
@@ -336,7 +336,7 @@ fn req_int(args: &Value, key: &str) -> Result<i32, ArgError> {
     arg_int(args, key)?.ok_or_else(|| ArgError(format!("{key} is required")))
 }
 
-fn tool_error(error: &ProtocolError) -> Value {
+pub fn tool_error(error: &ProtocolError) -> Value {
     json!({
         "content": [{
             "type": "text",

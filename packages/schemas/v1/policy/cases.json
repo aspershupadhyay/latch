@@ -1,0 +1,63 @@
+{
+  "description": "Policy conformance cases. Every gateway implementation must reach exactly these decisions. now_ms is the gateway clock; the observation arrived observation_age_ms before now (null = no observation yet).",
+  "now_ms": 1800000000000,
+  "observation": {
+    "observation_id": "o_1",
+    "captured_at_ms": 1800000000000,
+    "package": "com.example.chat",
+    "screen": { "width": 1080, "height": 2400, "rotation": 0 },
+    "nodes": [
+      { "id": "n1", "role": "Button", "text": "Settings", "bounds": { "left": 0, "top": 100, "right": 1080, "bottom": 200 }, "clickable": true },
+      { "id": "n2", "role": "Button", "text": "Send", "bounds": { "left": 900, "top": 2200, "right": 1080, "bottom": 2400 }, "clickable": true },
+      { "id": "n3", "role": "EditText", "bounds": { "left": 0, "top": 300, "right": 1080, "bottom": 400 }, "clickable": true, "editable": true, "sensitive": true },
+      { "id": "n4", "role": "EditText", "text": "Search", "bounds": { "left": 0, "top": 400, "right": 1080, "bottom": 500 }, "clickable": true, "editable": true },
+      { "id": "n5", "role": "EditText", "text": "Enter PIN", "bounds": { "left": 0, "top": 500, "right": 1080, "bottom": 600 }, "clickable": true, "editable": true },
+      { "id": "n6", "role": "Button", "text": "Next", "bounds": { "left": 0, "top": 600, "right": 1080, "bottom": 700 }, "clickable": true, "enabled": false },
+      { "id": "n7", "role": "Button", "resource_id": "com.example:id/btnSignOut", "bounds": { "left": 0, "top": 700, "right": 1080, "bottom": 800 }, "clickable": true },
+      { "id": "n8", "role": "TextView", "text": "Sender details", "bounds": { "left": 0, "top": 800, "right": 1080, "bottom": 900 }, "clickable": true }
+    ],
+    "redacted_count": 1,
+    "truncated": false
+  },
+  "defaults": {
+    "capabilities": "all",
+    "session": { "expires_in_ms": 60000, "approve_every_action": false, "paused": false },
+    "observation_age_ms": 0
+  },
+  "cases": [
+    { "name": "harmless tap", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "consequential tap asks the owner", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n2" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Send” in com.example.chat" } },
+    { "name": "consequential long-press", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n2" }, "long_press": true } }, "expect": { "decision": "confirm", "risk": "high", "title": "Long-press “Send” in com.example.chat" } },
+    { "name": "coordinate tap on consequential control", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "x": 1000, "y": 2300 } } }, "expect": { "decision": "confirm", "risk": "high" } },
+    { "name": "resource id sign-out is consequential", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n7" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “com.example:id/btnSignOut” in com.example.chat" } },
+    { "name": "whole words only", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n8" } } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "approve every action", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "session": { "expires_in_ms": 60000, "approve_every_action": true, "paused": false }, "expect": { "decision": "confirm", "risk": "medium", "title": "Tap “Settings” in com.example.chat" } },
+    { "name": "reads are not confirmed in approve-every mode", "command": { "name": "ui.observe", "params": { "include_screenshot": true, "max_nodes": 100 } }, "session": { "expires_in_ms": 60000, "approve_every_action": true, "paused": false }, "observation_age_ms": null, "expect": { "decision": "allow", "risk": "low" } },
+    { "name": "disabled capability", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "capabilities": { "input.gesture": "disabled" }, "expect": { "decision": "deny", "code": "permission_missing" } },
+    { "name": "capability needs an OS permission", "command": { "name": "app.list", "params": {} }, "capabilities": { "app.launch": "needs_permission" }, "observation_age_ms": null, "expect": { "decision": "deny", "code": "permission_missing" } },
+    { "name": "screenshot needs its own capability", "command": { "name": "ui.observe", "params": { "include_screenshot": true, "max_nodes": 100 } }, "capabilities": ["ui.observe"], "observation_age_ms": null, "expect": { "decision": "deny", "code": "permission_missing" } },
+    { "name": "capability the platform lacks", "command": { "name": "nav.global", "params": { "action": "home" } }, "capabilities": { "nav.global": "unsupported" }, "observation_age_ms": null, "expect": { "decision": "deny", "code": "unsupported_capability" } },
+    { "name": "tree only with ui.observe", "command": { "name": "ui.observe", "params": { "include_screenshot": false, "max_nodes": 100 } }, "capabilities": ["ui.observe"], "observation_age_ms": null, "expect": { "decision": "allow", "risk": "low" } },
+    { "name": "paused", "command": { "name": "device.info", "params": {} }, "session": { "expires_in_ms": 60000, "approve_every_action": false, "paused": true }, "expect": { "decision": "deny", "code": "device_unavailable" } },
+    { "name": "expired", "command": { "name": "device.info", "params": {} }, "session": { "expires_in_ms": 0, "approve_every_action": false, "paused": false }, "expect": { "decision": "deny", "code": "device_unavailable" } },
+    { "name": "no observation yet", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "observation_age_ms": null, "expect": { "decision": "deny", "code": "stale_observation" } },
+    { "name": "not the latest observation", "command": { "name": "input.tap", "params": { "observation_id": "o_0", "target": { "element": "n1" } } }, "expect": { "decision": "deny", "code": "stale_observation" } },
+    { "name": "observation too old", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "observation_age_ms": 60001, "expect": { "decision": "deny", "code": "stale_observation" } },
+    { "name": "observation exactly 60 s old is fine", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" } } }, "observation_age_ms": 60000, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "tap sensitive", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n3" } } }, "expect": { "decision": "deny", "code": "sensitive_target" } },
+    { "name": "type into password", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n3", "text": "hunter2" } }, "expect": { "decision": "deny", "code": "sensitive_target" } },
+    { "name": "type into a field labelled PIN", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n5", "text": "1234" } }, "expect": { "decision": "deny", "code": "sensitive_target" } },
+    { "name": "swipe from a sensitive field", "command": { "name": "input.swipe", "params": { "observation_id": "o_1", "from": { "x": 10, "y": 350 }, "to": { "x": 10, "y": 900 }, "duration_ms": 300 } }, "expect": { "decision": "deny", "code": "sensitive_target" } },
+    { "name": "type into search", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n4", "text": "weather" } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "type into non-editable", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n1", "text": "x" } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "missing element", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n99" } } }, "expect": { "decision": "deny", "code": "target_not_found" } },
+    { "name": "disabled element", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n6" } } }, "expect": { "decision": "deny", "code": "target_not_found" } },
+    { "name": "point off screen", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "x": 5000, "y": 10 } } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "launch an intent uri", "command": { "name": "app.launch", "params": { "package": "intent://x" } }, "capabilities": [], "observation_age_ms": null, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "launch an app", "command": { "name": "app.launch", "params": { "package": "com.android.settings" } }, "observation_age_ms": null, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "press back", "command": { "name": "nav.global", "params": { "action": "back" } }, "observation_age_ms": null, "expect": { "decision": "allow", "risk": "low" } },
+    { "name": "swipe on screen", "command": { "name": "input.swipe", "params": { "observation_id": "o_1", "from": { "x": 540, "y": 1800 }, "to": { "x": 540, "y": 600 }, "duration_ms": 300 } }, "expect": { "decision": "allow", "risk": "medium" } },
+    { "name": "swipe too fast", "command": { "name": "input.swipe", "params": { "observation_id": "o_1", "from": { "x": 540, "y": 1800 }, "to": { "x": 540, "y": 600 }, "duration_ms": 10 } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "text with control characters", "command": { "name": "input.type", "params": { "observation_id": "o_1", "element": "n4", "text": "a\u0007" } }, "expect": { "decision": "deny", "code": "invalid_request" } }
+  ]
+}

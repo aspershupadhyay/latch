@@ -423,3 +423,37 @@ fn consequential_detection() {
     by_id.resource_id = Some("com.example:id/sign_out".into());
     assert!(is_consequential(&by_id));
 }
+
+/// The word lists are part of the policy contract: the TypeScript gateway reads
+/// them from `packages/schemas/v1/policy/words.json`, which must match exactly.
+/// Regenerate with `LATCH_UPDATE_SCHEMAS=1 cargo test -p latch-policy`.
+#[test]
+fn word_lists_match_shared_file() {
+    let list = |words: &[&str]| {
+        words
+            .iter()
+            .map(|w| format!("    \"{w}\""))
+            .collect::<Vec<_>>()
+            .join(",\n")
+    };
+    let generated = format!(
+        "{{\n  \"consequential_words\": [\n{}\n  ],\n  \"consequential_phrases\": [\n{}\n  ],\n  \"secret_field_words\": [\n{}\n  ],\n  \"secret_field_phrases\": [\n{}\n  ]\n}}\n",
+        list(CONSEQUENTIAL_WORDS),
+        list(CONSEQUENTIAL_PHRASES),
+        list(SECRET_FIELD_WORDS),
+        list(SECRET_FIELD_PHRASES),
+    );
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/schemas/v1/policy/words.json"
+    );
+    if std::env::var_os("LATCH_UPDATE_SCHEMAS").is_some() {
+        std::fs::write(path, &generated).expect("write words.json");
+        return;
+    }
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap_or_default(),
+        generated,
+        "words.json is stale"
+    );
+}

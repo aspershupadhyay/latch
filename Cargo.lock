@@ -422,6 +422,7 @@ name = "latch-policy"
 version = "0.1.0"
 dependencies = [
  "latch-protocol",
+ "serde_json",
 ]
 
 [[package]]
