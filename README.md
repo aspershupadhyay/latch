@@ -41,7 +41,7 @@ That's it. Every step below is just one of these.
 
 1. On your phone, download the app: **[latch-android-debug.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk)**
 2. Open the file. If Android says *"For your security, your phone is not allowed to install unknown apps"*, tap **Settings**, turn on **Allow from this source**, then go back and tap **Install**.
-   - **"App blocked to protect your device" (Google Play Protect)?** Play Protect blocks apps that use accessibility when they come from a browser or file manager (it's on by default in India). That's a real safety feature and Latch doesn't work around it. Install from a computer with `adb install`, or see [the install guide](docs/platform/android-install.md) for every option.
+   - **"App blocked to protect your device"?** That's Google Play Protect. Follow [Fix: App blocked by Play Protect](#fix-app-blocked-by-play-protect) below.
 3. Open **Latch**.
 
 ### Step 2: Copy thing #1, the owner key 🔑
@@ -62,7 +62,7 @@ Then on Vercel:
 1. Sign in (or make a free account). If it asks for a plan, pick **Hobby** (free).
 2. **Git repository:** keep the name and keep it **private**. Click **Create**.
 3. **Upstash Redis:** click **Add**. Plan **Free**, region **`us-east-1`**, read regions **none**.
-   Keep `us-east-1`: it is next to Vercel's default function region (`iad1`, Washington). If you pick another Redis region, set the same place in Vercel → **Settings → Functions → Function Region**, or every phone action gets several seconds slower.
+   Keep `us-east-1`: it sits next to Vercel's default function region (`iad1`, Washington). Picked another region? See [Fix: AI actions are slow](#fix-ai-actions-are-slow).
 4. **`LATCH_ADMIN_TOKEN`:** paste thing #1 (the owner key from the app).
 5. Click **Deploy** and wait about a minute.
 
@@ -78,8 +78,8 @@ Right after connecting, Latch walks you through everything it needs, one step at
 
 1. **Notifications:** tap **Allow**, so you always see when a session is running and can stop it.
 2. **Screen access:** tap **Open accessibility settings**, find **Latch**, and switch it on. This one is required.
-   - **Android 13 or newer** might say the setting is **restricted**. That's normal for apps that aren't from an app store. First try to switch Latch on once (so Android shows the warning), then tap **Open App info** in Latch → **⋮** (top right) → **Allow restricted settings**, then switch Latch on again. Xiaomi/Redmi and other brands: see [the install guide](docs/platform/android-install.md#2-restricted-setting-when-switching-latch-on-in-accessibility).
-3. **Stay connected:** tap **Allow**, so your phone doesn't cut the session when the screen is off. You can skip this one.
+   - Android says **"Restricted setting"** or the switch is greyed out? Follow [Fix: Restricted setting](#fix-restricted-setting) below.
+3. **Stay connected:** tap **Allow**, so your phone doesn't cut the session when the screen is off. You can skip this one. (Xiaomi, realme, OPPO, Samsung need one more switch: [Fix: Session stops when the screen is off](#fix-session-stops-when-the-screen-is-off).)
 
 You can open this setup again any time from **Settings → Permissions and setup**.
 
@@ -125,7 +125,7 @@ In the Latch app, **Connect** → **Create key**, then give your app either:
 ## Help, I'm stuck
 
 **"I pasted the key in Vercel, deployed, and now I don't know what to do."**
-Do [Step 4](#step-4-connect-your-phone-): copy your `….vercel.app` address and paste it into the app.
+Do [Step 4](#step-4-copy-thing-2-the-address-back-into-the-app-): copy your `….vercel.app` address and paste it into the app.
 
 **"The app shows a different key now / I closed the app."**
 No problem. Your real key is saved in Vercel:
@@ -137,13 +137,103 @@ No problem. Your real key is saved in Vercel:
 **"It says the gateway is not set up yet."**
 `LATCH_ADMIN_TOKEN` is missing or too short (it needs at least 32 characters). Add it in Vercel → **Settings → Environment Variables**, then press **Redeploy** (under **Deployments**).
 
-**"I can't turn on the accessibility switch."**
-See the *restricted settings* tip in [Step 5](#step-5-let-latch-see-the-screen-).
+**"The app won't install" / "I can't turn on the accessibility switch" / "It's slow" / "The session keeps dropping."**
+See [Phone and Vercel settings](#phone-and-vercel-settings) right below.
 
 **"I think my key leaked."**
 Change `LATCH_ADMIN_TOKEN` in Vercel to a new key → **Redeploy** → in the app, **Settings → Forget this gateway** → connect again with the new key. To kill just one AI app's key, revoke it in the **Connect** tab.
 
 Still stuck? [Open an issue](https://github.com/aspershupadhyay/latch/issues) and describe what you see.
+
+---
+
+## Phone and Vercel settings
+
+Every setting Latch may need, with the exact taps. Menu names differ a little between phone brands, so each fix lists the common ones.
+
+### Fix: App blocked by Play Protect
+
+**What you see:** *"App blocked to protect your device"*, with only an **OK** button.
+
+**Why:** Google Play Protect blocks apps that use Android's accessibility feature when they're installed from a browser, chat app, or file manager. Fraud apps use the same feature, so this check is on by default in India and some other countries. Latch needs accessibility to see the screen and tap, and it doesn't try to sneak past this check. Pick **one** of these:
+
+**Option A: install from a computer (best, no settings to change back).**
+Installing over USB isn't blocked, and Android doesn't mark it "restricted" either.
+1. On the phone, turn on developer mode: **Settings → About phone** → tap **Build number** 7 times.
+   - Xiaomi / Redmi / POCO: **Settings → About phone** → tap **OS version** (or **MIUI version**) 7 times.
+   - realme / OPPO: **Settings → About device → Version** → tap **Build number** 7 times.
+   - Samsung: **Settings → About phone → Software information** → tap **Build number** 7 times.
+2. Turn on **USB debugging**: **Settings → System → Developer options** (Xiaomi: **Settings → Additional settings → Developer options**) → **USB debugging** on. Xiaomi also needs **Install via USB** on.
+3. On the computer, install [Android platform-tools](https://developer.android.com/tools/releases/platform-tools), download [latch-android-debug.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk), connect the phone by USB, tap **Allow** on the phone, and run:
+   ```
+   adb install -r latch-android-debug.apk
+   ```
+4. Done. You can turn **USB debugging** off again.
+
+**Option B: pause Play Protect just for the install.**
+1. Open the **Play Store** → tap your profile picture (top right) → **Play Protect** → ⚙️ (top right).
+2. Turn off **Scan apps with Play Protect** → install Latch.
+3. Go back to the same screen and **turn it on again**. Play Protect keeps protecting your other apps, and Latch stays installed.
+
+### Fix: Restricted setting
+
+**What you see:** under **Accessibility → Downloaded apps**, Latch is greyed out, or tapping it says *"Restricted setting: For your security, this setting is currently unavailable."*
+
+**Why:** Android 13 and newer protect accessibility for any app installed from a file, until you say you trust it. You only do this once.
+
+1. **Try once first.** In Latch tap **Turn on screen access** (or go to **Settings → Accessibility → Downloaded apps → Latch**) and tap the switch. When *"Restricted setting"* appears, tap **OK**. Android only shows the allow option *after* this attempt.
+2. **Open Latch's App info.** In Latch tap **Open App info**. Or:
+   - Most phones: long-press the Latch icon → **App info** (ⓘ).
+   - Xiaomi / Redmi / POCO: **Settings → Apps → Manage apps → Latch**.
+   - realme / OPPO / OnePlus: **Settings → Apps → App management → Latch**.
+   - Samsung: **Settings → Apps → Latch**.
+3. Tap **⋮** (three dots, top right) → **Allow restricted settings** → confirm with your PIN, pattern, or fingerprint.
+   - No ⋮ on the screen? You skipped step 1, or you're on a different App info page. Do step 1, then open App info from the **Settings → Apps** path above.
+4. Go back to **Accessibility → Downloaded apps → Latch** and switch it on. Read the notice, then tap **Allow**.
+
+**Still no "Allow restricted settings"?** Use [Option A](#fix-app-blocked-by-play-protect) (install from a computer). Apps installed that way are never restricted. If Latch is already installed and USB debugging is on, this one command does the same thing:
+```
+adb shell cmd appops set io.github.aspershupadhyay.latch.debug ACCESS_RESTRICTED_SETTINGS allow
+```
+
+### Fix: Session stops when the screen is off
+
+Some phones close background apps to save battery, which ends your session. Allow Latch to run (it only runs during sessions you start):
+
+- **Every phone:** in Latch's setup, tap **Allow** at **Stay connected**.
+- **Xiaomi / Redmi / POCO:** **Settings → Apps → Manage apps → Latch** → **Autostart** on, then **Battery saver** → **No restrictions**.
+- **realme / OPPO / OnePlus:** **Settings → Apps → App management → Latch → Battery usage** → turn on **Allow background activity** (and **Allow auto launch** if shown).
+- **Samsung:** **Settings → Apps → Latch → Battery** → **Unrestricted**.
+- **Pixel and others:** **Settings → Apps → Latch → App battery usage** → **Unrestricted**.
+
+Also keep **Accessibility → Latch** on. Some phones switch it off after a battery-saver cleanup. If the app says screen access is off, switch it on again.
+
+### Fix: AI actions are slow
+
+Every phone action goes back and forth between your Vercel function and your Upstash database about a dozen times. When the two sit on different continents, each trip costs ~200 ms, and every action gets several seconds slower.
+
+**Check both regions:**
+1. **Upstash:** [Vercel dashboard](https://vercel.com/dashboard) → your project → **Storage** → your Redis database → note its **region** (for example `us-east-1` or `ap-south-1`).
+2. **Vercel function:** your project → **Settings → Functions → Function Region**.
+
+**Make them match:**
+
+| Your Upstash region | Pick this Vercel Function Region |
+|---|---|
+| `us-east-1` (N. Virginia) | **Washington, D.C., USA (`iad1`)**, the default |
+| `ap-south-1` (Mumbai) | **Mumbai, India (`bom1`)** |
+| `ap-southeast-1` (Singapore) | **Singapore (`sin1`)** |
+| `eu-central-1` (Frankfurt) | **Frankfurt, Germany (`fra1`)** |
+| `eu-west-1` (Ireland) | **Dublin, Ireland (`dub1`)** |
+| `us-west-1` (N. California) | **San Francisco, USA (`sfo1`)** |
+
+3. Click **Save**, then go to **Deployments** → ⋯ on the newest one → **Redeploy**.
+
+**See where the time goes:** every answer the AI gets includes `latch/timing` (`total_ms`, `phone_ms`, `lock_wait_ms`). If `total_ms` is much bigger than `phone_ms`, the regions are the problem. If `phone_ms` is big, the phone's network or the phone itself is slow. The **Activity** list in your gateway's web page shows the same total per action.
+
+### Fix: The AI says Latch's own screen is off limits
+
+That's on purpose: an AI can never read or tap Latch itself, so it can't approve its own requests. Switch to the app you want the AI to use, or let it press **Home** or open an app. Both are allowed from Latch's screen.
 
 ---
 
