@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeviceToGateway",
+  "description": "Messages a phone sends to the gateway.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "hello"
+        }
+      },
+      "$ref": "#/$defs/Hello",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "Answer to exactly one [`GatewayToDevice::Command`].",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/Outcome"
+        },
+        "type": {
+          "type": "string",
+          "const": "result"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "outcome"
+      ]
+    },
+    {
+      "description": "The owner changed capabilities or session settings.",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CapabilityState"
+          }
+        },
+        "device_time_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "session": {
+          "$ref": "#/$defs/SessionInfo"
+        },
+        "type": {
+          "type": "string",
+          "const": "state"
+        }
+      },
+      "required": [
+        "type",
+        "capabilities",
+        "session"
+      ]
+    },
+    {
+      "description": "The device is closing the session on purpose (stop button, unpair, expiry).",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "bye"
+        }
+      },
+      "required": [
+        "type",
+        "reason"
+      ]
+    }
+  ],
+  "$defs": {
+    "Capability": {
+      "description": "A named, separately grantable device capability.\n\nCapabilities are what the phone owner switches on and off. Every command\nmaps to the capabilities it needs (see [`crate::Command::required_capabilities`]);\na command whose capabilities are not all enabled is refused before it\nreaches the platform.",
+      "oneOf": [
+        {
+          "description": "Device model, OS version, screen size, and session state.",
+          "type": "string",
+          "const": "device.info"
+        },
+        {
+          "description": "Read a redacted tree of on-screen UI elements.",
+          "type": "string",
+          "const": "ui.observe"
+        },
+        {
+          "description": "Take a screenshot of the current screen.",
+          "type": "string",
+          "const": "screen.capture"
+        },
+        {
+          "description": "Tap, long-press, and swipe.",
+          "type": "string",
+          "const": "input.gesture"
+        },
+        {
+          "description": "Type text into an editable, non-sensitive field.",
+          "type": "string",
+          "const": "input.text"
+        },
+        {
+          "description": "Press back, home, or recents.",
+          "type": "string",
+          "const": "nav.global"
+        },
+        {
+          "description": "List launchable apps and open one.",
+          "type": "string",
+          "const": "app.launch"
+        }
+      ]
+    },
+    "CapabilityState": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/Capability"
+        },
+        "status": {
+          "$ref": "#/$defs/CapabilityStatus"
+        }
+      },
+      "required": [
+        "capability",
+        "status"
+      ]
+    },
+    "CapabilityStatus": {
+      "description": "Whether a capability can be used right now on a specific device.",
+      "oneOf": [
+        {
+          "description": "The owner switched it on and the OS permission is granted.",
+          "type": "string",
+          "const": "enabled"
+        },
+        {
+          "description": "The owner has not switched it on (the default for everything but `device.info`).",
+          "type": "string",
+          "const": "disabled"
+        },
+        {
+          "description": "The owner wants it but an OS permission is missing.",
+          "type": "string",
+          "const": "needs_permission"
+        },
+        {
+          "description": "This platform or OS version cannot provide it.",
+          "type": "string",
+          "const": "unsupported"
+        }
+      ]
+    },
+    "DeviceDescriptor": {
+      "description": "Static facts about the phone, sent once per connection.",
+      "type": "object",
+      "properties": {
+        "app_version": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "os_version": {
+          "type": "string"
+        },
+        "platform": {
+          "description": "`android`, `ios`, or `fake`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "platform",
+        "os_version",
+        "model",
+        "app_version"
+      ]
+    },
+    "ErrorCode": {
+      "description": "Stable machine-readable failure codes.\n\nEvery failure anywhere in the system maps to exactly one of these. Codes\nare part of the public contract: never rename one, only add.",
+      "oneOf": [
+        {
+          "description": "The request was malformed or violated a protocol limit.",
+          "type": "string",
+          "const": "invalid_request"
+        },
+        {
+          "description": "The device does not offer this capability on this platform.",
+          "type": "string",
+          "const": "unsupported_capability"
+        },
+        {
+          "description": "The owner has not enabled a required capability, or an OS permission is missing.",
+          "type": "string",
+          "const": "permission_missing"
+        },
+        {
+          "description": "Policy refused the operation outright.",
+          "type": "string",
+          "const": "policy_refused"
+        },
+        {
+          "description": "The operation targets a password, OTP, or otherwise sensitive element.",
+          "type": "string",
+          "const": "sensitive_target"
+        },
+        {
+          "description": "The screen changed since the referenced observation.",
+          "type": "string",
+          "const": "stale_observation"
+        },
+        {
+          "description": "The referenced element no longer exists or is not actionable.",
+          "type": "string",
+          "const": "target_not_found"
+        },
+        {
+          "description": "The app marked its window as secure; the OS refused capture.",
+          "type": "string",
+          "const": "screen_protected"
+        },
+        {
+          "description": "The owner denied the approval request.",
+          "type": "string",
+          "const": "user_denied"
+        },
+        {
+          "description": "The approval request was not answered in time.",
+          "type": "string",
+          "const": "confirmation_expired"
+        },
+        {
+          "description": "The operation was cancelled before it ran.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "The device did not answer before the deadline.",
+          "type": "string",
+          "const": "deadline_exceeded"
+        },
+        {
+          "description": "No device is connected, the session is paused or stopped, or it ended.",
+          "type": "string",
+          "const": "device_unavailable"
+        },
+        {
+          "description": "More than one device is online and none was named.",
+          "type": "string",
+          "const": "ambiguous_device"
+        },
+        {
+          "description": "A transient transport problem; retrying may help.",
+          "type": "string",
+          "const": "transport_unavailable"
+        },
+        {
+          "description": "A bug in Latch. Please report it with the correlation id.",
+          "type": "string",
+          "const": "internal"
+        }
+      ]
+    },
+    "Hello": {
+      "description": "First message on every device connection.",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CapabilityState"
+          }
+        },
+        "device": {
+          "$ref": "#/$defs/DeviceDescriptor"
+        },
+        "device_time_ms": {
+          "description": "Device clock (Unix ms) when the message was sent, so the gateway can\ninterpret `session.expires_at_ms` despite clock skew.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "protocol": {
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionInfo"
+        }
+      },
+      "required": [
+        "protocol",
+        "device",
+        "capabilities",
+        "session"
+      ]
+    },
+    "Outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "data": true,
+            "status": {
+              "type": "string",
+              "const": "ok"
+            }
+          },
+          "required": [
+            "status",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/ProtocolError"
+            },
+            "status": {
+              "type": "string",
+              "const": "error"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ]
+        }
+      ]
+    },
+    "ProtocolError": {
+      "description": "A typed protocol failure with a message that is safe to show and log.\n\nMessages must never contain screen text, tokens, or personal data.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "SessionInfo": {
+      "description": "The owner's current session settings on the phone.",
+      "type": "object",
+      "properties": {
+        "approve_every_action": {
+          "description": "When true the owner wants to approve every action, not only risky ones.",
+          "type": "boolean",
+          "default": false
+        },
+        "expires_at_ms": {
+          "description": "Unix epoch milliseconds after which the phone stops accepting commands.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "paused": {
+          "description": "When true the owner paused the session; commands are refused.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "expires_at_ms"
+      ]
+    }
+  }
+}

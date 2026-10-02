@@ -1,0 +1,1 @@
+{ "type": "hello", "protocol": "2.0", "device": { "platform": "android", "os_version": "16", "model": "Pixel", "app_version": "9" }, "capabilities": [], "session": { "expires_at_ms": 1 } }

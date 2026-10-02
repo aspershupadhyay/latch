@@ -1,0 +1,34 @@
+[package]
+name = "latch-gateway"
+description = "Latch gateway: MCP server for AI clients and authenticated channel for phones."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "latch-gateway"
+path = "src/main.rs"
+
+[dependencies]
+latch-protocol.workspace = true
+latch-policy.workspace = true
+axum.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+latch-fake-device.workspace = true
+tokio-tungstenite.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_3", "deadline_ms": 15000, "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "x": -5, "y": 10 } } } }

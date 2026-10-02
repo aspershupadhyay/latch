@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0001", "deadline_ms": 15000, "command": { "name": "ui.observe", "params": { "include_screenshot": true, "max_nodes": 400 } } }

@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0007", "deadline_ms": 15000, "command": { "name": "nav.global", "params": { "action": "back" } } }

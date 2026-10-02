@@ -1,0 +1,5 @@
+{
+  "type": "result",
+  "id": "c_0002",
+  "outcome": { "status": "error", "error": { "code": "stale_observation", "message": "the screen changed" } }
+}

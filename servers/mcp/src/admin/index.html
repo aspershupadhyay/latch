@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Latch console</title>
+<link rel="stylesheet" href="/admin.css">
+<script src="/admin.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><span class="field" aria-hidden="true"><i></i><i></i></span> Latch</div>
+  <div id="health" class="muted" role="status" aria-live="polite">Checking gateway…</div>
+  <button id="signout" class="ghost" hidden>Lock console</button>
+</header>
+
+<main>
+  <section id="login" class="card narrow" aria-labelledby="login-title">
+    <h1 id="login-title">Owner console</h1>
+    <p class="muted">Pair phones, see what is connected, and revoke access. Enter the admin token
+      (<code>LATCH_ADMIN_TOKEN</code>). It stays in this tab only.</p>
+    <form id="login-form">
+      <label for="token">Admin token</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false" required minlength="32">
+      <button type="submit">Open console</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <section class="card" aria-labelledby="devices-title">
+      <div class="row between">
+        <h2 id="devices-title">Phones</h2>
+        <span id="devices-summary" class="muted"></span>
+      </div>
+      <p id="devices-empty" class="muted" hidden>No phones paired yet. Create a pairing code below.</p>
+      <ul id="devices" class="devices"></ul>
+    </section>
+
+    <section class="grid">
+      <div class="card" aria-labelledby="pair-title">
+        <h2 id="pair-title">Pair a phone</h2>
+        <p class="muted">Creates a one-time code valid for 10 minutes. In the Latch app on the phone, enter
+          the gateway address and this code.</p>
+        <form id="pair-form" class="row">
+          <label for="pair-name" class="sr-only">Phone name</label>
+          <input id="pair-name" placeholder="Phone name, e.g. Pixel 9" maxlength="40" required>
+          <button type="submit">Create code</button>
+        </form>
+        <div id="pair-result" class="pair" hidden>
+          <div class="muted">Gateway address</div>
+          <div id="pair-url" class="mono"></div>
+          <div class="muted">Pairing code</div>
+          <div id="pair-code" class="code" aria-live="polite"></div>
+          <div id="pair-expiry" class="muted"></div>
+        </div>
+        <p id="pair-error" class="error" role="alert"></p>
+      </div>
+
+      <div class="card" aria-labelledby="connect-title">
+        <h2 id="connect-title">Connect an AI client</h2>
+        <p class="muted">Any MCP client that supports Streamable HTTP and a bearer token works. Use
+          <code>LATCH_MCP_TOKEN</code>, never the admin token.</p>
+        <div class="muted">MCP endpoint</div>
+        <div id="mcp-url" class="mono"></div>
+        <div class="muted">Claude Code</div>
+        <pre id="snippet-claude" class="mono"></pre>
+        <div class="muted">Generic JSON config</div>
+        <pre id="snippet-json" class="mono"></pre>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="activity-title">
+      <div class="row between">
+        <h2 id="activity-title">Activity</h2>
+        <span class="muted">Redacted: commands and outcomes only, never screen content.</span>
+      </div>
+      <p id="activity-empty" class="muted">Nothing yet.</p>
+      <table id="activity" hidden>
+        <thead><tr><th scope="col">Time</th><th scope="col">Phone</th><th scope="col">Command</th><th scope="col">Policy</th><th scope="col">Result</th><th scope="col">ms</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+</main>
+</body>
+</html>
