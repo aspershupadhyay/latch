@@ -389,6 +389,8 @@ async fn execute_inner(state: &AppState, device_id: &str, command: Command) -> S
             deadline_ms,
             command: command.clone(),
             confirm,
+            // This gateway's WebSocket round trip is cheap; it observes with a second command.
+            observe_after: None,
         });
         if l.tx.try_send(envelope).is_err() {
             l.pending.remove(&id);

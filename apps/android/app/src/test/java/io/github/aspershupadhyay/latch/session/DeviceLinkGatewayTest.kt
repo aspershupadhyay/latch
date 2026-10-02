@@ -1,5 +1,6 @@
 package io.github.aspershupadhyay.latch.session
 
+import io.github.aspershupadhyay.latch.protocol.ActionResult
 import io.github.aspershupadhyay.latch.protocol.Command
 import io.github.aspershupadhyay.latch.protocol.CommandEnvelope
 import io.github.aspershupadhyay.latch.protocol.DeviceDescriptor
@@ -179,7 +180,11 @@ class DeviceLinkGatewayTest(private val implementation: String) {
                 received += envelope.command.name
                 when (val c = envelope.command) {
                     is Command.Observe -> Outgoing.ok(envelope.id, Protocol.json.encodeToJsonElement(Observation.serializer(), observation))
-                    is Command.Tap -> Outgoing.ok(envelope.id, Protocol.json.parseToJsonElement("""{"package":"com.example.notes"}"""))
+                    is Command.Tap -> {
+                        // Protocol 1.2: answer with the screen after the action when asked.
+                        val after = envelope.observeAfter?.let { ActionResult("com.example.notes", observation.copy(observationId = "o_after")) }
+                        Outgoing.ok(envelope.id, Protocol.json.encodeToJsonElement(ActionResult.serializer(), after ?: ActionResult("com.example.notes")))
+                    }
                     else -> Outgoing.error(envelope.id, ErrorCode.UNSUPPORTED_CAPABILITY, "not in this test: ${c.name}")
                 }
             },
@@ -206,7 +211,13 @@ class DeviceLinkGatewayTest(private val implementation: String) {
         }
         val tapResult = callTool(mcp, "tap", """{"observation_id":"o_jvm","element_id":"n0"}""")
         assertTrue(tapResult.second, !tapResult.first)
-        assertEquals(listOf("ui.observe", "input.tap", "ui.observe"), received.toList())
+        if (implementation == "vercel") {
+            // One phone command per action: the observation came back with the tap.
+            assertEquals(listOf("ui.observe", "input.tap"), received.toList())
+            assertTrue(tapResult.second, tapResult.second.contains("observation_id: o_after"))
+        } else {
+            assertEquals(listOf("ui.observe", "input.tap", "ui.observe"), received.toList())
+        }
 
         // Revocation reaches the phone through the transport.
         val deviceId = obj(get("/v1/admin/devices", ADMIN).second).getValue("devices").jsonArray[0].jsonObject.str("id")

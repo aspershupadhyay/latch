@@ -3,6 +3,7 @@ package io.github.aspershupadhyay.latch.session
 import android.os.Build
 import io.github.aspershupadhyay.latch.BuildConfig
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
+import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.protocol.ActionResult
@@ -13,14 +14,17 @@ import io.github.aspershupadhyay.latch.protocol.Command
 import io.github.aspershupadhyay.latch.protocol.CommandEnvelope
 import io.github.aspershupadhyay.latch.protocol.DeviceDescriptor
 import io.github.aspershupadhyay.latch.protocol.DeviceInfo
+import io.github.aspershupadhyay.latch.protocol.ErrorBody
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
 import io.github.aspershupadhyay.latch.protocol.GlobalAction
 import io.github.aspershupadhyay.latch.protocol.Observation
+import io.github.aspershupadhyay.latch.protocol.ObserveAfter
 import io.github.aspershupadhyay.latch.protocol.Protocol
 import io.github.aspershupadhyay.latch.protocol.ProtocolException
 import io.github.aspershupadhyay.latch.protocol.ScreenInfo
 import io.github.aspershupadhyay.latch.protocol.SessionInfo
 import io.github.aspershupadhyay.latch.protocol.Target
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 
 /** Device descriptor sent in `hello` and `device.info`. */
@@ -59,10 +63,15 @@ class CommandExecutor(
     private val approvals: ApprovalBroker,
     private val log: ActivityLog,
 ) {
+    /**
+     * [current] reads the owner's session and switches again later, so an
+     * observation after an action respects a pause or switch made meanwhile.
+     */
     suspend fun execute(
         envelope: CommandEnvelope,
         session: SessionInfo,
         capabilities: Map<Capability, CapabilityStatus>,
+        current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>> = { session to capabilities },
     ): JsonElement {
         val command = envelope.command
         if (session.paused) throw ProtocolException(ErrorCode.DEVICE_UNAVAILABLE, "the owner paused this session")
@@ -135,8 +144,41 @@ class CommandExecutor(
                     is Command.LaunchApp -> service.launch(command.packageName)
                 }
                 log.add(ActivityKind.ACTION, describe(command))
-                Protocol.json.encodeToJsonElement(ActionResult.serializer(), action.copy(`package` = service.currentPackage()))
+                var result = action.copy(`package` = service.currentPackage())
+                envelope.observeAfter?.let { result = observeAfter(service, it, result, current) }
+                Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
+        }
+    }
+
+    /**
+     * Protocol 1.2: lets the UI settle, then observes under the same rules as
+     * `ui.observe`, so the agent gets the new screen without a second round
+     * trip. The action already happened, so problems are reported, not thrown.
+     */
+    private suspend fun observeAfter(
+        service: LatchAccessibilityService,
+        after: ObserveAfter,
+        result: ActionResult,
+        current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
+    ): ActionResult {
+        delay(after.settleMs.toLong())
+        val (session, capabilities) = current()
+        val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
+        val refusal = when {
+            session.paused || System.currentTimeMillis() >= session.expiresAtMs ->
+                ErrorBody(ErrorCode.DEVICE_UNAVAILABLE.wire, "the session is paused or ended")
+            needed.any { capabilities[it] != CapabilityStatus.ENABLED } ->
+                ErrorBody(ErrorCode.PERMISSION_MISSING.wire, "the owner has not allowed reading the screen")
+            else -> null
+        }
+        if (refusal != null) return result.copy(observationError = refusal)
+        return try {
+            val observation = service.observe(after.includeScreenshot, after.maxNodes)
+            log.add(ActivityKind.OBSERVE, "Read the screen after the action · ${observation.`package` ?: "unknown app"}")
+            result.copy(`package` = observation.`package` ?: result.`package`, observation = observation)
+        } catch (e: ProtocolException) {
+            result.copy(observationError = ErrorBody(e.code.wire, e.message ?: e.code.wire))
         }
     }
 }

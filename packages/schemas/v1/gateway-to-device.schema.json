@@ -327,6 +327,17 @@
         "id": {
           "description": "Unique per gateway; used to correlate the result and for idempotency.",
           "type": "string"
+        },
+        "observe_after": {
+          "description": "Since 1.2, actions only: observe after the action succeeded and return\nthe observation inside its result, saving the gateway a second command.\nGateways send it only to phones that said `hello` with 1.2 or later.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObserveAfter"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -361,6 +372,31 @@
         "back",
         "home",
         "recents"
+      ]
+    },
+    "ObserveAfter": {
+      "description": "How to observe after an action (since 1.2). The phone applies the same\nrules as `ui.observe`: the `ui.observe` capability (and `screen.capture`\nfor a screenshot) must be enabled, and restricted screens are refused.",
+      "type": "object",
+      "properties": {
+        "include_screenshot": {
+          "type": "boolean",
+          "default": false
+        },
+        "max_nodes": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 400,
+          "minimum": 0
+        },
+        "settle_ms": {
+          "description": "Milliseconds to let the UI settle before observing, at most 3000.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "settle_ms"
       ]
     },
     "Point": {

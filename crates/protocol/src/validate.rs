@@ -4,7 +4,7 @@
 //! they arrive; devices validate commands again on receipt. Limits are part of
 //! the protocol: a peer may reject anything beyond them.
 
-use crate::{Command, ErrorCode, Hello, Observation, ProtocolError, Target};
+use crate::{Command, CommandEnvelope, ErrorCode, Hello, Observation, ProtocolError, Target};
 
 /// Largest text frame either side accepts. Screenshots dominate this budget.
 pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
@@ -18,6 +18,7 @@ pub const MAX_ID_CHARS: usize = 64;
 pub const MAX_PACKAGE_CHARS: usize = 255;
 pub const MAX_NODE_TEXT_CHARS: usize = 4_000;
 pub const MAX_SCREENSHOT_BASE64_BYTES: usize = 6 * 1024 * 1024;
+pub const MAX_SETTLE_MS: u32 = 3_000;
 
 fn invalid(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(ErrorCode::InvalidRequest, message)
@@ -65,6 +66,27 @@ fn check_id(name: &str, id: &str) -> Result<(), ProtocolError> {
             "{name} must be 1-{MAX_ID_CHARS} characters of letters, digits, '_' or '-'"
         )))
     }
+}
+
+/// A whole command as a device receives it: the command and, since 1.2, `observe_after`.
+pub fn envelope(envelope: &CommandEnvelope) -> Result<(), ProtocolError> {
+    command(&envelope.command)?;
+    if let Some(after) = &envelope.observe_after {
+        if !envelope.command.is_action() {
+            return Err(invalid("observe_after is only allowed on actions"));
+        }
+        if after.settle_ms > MAX_SETTLE_MS {
+            return Err(invalid(format!(
+                "observe_after.settle_ms must be at most {MAX_SETTLE_MS}"
+            )));
+        }
+        if after.max_nodes == 0 || after.max_nodes > MAX_NODES {
+            return Err(invalid(format!(
+                "observe_after.max_nodes must be between 1 and {MAX_NODES}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub fn command(command: &Command) -> Result<(), ProtocolError> {

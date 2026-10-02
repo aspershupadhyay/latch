@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use latch_protocol::{
-    DeviceToGateway, GatewayToDevice, Observation, Outcome, ProtocolError, validate,
+    ActionResult, DeviceToGateway, GatewayToDevice, Observation, Outcome, ProtocolError, validate,
 };
 
 fn fixture_dir(kind: &str) -> PathBuf {
@@ -48,6 +48,16 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
                     serde_json::from_value(data.clone()).map_err(|e| e.to_string())?;
                 validate::observation(&obs, validate::MAX_NODES).map_err(err)?;
             }
+            DeviceToGateway::Result {
+                outcome: Outcome::Ok { data },
+                ..
+            } if data.get("observation").is_some() => {
+                let result: ActionResult =
+                    serde_json::from_value(data.clone()).map_err(|e| e.to_string())?;
+                if let Some(obs) = &result.observation {
+                    validate::observation(obs, validate::MAX_NODES).map_err(err)?;
+                }
+            }
             _ => {}
         }
         let reparsed: DeviceToGateway =
@@ -58,7 +68,7 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
     } else if name.starts_with("g2d-") {
         let msg: GatewayToDevice = serde_json::from_str(json).map_err(|e| e.to_string())?;
         if let GatewayToDevice::Command(envelope) = &msg {
-            validate::command(&envelope.command).map_err(err)?;
+            validate::envelope(envelope).map_err(err)?;
         }
         let reparsed: GatewayToDevice =
             serde_json::from_str(&serde_json::to_string(&msg).map_err(|e| e.to_string())?)

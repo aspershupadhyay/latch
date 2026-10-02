@@ -1,0 +1,22 @@
+{
+  "type": "result",
+  "id": "c_0009",
+  "outcome": {
+    "status": "ok",
+    "data": {
+      "package": "com.android.settings",
+      "observation": {
+        "observation_id": "o_8",
+        "captured_at_ms": 1800000000600,
+        "package": "com.android.settings",
+        "screen": { "width": 1080, "height": 2400, "rotation": 0 },
+        "nodes": [
+          { "id": "n0", "role": "FrameLayout", "bounds": { "left": 0, "top": 0, "right": 1080, "bottom": 2400 } },
+          { "id": "n1", "parent": "n0", "role": "Switch", "text": "Wi-Fi", "bounds": { "left": 40, "top": 300, "right": 1040, "bottom": 420 }, "clickable": true, "checked": true }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      }
+    }
+  }
+}

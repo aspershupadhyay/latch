@@ -119,7 +119,7 @@ pub fn handle(
     state: &mut FakeState,
     envelope: &CommandEnvelope,
 ) -> Result<serde_json::Value, ProtocolError> {
-    validate::command(&envelope.command)?;
+    validate::envelope(envelope)?;
     if state.session.paused {
         return Err(err(ErrorCode::DeviceUnavailable, "session paused"));
     }
@@ -181,10 +181,26 @@ pub fn handle(
 
     let done = |state: &mut FakeState| {
         state.executed.push(envelope.command.name().to_owned());
-        serde_json::to_value(ActionResult {
+        let mut result = ActionResult {
             package: Some(screens::package_of(&state.phone.screen).into()),
-        })
-        .map_err(|_| err(ErrorCode::Internal, "encode"))
+            ..ActionResult::default()
+        };
+        // Protocol 1.2: observe in the same round trip, under the same rules as ui.observe.
+        if let Some(after) = &envelope.observe_after {
+            let allowed = state.enabled(Capability::UiObserve)
+                && (!after.include_screenshot || state.enabled(Capability::ScreenCapture));
+            if allowed {
+                result.observation =
+                    Some(observe(state, after.include_screenshot, after.max_nodes));
+                state.executed.push("ui.observe".into());
+            } else {
+                result.observation_error = Some(err(
+                    ErrorCode::PermissionMissing,
+                    "capability is off on the phone",
+                ));
+            }
+        }
+        serde_json::to_value(result).map_err(|_| err(ErrorCode::Internal, "encode"))
     };
 
     match &envelope.command {
@@ -200,31 +216,7 @@ pub fn handle(
             include_screenshot,
             max_nodes,
         } => {
-            state.observation_counter += 1;
-            let id = format!("o_{}", state.observation_counter);
-            let nodes = state.phone.render();
-            let truncated = nodes.len() > *max_nodes as usize;
-            let ui: Vec<_> = nodes
-                .iter()
-                .take(*max_nodes as usize)
-                .map(|n| n.node.clone())
-                .collect();
-            let observation = Observation {
-                observation_id: id.clone(),
-                captured_at_ms: now_ms(),
-                package: Some(screens::package_of(&state.phone.screen).into()),
-                screen: screen_info(),
-                redacted_count: ui.iter().filter(|n| n.sensitive).count() as u32,
-                nodes: ui,
-                screenshot: include_screenshot.then(|| Screenshot {
-                    mime: "image/png".into(),
-                    width: 1,
-                    height: 1,
-                    data_base64: PIXEL_PNG.into(),
-                }),
-                truncated,
-            };
-            state.latest = Some((id, state.phone.screen.clone(), nodes));
+            let observation = observe(state, *include_screenshot, *max_nodes);
             state.executed.push("ui.observe".into());
             serde_json::to_value(observation).map_err(|_| err(ErrorCode::Internal, "encode"))
         }
@@ -288,6 +280,36 @@ pub fn handle(
             done(state)
         }
     }
+}
+
+/// Captures the fake screen and makes it the latest observation.
+fn observe(state: &mut FakeState, include_screenshot: bool, max_nodes: u32) -> Observation {
+    state.observation_counter += 1;
+    let id = format!("o_{}", state.observation_counter);
+    let nodes = state.phone.render();
+    let truncated = nodes.len() > max_nodes as usize;
+    let ui: Vec<_> = nodes
+        .iter()
+        .take(max_nodes as usize)
+        .map(|n| n.node.clone())
+        .collect();
+    let observation = Observation {
+        observation_id: id.clone(),
+        captured_at_ms: now_ms(),
+        package: Some(screens::package_of(&state.phone.screen).into()),
+        screen: screen_info(),
+        redacted_count: ui.iter().filter(|n| n.sensitive).count() as u32,
+        nodes: ui,
+        screenshot: include_screenshot.then(|| Screenshot {
+            mime: "image/png".into(),
+            width: 1,
+            height: 1,
+            data_base64: PIXEL_PNG.into(),
+        }),
+        truncated,
+    };
+    state.latest = Some((id, state.phone.screen.clone(), nodes));
+    observation
 }
 
 fn descriptor() -> DeviceDescriptor {
@@ -623,4 +645,64 @@ where
     sink.send(Message::Text(text.into()))
         .await
         .map_err(|_| FakeError::Connect("send failed".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use latch_protocol::ObserveAfter;
+
+    fn envelope(command: Command, observe_after: bool) -> CommandEnvelope {
+        CommandEnvelope {
+            id: "c_1".into(),
+            deadline_ms: 20_000,
+            command,
+            confirm: None,
+            observe_after: observe_after.then_some(ObserveAfter {
+                settle_ms: 0,
+                include_screenshot: false,
+                max_nodes: 400,
+            }),
+        }
+    }
+
+    #[test]
+    fn observe_after_returns_the_new_screen_or_says_why_not() {
+        let home = || Command::Global {
+            action: GlobalAction::Home,
+        };
+        let mut state = FakeState::new(&Capability::ALL);
+        let data = handle(&mut state, &envelope(home(), true)).expect("action runs");
+        let result: ActionResult = serde_json::from_value(data).expect("action result");
+        let observation = result
+            .observation
+            .expect("observation in the same round trip");
+        // The returned observation is the latest one, so the next action may cite it.
+        let tap = Command::Tap {
+            observation_id: observation.observation_id,
+            target: Target::Element {
+                element: "n1".into(),
+            },
+            long_press: false,
+        };
+        handle(&mut state, &envelope(tap, false)).expect("fresh observation accepted");
+
+        // Without ui.observe the action still runs and the phone says why it did not observe.
+        let mut limited = FakeState::new(&[Capability::NavGlobal]);
+        let data = handle(&mut limited, &envelope(home(), true)).expect("action runs");
+        let result: ActionResult = serde_json::from_value(data).expect("action result");
+        assert!(result.observation.is_none());
+        assert_eq!(
+            result.observation_error.expect("reason").code,
+            ErrorCode::PermissionMissing
+        );
+
+        // observe_after on a read is refused before anything runs.
+        let observe = Command::Observe {
+            include_screenshot: false,
+            max_nodes: 10,
+        };
+        let refused = handle(&mut state, &envelope(observe, true)).expect_err("refused");
+        assert_eq!(refused.code, ErrorCode::InvalidRequest);
+    }
 }

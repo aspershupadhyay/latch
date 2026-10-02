@@ -144,6 +144,9 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const audit = await api("/v1/admin/audit");
   const auditText = JSON.stringify(audit.body);
   assert.match(auditText, /input.tap/);
+  // Protocol 1.2: actions bring their observation back in the same phone command,
+  // so only the explicit observe call above sent ui.observe.
+  assert.equal((audit.body.events as { command: string }[]).filter((e) => e.command === "ui.observe").length, 1, auditText);
   assert.doesNotMatch(auditText, /hello from vercel|Wi-Fi|hunter2/, "audit must not contain content");
 
   // Revoke: the phone learns on its next poll and exits; tools report it gone.

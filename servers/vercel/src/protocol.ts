@@ -2,7 +2,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.1";
+export const PROTOCOL_VERSION = "1.2";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");

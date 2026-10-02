@@ -71,6 +71,23 @@ class ProtocolFixturesTest {
     }
 
     @Test
+    fun parsesObserveAfterAndActionResultsWithObservations() {
+        val all = fixtures("valid").toMap()
+        val message = GatewayParser.parse(all.getValue("g2d-command-tap-observe-after.json")) as GatewayMessage.CommandMessage
+        assertEquals(ObserveAfter(500, false, 400), message.envelope.observeAfter)
+
+        fun data(name: String) = (Protocol.json.parseToJsonElement(all.getValue(name)) as kotlinx.serialization.json.JsonObject)["outcome"]!!
+            .let { (it as kotlinx.serialization.json.JsonObject)["data"]!! }
+        val withObservation = Protocol.json.decodeFromJsonElement(ActionResult.serializer(), data("d2g-result-action-observation.json"))
+        assertEquals("o_8", withObservation.observation?.observationId)
+        val withError = Protocol.json.decodeFromJsonElement(ActionResult.serializer(), data("d2g-result-action-observation-error.json"))
+        assertEquals("policy_refused", withError.observationError?.code)
+        // What the phone sends round-trips through the same shape.
+        val again = Protocol.json.decodeFromJsonElement(ActionResult.serializer(), Protocol.json.encodeToJsonElement(ActionResult.serializer(), withObservation))
+        assertEquals(withObservation, again)
+    }
+
+    @Test
     fun outgoingResultsHaveTheWireShape() {
         val ok = Protocol.json.parseToJsonElement(Outgoing.error("c_1", ErrorCode.STALE_OBSERVATION, "changed")).toString()
         assertEquals("""{"type":"result","id":"c_1","outcome":{"status":"error","error":{"code":"stale_observation","message":"changed"}}}""", ok)

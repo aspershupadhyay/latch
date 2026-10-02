@@ -1,0 +1,1 @@
+{ "type": "result", "id": "c_0010", "outcome": { "status": "ok", "data": { "package": "io.github.aspershupadhyay.latch", "observation_error": { "code": "policy_refused", "message": "Latch itself is in the foreground" } } } }
