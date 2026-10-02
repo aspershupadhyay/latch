@@ -1,0 +1,12 @@
+{
+  "name": "latch-interop",
+  "private": true,
+  "description": "Checks the Latch gateway against the official MCP TypeScript SDK client.",
+  "type": "module",
+  "scripts": {
+    "test": "node mcp-sdk-client.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0"
+  }
+}

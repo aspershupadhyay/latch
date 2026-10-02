@@ -1,0 +1,16 @@
+{
+  "type": "hello",
+  "protocol": "1.0",
+  "device": { "platform": "android", "os_version": "16", "model": "Pixel 9", "app_version": "0.1.0" },
+  "capabilities": [
+    { "capability": "device.info", "status": "enabled" },
+    { "capability": "ui.observe", "status": "enabled" },
+    { "capability": "screen.capture", "status": "disabled" },
+    { "capability": "input.gesture", "status": "enabled" },
+    { "capability": "input.text", "status": "disabled" },
+    { "capability": "nav.global", "status": "enabled" },
+    { "capability": "app.launch", "status": "needs_permission" }
+  ],
+  "session": { "expires_at_ms": 1800000600000, "approve_every_action": false, "paused": false },
+  "device_time_ms": 1800000000000
+}

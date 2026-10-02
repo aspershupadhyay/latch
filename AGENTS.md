@@ -30,10 +30,12 @@ This AGENTS.md file provides operating rules; the handbook provides the product 
 - Work from this GitHub repository and the cloud workspace that checks it out.
 - Do not assume that the user's local computer, local files, local servers, local credentials, or local development environment are available.
 - Do not ask the user to copy local files into the cloud session unless the user explicitly chooses that workflow.
-- Do not start implementation, generate source code, build artifacts, or change the architecture merely because the repository exists.
-- The project remains planning-first until the user explicitly authorizes implementation.
+- Do not change the architecture merely because the repository exists.
+- The project owner authorized implementation on 2026-10-02. Current status, changed decisions, and the next gate are in handbook/17-plan-review-and-revised-delivery.md; read it before starting work.
 - Keep secrets, tokens, device data, screenshots, and private logs out of the repository.
 - Make small, reviewable commits. Never hide unrelated changes in a task.
+- The project owner's standing instruction: commit and push every change to the session's branch as soon as it is made and verified. Never leave work only in the cloud container, which is discarded when the session ends.
+- The project owner's standing instruction: do not leave pull requests pending. Once a PR's CI is green and no review thread is open, merge it into main without waiting to be asked. Every push to main republishes the newest testable Android app at https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk (`.github/workflows/test-build.yml`); give the owner that link after each merge.
 
 ## Product and architecture direction
 
@@ -79,9 +81,9 @@ Expected high-level structure, subject to the repository handbook:
 - crates/policy: authorization, scopes, confirmations, revocation, and audit decisions.
 - crates/session: pairing, sessions, leases, heartbeats, reconnection, and state.
 - crates/crypto: key handling, secure channels, and cryptographic boundaries.
-- crates/fixtures: shared protocol and safety fixtures.
-- crates/test-harness: conformance and integration harnesses.
-- servers/mcp: MCP gateway and transport adapters.
+- crates/fake-device: deterministic simulated phone used by end-to-end tests (fixtures live in packages/schemas/v1/fixtures).
+- crates/fixtures, crates/test-harness: not created yet; add them only when a second consumer needs them.
+- servers/mcp: the `latch-gateway` binary — MCP adapter, phone channel, pairing, owner console.
 - packages/schemas: source schemas and reproducible generated artifacts.
 - adapters/typescript: optional client, setup, and integration adapters.
 - docs: contributor, operator, security, capability, and release documentation.
@@ -128,6 +130,7 @@ Definition of done is more than compiling: code quality, tests, security and pri
 
 ## First actions in a new cloud session
 
+0. Run `scripts/cloud-session-setup.sh` if the SessionStart hook did not (it installs the Android SDK and dependencies). `scripts/check.sh` runs every check CI runs.
 1. Read this AGENTS.md completely.
 2. Read handbook/README.md and the active handbook chapter files relevant to the task.
 3. State the current phase, acceptance gate, assumptions, and risks.

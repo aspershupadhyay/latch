@@ -1,0 +1,7 @@
+{
+  "type": "command",
+  "id": "c_0004",
+  "deadline_ms": 120000,
+  "command": { "name": "input.tap", "params": { "observation_id": "o_7", "target": { "x": 980, "y": 2300 }, "long_press": false } },
+  "confirm": { "title": "Tap “Send” in com.example.chat", "detail": "Requested by an AI agent connected through Latch.", "risk": "high" }
+}

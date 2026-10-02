@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/protocol",
+    "crates/policy",
+    "crates/fake-device",
+    "servers/mcp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+repository = "https://github.com/aspershupadhyay/latch"
+
+[workspace.dependencies]
+latch-protocol = { path = "crates/protocol" }
+latch-policy = { path = "crates/policy" }
+latch-fake-device = { path = "crates/fake-device" }
+
+axum = { version = "0.8.9", features = ["ws"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
+getrandom = "0.4.3"
+schemars = "1.2.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+subtle = "2.6.1"
+thiserror = "2.0.21"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal", "io-std", "io-util", "fs"] }
+tokio-tungstenite = "0.30.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,41 @@
+[
+  {
+    "code": "stale_observation",
+    "message": "example message",
+    "result": {
+      "content": [
+        {
+          "text": "error[stale_observation]: example message\nHint: Call observe again and plan from the new screen.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  {
+    "code": "device_unavailable",
+    "message": "example message",
+    "result": {
+      "content": [
+        {
+          "text": "error[device_unavailable]: example message\nHint: Ask the owner to open Latch on the phone and start a session. (retryable)",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  {
+    "code": "sensitive_target",
+    "message": "example message",
+    "result": {
+      "content": [
+        {
+          "text": "error[sensitive_target]: example message\nHint: Latch never touches password, OTP, or payment fields. Ask the user to do this step.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  }
+]

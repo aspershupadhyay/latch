@@ -10,7 +10,7 @@ last_fetched: "2026-10-01T22:10:12.779Z"
 	**Latch** is an open, user-controlled runtime that lets any MCP-capable AI observe and operate a user's phone through explicit capabilities, visible consent, and a portable protocol.
 </callout>
 ## Status
-**Planning state:** pre-implementation  
+**Planning state:** implementation authorized 2026-10-02 — see [chapter 17](./17-plan-review-and-revised-delivery.md)  
 **Working product name:** Latch  
 **Working tagline:** Open device control for MCP-capable AI  
 **Source of truth:** this handbook and the linked chapter pages below  
@@ -140,3 +140,4 @@ Start with the product thesis, then read scope, architecture, platform plans, sa
 - [14 — Open-Source Community & Governance](./14-open-source-community-governance.md)
 - [15 — Operations, Maintenance & Roadmap](./15-operations-maintenance-roadmap.md)
 - [16 — ADR Index & Decision Log](./16-adr-index-decision-log.md)
+- [17 — Plan Review & Revised Delivery (2026-10)](./17-plan-review-and-revised-delivery.md) — repo-authored; implementation status, changed decisions, UI plan

@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0008", "deadline_ms": 15000, "command": { "name": "app.launch", "params": { "package": "com.android.settings" } } }

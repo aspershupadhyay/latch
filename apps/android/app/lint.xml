@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!--
+      Versions are pinned on purpose in gradle/libs.versions.toml: the newest
+      AndroidX releases need compileSdk 37 and AGP 9, an upgrade tracked in
+      docs/platform/android.md. Dependency freshness is reviewed by hand.
+    -->
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="NewerVersionAvailable" severity="ignore" />
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+</lint>

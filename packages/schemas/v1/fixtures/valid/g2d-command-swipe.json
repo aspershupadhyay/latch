@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0005", "deadline_ms": 15000, "command": { "name": "input.swipe", "params": { "observation_id": "o_7", "from": { "x": 540, "y": 1800 }, "to": { "x": 540, "y": 600 }, "duration_ms": 300 } } }

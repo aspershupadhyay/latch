@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = \"true\" ] && \"$CLAUDE_PROJECT_DIR\"/scripts/cloud-session-setup.sh >/tmp/latch-setup.log 2>&1 || true",
+            "timeout": 900
+          }
+        ]
+      }
+    ]
+  }
+}

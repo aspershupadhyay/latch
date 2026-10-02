@@ -1,0 +1,426 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GatewayToDevice",
+  "description": "Messages the gateway sends to a phone.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "description": "HTTP transport only: identifies this connection in later poll and\nmessage requests. A newer `hello` replaces it (since 1.1).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "string"
+        },
+        "server_time_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "welcome"
+        }
+      },
+      "required": [
+        "type",
+        "protocol",
+        "device_id",
+        "server_time_ms"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "command"
+        }
+      },
+      "$ref": "#/$defs/CommandEnvelope",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "Abandon a command if it has not run yet. Best effort.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "cancel"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ]
+    },
+    {
+      "description": "The gateway owner revoked this device. Forget the credential and disconnect.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "revoked"
+        }
+      },
+      "required": [
+        "type",
+        "reason"
+      ]
+    }
+  ],
+  "$defs": {
+    "Command": {
+      "description": "One device operation. Serialized as `{\"name\": \"...\", \"params\": {...}}`.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "device.info"
+            },
+            "params": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Capture the current screen as a redacted element tree, optionally with a screenshot.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "ui.observe"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "include_screenshot": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "max_nodes": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 400,
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "input.tap"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "long_press": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "observation_id": {
+                  "type": "string"
+                },
+                "target": {
+                  "$ref": "#/$defs/Target"
+                }
+              },
+              "required": [
+                "observation_id",
+                "target"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "input.swipe"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "duration_ms": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 300,
+                  "minimum": 0
+                },
+                "from": {
+                  "$ref": "#/$defs/Point"
+                },
+                "observation_id": {
+                  "type": "string"
+                },
+                "to": {
+                  "$ref": "#/$defs/Point"
+                }
+              },
+              "required": [
+                "observation_id",
+                "from",
+                "to"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Replace the text of an editable element. Never allowed on sensitive fields.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "input.type"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "element": {
+                  "type": "string"
+                },
+                "observation_id": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "observation_id",
+                "element",
+                "text"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "nav.global"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "$ref": "#/$defs/GlobalAction"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "app.list"
+            },
+            "params": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "app.launch"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "package": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "package"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        }
+      ]
+    },
+    "CommandEnvelope": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/Command"
+        },
+        "confirm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfirmRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deadline_ms": {
+          "description": "Milliseconds the device may spend, including waiting for approval.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "description": "Unique per gateway; used to correlate the result and for idempotency.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "deadline_ms",
+        "command"
+      ]
+    },
+    "ConfirmRequest": {
+      "description": "Attached to a command when a human must approve it on the phone first.\n\nThe device shows `title` and `detail` verbatim, waits for the owner, and\nanswers `user_denied` or `confirmation_expired` instead of executing when\napproval does not arrive before the command deadline.",
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "risk": {
+          "$ref": "#/$defs/RiskLevel"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "detail",
+        "risk"
+      ]
+    },
+    "GlobalAction": {
+      "type": "string",
+      "enum": [
+        "back",
+        "home",
+        "recents"
+      ]
+    },
+    "Point": {
+      "description": "A point in physical screen pixels of the observation it was taken from.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "y": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ]
+    },
+    "RiskLevel": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "Target": {
+      "description": "What an input command acts on.\n\nElement targets are preferred: the device re-resolves the element from the\nreferenced observation and refuses if it moved, vanished, or is sensitive.\nPoint targets are only accepted together with a fresh observation id.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "element"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "y": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ]
+        }
+      ]
+    }
+  }
+}

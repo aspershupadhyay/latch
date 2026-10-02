@@ -1,0 +1,8 @@
+target
+apps
+handbook
+docs
+tests
+**/node_modules
+.git
+latch-data

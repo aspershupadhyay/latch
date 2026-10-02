@@ -1,0 +1,20 @@
+{
+  "type": "result",
+  "id": "c_0001",
+  "outcome": {
+    "status": "ok",
+    "data": {
+      "observation_id": "o_7",
+      "captured_at_ms": 1800000000000,
+      "package": "com.android.settings",
+      "screen": { "width": 1080, "height": 2400, "rotation": 0 },
+      "nodes": [
+        { "id": "n0", "role": "FrameLayout", "bounds": { "left": 0, "top": 0, "right": 1080, "bottom": 2400 } },
+        { "id": "n1", "parent": "n0", "role": "TextView", "text": "Network & internet", "bounds": { "left": 40, "top": 300, "right": 1040, "bottom": 420 }, "clickable": true },
+        { "id": "n2", "parent": "n0", "role": "EditText", "bounds": { "left": 40, "top": 500, "right": 1040, "bottom": 620 }, "editable": true, "sensitive": true }
+      ],
+      "redacted_count": 1,
+      "truncated": false
+    }
+  }
+}

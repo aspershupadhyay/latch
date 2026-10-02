@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Latch console</title>
+<link rel="stylesheet" href="/admin.css">
+<script src="/admin.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><span class="field" aria-hidden="true"><i></i><i></i></span> Latch</div>
+  <div id="health" class="muted" role="status" aria-live="polite">Checking gateway…</div>
+  <button id="signout" class="ghost" hidden>Lock</button>
+</header>
+
+<main>
+  <section id="login" class="tile hero narrow" aria-labelledby="login-title">
+    <span class="label">Owner console</span>
+    <h1 id="login-title">Your phone, your gateway.</h1>
+    <p>Enter the owner key (<code>LATCH_ADMIN_TOKEN</code>). It stays in this browser tab only.</p>
+    <form id="login-form">
+      <label for="token" class="sr-only">Owner key</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false" required minlength="32" placeholder="Owner key">
+      <button type="submit" class="light">Open console</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="app" class="bento" hidden>
+    <section class="tile hero span-2" aria-labelledby="status-title">
+      <span class="label">Gateway</span>
+      <h1 id="status-title">Connected phones</h1>
+      <p id="devices-summary" class="big">—</p>
+      <p class="hero-note">Phones connect only during a session their owner starts. Revoking cuts a phone off immediately.</p>
+    </section>
+
+    <section class="tile stat" aria-labelledby="keys-title">
+      <span class="label" id="keys-title">AI keys</span>
+      <p id="keys-count" class="big">0</p>
+      <p class="muted">One per AI app</p>
+    </section>
+
+    <section class="tile stat" aria-labelledby="events-title">
+      <span class="label" id="events-title">Commands</span>
+      <p id="events-count" class="big">0</p>
+      <p class="muted">Most recent 200</p>
+    </section>
+
+    <section class="tile span-2" aria-labelledby="devices-title">
+      <span class="label" id="devices-title">Phones</span>
+      <p id="devices-empty" class="muted" hidden>No phones yet. Pair one with a code →</p>
+      <ul id="devices" class="list"></ul>
+    </section>
+
+    <section class="tile span-2" aria-labelledby="pair-title">
+      <span class="label" id="pair-title">Pair a phone</span>
+      <p class="muted">A one-time code, valid 10 minutes. In the Latch app choose “Connect to a gateway” → “I have a code”.</p>
+      <form id="pair-form" class="row">
+        <label for="pair-name" class="sr-only">Phone name</label>
+        <input id="pair-name" placeholder="Phone name, e.g. Pixel 9" maxlength="40" required>
+        <button type="submit">Create code</button>
+      </form>
+      <div id="pair-result" class="reveal" hidden>
+        <span class="label">Address</span><div id="pair-url" class="mono"></div>
+        <span class="label">Code</span><div id="pair-code" class="code" aria-live="polite"></div>
+        <div id="pair-expiry" class="muted"></div>
+      </div>
+      <p id="pair-error" class="error" role="alert"></p>
+    </section>
+
+    <section class="tile span-4" aria-labelledby="connect-title">
+      <span class="label accent" id="connect-title">Connect an AI app</span>
+      <p class="muted">Any MCP client works: Claude, ChatGPT, Cursor, VS Code, or your own agent. Create one key per app.</p>
+      <form id="client-form" class="row">
+        <label for="client-name" class="sr-only">App name</label>
+        <input id="client-name" placeholder="Name, e.g. Claude on laptop" maxlength="40" required>
+        <button type="submit">Create key</button>
+      </form>
+      <p id="client-error" class="error" role="alert"></p>
+      <div id="client-created" class="reveal" hidden>
+        <p><strong>Shown once.</strong> Paste one of these into your AI app now; treat them like passwords.</p>
+        <span class="label">Secret link — for apps that only ask for a URL (ChatGPT, Claude.ai)</span>
+        <div class="copy"><code id="created-link" class="mono"></code><button type="button" data-copy="created-link">Copy</button></div>
+        <span class="label">URL + header — for Claude Code, Cursor, VS Code, SDKs</span>
+        <div class="copy"><code id="created-url" class="mono"></code><button type="button" data-copy="created-url">Copy</button></div>
+        <div class="copy"><code id="created-header" class="mono"></code><button type="button" data-copy="created-header">Copy</button></div>
+        <span class="label">Claude Code</span>
+        <div class="copy"><code id="created-cli" class="mono"></code><button type="button" data-copy="created-cli">Copy</button></div>
+        <button type="button" id="created-done" class="ghost">Done — I saved it</button>
+      </div>
+      <ul id="clients" class="list"></ul>
+    </section>
+
+    <section class="tile span-4" aria-labelledby="activity-title">
+      <span class="label" id="activity-title">Activity · commands and outcomes only, never screen content</span>
+      <p id="activity-empty" class="muted">Nothing yet.</p>
+      <div class="table-wrap">
+        <table id="activity" hidden>
+          <thead><tr><th scope="col">Time</th><th scope="col">Phone</th><th scope="col">Command</th><th scope="col">Policy</th><th scope="col">Result</th><th scope="col">ms</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

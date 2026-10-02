@@ -1,0 +1,23 @@
+{
+  "name": "latch-gateway-vercel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Latch gateway for Vercel: MCP for AI clients and an HTTP long-poll channel for phones, backed by Upstash Redis.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "dev": "tsx src/local.ts"
+  },
+  "dependencies": {
+    "@upstash/redis": "1.39.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "@types/node": "26.6.4",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

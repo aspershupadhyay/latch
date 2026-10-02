@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0003", "deadline_ms": 15000, "command": { "name": "input.tap", "params": { "observation_id": "o_7", "target": { "element": "n1" }, "long_press": false } } }

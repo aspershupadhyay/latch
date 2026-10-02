@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0009", "deadline_ms": 15000, "command": { "name": "device.info", "params": {} } }

@@ -1,0 +1,7 @@
+{
+  "type": "result", "id": "c_1",
+  "outcome": { "status": "ok", "data": {
+    "observation_id": "o_1", "captured_at_ms": 1, "screen": { "width": 10, "height": 10 },
+    "nodes": [ { "id": "n1", "role": "EditText", "text": "hunter2", "bounds": { "left": 0, "top": 0, "right": 5, "bottom": 5 }, "sensitive": true } ]
+  } }
+}

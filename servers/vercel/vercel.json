@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
+  "functions": {
+    "api/gateway.ts": { "maxDuration": 300 }
+  },
+  "rewrites": [
+    { "source": "/mcp", "destination": "/api/gateway" },
+    { "source": "/mcp/:token", "destination": "/api/gateway" },
+    { "source": "/healthz", "destination": "/api/gateway" },
+    { "source": "/v1/:path*", "destination": "/api/gateway" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    },
+    {
+      "source": "/(index.html|admin.js|admin.css)?",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" },
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    }
+  ]
+}
