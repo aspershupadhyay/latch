@@ -1,83 +1,215 @@
 # Latch
 
-**Let any MCP-capable AI see and operate an Android phone — only in the ways its owner allows.**
+**Let your AI use your phone, but only the way you allow.** 📱🔒
 
-Latch is an open-source runtime with three parts:
+Imagine telling Claude or ChatGPT: *"Open my music app and play something chill."* With Latch, it can see your screen and tap for you. You stay the boss the whole time: you pick what it's allowed to do, you can stop it with one tap, and it has to ask you first before anything big (like sending a message or buying something).
 
-- **Gateway** — the MCP server your AI connects to and the endpoint your phone connects to. Every person runs **their own**: one click on Vercel (free tier, with Upstash Redis), or a ~11 MB container on any server. Latch runs no relay and never sees your keys or screens.
-- **Android app** (Kotlin, Jetpack Compose) — sets up or joins your gateway, and during a session you start reads the screen and taps, swipes, and types through an accessibility service, within the switches you set.
-- **Device protocol 1.1** — a versioned, MCP-independent contract with JSON Schemas, shared fixtures, and shared policy and rendering contracts that both gateway implementations are tested against.
+It's free, it's open source, and **you own every piece of it.** There's no Latch company server in the middle. Your phone talks to *your* gateway, which lives in *your* free Vercel account.
+
+> 🧪 **Heads up: this is an early test version (alpha).** Everything passes our automatic tests, but it hasn't been tried on lots of real phones yet. If something breaks, please [tell us](https://github.com/aspershupadhyay/latch/issues). That's exactly what testing is for.
+
+---
+
+## How it works (the 10-second version)
 
 ```text
-Claude / ChatGPT / Cursor / any MCP app ──MCP──▶ your gateway (Vercel or container) ◀──HTTPS long-poll── Latch app on your phone
+  Your AI app            Your gateway                Your phone
+ (Claude, ChatGPT)  ──▶  (lives on Vercel)  ◀──  (the Latch app)
 ```
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=At%20least%2032%20random%20characters%20(the%20Latch%20app%20generates%20one%20for%20you)&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D)
+- **The Latch app** goes on your Android phone. It's the part that sees the screen and taps.
+- **The gateway** is a tiny website that's yours. Your AI talks to it, and your phone talks to it.
+- **Your AI** gets a secret key from you so it can talk to the gateway.
 
-> **Status: alpha, not yet verified on a physical phone.** Both gateways (Rust and Vercel) pass end-to-end tests with the official MCP TypeScript SDK client and a simulated phone, including against Redis via the Upstash REST protocol. The Android app's real transport and setup code are tested on the JVM against both gateways; its UI is snapshot-tested. Running it on real phones is the next gate ([checklist](docs/platform/android.md#real-device-gate-s4)). The Vercel deployment itself has not been exercised from this repository's CI, because that needs a Vercel account.
+---
 
-### iPhone
+## Set it up (about 5 minutes)
 
-iOS does not let any third-party app read other apps' screens or tap for you — there is no public API for it, and Latch will not use private ones. An honest iPhone companion is planned with what Apple allows: screen viewing while you broadcast it (ReplayKit), opening links and Shortcuts, and app-owned actions. It cannot operate other apps the way Android can. See [handbook chapter 06](handbook/06-ios-application-plan.md).
+You need: an **Android phone** (Android 11 or newer), and a free **[Vercel](https://vercel.com/signup)** account. You can make the Vercel account during setup.
 
-## Safety model
+### Step 1: Get the app 📲
 
-- Everything except basic device information starts **off**; the owner switches capabilities on one by one.
-- Sessions are started by the owner, time out by themselves, and show a red **Stop** button on screen the whole time.
-- Taps on controls that send, buy, delete, publish, or change accounts wait for the owner's **approval** on the phone. The owner can require approval for every action.
-- **Password, PIN, one-time-code, and payment fields** are redacted and can never be tapped or typed into.
-- Agents cannot see or operate Latch itself, the notification shade, or the lock screen.
-- Every action must cite the **latest screen observation**; if the screen changed, it is refused.
-- Screen text is passed to the model as untrusted data, never as instructions.
-- No shell, file, notification, or credential access exists in the product.
+1. On your phone, download the app: **[latch-android-debug.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk)**
+2. Open the file. If Android says *"For your security, your phone is not allowed to install unknown apps"*, tap **Settings**, turn on **Allow from this source**, then go back and tap **Install**.
+3. Open **Latch**.
 
-Details: [handbook chapter 08](handbook/08-safety-privacy-security.md), [chapter 17](handbook/17-plan-review-and-revised-delivery.md), [SECURITY.md](SECURITY.md).
+### Step 2: Copy your owner key 🔑
 
-## Quick start
+1. In the app, tap **Create my own gateway**.
+2. Tap **copy** next to **Owner key**.
 
-**On your phone (recommended):** install the Android app → **Create my own gateway** → copy the owner key → **Open Vercel** (sign in, keep the Upstash store, paste the key, Deploy) → paste your new address back → **Connect**. Then **Connect** tab → create a key for your AI app and paste it there. Full guide: [docs/operations/vercel.md](docs/operations/vercel.md).
+This key is like the master password for your gateway. **Don't share it with anyone, and don't post it anywhere.**
 
-**Connect any MCP app** with a key from the app or the web console:
+> ⚠️ **Stay on this screen until Step 4 is done.** If you leave it, the app may make a *new* key that won't match. (If that happens, see [Help, I'm stuck](#help-im-stuck) below. It's easy to fix.)
 
-| The app asks for | Give it |
+### Step 3: Make your gateway on Vercel ☁️
+
+1. Tap **Open Vercel** in the app.
+2. Sign in to Vercel (or make a free account).
+3. Vercel asks you to **create a Git repository.** Give it any name (or keep `latch-gateway`). Keeping it **private** is fine and is the default.
+4. Vercel asks you to add **Upstash Redis** (this is the little database your gateway uses). Say yes and pick:
+   - **Primary region:** `US East (N. Virginia)`, i.e. `us-east-1`
+   - **Read regions:** leave empty, you don't need any
+   - The **free** plan is fine
+5. Where it asks for **`LATCH_ADMIN_TOKEN`**, paste the owner key you copied in Step 2.
+6. Press **Deploy** and wait about a minute. ☕
+
+### Step 4: Connect your phone 🔗
+
+1. When Vercel shows **"Congratulations!"**, copy your gateway address. It looks like `latch-gateway-yourname.vercel.app`.
+   - Can't see it? Open your project on the [Vercel dashboard](https://vercel.com/dashboard). It's next to **Domains**.
+2. Go back to the Latch app, paste it into **Paste your gateway address**, and tap **Connect this phone**.
+
+🎉 Your phone is now connected to your own gateway.
+
+### Step 5: Let Latch see the screen 👀
+
+Android keeps this switched off until you say yes, which is good.
+
+1. In the app, tap **Turn on the Latch accessibility service**.
+2. Find **Latch** in the list and switch it on.
+3. **Android 13 or newer** might say the setting is **restricted**. That's normal for apps that don't come from the Play Store. To allow it:
+   - Open your phone's **Settings → Apps → Latch**.
+   - Tap the **⋮** menu (top right) → **Allow restricted settings**.
+   - Go back and switch Latch on again.
+
+### Step 6: Choose what the AI may do ✅
+
+Open the **Capabilities** tab. Everything starts **off**. Turn on only what you want, for example:
+
+| Switch | What it lets the AI do |
 |---|---|
-| Just a URL (ChatGPT, Claude.ai connectors) | the secret link `https://<you>.vercel.app/mcp/<key>` |
-| URL + headers (Claude Code, Cursor, VS Code, SDKs) | `https://<you>.vercel.app/mcp` + `Authorization: Bearer <key>` |
+| Read screen | Read what's on screen (buttons, text) |
+| Screenshots | Take a picture of the screen |
+| Tap & swipe | Press buttons and scroll |
+| Type | Type into text boxes |
+| Open apps | See your app list and open apps |
 
-**Self-host instead:** `deploy/docker-compose.yml` (VPS + automatic HTTPS) or any container platform — [docs/operations/gateway.md](docs/operations/gateway.md).
+Want to approve **every single** action? Turn on **Ask me before every action**.
 
-**Try it without a phone** (needs Rust): `scripts/dev.sh` starts a gateway and a simulated phone and prints a ready-to-paste Claude Code command.
+### Step 7: Connect your AI 🤖
 
-## MCP tools
+1. Open the **Connect** tab in the app and tap to **create a key** for your AI app (for example "Claude").
+2. The app shows the key **once**, so copy it right away.
+3. Give it to your AI app:
 
-| Tool | Does |
+| If your AI app asks for… | Give it |
 |---|---|
-| `list_devices` | Paired phones, connection state, enabled capabilities |
-| `observe` | Element tree (ids, roles, text, bounds, what accepts taps/text/scroll) and optional screenshot |
-| `tap`, `type_text`, `scroll`, `swipe`, `press` | Act on the latest observation; each returns the next observation |
+| Just a link (ChatGPT, Claude.ai connectors) | the **secret link**: `https://<your-address>/mcp/<key>` |
+| A link and a header (Claude Code, Cursor, VS Code) | link `https://<your-address>/mcp` and header `Authorization: Bearer <key>` |
+
+### Step 8: Start a session and try it 🚀
+
+1. On the app's **Home** tab, pick how long (15, 30, 60, or 120 minutes) and tap **Start session**.
+2. A red **● Latch · Stop** button stays on your screen. **Tap it any time to stop everything instantly.**
+3. Ask your AI something simple: *"What's on my phone screen right now?"*
+
+---
+
+## Help, I'm stuck
+
+**"I pasted the key in Vercel, deployed, and now I don't know what to do."**
+Do [Step 4](#step-4-connect-your-phone-): copy your `….vercel.app` address and paste it into the app.
+
+**"The app shows a different key now / I closed the app."**
+No problem. Your real key is saved in Vercel:
+1. In [Vercel](https://vercel.com/dashboard), open your project → **Settings → Environment Variables**.
+2. Find `LATCH_ADMIN_TOKEN`, click the 👁 eye icon, and copy the value.
+3. In the app, go to the start screen → **Connect to a gateway** → **I own it**.
+4. Paste your address and that key, then connect.
+
+**"It says the gateway is not set up yet."**
+`LATCH_ADMIN_TOKEN` is missing or too short (it needs at least 32 characters). Add it in Vercel → **Settings → Environment Variables**, then press **Redeploy** (under **Deployments**).
+
+**"I can't turn on the accessibility switch."**
+See the *restricted settings* tip in [Step 5](#step-5-let-latch-see-the-screen-).
+
+**"I think my key leaked."**
+Change `LATCH_ADMIN_TOKEN` in Vercel to a new key → **Redeploy** → in the app, **Settings → Forget this gateway** → connect again with the new key. To kill just one AI app's key, revoke it in the **Connect** tab.
+
+Still stuck? [Open an issue](https://github.com/aspershupadhyay/latch/issues) and describe what you see.
+
+---
+
+## Is it safe? 🛡️
+
+We built Latch so the AI can't sneak around you:
+
+- **Everything starts off.** You switch on each power yourself.
+- **Sessions end on their own** when the timer runs out, and the red **Stop** button is always on screen.
+- **Big actions need your OK.** Before the AI taps things like *Send, Buy, Pay, Delete,* or *Allow*, a card pops up on your phone asking you.
+- **Passwords, PINs, one-time codes, and card numbers are hidden** from the AI, and it can't type into those boxes.
+- **Off-limits areas:** the AI can't touch the Latch app itself, your notification shade, or your lock screen.
+- **No sneaky stuff exists in the app:** no file access, no reading notifications, no command line.
+- **Screen text can't boss the AI around.** Text on screen is treated as plain information, never as instructions.
+
+### What gets stored?
+
+- **Your screen is never saved.** A screen reading passes through your gateway on its way to your AI and is deleted right after (within 60 seconds at most). A text-only copy of the latest screen reading (no picture) is kept for about 2 minutes so taps can be checked against the current screen.
+- **Your gateway keeps a short activity list:** what kind of action happened and whether it was allowed. No screen text, no pictures. It keeps the last 1,000 entries for up to 30 days.
+- **Keys are stored safely:** scrambled (as hashes) on the gateway, and encrypted on your phone.
+- **Nothing goes to us.** There's no Latch server, no tracking, and no analytics.
+- **One honest caveat:** whatever your AI sees is sent to that AI company (like Anthropic or OpenAI), because that's how it reads your screen. Their privacy rules apply. Only switch on what you're comfortable sharing.
+
+More detail: [SECURITY.md](SECURITY.md) and [handbook chapter 08](handbook/08-safety-privacy-security.md).
+
+---
+
+## What about iPhone? 🍎
+
+Not yet, and not in the same way. Apple doesn't let any app read or tap other apps on an iPhone, so a full iPhone version isn't possible. A smaller iPhone helper may come later. See [handbook chapter 06](handbook/06-ios-application-plan.md).
+
+---
+
+## For developers 🛠️
+
+<details>
+<summary>Tools, folders, and how to build (click to open)</summary>
+
+### What the AI can call (MCP tools)
+
+| Tool | What it does |
+|---|---|
+| `list_devices` | Lists your paired phones, whether they're online, and what's switched on |
+| `observe` | Reads the screen (buttons, text, positions) and, if allowed, takes a screenshot |
+| `tap`, `type_text`, `scroll`, `swipe`, `press` | Act on the latest screen reading; each one returns the next reading |
 | `list_apps`, `launch_app` | See and open installed apps |
 
-## Repository
+### Other ways to run the gateway
 
-| Path | What |
+- **Deploy without the app:** [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=At%20least%2032%20random%20characters%20(the%20Latch%20app%20generates%20one%20for%20you)&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D). Make your own key with `openssl rand -hex 32`. Full guide: [docs/operations/vercel.md](docs/operations/vercel.md).
+- **Your own server:** a small container (`deploy/docker-compose.yml`). See [docs/operations/gateway.md](docs/operations/gateway.md).
+- **Try it with no phone at all** (needs Rust): `scripts/dev.sh` starts a gateway and a pretend phone.
+
+### What's in this repo
+
+| Folder | What's inside |
 |---|---|
-| `crates/protocol` | Device protocol v1 types, limits, validation |
-| `crates/policy` | Pure authorization decisions |
-| `crates/fake-device` | Simulated phone for tests and demos |
-| `servers/mcp` | `latch-gateway` (Rust): MCP, phone channel, pairing, owner console |
-| `servers/vercel` | The same gateway for Vercel Functions + Upstash Redis |
-| `apps/android` | Android app |
-| `packages/schemas/v1` | Generated JSON Schemas and shared fixtures |
-| `tests/interop` | Official MCP TypeScript SDK client check |
-| `handbook/` | Product and engineering plan (start with the README) |
-| `docs/` | Operations, platform, protocol, decisions |
-| `scripts/` | `check.sh`, `dev.sh`, `interop.sh`, cloud setup |
+| `apps/android` | The Android app (Kotlin, Jetpack Compose) |
+| `servers/vercel` | The gateway for Vercel + Upstash Redis |
+| `servers/mcp` | The same gateway in Rust, for containers and servers |
+| `crates/protocol` | The phone ↔ gateway language (device protocol v1) |
+| `crates/policy` | The rules that decide what's allowed |
+| `crates/fake-device` | A pretend phone for tests and demos |
+| `packages/schemas/v1` | JSON Schemas and shared test examples |
+| `tests/interop` | Checks against the official MCP TypeScript client |
+| `handbook/` | The full product and engineering plan |
+| `docs/` | Guides for running, platform notes, and decisions |
+| `scripts/` | `check.sh`, `dev.sh`, and setup helpers |
 
-## Develop
+### Build and test
 
 ```sh
-scripts/cloud-session-setup.sh   # once per fresh container: Rust deps, Android SDK, test client
-scripts/check.sh                 # everything CI runs: Rust, Android, interop
+scripts/cloud-session-setup.sh   # once: installs Rust deps, the Android SDK, and the test client
+scripts/check.sh                 # runs everything CI runs
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under [Apache-2.0](LICENSE).
+**Project status:** both gateways pass end-to-end tests with the official MCP client and a pretend phone (including against Redis). The Android app builds, and its tests and lint pass. Next up is testing on real phones ([checklist](docs/platform/android.md#real-device-gate-s4)).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to help out.
+
+</details>
+
+---
+
+Made with care. Licensed under [Apache-2.0](LICENSE). 💛
