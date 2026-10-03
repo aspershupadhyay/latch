@@ -4,7 +4,7 @@
 
 import { SERVER } from "./generated/contract.js";
 import type { CommandTiming, Devices, DeviceRecord, Live } from "./devices.js";
-import { type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
@@ -14,7 +14,47 @@ const TOOLS: readonly Tool[] = SERVER.tools;
 export interface McpContext {
   devices: Devices;
   settleMs: number;
+  /** Asks the AI app's user about an approval the phone is waiting on (MCP elicitation). */
+  askOwner?: (request: ApprovalRequest) => Promise<ApprovalChoice | undefined>;
 }
+
+/** What an MCP client answered to `elicitation/create`, or undefined when it never did. */
+export type ElicitResult = { action: string; content?: Record<string, unknown> } | undefined;
+export type Elicit = (message: string, requestedSchema: Record<string, unknown>) => Promise<ElicitResult>;
+
+const CHOICE_LABELS: Record<ApprovalChoice, string> = {
+  once: "Allow once", session: "Allow for this session", always: "Always", deny: "Deny",
+};
+
+/**
+ * Turns a phone's approval request into an MCP elicitation (ADR-023). The
+ * phone shows the same question; whichever answer arrives first counts. The
+ * title can quote app text, which the user sees as such.
+ */
+export function askOwnerVia(elicit: Elicit) {
+  return async (request: ApprovalRequest): Promise<ApprovalChoice | undefined> => {
+    const choices = request.choices.includes("deny") ? request.choices : [...request.choices, "deny" as const];
+    const message =
+      `Latch, on the phone you connected, asks you: ${request.title}\n${request.detail}\n` +
+      "The phone shows the same question; whichever you answer first counts.";
+    const schema = {
+      type: "object",
+      properties: {
+        answer: { type: "string", title: "Your answer", enum: choices, enumNames: choices.map((c) => CHOICE_LABELS[c]) },
+      },
+      required: ["answer"],
+    };
+    const result = await elicit(message, schema);
+    if (result?.action === "decline") return "deny";
+    if (result?.action !== "accept") return undefined;
+    const answer = result.content?.answer;
+    return typeof answer === "string" && (choices as string[]).includes(answer) ? (answer as ApprovalChoice) : undefined;
+  };
+}
+
+/** Every command an MCP tool sends goes through here, so approvals can be relayed. */
+const execute = (ctx: McpContext, deviceId: string, command: Command, options: Parameters<Devices["execute"]>[2] = {}) =>
+  ctx.devices.execute(deviceId, command, { ...options, askOwner: ctx.askOwner });
 
 const rpcResult = (id: unknown, result: unknown) => ({ jsonrpc: "2.0", id, result });
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -122,7 +162,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     case "list_apps": {
       const query = argStr(args, "query")?.trim().toLowerCase() || undefined;
       if (query !== undefined && [...query].length > 100) throw bad("query must be at most 100 characters");
-      const run = await ctx.devices.execute(deviceId, { name: "app.list", params: {} });
+      const run = await execute(ctx, deviceId, { name: "app.list", params: {} });
       const list = run.data as { apps?: { package: string; label: string }[] };
       const all = Array.isArray(list.apps) ? list.apps : [];
       const apps = query === undefined
@@ -211,7 +251,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
 
   // The phone (1.2+) lets the UI settle and observes in the same round trip;
   // 1.3 phones stop waiting as soon as the screen is still.
-  const run = await ctx.devices.execute(deviceId, command, {
+  const run = await execute(ctx, deviceId, command, {
     observeAfter: { settle_ms: SETTLE_MAX_MS, quiet_ms: QUIET_MS, include_screenshot: screenshotAfter, max_nodes: 400 },
     legacySettleMs: ctx.settleMs,
   });
@@ -248,7 +288,7 @@ function positive(value: number, name: string): number {
 }
 
 async function waitFor(ctx: McpContext, deviceId: string, live: Live, command: Extract<Command, { name: "ui.wait" }>, wantScreenshot: boolean) {
-  const run = await ctx.devices.execute(deviceId, command);
+  const run = await execute(ctx, deviceId, command);
   const matched = (run.data as { matched?: unknown }).matched === true;
   const { text, gone, timeout_ms: timeoutMs } = command.params;
   const quoted = quote(text, 60);
@@ -282,7 +322,7 @@ function observationResult(deviceId: string, obs: Observation, screenshotWithhel
 
 async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreenshot: boolean, maxNodes: number): Promise<ToolResult> {
   const allowed = screenshotAllowed(live);
-  const run = await ctx.devices.execute(deviceId, {
+  const run = await execute(ctx, deviceId, {
     name: "ui.observe",
     params: { include_screenshot: wantScreenshot && allowed, max_nodes: maxNodes },
   });

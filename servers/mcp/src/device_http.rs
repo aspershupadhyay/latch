@@ -157,6 +157,13 @@ pub async fn messages(
             state.store().touch(&device_id, now_ms());
             tracing::info!(device_id, "device said bye");
         }
+        Ok(DeviceToGateway::ApprovalRequest(request)) => {
+            if validate::approval_request(&request).is_ok() {
+                state
+                    .devices
+                    .approval_requested(&device_id, conn_id, &request.command_id);
+            }
+        }
         Ok(DeviceToGateway::Hello(_)) => {
             return error(StatusCode::BAD_REQUEST, "send hello to /v1/device/hello");
         }

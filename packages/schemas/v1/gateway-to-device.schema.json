@@ -82,9 +82,40 @@
         "type",
         "reason"
       ]
+    },
+    {
+      "description": "Since 1.4: the owner answered an [`ApprovalRequest`] in the AI app. The\nphone applies it only if the nonce matches its open request and the\nowner's `remote_approvals` switch is on.",
+      "type": "object",
+      "properties": {
+        "choice": {
+          "$ref": "#/$defs/ApprovalChoice"
+        },
+        "nonce": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "approval_answer"
+        }
+      },
+      "required": [
+        "type",
+        "nonce",
+        "choice"
+      ]
     }
   ],
   "$defs": {
+    "ApprovalChoice": {
+      "description": "An answer to an approval (since 1.4).",
+      "type": "string",
+      "enum": [
+        "once",
+        "session",
+        "always",
+        "deny"
+      ]
+    },
     "Command": {
       "description": "One device operation. Serialized as `{\"name\": \"...\", \"params\": {...}}`.",
       "oneOf": [

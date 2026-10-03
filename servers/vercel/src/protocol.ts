@@ -1,8 +1,8 @@
-// Latch device protocol v1.3 for the Vercel gateway. The normative definition
+// Latch device protocol v1.4 for the Vercel gateway. The normative definition
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.3";
+export const PROTOCOL_VERSION = "1.4";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -59,7 +59,27 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "app.launch": "list and open apps",
 };
 
-export interface SessionInfo { expires_at_ms: number; approve_every_action: boolean; paused: boolean }
+export interface SessionInfo {
+  expires_at_ms: number; approve_every_action: boolean; paused: boolean;
+  /** Since 1.4: the owner lets approvals be answered in the AI app too. */
+  remote_approvals?: boolean;
+}
+
+/** Since 1.4: answers to an approval. */
+export type ApprovalChoice = "once" | "session" | "always" | "deny";
+export const APPROVAL_CHOICES: readonly ApprovalChoice[] = ["once", "session", "always", "deny"];
+
+/** Since 1.4: the phone is waiting for the owner to answer an approval for a running command. */
+export interface ApprovalRequest {
+  command_id: string;
+  nonce: string;
+  title: string;
+  detail: string;
+  kind: "action" | "app";
+  choices: ApprovalChoice[];
+  remote: boolean;
+  expires_at_ms: number;
+}
 export interface DeviceDescriptor { platform: string; os_version: string; model: string; app_version: string }
 export interface Hello {
   type: "hello"; protocol: string; device: DeviceDescriptor; capabilities: CapabilityState[];
@@ -315,6 +335,32 @@ export function parseCommand(raw: unknown): Command {
     case "app.launch": return { name, params: { package: str("package") } };
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
+}
+
+const NONCE = /^[0-9a-f]{32}$/;
+
+function text(name: string, v: unknown, max: number): string {
+  // eslint-disable-next-line no-control-regex
+  if (typeof v !== "string" || v.trim() === "" || [...v].length > max || /[\u0000-\u001f\u007f-\u009f]/u.test(v)) {
+    throw invalid(`${name} must be 1-${max} characters without control characters`);
+  }
+  return v;
+}
+
+/** Mirrors latch_protocol::validate::approval_request. */
+export function parseApprovalRequest(raw: Record<string, unknown>): ApprovalRequest {
+  if (typeof raw.command_id !== "string") throw invalid("command_id is required");
+  id("command_id", raw.command_id);
+  if (typeof raw.nonce !== "string" || !NONCE.test(raw.nonce)) throw invalid("nonce must be 32 lowercase hex characters");
+  if (raw.kind !== "action" && raw.kind !== "app") throw invalid("kind must be action or app");
+  const choices = raw.choices;
+  if (!Array.isArray(choices) || choices.length === 0 || choices.length > 4) throw invalid("choices must list 1-4 answers");
+  if (choices.some((c, i) => !APPROVAL_CHOICES.includes(c as ApprovalChoice) || choices.indexOf(c) !== i)) throw invalid("choices must be distinct answers");
+  if (typeof raw.remote !== "boolean" || !isInt(raw.expires_at_ms)) throw invalid("remote and expires_at_ms are required");
+  return {
+    command_id: raw.command_id, nonce: raw.nonce, title: text("title", raw.title, 200), detail: text("detail", raw.detail, 600),
+    kind: raw.kind, choices: choices as ApprovalChoice[], remote: raw.remote, expires_at_ms: raw.expires_at_ms as number,
+  };
 }
 
 export function validateHello(h: Hello): void {

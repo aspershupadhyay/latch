@@ -3,8 +3,8 @@
 // phone app and the owner console work against either.
 
 import { type DeviceRecord, Devices, type Timing } from "./devices.js";
-import { handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
-import { type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, validateHello } from "./protocol.js";
+import { type Elicit, type ElicitResult, askOwnerVia, handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
+import { type ApprovalRequest, type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, parseApprovalRequest, validateHello } from "./protocol.js";
 import { OAuth } from "./oauth.js";
 import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret.js";
 import type { Store } from "./store.js";
@@ -47,6 +47,9 @@ const PAIR_TTL_MS = 10 * 60 * 1000;
 /** `last_used_ms` of an MCP client is a hint for the owner; writing it on every call costs a round trip. */
 const LAST_USED_WRITE_MS = 60_000;
 const MAX_PAIR_FAILURES_PER_MINUTE = 20;
+/** How long an approval question stays open in the AI app (the phone's own deadline). */
+const ELICIT_MS = 120_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });
@@ -240,8 +243,95 @@ export class Gateway {
     const version = request.headers.get("mcp-protocol-version");
     const isInitialize = typeof message === "object" && message !== null && (message as { method?: unknown }).method === "initialize";
     if (version !== null && !isInitialize && !SUPPORTED_VERSIONS.includes(version)) return error(400, "unsupported MCP-Protocol-Version");
+    const client = sha256(token ?? "");
+    const m = (typeof message === "object" && message !== null ? message : {}) as Record<string, unknown>;
+    // A client's answer to one of our elicitation requests (ADR-023).
+    if (!("method" in m) && "id" in m && ("result" in m || "error" in m)) {
+      await this.elicitAnswer(client, m);
+      return new Response(null, { status: 202 });
+    }
+    if (isInitialize) await this.rememberClient(client, m.params);
+    // Clients that can show questions get the tool call as an event stream, so an
+    // approval the phone waits on can be asked in the AI app as well.
+    if (m.method === "tools/call" && (request.headers.get("accept") ?? "").includes("text/event-stream") && (await this.canElicit(client))) {
+      return this.streamToolCall(client, message);
+    }
     const reply = await handleMcp({ devices: this.devices, settleMs: this.config.settleMs }, message);
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);
+  }
+
+  // ---- Approvals in the AI app (MCP elicitation, ADR-023) ----
+
+  private readonly elicitCapable = new Map<string, boolean>();
+
+  /** Remembers whether this MCP key's client can show questions (its `initialize` capabilities). */
+  private async rememberClient(client: string, params: unknown) {
+    const caps = (params as { capabilities?: { elicitation?: unknown } } | null)?.capabilities;
+    const capable = typeof caps?.elicitation === "object" && caps.elicitation !== null;
+    this.elicitCapable.set(client, capable);
+    await this.store.set(`latch:mcpclient:${client}`, capable ? "elicitation" : "none", { px: 30 * 24 * 3600_000 });
+  }
+
+  private async canElicit(client: string): Promise<boolean> {
+    const known = this.elicitCapable.get(client);
+    if (known !== undefined) return known;
+    const capable = (await this.store.get(`latch:mcpclient:${client}`)) === "elicitation";
+    this.elicitCapable.set(client, capable);
+    return capable;
+  }
+
+  /** Stores the answer for the waiting tool call, only from the client that was asked. */
+  private async elicitAnswer(client: string, m: Record<string, unknown>) {
+    if (typeof m.id !== "string" || !/^e_[A-Za-z0-9_-]{1,64}$/.test(m.id)) return;
+    if ((await this.store.getdel(`latch:elicitwait:${m.id}`)) !== client) return;
+    const result = typeof m.result === "object" && m.result !== null ? m.result : { action: "cancel" };
+    await this.store.set(`latch:elicit:${m.id}`, JSON.stringify(result).slice(0, 4096), { px: 60_000 });
+  }
+
+  private streamToolCall(client: string, message: unknown): Response {
+    const encoder = new TextEncoder();
+    const store = this.store;
+    const ctx = { devices: this.devices, settleMs: this.config.settleMs };
+    const stream = new ReadableStream<Uint8Array>({
+      start: async (controller) => {
+        let open = true;
+        const write = (chunk: string) => { if (open) controller.enqueue(encoder.encode(chunk)); };
+        const send = (obj: unknown) => write(`event: message\ndata: ${JSON.stringify(obj)}\n\n`);
+        // Keeps proxies from closing a stream that waits on a person.
+        const keepalive = setInterval(() => write(": keepalive\n\n"), 15_000);
+        const asked: string[] = [];
+        const elicit: Elicit = async (text, requestedSchema): Promise<ElicitResult> => {
+          const rid = newId("e");
+          await store.set(`latch:elicitwait:${rid}`, client, { px: ELICIT_MS + 10_000 });
+          asked.push(rid);
+          send({ jsonrpc: "2.0", id: rid, method: "elicitation/create", params: { message: text, requestedSchema } });
+          const until = Date.now() + ELICIT_MS;
+          while (open && Date.now() < until) {
+            const answer = await store.getdel(`latch:elicit:${rid}`);
+            if (answer) return JSON.parse(answer) as ElicitResult;
+            await sleep(400);
+          }
+          return undefined;
+        };
+        try {
+          const reply = await handleMcp({ ...ctx, askOwner: askOwnerVia(elicit) }, message);
+          // A question still open in the AI app was answered on the phone instead.
+          for (const rid of asked) {
+            if (await store.getdel(`latch:elicitwait:${rid}`)) {
+              send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: rid, reason: "answered on the phone" } });
+            }
+          }
+          if (reply !== undefined) send(reply);
+        } catch {
+          send({ jsonrpc: "2.0", id: (message as { id?: unknown }).id ?? null, error: { code: -32603, message: "internal error" } });
+        } finally {
+          clearInterval(keepalive);
+          open = false;
+          controller.close();
+        }
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
   }
 
   // ---- Phones ----
@@ -323,6 +413,16 @@ export class Gateway {
     if (message?.type === "result") {
       if (typeof message.id !== "string" || typeof message.outcome !== "object") return error(400, "unparseable device message");
       return (await this.devices.deliverResult(id, conn, message.id, message.outcome as Outcome)) ? noContent() : replaced();
+    }
+    // Protocol 1.4: the phone waits for the owner on a running command.
+    if (message?.type === "approval_request") {
+      let request: ApprovalRequest;
+      try {
+        request = parseApprovalRequest(message);
+      } catch (e) {
+        return error(422, (e as Error).message);
+      }
+      return (await this.devices.recordApproval(id, conn, request)) ? noContent() : replaced();
     }
     const live = await this.devices.current(id, conn);
     if (!live) return replaced();

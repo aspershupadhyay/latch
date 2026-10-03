@@ -100,4 +100,23 @@ class ProtocolFixturesTest {
         assertTrue(!Protocol.isCompatible("2.0"))
         assertTrue(!Protocol.isCompatible("1.0.0"))
     }
+
+    @Test
+    fun parsesApprovalAnswersAndWritesApprovalRequestsInTheSharedShape() {
+        val all = fixtures("valid").toMap()
+        assertEquals(
+            GatewayMessage.ApprovalAnswer("0123456789abcdef0123456789abcdef", "session"),
+            GatewayParser.parse(all.getValue("g2d-approval-answer.json")),
+        )
+        val ours = Protocol.json.parseToJsonElement(
+            Outgoing.approvalRequest(
+                "c_42", "0123456789abcdef0123456789abcdef", "Tap “Send” in com.example.chat",
+                "Requested by an AI agent connected through Latch.", app = false, choices = listOf("once", "session", "always", "deny"),
+                remote = true, expiresAtMs = 1800000120000,
+            ),
+        )
+        assertEquals(Protocol.json.parseToJsonElement(all.getValue("d2g-approval-request.json")), ours)
+        val state = Protocol.json.decodeFromString(StateMessage.serializer(), all.getValue("d2g-state.json"))
+        assertTrue(state.session.remoteApprovals)
+    }
 }

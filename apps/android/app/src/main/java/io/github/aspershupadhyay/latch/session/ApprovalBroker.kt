@@ -27,7 +27,17 @@ data class PendingApproval(
     /** App the action happens in, for the "Always in …" button. */
     val appName: String? = null,
     val kind: ApprovalKind = ApprovalKind.ACTION,
-)
+    /** The gateway command waiting on this answer, if any. */
+    val commandId: String? = null,
+) {
+    /** What the owner may answer, in protocol words (protocol 1.4). */
+    val choices: List<String>
+        get() = when {
+            kind == ApprovalKind.APP -> listOf("session", "always", "deny")
+            rememberable -> listOf("once", "session", "always", "deny")
+            else -> listOf("once", "deny")
+        }
+}
 
 /**
  * Holds at most one outstanding approval. Answers are matched by a random
@@ -40,6 +50,9 @@ class ApprovalBroker {
     private var answer: CompletableDeferred<ApprovalChoice>? = null
     private val random = SecureRandom()
 
+    /** Told about every new request, e.g. to offer it in the AI app as well (protocol 1.4). */
+    var onRequested: ((PendingApproval) -> Unit)? = null
+
     suspend fun request(
         title: String,
         detail: String,
@@ -48,12 +61,14 @@ class ApprovalBroker {
         rememberable: Boolean = false,
         appName: String? = null,
         kind: ApprovalKind = ApprovalKind.ACTION,
+        commandId: String? = null,
     ): ApprovalOutcome {
         cancel()
         val nonce = ByteArray(16).also(random::nextBytes).joinToString("") { "%02x".format(it) }
         val deferred = CompletableDeferred<ApprovalChoice>()
         answer = deferred
-        _pending.value = PendingApproval(nonce, title, detail, risk, System.currentTimeMillis() + timeoutMs, rememberable, appName, kind)
+        _pending.value = PendingApproval(nonce, title, detail, risk, System.currentTimeMillis() + timeoutMs, rememberable, appName, kind, commandId)
+        _pending.value?.let { p -> onRequested?.invoke(p) }
         try {
             val choice = withTimeoutOrNull(timeoutMs) { deferred.await() }
             return when (choice) {
@@ -77,6 +92,22 @@ class ApprovalBroker {
         val current = _pending.value ?: return
         if (current.nonce != nonce || System.currentTimeMillis() > current.expiresAtMs) return
         answer?.complete(choice)
+    }
+
+    /** An answer given in the AI app (protocol 1.4), in protocol words. */
+    fun answerRemote(nonce: String, choice: String): Boolean {
+        val pending = _pending.value ?: return false
+        if (pending.nonce != nonce || choice !in pending.choices) return false
+        answer(
+            nonce,
+            when (choice) {
+                "once" -> ApprovalChoice.ONCE
+                "session" -> ApprovalChoice.SESSION
+                "always" -> ApprovalChoice.ALWAYS
+                else -> ApprovalChoice.DENY
+            },
+        )
+        return true
     }
 
     fun answer(nonce: String, approve: Boolean) = answer(nonce, if (approve) ApprovalChoice.ONCE else ApprovalChoice.DENY)

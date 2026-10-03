@@ -43,6 +43,8 @@ struct Live {
     /// Session with `expires_at_ms` translated to the gateway clock.
     session: SessionInfo,
     pending: HashMap<String, oneshot::Sender<Outcome>>,
+    /// Commands whose phone is waiting for the owner's approval (protocol 1.4).
+    awaiting_owner: std::collections::HashSet<String>,
     /// Latest observation without its screenshot, and when it arrived.
     latest_observation: Option<(Arc<Observation>, u64)>,
     command_lock: Arc<tokio::sync::Mutex<()>>,
@@ -121,6 +123,7 @@ impl Registry {
             session: to_gateway_clock(hello.session, hello.device_time_ms, now),
             hello,
             pending: HashMap::new(),
+            awaiting_owner: std::collections::HashSet::new(),
             latest_observation: None,
             command_lock: Arc::new(tokio::sync::Mutex::new(())),
             connected_at_ms: now,
@@ -208,10 +211,32 @@ impl Registry {
             .lock()
             .get_mut(device_id)
             .filter(|l| l.conn_id == conn_id)
-            .and_then(|l| l.pending.remove(command_id));
+            .and_then(|l| {
+                l.awaiting_owner.remove(command_id);
+                l.pending.remove(command_id)
+            });
         if let Some(waiter) = waiter {
             let _ = waiter.send(outcome);
         }
+    }
+
+    /// The phone is waiting for the owner on a running command (protocol 1.4), so
+    /// the command may outlive its normal deadline. This gateway does not relay
+    /// answers from the AI app; the Vercel gateway does (ADR-023).
+    pub fn approval_requested(&self, device_id: &str, conn_id: u64, command_id: &str) {
+        if let Some(l) = self
+            .lock()
+            .get_mut(device_id)
+            .filter(|l| l.conn_id == conn_id && l.pending.contains_key(command_id))
+        {
+            l.awaiting_owner.insert(command_id.to_owned());
+        }
+    }
+
+    fn awaiting_owner(&self, device_id: &str, conn_id: u64, command_id: &str) -> bool {
+        self.lock()
+            .get(device_id)
+            .is_some_and(|l| l.conn_id == conn_id && l.awaiting_owner.contains(command_id))
     }
 
     /// Tells a device it was revoked and drops its connection.
@@ -471,18 +496,32 @@ async fn execute_inner(
         (decision, deadline_ms, id, rx, l.conn_id, observe_after)
     };
 
-    // A little grace on top of the device's own deadline for the network.
-    let wait = Duration::from_millis(u64::from(deadline_ms) + 3_000);
-    let outcome = match tokio::time::timeout(wait, rx).await {
-        Ok(Ok(outcome)) => outcome,
-        Ok(Err(_)) => return Err((decision, unavailable().1)),
-        Err(_) => {
+    // A little grace on top of the device's own deadline for the network. A phone
+    // that is waiting for the owner (protocol 1.4) gets one approval's worth more.
+    let mut wait = Duration::from_millis(u64::from(deadline_ms) + 3_000);
+    let mut extended = false;
+    let mut rx = rx;
+    let received = loop {
+        match tokio::time::timeout(wait, &mut rx).await {
+            Ok(Ok(outcome)) => break Some(outcome),
+            Ok(Err(_)) => return Err((decision, unavailable().1)),
+            Err(_) if !extended && state.devices.awaiting_owner(device_id, conn_id, &id) => {
+                extended = true;
+                wait = Duration::from_millis(u64::from(CONFIRM_DEADLINE_MS) + 3_000);
+            }
+            Err(_) => break None,
+        }
+    };
+    let outcome = match received {
+        Some(outcome) => outcome,
+        None => {
             let tx = {
                 let mut live = state.devices.lock();
                 live.get_mut(device_id)
                     .filter(|l| l.conn_id == conn_id)
                     .map(|l| {
                         l.pending.remove(&id);
+                        l.awaiting_owner.remove(&id);
                         l.tx.clone()
                     })
             };
@@ -578,6 +617,7 @@ mod tests {
             expires_at_ms: 10_000,
             approve_every_action: false,
             paused: false,
+            remote_approvals: false,
         };
         // Phone clock is 4s ahead of the gateway.
         assert_eq!(to_gateway_clock(s, Some(5_000), 1_000).expires_at_ms, 6_000);

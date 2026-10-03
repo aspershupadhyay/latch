@@ -284,6 +284,54 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
     }
 }
 
+/// Checks an [`crate::ApprovalRequest`] from a phone (since 1.4).
+pub fn approval_request(request: &crate::ApprovalRequest) -> Result<(), ProtocolError> {
+    check_id("command_id", &request.command_id)?;
+    if request.nonce.len() != 32
+        || !request
+            .nonce
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(invalid("nonce must be 32 lowercase hex characters"));
+    }
+    check_text("title", &request.title, 200)?;
+    check_text("detail", &request.detail, 600)?;
+    if request.choices.is_empty() || request.choices.len() > 4 {
+        return Err(invalid("choices must list 1-4 answers"));
+    }
+    for (i, c) in request.choices.iter().enumerate() {
+        if request.choices[..i].contains(c) {
+            return Err(invalid("choices must not repeat"));
+        }
+    }
+    Ok(())
+}
+
+/// Non-empty, at most `max` characters, no control characters.
+fn check_text(name: &str, value: &str, max: usize) -> Result<(), ProtocolError> {
+    if value.trim().is_empty() || value.chars().count() > max || value.chars().any(char::is_control)
+    {
+        return Err(invalid(format!(
+            "{name} must be 1-{max} characters without control characters"
+        )));
+    }
+    Ok(())
+}
+
+/// Checks an approval answer for the phone (since 1.4).
+pub fn approval_nonce(nonce: &str) -> Result<(), ProtocolError> {
+    if nonce.len() == 32
+        && nonce
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        Ok(())
+    } else {
+        Err(invalid("nonce must be 32 lowercase hex characters"))
+    }
+}
+
 pub fn hello(hello: &Hello) -> Result<(), ProtocolError> {
     if !crate::is_compatible(&hello.protocol) {
         return Err(ProtocolError::new(

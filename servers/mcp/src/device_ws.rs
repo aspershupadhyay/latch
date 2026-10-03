@@ -164,6 +164,13 @@ async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
                 tracing::info!(device_id, reason = %reason.chars().take(32).collect::<String>(), "device said bye");
                 break;
             }
+            Ok(DeviceToGateway::ApprovalRequest(request)) => {
+                if validate::approval_request(&request).is_ok() {
+                    state
+                        .devices
+                        .approval_requested(&device_id, conn_id, &request.command_id);
+                }
+            }
             Ok(DeviceToGateway::Hello(_)) => {
                 tracing::warn!(device_id, "duplicate hello; closing");
                 break;

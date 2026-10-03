@@ -31,6 +31,8 @@ data class Preferences(
     val keepAwake: Boolean = true,
     /** Look for a newer Latch on GitHub when the app opens. */
     val checkUpdates: Boolean = true,
+    /** Approvals may also be answered in the AI app (protocol 1.4, ADR-023). */
+    val remoteApprovals: Boolean = false,
 )
 
 /**
@@ -70,6 +72,7 @@ class Settings(context: Context) {
             showCursor = prefs.getBoolean("show_cursor", true),
             keepAwake = prefs.getBoolean("keep_awake", true),
             checkUpdates = prefs.getBoolean("check_updates", true),
+            remoteApprovals = prefs.getBoolean("remote_approvals", false),
         )
     }
 
@@ -117,6 +120,7 @@ class Settings(context: Context) {
             putBoolean("show_cursor", next.showCursor)
             putBoolean("keep_awake", next.keepAwake)
             putBoolean("check_updates", next.checkUpdates)
+            putBoolean("remote_approvals", next.remoteApprovals)
         }
         _preferences.value = next
     }
