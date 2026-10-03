@@ -142,3 +142,60 @@ test("approval requests are validated like the Rust gateway does", async () => {
   });
   assert.equal(bad.status, 422);
 });
+
+/** An AI app that cannot show questions (no elicitation), like most chat apps today. */
+async function plainClient() {
+  const created = await api("/v1/admin/clients", { name: "Plain test" });
+  const c = new Client({ name: "latch-plain-test", version: "0.1.0" });
+  await c.connect(new StreamableHTTPClientTransport(new URL(created.body.mcp_url), {
+    requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
+  }));
+  return c;
+}
+
+const text = (r: unknown) => ((r as { content: { text?: string }[] }).content).map((c) => c.text ?? "").join("\n");
+
+test("without elicitation the call pauses, the AI asks in the chat, and answer_approval finishes it", async () => {
+  const p = await phone(true);
+  const c = await plainClient();
+  const call = c.callTool({ name: "list_apps", arguments: { device_id: p.deviceId } });
+  const command = await p.poll();
+  const id = command!.id as string;
+  await p.post({
+    type: "approval_request", command_id: id, nonce: NONCE, title: "Let the AI use Chat?", detail: "It can see Chat's screen.",
+    kind: "app", choices: ["session", "always", "deny"], remote: true, expires_at_ms: Date.now() + 110_000,
+  });
+  // The tool returns at once and tells the AI to ask the user.
+  const waiting = text(await call);
+  assert.match(waiting, /waiting for the owner/);
+  assert.match(waiting, new RegExp(`request_id "${id}"`));
+
+  // The user answers in the chat; the AI passes it on, and the phone gets it.
+  const resumed = c.callTool({ name: "answer_approval", arguments: { request_id: id, answer: "session" } });
+  let answer: Record<string, unknown> | undefined;
+  for (let i = 0; i < 50 && answer?.type !== "approval_answer"; i++) answer = await p.poll();
+  assert.deepEqual(answer, { type: "approval_answer", nonce: NONCE, choice: "session" });
+  await p.post({ type: "result", id, outcome: { status: "ok", data: listApps } });
+  assert.match(text(await resumed), /com\.example\.chat/);
+
+  // The question is gone once answered, and answers outside the offered choices are refused.
+  const again = await c.callTool({ name: "answer_approval", arguments: { request_id: id, answer: "session" } });
+  assert.equal(again.isError, true);
+  await c.close();
+});
+
+test("answer_approval refuses answers the phone did not offer", async () => {
+  const p = await phone(true);
+  const c = await plainClient();
+  const call = c.callTool({ name: "list_apps", arguments: { device_id: p.deviceId } });
+  const id = (await p.poll())!.id as string;
+  await p.post({
+    type: "approval_request", command_id: id, nonce: NONCE, title: "Tap “Pay”", detail: "Money.",
+    kind: "action", choices: ["once", "deny"], remote: true, expires_at_ms: Date.now() + 110_000,
+  });
+  await call;
+  const wrong = await c.callTool({ name: "answer_approval", arguments: { request_id: id, answer: "always" } });
+  assert.equal(wrong.isError, true);
+  assert.match(text(wrong), /once, deny/);
+  await c.close();
+});

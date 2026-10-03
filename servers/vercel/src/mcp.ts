@@ -3,7 +3,7 @@
 // test/ hold both to packages/schemas/v1/mcp.
 
 import { SERVER } from "./generated/contract.js";
-import type { CommandTiming, Devices, DeviceRecord, Live } from "./devices.js";
+import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live } from "./devices.js";
 import { type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 
@@ -16,6 +16,10 @@ export interface McpContext {
   settleMs: number;
   /** Asks the AI app's user about an approval the phone is waiting on (MCP elicitation). */
   askOwner?: (request: ApprovalRequest) => Promise<ApprovalChoice | undefined>;
+  /** This AI app cannot show questions: pause the call and let the AI ask in the chat (ADR-023). */
+  deferWhenAsked?: boolean;
+  /** Set by answer_approval: collect this command's result instead of sending a new one. */
+  resumeCommandId?: string;
 }
 
 /** What an MCP client answered to `elicitation/create`, or undefined when it never did. */
@@ -54,7 +58,25 @@ export function askOwnerVia(elicit: Elicit) {
 
 /** Every command an MCP tool sends goes through here, so approvals can be relayed. */
 const execute = (ctx: McpContext, deviceId: string, command: Command, options: Parameters<Devices["execute"]>[2] = {}) =>
-  ctx.devices.execute(deviceId, command, { ...options, askOwner: ctx.askOwner });
+  ctx.devices.execute(deviceId, command, {
+    ...options, askOwner: ctx.askOwner, deferWhenAsked: ctx.deferWhenAsked, resumeCommandId: ctx.resumeCommandId,
+  });
+
+const ANSWER_MEANINGS: Record<ApprovalChoice, string> = {
+  once: "once (allow this one time)", session: "session (allow until the session ends)", always: "always (allow from now on)", deny: "deny",
+};
+
+/** What the AI sees when the phone waits for the owner and this AI app cannot ask by itself. */
+function waitingResult(request: ApprovalRequest): ToolResult {
+  const choices = request.choices.includes("deny") ? request.choices : [...request.choices, "deny" as const];
+  return textResult(
+    `Latch is waiting for the owner to answer on the phone: ${quote(request.title, 200)}\n` +
+      `${quote(request.detail, 300)}\n` +
+      "Ask the user this question in the chat now, in plain words. When they answer, call answer_approval with " +
+      `request_id ${quote(request.command_id, 64)} and their answer: ${choices.map((c) => ANSWER_MEANINGS[c]).join(", ")}. ` +
+      "Never answer for them. If they answer on the phone instead, answer_approval returns what happened.",
+  );
+}
 
 const rpcResult = (id: unknown, result: unknown) => ({ jsonrpc: "2.0", id, result });
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -141,10 +163,33 @@ async function callTool(ctx: McpContext, name: string, args: Record<string, unkn
   const extra = Object.keys(args).find((k) => !allowed.includes(k));
   if (extra !== undefined) return toolError(bad(`unexpected argument '${truncate(extra, 32)}'`));
   try {
-    return await runTool(ctx, name, args);
+    return name === "answer_approval" ? await answerApproval(ctx, args) : await runTool(ctx, name, args);
   } catch (e) {
+    if (e instanceof ApprovalDeferred) {
+      await ctx.devices.saveDeferred(e.request.command_id, {
+        tool: name, args, device: e.deviceId, conn: e.conn, nonce: e.request.nonce, choices: e.request.choices, title: e.request.title,
+      });
+      return waitingResult(e.request);
+    }
     return toolError(e instanceof ProtocolError ? e : new ProtocolError("internal", "unexpected gateway error"));
   }
+}
+
+/**
+ * Passes the owner's answer from the chat to the phone, then finishes the
+ * paused tool call exactly as it would have finished (ADR-023).
+ */
+async function answerApproval(ctx: McpContext, args: Record<string, unknown>): Promise<unknown> {
+  const requestId = reqStr(args, "request_id");
+  const answer = reqStr(args, "answer") as ApprovalChoice;
+  const deferred = await ctx.devices.deferred(requestId);
+  if (!deferred) throw new ProtocolError("invalid_request", "no question is waiting with that request_id; it may have been answered or expired");
+  const offered = deferred.choices.includes("deny") ? deferred.choices : [...deferred.choices, "deny" as ApprovalChoice];
+  if (!offered.includes(answer)) throw bad(`answer must be one of: ${offered.join(", ")}`);
+  await ctx.devices.sendApprovalAnswer(deferred, answer);
+  await ctx.devices.dropDeferred(requestId);
+  // The phone applies the answer (or already had one from the owner) and finishes the command.
+  return runTool({ ...ctx, askOwner: undefined, deferWhenAsked: false, resumeCommandId: requestId }, deferred.tool, deferred.args);
 }
 
 async function runTool(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -335,6 +380,10 @@ async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreen
  */
 async function pinchCommand(ctx: McpContext, deviceId: string, args: Record<string, unknown>): Promise<Command> {
   const observationId = reqStr(args, "observation_id");
+  // Resuming after answer_approval: the pinch was already sent; only its result is read.
+  if (ctx.resumeCommandId) {
+    return { name: "input.pinch", params: { observation_id: observationId, center: { x: 0, y: 0 }, start_span: 100, end_span: 200, duration_ms: 300 } };
+  }
   const screen = await ctx.devices.latestObservation(deviceId);
   if (!screen || screen.observation_id !== observationId) throw new ProtocolError("stale_observation", "observe before pinching");
   const { width, height } = screen.screen;

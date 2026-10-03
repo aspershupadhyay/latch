@@ -259,7 +259,8 @@ async fn mcp_handshake_and_discovery() {
             "pinch",
             "press",
             "list_apps",
-            "launch_app"
+            "launch_app",
+            "answer_approval"
         ]
     );
     for forbidden in ["shell", "exec", "install", "read_file"] {
