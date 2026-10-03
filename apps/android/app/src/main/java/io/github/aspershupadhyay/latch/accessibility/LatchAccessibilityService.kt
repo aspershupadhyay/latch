@@ -419,6 +419,7 @@ class LatchAccessibilityService : AccessibilityService() {
 
         val ui = LinkedHashMap<String, UiNode>()
         val refs = HashMap<String, AccessibilityNodeInfo>()
+        val controls = HashSet<Triple<Rect, String?, String?>>()
         val screen = screenInfo()
         val bounds = android.graphics.Rect()
         var redacted = 0
@@ -446,14 +447,19 @@ class LatchAccessibilityService : AccessibilityService() {
                 val candidate = toUiNode(node, id, parentId, sensitive)
                 // Some apps (Maps among them) wrap an element in a container that repeats it exactly:
                 // same place, words, and behaviour. List it once and hang its contents on the first.
+                // Others draw a plain label exactly over a button that already says the same
+                // ("Voice search" in Maps): the label adds nothing the button doesn't.
                 val parent = parentId?.let(ui::get)
-                if (parent != null && sameElement(parent, candidate)) {
+                val labelKey = candidate.takeIf { it.text != null || it.description != null }?.let { Triple(it.bounds, it.text, it.description) }
+                val repeatsControl = labelKey != null && !candidate.sensitive && !interactive(candidate) && labelKey in controls
+                if (repeatsControl || (parent != null && sameElement(parent, candidate))) {
                     for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it to parentId) }
                     continue
                 }
                 if (sensitive) redacted++
                 ui[id] = candidate
                 refs[id] = node
+                if (labelKey != null && interactive(candidate)) controls += labelKey
                 for (i in 0 until node.childCount) {
                     node.getChild(i)?.let { queue.add(it to id) }
                 }
@@ -519,6 +525,8 @@ class LatchAccessibilityService : AccessibilityService() {
         windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
             .sortedByDescending { it.layer }
             .firstNotNullOfOrNull { it.root }
+
+    private fun interactive(n: UiNode) = n.clickable || n.longClickable || n.editable || n.scrollable || n.checked != null
 
     /** Whether [child] repeats [parent] exactly, so listing both would only confuse the agent. */
     private fun sameElement(parent: UiNode, child: UiNode): Boolean =
