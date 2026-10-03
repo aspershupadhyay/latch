@@ -155,4 +155,6 @@ class ScreenSnapshotTest {
         val info = io.github.aspershupadhyay.latch.update.UpdateInfo(117, "0.1.0-beta.17", "https://github.com/x", "a".repeat(64), 3_000_000, "abc1234")
         HomeScreen(home(Phase.IDLE).copy(update = io.github.aspershupadhyay.latch.update.UpdateState.Installing(info)), HomeActions())
     }
+
+    @Test fun guide_light() = snap(false) { GuideScreen(onBack = {}, onStart = {}) }
 }
