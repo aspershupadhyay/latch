@@ -55,7 +55,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScreenTitle("Connect an AI", "Works with any app that supports MCP.")
+        ScreenTitle("Connect your AI", "Works with Claude, ChatGPT, and other AI apps that support connectors.")
 
         // Sign-in requests come first: someone is waiting in a browser.
         state.requests.forEach { request -> SignInCard(request, actions) }
@@ -67,12 +67,12 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                         IconBadge(LatchIcons.Key, signal.success)
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Key created", style = MaterialTheme.typography.titleLarge, color = signal.text)
-                            Text("Shown once. Treat it like a password.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
+                            Text("Key ready", style = MaterialTheme.typography.titleLarge, color = signal.text)
+                            Text("You'll see it only once. Keep it private, like a password.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
                         }
                     }
-                    CopyRow("Secret link (apps that take only a URL)", created.secretLink, { actions.copy("Secret link", created.secretLink, true) })
-                    CopyRow("Header (apps that take URL + header)", "Bearer ${created.token}", { actions.copy("Authorization header", "Bearer ${created.token}", true) }, masked = true)
+                    CopyRow("Private link (for apps that ask only for a link)", created.secretLink, { actions.copy("Secret link", created.secretLink, true) })
+                    CopyRow("Key (for apps that ask for a link and a key)", "Bearer ${created.token}", { actions.copy("Authorization header", "Bearer ${created.token}", true) }, masked = true)
                     PrimaryButton("Done, I saved it", actions.dismissCreated, Modifier.fillMaxWidth())
                 }
             }
@@ -81,7 +81,13 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
         if (state.created == null) {
             Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Add Latch to your AI app", style = MaterialTheme.typography.titleMedium, color = signal.text)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Your AI link", style = MaterialTheme.typography.titleMedium, color = signal.text)
+                            Text("Give this link to your AI app so it can reach this phone.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
+                        }
+                        InfoButton(HelpTopic.AI_LINK)
+                    }
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(signal.surface2).padding(start = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -94,13 +100,13 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                             maxLines = 2,
                             modifier = Modifier.weight(1f).padding(vertical = 14.dp),
                         )
-                        IconButton(onClick = { actions.copy("MCP address", state.mcpUrl, false) }) {
-                            Icon(LatchIcons.Copy, contentDescription = "Copy MCP address", tint = signal.text)
+                        IconButton(onClick = { actions.copy("AI link", state.mcpUrl, false) }) {
+                            Icon(LatchIcons.Copy, contentDescription = "Copy AI link", tint = signal.text)
                         }
                     }
-                    HowStep(1, "Paste it as a remote MCP server in Claude, ChatGPT, Codex, Cursor, or any MCP app.")
-                    HowStep(2, "A Latch page opens in your browser with a 4-letter code.")
-                    HowStep(3, "Approve it here when the same code appears.")
+                    HowStep(1, "In your AI app, add a connector and paste the link. In Claude: Settings \u2192 Connectors \u2192 Add custom connector.")
+                    HowStep(2, "A Latch page opens and shows a 4-letter code.")
+                    HowStep(3, "When the same code shows up here, tap Approve.")
                 }
             }
         }
@@ -135,7 +141,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
             }
 
             TextButton(onClick = { showKeys = !showKeys }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (showKeys) "Hide keys" else "App has no sign-in? Use a key instead", color = signal.text2)
+                Text(if (showKeys) "Hide keys" else "AI app has no sign-in? Use a key instead", color = signal.accent)
             }
             AnimatedVisibility(showKeys, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 Card {
@@ -143,7 +149,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it.take(40) },
-                            label = { Text("App name, e.g. My agent") },
+                            label = { Text("Name it, e.g. Claude on my laptop") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -158,7 +164,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
             }
         } else if (!state.isOwner) {
             Card {
-                ListRow(LatchIcons.Info, "Joined with a code", "Only the gateway owner can approve AI apps.", tint = signal.text2)
+                ListRow(LatchIcons.Info, "Joined with a code", "Only the relay's owner can connect AI apps.", tint = signal.text2)
             }
         }
     }

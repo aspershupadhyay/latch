@@ -87,3 +87,16 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Why:** owners are often not holding the phone while their AI works from a computer.
 **Risk:** whoever controls the AI app (its user, a compromised client, or an attacker holding the MCP key) can answer; elicitation is shown to the person, not the model, in compliant clients, but the gateway cannot prove that. Hence opt-in, per phone, visible on the switch.
 **Reversal trigger:** evidence of answers given without the owner, or MCP clients that let the model answer elicitations.
+
+## ADR-024 — Auto mode: every app, no questions, with the owner's consent
+**Status:** accepted (2026-10-03, owner request) · **Amends:** ADR-021, ADR-022
+**Decision:** Access has an "Auto mode" switch, off by default. Turning it on opens a confirmation that lists what it allows (sending, posting, deleting, paying, installing, answering Android's permission pop-ups) and offers "Yes, for this session" or "Yes, until I turn it off". While it is on, every app counts as switched on and critical actions run as under ADR-022; Activity lists each one as "Done without asking (Auto mode)". Session Auto mode ends when the session stops or expires and is never saved. The lasting choice is saved, and "Switch all off" clears it. "Ask me before every action" still overrides it. Latch and system UI stay refused, Latch still never types into password, PIN, one-time-code, or payment fields, and Stop still ends everything.
+**Why:** the owner asked for one consented switch for unattended tasks instead of switching apps on one by one.
+**Risk:** the widest scope Latch offers. A prompt-injected or compromised AI can act in any app, including money apps, without a prompt. Mitigations: off by default, explicit consent naming the risk, the per-session option, the money-app caution line to the AI, the sensitive-field refusal, Activity, Stop, and session expiry.
+**Reversal trigger:** an owner reports an unwanted action taken under Auto mode that they could not have expected from the consent text.
+
+## ADR-025 — Plain words and an Apple-style look
+**Status:** accepted (2026-10-03, owner request) · **Amends:** ADR-020
+**Decision:** the app uses a deep indigo accent on iOS-style grouped lists (grey canvas, white cards, solid icon squircles, iOS-style switches) in light and dark. The UI avoids technical terms: the gateway is "your relay", the MCP address is "your AI link", and tokens are "keys". Every text field has a one-line hint under its name and an ⓘ button that explains it. Settings and the welcome screen open a "How to set up Latch" guide. The approval card in the app and the floating card over other apps use the same words and look. While Android's installer takes over an update, the card says "Almost done" with no button.
+**Why:** the owner found the green look and the jargon off-putting for people who are not developers.
+**Risk:** none to safety. Protocol, docs, and gateway messages keep the precise terms.

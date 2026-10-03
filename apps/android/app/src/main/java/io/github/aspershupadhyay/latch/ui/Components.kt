@@ -48,17 +48,45 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val CardShape = RoundedCornerShape(24.dp)
+val CardShape = RoundedCornerShape(20.dp)
 
-/** An icon on a soft tinted square: the visual anchor of every row. */
+/**
+ * A white symbol on a solid rounded square, like the rows of Apple's
+ * Settings: the visual anchor of every row. [tint] is the square's colour.
+ */
 @Composable
-fun IconBadge(icon: ImageVector, tint: Color, size: Dp = 40.dp, fill: Color = tint.copy(alpha = 0.14f)) {
+fun IconBadge(icon: ImageVector, tint: Color, size: Dp = 32.dp, fill: Color = tint) {
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(size * 0.32f)).background(fill),
+        Modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).background(fill),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.52f))
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(size * 0.6f))
     }
+}
+
+/** On/off switch in the Apple style: white knob, accent when on, quiet grey when off. */
+@Composable
+fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val signal = LocalSignal.current
+    androidx.compose.material3.Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = modifier,
+        enabled = enabled,
+        colors = androidx.compose.material3.SwitchDefaults.colors(
+            checkedThumbColor = Color.White,
+            checkedTrackColor = signal.accent,
+            checkedBorderColor = Color.Transparent,
+            uncheckedThumbColor = Color.White,
+            uncheckedTrackColor = if (signal.dark) Color(0xFF39393D) else Color(0xFFE5E5EA),
+            uncheckedBorderColor = Color.Transparent,
+            disabledCheckedTrackColor = signal.accent.copy(alpha = 0.4f),
+            disabledCheckedThumbColor = Color.White,
+            disabledUncheckedTrackColor = if (signal.dark) Color(0xFF2C2C2E) else Color(0xFFEFEFF4),
+            disabledUncheckedThumbColor = Color.White.copy(alpha = 0.8f),
+            disabledUncheckedBorderColor = Color.Transparent,
+        ),
+    )
 }
 
 /** A plain card that groups related rows. */
@@ -73,7 +101,7 @@ fun Card(modifier: Modifier = Modifier, color: Color? = null, content: @Composab
 /** Thin line between rows inside a [Card], indented past the icon. */
 @Composable
 fun RowDivider() {
-    HorizontalDivider(Modifier.padding(start = 72.dp, end = 16.dp), thickness = 1.dp, color = LocalSignal.current.border.copy(alpha = 0.6f))
+    HorizontalDivider(Modifier.padding(start = 64.dp), thickness = 0.5.dp, color = LocalSignal.current.border)
 }
 
 /**
@@ -94,14 +122,14 @@ fun ListRow(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val signal = LocalSignal.current
-    var m = Modifier.fillMaxWidth().heightIn(min = 64.dp)
+    var m = Modifier.fillMaxWidth().heightIn(min = 56.dp)
     if (onClick != null) m = m.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
-    Row(m.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(m.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         IconBadge(icon, tint)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = signal.text2, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = signal.text2, maxLines = 4, overflow = TextOverflow.Ellipsis) }
         }
         if (trailing != null) {
             Spacer(Modifier.width(12.dp))

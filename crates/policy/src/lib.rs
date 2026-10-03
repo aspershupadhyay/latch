@@ -151,9 +151,9 @@ struct Assessment {
     remember: Option<String>,
 }
 
-const AGENT_DETAIL: &str = "Requested by an AI agent connected through Latch.";
-const CONSEQUENTIAL_DETAIL: &str = "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo.";
-const CRITICAL_DETAIL: &str = "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time.";
+const AGENT_DETAIL: &str = "Your AI asked to do this.";
+const CONSEQUENTIAL_DETAIL: &str = "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo.";
+const CRITICAL_DETAIL: &str = "Your AI asked to do this. It involves money, installing an app, a permission, or deleting an account, so Latch asks every time.";
 
 /// How much human attention an action needs, judged from its labels and app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

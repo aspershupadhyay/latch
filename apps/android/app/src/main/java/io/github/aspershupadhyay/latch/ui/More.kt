@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,12 +31,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.data.ActivityKind
+import io.github.aspershupadhyay.latch.data.AutoMode
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import io.github.aspershupadhyay.latch.update.UpdateInfo
@@ -111,11 +113,13 @@ fun CapabilitiesScreen(
     onOpenApps: () -> Unit = {},
     remoteApprovals: Boolean = false,
     onRemoteApprovals: (Boolean) -> Unit = {},
+    auto: AutoMode = AutoMode.OFF,
+    onAuto: (AutoMode) -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     ScreenColumn {
-        ScreenTitle("Access", "Choose what an AI may do. Changes apply at once.")
+        ScreenTitle("Access", "Choose what your AI may do. Changes work right away.")
 
         if (!accessibilityOn) {
             Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
@@ -130,54 +134,57 @@ fun CapabilitiesScreen(
             }
         }
 
+        AutoModeCard(auto, onAuto)
+
+        SectionCaption("How the AI works")
         Card {
             ListRow(
                 LatchIcons.Apps,
                 "Apps the AI can use",
-                if (appsOn == 0) "None switched on yet. The AI asks you the first time it needs an app." else "$appsOn switched on, no questions there. Others ask the first time.",
+                when {
+                    auto != AutoMode.OFF -> "Auto mode is on: every app, no questions."
+                    appsOn == 0 -> "None yet. Latch asks you the first time the AI needs an app."
+                    else -> "$appsOn on. Others ask you the first time."
+                },
                 tint = signal.accent,
                 onClick = onOpenApps,
                 onClickLabel = "Choose apps the AI can use",
             )
-        }
-
-        Card {
+            RowDivider()
             ListRow(
                 LatchIcons.ShieldCheck,
                 "Ask me before every action",
-                if (approveEveryAction) "You approve every tap, swipe, and text, even in apps you switched on." else "In apps you switched on, only payments, installs, and permissions ask you.",
-                tint = signal.accent,
+                if (approveEveryAction) "On: you OK every tap and every word the AI types." else "Off: in apps you allowed, the AI works without asking.",
+                tint = Color(0xFFFF9F0A),
                 trailing = {
-                    Switch(
+                    LatchSwitch(
                         checked = approveEveryAction,
                         onCheckedChange = onApproveEveryAction,
                         modifier = Modifier.semantics { contentDescription = "Ask me before every action" },
                     )
                 },
             )
-        }
-
-        Card {
+            RowDivider()
             ListRow(
                 LatchIcons.Sparkle,
-                "Answer questions in the AI app too",
+                "Answer from your AI chat too",
                 if (remoteApprovals) {
-                    "When Latch asks you something, your AI app asks too, so you can answer from your computer. Anyone using that AI app can answer."
+                    "On: when Latch asks you something, you can answer on this phone or in your AI chat."
                 } else {
                     "Off: only this phone can answer Latch's questions."
                 },
-                tint = signal.accent,
+                tint = Color(0xFF5E5CE6),
                 trailing = {
-                    Switch(
+                    LatchSwitch(
                         checked = remoteApprovals,
                         onCheckedChange = onRemoteApprovals,
-                        modifier = Modifier.semantics { contentDescription = "Answer Latch's questions in the AI app too" },
+                        modifier = Modifier.semantics { contentDescription = "Answer Latch's questions from your AI chat too" },
                     )
                 },
             )
         }
 
-        SectionCaption("Abilities")
+        SectionCaption("What the AI can do")
         Card {
             Capability.entries.forEachIndexed { index, capability ->
                 val copy = catalog.getValue(capability)
@@ -193,7 +200,7 @@ fun CapabilitiesScreen(
                     onClick = { expanded = if (open) null else capability.wire },
                     onClickLabel = if (open) "Hide details" else "Show details",
                     trailing = {
-                        Switch(
+                        LatchSwitch(
                             checked = on,
                             enabled = !always,
                             onCheckedChange = { onToggle(capability, it) },
@@ -222,7 +229,7 @@ fun CapabilitiesScreen(
                 "A dot moves to each tap and swipe. It cannot press anything, and the AI never sees it.",
                 tint = signal.accent,
                 trailing = {
-                    Switch(
+                    LatchSwitch(
                         checked = showCursor,
                         onCheckedChange = onShowCursor,
                         modifier = Modifier.semantics { contentDescription = "Show where the AI taps" },
@@ -236,7 +243,7 @@ fun CapabilitiesScreen(
                 "During a session the screen stays on, so a task is not cut off by the lock screen. Uses more battery.",
                 tint = signal.accent,
                 trailing = {
-                    Switch(
+                    LatchSwitch(
                         checked = keepAwake,
                         onCheckedChange = onKeepAwake,
                         modifier = Modifier.semantics { contentDescription = "Keep the screen on during a session" },
@@ -339,6 +346,7 @@ fun SettingsScreen(
     onCheckNow: () -> Unit = {},
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     reducedMotion: Boolean = false,
+    onOpenGuide: () -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var confirmForget by remember { mutableStateOf(false) }
@@ -347,21 +355,24 @@ fun SettingsScreen(
         Card {
             ListRow(
                 LatchIcons.Cloud,
-                "Gateway",
-                gatewayUrl.removePrefix("https://") + if (isOwner) " · you own it" else " · joined with a code",
+                "Relay",
+                gatewayUrl.removePrefix("https://") + if (isOwner) " \u00b7 yours" else " \u00b7 joined with a code",
                 tint = signal.accent,
                 onClick = if (isOwner) onOpenConsole else null,
-                onClickLabel = "Open the web console",
+                onClickLabel = "Open your relay's web page",
+                trailing = { InfoButton(HelpTopic.RELAY) },
             )
             RowDivider()
-            ListRow(LatchIcons.Phone, "This phone", "$phoneName · $deviceId", tint = signal.text2)
+            ListRow(LatchIcons.Phone, "This phone", phoneName, tint = Color(0xFF8E8E93))
         }
         Card {
-            ListRow(LatchIcons.ShieldCheck, "Permissions and setup", "Notifications, screen access, battery", tint = signal.accent, onClick = onOpenSetup, onClickLabel = "Open setup")
+            ListRow(LatchIcons.Info, "How to set up Latch", "Every step in plain words", tint = signal.accent, onClick = onOpenGuide, onClickLabel = "Open the setup guide")
             RowDivider()
-            ListRow(LatchIcons.Person, "Accessibility settings", "Turn screen access off at any time", tint = signal.accent2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
+            ListRow(LatchIcons.ShieldCheck, "Permissions", "Notifications, screen access, battery", tint = Color(0xFF34C759), onClick = onOpenSetup, onClickLabel = "Open permissions")
             RowDivider()
-            ListRow(LatchIcons.Lock, "Privacy", "Screen content goes only to your gateway, only during a session. Nothing is stored on the phone. No analytics.", tint = signal.success)
+            ListRow(LatchIcons.Person, "Screen access", "Turn it off in Android's settings at any time", tint = signal.accent2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
+            RowDivider()
+            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs. Nothing is saved. No tracking.", tint = Color(0xFF8E8E93))
         }
         SectionCaption("Updates")
         if (update.shownOnHome()) UpdateCard(update, reducedMotion, onInstallUpdate)
@@ -383,10 +394,10 @@ fun SettingsScreen(
             ListRow(
                 LatchIcons.Clock,
                 "Check when Latch opens",
-                "Asks Latch's GitHub releases for the newest version number. Nothing about this phone or its screen is sent.",
+                "Checks GitHub for a newer Latch. Sends nothing about you.",
                 tint = signal.accent,
                 trailing = {
-                    Switch(
+                    LatchSwitch(
                         checked = checkUpdates,
                         onCheckedChange = onCheckUpdates,
                         modifier = Modifier.semantics { contentDescription = "Check for updates when Latch opens" },
@@ -397,17 +408,17 @@ fun SettingsScreen(
         Card {
             ListRow(
                 LatchIcons.Leave,
-                "Forget this gateway",
-                "Stops the session and deletes this phone's keys",
+                "Disconnect from this relay",
+                "Stops everything and removes this phone's keys",
                 tint = signal.danger,
                 titleColor = signal.danger,
                 onClick = { confirmForget = true },
-                onClickLabel = "Forget this gateway",
+                onClickLabel = "Disconnect from this relay",
             )
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Latch $version · protocol 1.1 · Apache-2.0",
+                "Latch $version",
                 style = MaterialTheme.typography.bodySmall,
                 color = signal.text2,
                 modifier = Modifier.clip(RoundedCornerShape(50)).background(signal.surface).padding(horizontal = 12.dp, vertical = 6.dp),
@@ -417,10 +428,63 @@ fun SettingsScreen(
     if (confirmForget) {
         AlertDialog(
             onDismissRequest = { confirmForget = false },
-            title = { Text("Forget this gateway?") },
-            text = { Text("The session stops and this phone deletes its keys. Revoke it in the gateway console too.") },
-            confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text("Forget", color = signal.danger) } },
+            title = { Text("Disconnect this phone?") },
+            text = { Text("Everything stops and this phone forgets its keys. To connect again, you'll need your secret key or a new join code.") },
+            confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text("Disconnect", color = signal.danger) } },
             dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * Auto mode (ADR-024): every app and every action without questions. It
+ * only turns on after the owner reads what it means and chooses how long.
+ */
+@Composable
+private fun AutoModeCard(auto: AutoMode, onAuto: (AutoMode) -> Unit) {
+    val signal = LocalSignal.current
+    var asking by remember { mutableStateOf(false) }
+    val on = auto != AutoMode.OFF
+    Card(color = if (on) signal.accent.copy(alpha = if (signal.dark) 0.22f else 0.10f) else null) {
+        ListRow(
+            LatchIcons.Sparkle,
+            "Auto mode",
+            when (auto) {
+                AutoMode.OFF -> "Let the AI use every app and finish tasks without asking you. Off."
+                AutoMode.SESSION -> "On until this session ends. The AI uses every app without asking."
+                AutoMode.ALWAYS -> "On until you turn it off. The AI uses every app without asking."
+            },
+            tint = signal.accent,
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    InfoButton(HelpTopic.AUTO)
+                    LatchSwitch(
+                        checked = on,
+                        onCheckedChange = { want -> if (want) asking = true else onAuto(AutoMode.OFF) },
+                        modifier = Modifier.semantics { contentDescription = "Auto mode" },
+                    )
+                }
+            },
+        )
+    }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Turn on Auto mode?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("The AI will be able to use every app on this phone and do everything in them without asking you, including:")
+                    Text("\u2022 send messages, post, and delete\n\u2022 pay, buy, and transfer money\n\u2022 install apps and answer Android's permission pop-ups")
+                    Text("Latch still never types passwords, PINs, or one-time codes. The red Stop button ends everything at once, and every action is listed in Activity.")
+                }
+            },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = { onAuto(AutoMode.SESSION); asking = false }) { Text("Yes, for this session") }
+                    TextButton(onClick = { onAuto(AutoMode.ALWAYS); asking = false }) { Text("Yes, until I turn it off", color = signal.danger) }
+                }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
         )
     }
 }

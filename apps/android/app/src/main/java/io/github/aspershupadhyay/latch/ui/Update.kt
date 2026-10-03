@@ -28,15 +28,19 @@ fun UpdateCard(state: UpdateState, reducedMotion: Boolean, onInstall: (UpdateInf
     val signal = LocalSignal.current
     val (title, detail, info) = when (state) {
         is UpdateState.Available -> Triple(
-            "Update available",
-            "Latch ${state.info.versionName}. Pairing, saved approvals, and settings stay. Latch restarts, so a running session stops.",
+            "New version ready",
+            "Latch ${state.info.versionName}. Your settings stay. Latch restarts for a moment, so a running session stops.",
             state.info,
         )
-        is UpdateState.Downloading -> Triple("Downloading update · ${state.percent}%", "Latch checks the file's fingerprint before installing.", null)
-        is UpdateState.Installing -> Triple("Installing…", "Android may show its own Update screen: tap Update there.", state.info)
+        is UpdateState.Downloading -> Triple("Downloading \u00b7 ${state.percent}%", "Next, Latch checks that the file is genuine.", null)
+        is UpdateState.Installing -> Triple(
+            "Almost done",
+            "Android now shows its own Update screen. Tap Update there. Latch closes for a moment and comes back.",
+            null,
+        )
         is UpdateState.NeedsPermission -> Triple(
-            "Allow Latch to install updates",
-            "Android asks once. Switch on “Allow from this source”, come back, and tap Update.",
+            "One-time permission",
+            "Android needs your OK to let Latch update itself. Switch on \u201cAllow from this source\u201d, come back, and tap Continue.",
             state.info,
         )
         is UpdateState.Failed -> Triple("The update didn't finish", state.message, state.info)
@@ -52,8 +56,9 @@ fun UpdateCard(state: UpdateState, reducedMotion: Boolean, onInstall: (UpdateInf
             }
             info != null -> Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val label = when (state) {
-                    is UpdateState.Installing, is UpdateState.Failed -> "Try again"
-                    else -> "Update"
+                    is UpdateState.Failed -> "Try again"
+                    is UpdateState.NeedsPermission -> "Continue"
+                    else -> "Update now"
                 }
                 PrimaryButton(label, { onInstall(info) })
                 info.commit?.let {

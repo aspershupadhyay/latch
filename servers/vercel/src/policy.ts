@@ -26,7 +26,7 @@ export type Decision =
 
 const deny = (code: ProtocolError["code"], message: string): Decision => ({ kind: "deny", error: new ProtocolError(code, message) });
 
-const AGENT_DETAIL = "Requested by an AI agent connected through Latch.";
+const AGENT_DETAIL = "Your AI asked to do this.";
 
 export function evaluate(command: Command, ctx: DeviceContext): Decision {
   try {
@@ -73,8 +73,8 @@ export function evaluate(command: Command, ctx: DeviceContext): Decision {
 
 interface Assessment { risk: RiskLevel; title: string; detail: string; remember?: string }
 
-const CONSEQUENTIAL_DETAIL = "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo.";
-const CRITICAL_DETAIL = "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time.";
+const CONSEQUENTIAL_DETAIL = "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo.";
+const CRITICAL_DETAIL = "Your AI asked to do this. It involves money, installing an app, a permission, or deleting an account, so Latch asks every time.";
 
 /** How much human attention an action needs (mirrors latch_policy::Consequence). */
 export type Consequence = "none" | "consequential" | "critical";

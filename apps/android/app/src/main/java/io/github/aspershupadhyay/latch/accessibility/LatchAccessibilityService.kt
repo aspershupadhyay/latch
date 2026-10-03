@@ -20,7 +20,6 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.graphics.scale
@@ -270,70 +269,98 @@ class LatchAccessibilityService : AccessibilityService() {
         hideApproval()
         val density = resources.displayMetrics.density
         fun dp(v: Int) = (v * density).roundToInt()
+        // Same look and words as the in-app card (ui/Approval.kt), in light and dark.
+        val dark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val surface = if (dark) Color.rgb(28, 28, 30) else Color.WHITE
+        val text = if (dark) Color.WHITE else Color.rgb(17, 17, 19)
+        val text2 = if (dark) Color.rgb(174, 174, 178) else Color.rgb(99, 99, 102)
+        val accent = if (dark) Color.rgb(139, 139, 255) else Color.rgb(79, 70, 229)
+        val warning = if (dark) Color.rgb(255, 159, 10) else Color.rgb(194, 98, 10)
+        val tint = if (pending.risk == "high") warning else accent
+        val appRequest = pending.kind == ApprovalKind.APP
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(16))
+            setPadding(dp(20), dp(18), dp(20), dp(16))
             background = GradientDrawable().apply {
-                cornerRadius = dp(20).toFloat()
-                setColor(Color.rgb(23, 26, 32))
-                setStroke(dp(2), Color.rgb(240, 168, 58))
+                cornerRadius = dp(28).toFloat()
+                setColor(surface)
+                if (dark) setStroke(dp(1), Color.rgb(56, 56, 58))
             }
+            elevation = dp(12).toFloat()
             accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE
         }
-        val appRequest = pending.kind == ApprovalKind.APP
         card.addView(TextView(this).apply {
-            text = if (appRequest) "App access · Latch" else "Approval needed · Latch"
-            setTextColor(Color.rgb(240, 168, 58))
+            this.text = when {
+                appRequest -> "The AI wants to use an app"
+                pending.risk == "high" -> "Check this before it happens"
+                else -> "The AI is asking you"
+            }
+            setTextColor(tint)
             textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
         })
         card.addView(TextView(this).apply {
-            text = pending.title
-            setTextColor(Color.WHITE)
-            textSize = 19f
-            setPadding(0, dp(6), 0, dp(6))
+            this.text = pending.title
+            setTextColor(text)
+            textSize = 20f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setPadding(0, dp(6), 0, dp(4))
         })
         card.addView(TextView(this).apply {
-            text = pending.detail
-            setTextColor(Color.rgb(200, 206, 214))
-            textSize = 14f
+            this.text = pending.detail
+            setTextColor(text2)
+            textSize = 15f
         })
-        fun row() = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-            setPadding(0, dp(12), 0, 0)
+        // Filled pill buttons: indigo for the main answer, tinted for the rest.
+        fun pill(label: String, primary: Boolean, muted: Boolean = false) = TextView(this).apply {
+            this.text = label
+            gravity = Gravity.CENTER
+            textSize = 15f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(12), 0, dp(12), 0)
+            minHeight = dp(48)
+            isClickable = true
+            isFocusable = true
+            setTextColor(if (primary) Color.WHITE else if (muted) text2 else accent)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(if (primary) accent else Color.argb(if (dark) 46 else 26, Color.red(accent), Color.green(accent), Color.blue(accent)))
+            }
         }
         // A short delay so a tap meant for the app underneath cannot approve by accident.
-        fun allow(label: String, choice: ApprovalChoice) = Button(this).apply {
-            text = label
+        fun allow(label: String, choice: ApprovalChoice, primary: Boolean = false) = pill(label, primary).apply {
             isEnabled = false
-            postDelayed({ isEnabled = true }, APPROVE_ENABLE_DELAY_MS)
+            alpha = 0.5f
+            postDelayed({ isEnabled = true; alpha = 1f }, APPROVE_ENABLE_DELAY_MS)
             setOnClickListener { onAnswer(choice) }
         }
-        val buttons = row()
-        buttons.addView(Button(this).apply {
-            text = if (appRequest) "Not now" else "Deny"
-            setOnClickListener { onAnswer(ApprovalChoice.DENY) }
-        })
+        fun deny(label: String) = pill(label, primary = false, muted = true).apply { setOnClickListener { onAnswer(ApprovalChoice.DENY) } }
+        fun row(vararg views: android.view.View) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(10), 0, 0)
+            views.forEachIndexed { i, v ->
+                addView(v, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = dp(10) })
+            }
+        }
         if (appRequest) {
             // An app is allowed for a while, never for one command: that would ask again at once.
-            buttons.addView(allow("This session", ApprovalChoice.SESSION))
-            buttons.addView(allow("Always", ApprovalChoice.ALWAYS))
-            card.addView(buttons)
+            card.addView(row(allow("Allow always", ApprovalChoice.ALWAYS, primary = true)))
+            card.addView(row(allow("Just this session", ApprovalChoice.SESSION), deny("Not now")))
         } else {
-            buttons.addView(allow("Allow once", ApprovalChoice.ONCE))
-            card.addView(buttons)
-        }
-        if (!appRequest && pending.rememberable) {
-            val remember = row().apply { setPadding(0, 0, 0, 0) }
-            remember.addView(allow("This session", ApprovalChoice.SESSION))
-            remember.addView(allow("Always in ${pending.appName ?: "this app"}".take(40), ApprovalChoice.ALWAYS))
-            card.addView(remember)
-        } else if (!appRequest) {
-            card.addView(TextView(this).apply {
-                text = "Asked every time."
-                setTextColor(Color.rgb(200, 206, 214))
-                textSize = 12f
-            })
+            card.addView(row(deny("Don't allow"), allow("Allow", ApprovalChoice.ONCE, primary = true)))
+            if (pending.rememberable) {
+                card.addView(row(allow("This session", ApprovalChoice.SESSION), allow("Always in ${pending.appName ?: "this app"}".take(40), ApprovalChoice.ALWAYS)))
+            } else {
+                card.addView(TextView(this).apply {
+                    this.text = "Latch asks every time for this kind of action."
+                    setTextColor(text2)
+                    textSize = 13f
+                    setPadding(0, dp(10), 0, 0)
+                })
+            }
         }
 
         val params = WindowManager.LayoutParams(

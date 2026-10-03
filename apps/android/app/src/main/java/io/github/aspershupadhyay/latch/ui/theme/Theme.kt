@@ -16,9 +16,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Latch tokens: graphite neutrals, one emerald accent, and colour only where
- * it means something (live, attention, stop). Primary actions are ink on paper
- * (white on black in dark mode), so they read as buttons at a glance.
+ * Latch tokens (2026-10 redesign): Apple-style neutrals, one deep indigo
+ * accent for trust and action, and colour only where it means something
+ * (live, attention, stop). Green appears only for "done" and "connected".
  */
 @Immutable
 data class Signal(
@@ -41,26 +41,26 @@ data class Signal(
     val onInk: Color,
 ) {
     /** Backgrounds for the status card and alerts. White text stays above 4.5:1 on every stop. */
-    val activeBrush get() = Brush.linearGradient(listOf(Color(0xFF064E3B), Color(0xFF0B3B30)))
-    val idleBrush get() = Brush.linearGradient(listOf(Color(0xFF18181B), Color(0xFF232327)))
-    val attentionBrush get() = Brush.linearGradient(listOf(Color(0xFF7C2D12), Color(0xFF9A3412)))
-    val stopBrush get() = Brush.linearGradient(listOf(Color(0xFF7F1D1D), Color(0xFF881337)))
+    val activeBrush get() = Brush.linearGradient(listOf(Color(0xFF2B2F8F), Color(0xFF4338CA), Color(0xFF5B4FD9)))
+    val idleBrush get() = Brush.linearGradient(listOf(Color(0xFF0F1222), Color(0xFF1C2140)))
+    val attentionBrush get() = Brush.linearGradient(listOf(Color(0xFFC2410C), Color(0xFFEA580C)))
+    val stopBrush get() = Brush.linearGradient(listOf(Color(0xFF7F1D1D), Color(0xFF9F1239)))
 }
 
 private val Light = Signal(
     dark = false,
-    canvas = Color(0xFFF7F7F5), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFF1F1EF), border = Color(0xFFE4E4E2),
-    text = Color(0xFF0A0A0B), text2 = Color(0xFF5B5B63), accent = Color(0xFF047857), accent2 = Color(0xFF2563EB),
-    mint = Color(0xFF0F766E), success = Color(0xFF047857), warning = Color(0xFFB45309), danger = Color(0xFFDC2626),
-    disabled = Color(0xFFA1A1AA), ink = Color(0xFF0A0A0B), onInk = Color(0xFFFAFAFA),
+    canvas = Color(0xFFF2F2F7), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFEFEFF4), border = Color(0xFFD8D8DE),
+    text = Color(0xFF0B0B0F), text2 = Color(0xFF6C6C74), accent = Color(0xFF4F46E5), accent2 = Color(0xFF0A84FF),
+    mint = Color(0xFF5E5CE6), success = Color(0xFF248A3D), warning = Color(0xFFC2620A), danger = Color(0xFFD70015),
+    disabled = Color(0xFFAEAEB2), ink = Color(0xFF4F46E5), onInk = Color(0xFFFFFFFF),
 )
 
 private val Dark = Signal(
     dark = true,
-    canvas = Color(0xFF09090B), surface = Color(0xFF131316), surface2 = Color(0xFF1C1C20), border = Color(0xFF2A2A2F),
-    text = Color(0xFFFAFAFA), text2 = Color(0xFFA1A1AA), accent = Color(0xFF34D399), accent2 = Color(0xFF60A5FA),
-    mint = Color(0xFF2DD4BF), success = Color(0xFF34D399), warning = Color(0xFFFBBF24), danger = Color(0xFFF87171),
-    disabled = Color(0xFF52525B), ink = Color(0xFFFAFAFA), onInk = Color(0xFF09090B),
+    canvas = Color(0xFF000000), surface = Color(0xFF1C1C1E), surface2 = Color(0xFF2C2C2E), border = Color(0xFF38383A),
+    text = Color(0xFFF5F5F7), text2 = Color(0xFF98989F), accent = Color(0xFF8B8BFF), accent2 = Color(0xFF64B5FF),
+    mint = Color(0xFFA5A3FF), success = Color(0xFF30D158), warning = Color(0xFFFFB340), danger = Color(0xFFFF6961),
+    disabled = Color(0xFF48484A), ink = Color(0xFF8B8BFF), onInk = Color(0xFF0B0B0F),
 )
 
 val LocalSignal = staticCompositionLocalOf { Light }
@@ -69,10 +69,10 @@ private val LatchType = Typography(
     displaySmall = TextStyle(fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp),
     headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
     titleLarge = TextStyle(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
+    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium),
     bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
     bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
+    bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
     labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
     labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp),
 )
@@ -82,17 +82,19 @@ fun LatchTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () ->
     val signal = if (dark) Dark else Light
     val scheme = if (dark) {
         darkColorScheme(
-            primary = signal.accent, onPrimary = Color.Black, background = signal.canvas, surface = signal.surface,
-            onBackground = signal.text, onSurface = signal.text, error = signal.danger, outline = signal.border,
-            surfaceVariant = signal.surface2, onSurfaceVariant = signal.text2, secondaryContainer = signal.surface2,
-            surfaceContainer = signal.surface, surfaceContainerHigh = signal.surface2,
+            primary = signal.accent, onPrimary = Color(0xFF0B0B0F), background = signal.canvas, surface = signal.surface,
+            onBackground = signal.text, onSurface = signal.text, error = signal.danger, outline = Color(0xFF8E8E93),
+            outlineVariant = signal.border, surfaceVariant = signal.surface2, onSurfaceVariant = signal.text2,
+            secondaryContainer = signal.surface2, surfaceContainer = signal.surface, surfaceContainerHigh = signal.surface2,
+            surfaceContainerHighest = Color(0xFF39393D),
         )
     } else {
         lightColorScheme(
             primary = signal.accent, onPrimary = Color.White, background = signal.canvas, surface = signal.surface,
-            onBackground = signal.text, onSurface = signal.text, error = signal.danger, outline = signal.border,
-            surfaceVariant = signal.surface2, onSurfaceVariant = signal.text2, secondaryContainer = signal.surface2,
-            surfaceContainer = signal.surface, surfaceContainerHigh = signal.surface2,
+            onBackground = signal.text, onSurface = signal.text, error = signal.danger, outline = Color(0xFF8E8E93),
+            outlineVariant = signal.border, surfaceVariant = signal.surface2, onSurfaceVariant = signal.text2,
+            secondaryContainer = signal.surface2, surfaceContainer = signal.surface, surfaceContainerHigh = signal.surface2,
+            surfaceContainerHighest = Color(0xFFE5E5EA),
         )
     }
     CompositionLocalProvider(LocalSignal provides signal) {

@@ -32,7 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -183,7 +183,7 @@ fun SetupScreen(state: SetupState, actions: SetupActions) {
                         Text("Ask me before every action", style = MaterialTheme.typography.titleMedium, color = signal.text)
                         Text("Otherwise only send, buy, delete, and similar ask you.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
                     }
-                    Switch(
+                    LatchSwitch(
                         checked = state.approveEveryAction,
                         onCheckedChange = actions.setApproveEveryAction,
                         modifier = Modifier.semantics { contentDescription = "Ask me before every action" },

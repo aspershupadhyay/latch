@@ -12,7 +12,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -65,7 +67,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 Text(state.phoneName, style = MaterialTheme.typography.bodyMedium, color = signal.text2)
             }
             Pill(
-                if (state.encrypted) "Encrypted" else "Not encrypted",
+                if (state.encrypted) "Private connection" else "Not private",
                 if (state.encrypted) signal.success else signal.warning,
                 if (state.encrypted) LatchIcons.Lock else LatchIcons.Warning,
             )
@@ -78,42 +80,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
             exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
         ) {
-            state.pending?.let { p ->
-                Column(
-                    Modifier.fillMaxWidth().clip(CardShape).background(signal.attentionBrush).padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(LatchIcons.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (p.kind == ApprovalKind.APP) "App access" else "Approval needed · ${p.risk} risk",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color.White.copy(alpha = 0.9f),
-                        )
-                    }
-                    Text(p.title, style = MaterialTheme.typography.titleLarge, color = Color.White)
-                    Text(p.detail, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
-                    if (p.kind == ApprovalKind.APP) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SecondaryButton("Not now", { actions.answer(p.nonce, ApprovalChoice.DENY) }, Modifier.weight(1f), contentColor = Color.White)
-                            SecondaryButton("This session", { actions.answer(p.nonce, ApprovalChoice.SESSION) }, Modifier.weight(1f), contentColor = Color.White)
-                        }
-                        PrimaryButton("Always", { actions.answer(p.nonce, ApprovalChoice.ALWAYS) }, Modifier.fillMaxWidth(), color = Color.White, contentColor = Color(0xFF7C2D12))
-                    } else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SecondaryButton("Deny", { actions.answer(p.nonce, ApprovalChoice.DENY) }, Modifier.weight(1f), contentColor = Color.White)
-                        PrimaryButton("Allow once", { actions.answer(p.nonce, ApprovalChoice.ONCE) }, Modifier.weight(1f), color = Color.White, contentColor = Color(0xFF7C2D12))
-                    }
-                    if (p.kind != ApprovalKind.APP && p.rememberable) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SecondaryButton("This session", { actions.answer(p.nonce, ApprovalChoice.SESSION) }, Modifier.weight(1f), contentColor = Color.White)
-                            SecondaryButton("Always in ${p.appName ?: "this app"}", { actions.answer(p.nonce, ApprovalChoice.ALWAYS) }, Modifier.weight(1f), contentColor = Color.White)
-                        }
-                    } else if (p.kind != ApprovalKind.APP) {
-                        Text("Asked every time.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
-                    }
-                }
-            }
+            state.pending?.let { p -> ApprovalCard(p, actions.answer) }
         }
 
         AnimatedVisibility(
@@ -124,11 +91,11 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
                 ListRow(
                     icon = LatchIcons.Warning,
-                    title = "Update your gateway",
-                    subtitle = "It runs an older version (protocol ${state.outdatedGateway}), so your AI can't use the newest, faster tools. Tap for the steps.",
+                    title = "Update your relay",
+                    subtitle = "Your relay runs an older version, so your AI can't use the newest, faster tools. Tap for the steps.",
                     tint = signal.warning,
                     onClick = actions.openGatewayUpdateHelp,
-                    onClickLabel = "Show how to update the gateway",
+                    onClickLabel = "Show how to update the relay",
                 )
             }
         }
@@ -168,8 +135,8 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
                 ListRow(
                     icon = LatchIcons.Person,
-                    title = "Finish setup",
-                    subtitle = "Turn on screen access so an AI can see and tap. Until then it can do nothing.",
+                    title = "One step left: screen access",
+                    subtitle = "Latch needs it to see the screen and tap for the AI. Tap to turn it on.",
                     tint = signal.warning,
                     onClick = actions.openSetup,
                     onClickLabel = "Finish setup",
@@ -177,12 +144,12 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             }
         }
 
-        SectionCaption("Overview")
+        SectionCaption("Your Latch")
         Card {
             ListRow(
                 icon = LatchIcons.ShieldCheck,
-                title = "AI can",
-                subtitle = if (state.enabled.isEmpty()) "Nothing yet. Choose what to allow." else state.enabled.joinToString(" · ") { shortName(it) },
+                title = "What the AI can do",
+                subtitle = if (state.enabled.isEmpty()) "Nothing yet. Tap to choose." else state.enabled.joinToString(" \u00b7 ") { shortName(it) },
                 tint = signal.accent,
                 onClick = actions.goCapabilities,
                 onClickLabel = "Change what the AI can do",
@@ -190,8 +157,8 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             RowDivider()
             ListRow(
                 icon = LatchIcons.Plug,
-                title = "Connect an AI app",
-                subtitle = if (state.isOwner) "Claude, ChatGPT, Cursor, or any MCP app" else "Ask the gateway owner for an AI key",
+                title = "Connect your AI",
+                subtitle = if (state.isOwner) "Claude, ChatGPT, or another AI app" else "Ask the relay's owner to connect your AI",
                 tint = signal.accent2,
                 onClick = actions.goConnect,
                 onClickLabel = "Connect an AI app",
@@ -202,16 +169,16 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 icon = LatchIcons.Pulse,
                 title = "Activity",
                 subtitle = last?.let { "${it.summary} · ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it.atMs))}" } ?: "Nothing yet",
-                tint = signal.mint,
+                tint = Color(0xFF5E5CE6),
                 onClick = actions.goActivity,
                 onClickLabel = "Open activity",
             )
             RowDivider()
             ListRow(
                 icon = LatchIcons.Cloud,
-                title = "Gateway",
-                subtitle = state.gatewayHost + if (state.isOwner) " · you own it" else "",
-                tint = signal.text2,
+                title = "Relay",
+                subtitle = state.gatewayHost + if (state.isOwner) " \u00b7 yours" else "",
+                tint = Color(0xFF8E8E93),
             )
         }
     }
@@ -221,10 +188,10 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
 private fun HeroCard(state: HomeState, actions: HomeActions) {
     val motion = !state.reducedMotion
     val (start, end) = when {
-        state.pending != null -> Color(0xFF7C2D12) to Color(0xFF9A3412)
-        state.phase == Phase.ACTIVE -> Color(0xFF064E3B) to Color(0xFF0B3B30)
-        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> Color(0xFF7F1D1D) to Color(0xFF881337)
-        else -> Color(0xFF18181B) to Color(0xFF26262B)
+        state.pending != null -> Color(0xFFC2410C) to Color(0xFFEA580C)
+        state.phase == Phase.ACTIVE -> Color(0xFF2B2F8F) to Color(0xFF5048E5)
+        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> Color(0xFF7F1D1D) to Color(0xFF9F1239)
+        else -> Color(0xFF0F1222) to Color(0xFF232A52)
     }
     val spec = tween<Color>(if (motion) 600 else 0)
     val from by animateColorAsState(start, spec, label = "heroStart")
@@ -258,7 +225,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(LatchIcons.Clock, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("$left min left · ends on its own", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                Text("$left min left \u00b7 stops by itself", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
             }
         }
         if (live) {
@@ -277,19 +244,28 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                 }
             }
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(15, 30, 60, 120).forEach { m ->
-                    FilterChip(
-                        selected = state.sessionMinutes == m,
-                        onClick = { actions.setMinutes(m) },
-                        label = { Text("$m min") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            labelColor = Color.White,
-                            selectedContainerColor = Color.White,
-                            selectedLabelColor = Color(0xFF0A0A0B),
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(enabled = true, selected = state.sessionMinutes == m, borderColor = Color.White.copy(alpha = 0.35f)),
-                    )
+            Text("How long can the AI work?", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
+            // A segmented control: equal widths, so no label ever wraps.
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.12f)).padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                listOf(15 to "15 min", 30 to "30 min", 60 to "1 hour", 120 to "2 hours").forEach { (m, label) ->
+                    val selected = state.sessionMinutes == m
+                    Box(
+                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                            .background(if (selected) Color.White else Color.Transparent)
+                            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length $label") { actions.setMinutes(m) }
+                            .padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (selected) Color(0xFF1C2140) else Color.White,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
             IconButtonLarge(
@@ -298,7 +274,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                 if (state.accessibilityOn) actions.start else actions.openSetup,
                 Modifier.fillMaxWidth(),
                 container = Color.White,
-                content = Color(0xFF0A0A0B),
+                content = Color(0xFF2B2F8F),
             )
         }
     }
@@ -309,9 +285,10 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
 fun IconButtonLarge(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, container: Color, content: Color) {
     Button(
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
-        modifier = modifier.heightIn(min = 54.dp),
+        elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
+        modifier = modifier.heightIn(min = 52.dp),
     ) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))

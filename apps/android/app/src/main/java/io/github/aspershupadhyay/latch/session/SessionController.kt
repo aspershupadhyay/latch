@@ -130,7 +130,8 @@ class SessionController(
         wanted = true
         paused = false
         grants.endSession()
-        autonomy?.endSession()
+        // "This session" app answers from an earlier session are gone already (stop clears them);
+        // Auto mode chosen "for this session" just before starting must survive the start.
         expiresAtMs = System.currentTimeMillis() + settings.preferences.value.sessionMinutes * 60_000L
         log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes")
         expiryJob?.cancel()

@@ -94,11 +94,11 @@ private const val SYSTEM_UI = "com.android.systemui"
 /** Longest a question stays open when the gateway waits for it (protocol 1.4); under the gateway's 120 s. */
 private const val APPROVAL_WAIT_MS = 110_000L
 
-private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
+private const val AGENT_DETAIL = "Your AI asked to do this."
 private const val CONSEQUENTIAL_DETAIL =
-    "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
+    "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo."
 private const val CRITICAL_DETAIL =
-    "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time."
+    "Your AI asked to do this. It involves money, installing an app, a permission, or deleting an account, so Latch asks every time."
 
 class CommandExecutor(
     private val bridge: DeviceBridge,
@@ -245,13 +245,17 @@ class CommandExecutor(
         // trusting those as well (ADR-022), which also covers Android's permission and
         // install dialogs. "Ask me before every action" overrides both.
         val inApp = bridge.service.value?.currentPackage()
-        val trustCritical = autonomy?.state?.value?.trustCritical == true
+        val trustCritical = autonomy?.state?.value?.trustsCritical == true
         val appOn = inApp != null && !exempt(inApp) && autonomy?.decide(inApp) == AppDecision.ALLOWED
         val systemDialog = inApp != null && consequences.isCriticalPackage(inApp)
         if (!session.approveEveryAction && ((appOn && (!critical || trustCritical)) || (systemDialog && trustCritical))) {
             log.add(
                 ActivityKind.APPROVAL,
-                if (critical) "Done without asking (you allow payments and permissions): $title" else "Done without asking (app switched on): $title",
+                when {
+                    autonomy.state.value.autoOn -> "Done without asking (Auto mode): $title"
+                    critical -> "Done without asking (you allow payments and permissions): $title"
+                    else -> "Done without asking (app switched on): $title"
+                },
             )
             return title
         }
@@ -320,7 +324,7 @@ class CommandExecutor(
             title = "Let the AI use $name?",
             detail = (if (sensitive) "$name may hold money, accounts, or passwords. " else "") +
                 "The AI can see $name's screen and act in it, including sending and deleting, without asking again. " +
-                if (access.state.value.trustCritical) "You also allowed payments, installs, and permissions without asking." else "Payments, installs, and permissions still ask you every time.",
+                if (access.state.value.trustsCritical) "You also allowed payments, installs, and permissions without asking." else "Payments, installs, and permissions still ask you every time.",
             risk = if (sensitive) "high" else "medium",
             timeoutMs = timeout,
             rememberable = true,
