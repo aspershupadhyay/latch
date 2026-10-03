@@ -32,8 +32,8 @@ android {
             // Debug builds may talk to a gateway over plain http on a laptop or emulator.
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "true")
             manifestPlaceholders["allowCleartext"] = "true"
-            // Test builds update from the test-build pre-release (.github/workflows/test-build.yml).
-            buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$RELEASES/download/test-build/latch-update.json\"")
+            // Local debug builds look at the beta pre-release (.github/workflows/test-build.yml).
+            buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$RELEASES/download/beta/latch-update.json\"")
         }
         release {
             isMinifyEnabled = true
@@ -42,7 +42,7 @@ android {
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "false")
             manifestPlaceholders["allowCleartext"] = "false"
             // Releases update from the newest published release (release.yml); test builds of
-            // main set LATCH_UPDATE_MANIFEST_URL to the test-build pre-release (test-build.yml).
+            // main set LATCH_UPDATE_MANIFEST_URL to the beta pre-release (test-build.yml).
             val manifest = System.getenv("LATCH_UPDATE_MANIFEST_URL")?.takeIf { it.isNotBlank() }
                 ?: "$RELEASES/latest/download/latch-update.json"
             buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$manifest\"")

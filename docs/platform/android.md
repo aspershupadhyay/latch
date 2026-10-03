@@ -24,13 +24,13 @@ cd apps/android
 # Signed release build: set LATCH_KEYSTORE_PATH and LATCH_KEYSTORE_PASSWORD, then ./gradlew assembleRelease
 ```
 
-Every push to `main` also publishes a signed **release** build to the `test-build` pre-release (`.github/workflows/test-build.yml`), so the newest testable app is always at `releases/download/test-build/latch-android.apk` (package `io.github.aspershupadhyay.latch`). Release builds are minified (about 3 MB instead of 32 MB for debug), not debuggable, and accept only https gateways. Debug builds (package `…latch.debug`) are for local development and allow http gateways on a laptop or emulator.
+Every push to `main` also publishes a signed **release** build to the `beta` pre-release (`.github/workflows/test-build.yml`), versioned `0.1.0-beta.N`, so the newest beta is always at `releases/download/beta/latch-android.apk` (package `io.github.aspershupadhyay.latch`). Release builds are minified (about 3 MB instead of 32 MB for debug), not debuggable, and accept only https gateways. Debug builds (package `…latch.debug`) are for local development and allow http gateways on a laptop or emulator.
 
 ## Updates inside the app
 
 Latch updates itself from its GitHub releases and keeps pairing, saved approvals, and settings (`app/src/main/java/io/github/aspershupadhyay/latch/update/`).
 
-1. When Latch opens (at most every 30 minutes, switch in Settings → *Check when Latch opens*), it reads `latch-update.json` from the release: `version_code`, `version_name`, `apk_url`, `sha256`, `size`, `commit`. Test builds of `main` read the `test-build` pre-release (`LATCH_UPDATE_MANIFEST_URL`); tagged releases read the newest published release. Local debug builds read the `test-build` pre-release too, but their different package and key keep them from updating.
+1. When Latch opens (at most every 30 minutes, switch in Settings → *Check when Latch opens*), it reads `latch-update.json` from the release: `version_code`, `version_name`, `apk_url`, `sha256`, `size`, `commit`. Betas read the `beta` pre-release (`LATCH_UPDATE_MANIFEST_URL`); tagged releases read the newest published release. Builds up to `0.1.0-test.12` read `test-build`, which the workflow keeps as a copy of `beta`. Local debug builds read `beta` too, but their different package and key keep them from updating.
 2. A higher `version_code` than the installed one shows **Update available** on Home and in Settings. CI numbers builds: test builds `run_number + 100`, releases `X*1000000 + Y*1000 + Z` from the `vX.Y.Z` tag. Local builds are version 1.
 3. **Update** stops a running session (installing restarts Latch), downloads the APK, and checks it before Android sees it: the address must be under this repository's `releases/download/` over https; the file must have the announced size and SHA-256; it must be Latch's own package, the announced and a newer version, and signed by a certificate the installed app already has.
 4. Android's `PackageInstaller` installs it. The first time, Android asks the owner to allow Latch to install apps (*Install unknown apps → Allow from this source*). Android then shows its own Update screen; on Android 12+ it may skip that screen because Latch is updating itself. A silent update without the owner's tap on **Update** is never attempted.
@@ -39,7 +39,7 @@ What protects the owner is Android's rule that an update must carry the same sig
 
 ### The release signing key
 
-Android installs an update only when it is signed with the same key as the installed app. Test builds and tagged releases are both signed with the release key, from two repository secrets:
+Android installs an update only when it is signed with the same key as the installed app. Betas and tagged releases are both signed with the release key, from two repository secrets:
 
 - `LATCH_KEYSTORE_BASE64`: a base64 PKCS12 keystore holding the key under the alias `latch`.
 - `LATCH_KEYSTORE_PASSWORD`: its password. (`LATCH_KEY_ALIAS` and `LATCH_KEY_PASSWORD` are optional and default to `latch` and the store password.)

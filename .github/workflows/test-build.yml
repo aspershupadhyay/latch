@@ -1,8 +1,10 @@
-name: Test build
+name: Beta build
 
-# Every push to main republishes the app under one fixed pre-release, so the
-# owner always has the same download link for the newest testable app:
-# https://github.com/<owner>/<repo>/releases/download/test-build/latch-android.apk
+# Every push to main republishes the app under one fixed "beta" pre-release, so
+# the owner always has the same download link for the newest beta:
+# https://github.com/<owner>/<repo>/releases/download/beta/latch-android.apk
+# The file keeps its old name on purpose: run_number numbers the builds, and a
+# renamed workflow file would start again at 1, below builds already installed.
 # It is a release build (minified, https only), signed with the release key,
 # so it installs over the previous test build and later over public releases.
 # latch-update.json next to the APK is what the app's updater reads
@@ -56,13 +58,13 @@ jobs:
         run: |
           # run_number only grows; +100 keeps every CI build above local builds (version code 1).
           echo "LATCH_VERSION_CODE=$(( GITHUB_RUN_NUMBER + 100 ))" >> "$GITHUB_ENV"
-          echo "LATCH_VERSION_NAME=0.1.0-test.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
-          echo "LATCH_UPDATE_MANIFEST_URL=https://github.com/$GITHUB_REPOSITORY/releases/download/test-build/latch-update.json" >> "$GITHUB_ENV"
+          echo "LATCH_VERSION_NAME=0.1.0-beta.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "LATCH_UPDATE_MANIFEST_URL=https://github.com/$GITHUB_REPOSITORY/releases/download/beta/latch-update.json" >> "$GITHUB_ENV"
       - working-directory: apps/android
         env:
           LATCH_KEYSTORE_PASSWORD: ${{ secrets.LATCH_KEYSTORE_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
-      - name: Publish to the test-build pre-release
+      - name: Publish to the beta pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -71,13 +73,18 @@ jobs:
           jq -n \
             --argjson code "$LATCH_VERSION_CODE" \
             --arg name "$LATCH_VERSION_NAME" \
-            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/test-build/latch-android.apk" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/beta/latch-android.apk" \
             --arg sha "$(cut -d' ' -f1 latch-android.apk.sha256)" \
             --argjson size "$(stat -c %s latch-android.apk)" \
             --arg commit "${GITHUB_SHA::7}" \
             '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit}' > latch-update.json
+          notes="Latch $LATCH_VERSION_NAME (${GITHUB_SHA::7}), the newest beta for testing on your own phone. Android 11+. Signed release build; updates from inside the app. Not a stable release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
+          gh release delete beta --cleanup-tag --yes || true
+          gh release create beta latch-android.apk latch-android.apk.sha256 latch-update.json \
+            --prerelease --target "$GITHUB_SHA" --title "Latch beta" --notes "$notes"
+          # Builds up to 0.1.0-test.12 look for updates under test-build; keep it as a copy
+          # (same manifest, which points at the beta download) so they still find this one.
           gh release delete test-build --cleanup-tag --yes || true
           gh release create test-build latch-android.apk latch-android.apk.sha256 latch-update.json \
-            --prerelease --target "$GITHUB_SHA" \
-            --title "Test build (latest main)" \
-            --notes "Build $LATCH_VERSION_NAME of ${GITHUB_SHA::7} for testing on your own phone. Android 11+. Signed release build; updates from inside the app. Not a release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
+            --prerelease --target "$GITHUB_SHA" --title "Latch beta (old link)" \
+            --notes "Moved: download the beta from the beta release. This copy keeps older test builds updating."
