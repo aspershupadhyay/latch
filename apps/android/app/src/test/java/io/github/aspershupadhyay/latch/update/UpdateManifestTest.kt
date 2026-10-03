@@ -14,17 +14,17 @@ class UpdateManifestTest {
 
     private fun manifest(
         code: String = "142",
-        url: String = "${prefix}test-build/latch-android.apk",
+        url: String = "${prefix}beta/latch-android.apk",
         hash: String = sha,
         size: String = "33554432",
         extra: String = "",
-    ) = """{"version_code":$code,"version_name":"0.1.0-test.42","apk_url":"$url","sha256":"$hash","size":$size,"commit":"633d63c"$extra}"""
+    ) = """{"version_code":$code,"version_name":"0.1.0-beta.42","apk_url":"$url","sha256":"$hash","size":$size,"commit":"633d63c"$extra}"""
 
     @Test
     fun readsTheManifestTheTestBuildWorkflowWrites() {
         val info = UpdateManifest.parse(manifest(extra = ""","future_field":true"""), prefix)
         assertEquals(142L, info.versionCode)
-        assertEquals("0.1.0-test.42", info.versionName)
+        assertEquals("0.1.0-beta.42", info.versionName)
         assertEquals(33_554_432L, info.size)
         assertEquals("633d63c", info.commit)
     }
