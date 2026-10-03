@@ -107,6 +107,8 @@ fun CapabilitiesScreen(
     saved: List<SavedApprovalRow> = emptyList(),
     onRemoveSaved: (String) -> Unit = {},
     onRemoveAllSaved: () -> Unit = {},
+    appsOn: Int = 0,
+    onOpenApps: () -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
@@ -128,9 +130,20 @@ fun CapabilitiesScreen(
 
         Card {
             ListRow(
+                LatchIcons.Apps,
+                "Apps the AI can use",
+                if (appsOn == 0) "None switched on yet. The AI asks you the first time it needs an app." else "$appsOn switched on, no questions there. Others ask the first time.",
+                tint = signal.accent,
+                onClick = onOpenApps,
+                onClickLabel = "Choose apps the AI can use",
+            )
+        }
+
+        Card {
+            ListRow(
                 LatchIcons.ShieldCheck,
                 "Ask me before every action",
-                if (approveEveryAction) "You approve every tap, swipe, and text." else "Only send, buy, delete, and similar ask you.",
+                if (approveEveryAction) "You approve every tap, swipe, and text, even in apps you switched on." else "In apps you switched on, only payments, installs, and permissions ask you.",
                 tint = signal.accent,
                 trailing = {
                     Switch(

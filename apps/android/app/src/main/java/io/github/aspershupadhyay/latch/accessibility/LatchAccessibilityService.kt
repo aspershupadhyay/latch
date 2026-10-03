@@ -3,6 +3,7 @@ package io.github.aspershupadhyay.latch.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Path
@@ -37,6 +38,7 @@ import io.github.aspershupadhyay.latch.protocol.Target
 import io.github.aspershupadhyay.latch.protocol.UiNode
 import io.github.aspershupadhyay.latch.protocol.WaitResult
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
+import io.github.aspershupadhyay.latch.session.ApprovalKind
 import io.github.aspershupadhyay.latch.session.PendingApproval
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -278,8 +280,9 @@ class LatchAccessibilityService : AccessibilityService() {
             }
             accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE
         }
+        val appRequest = pending.kind == ApprovalKind.APP
         card.addView(TextView(this).apply {
-            text = "Approval needed · Latch"
+            text = if (appRequest) "App access · Latch" else "Approval needed · Latch"
             setTextColor(Color.rgb(240, 168, 58))
             textSize = 13f
         })
@@ -308,17 +311,24 @@ class LatchAccessibilityService : AccessibilityService() {
         }
         val buttons = row()
         buttons.addView(Button(this).apply {
-            text = "Deny"
+            text = if (appRequest) "Not now" else "Deny"
             setOnClickListener { onAnswer(ApprovalChoice.DENY) }
         })
-        buttons.addView(allow("Allow once", ApprovalChoice.ONCE))
-        card.addView(buttons)
-        if (pending.rememberable) {
+        if (appRequest) {
+            // An app is allowed for a while, never for one command: that would ask again at once.
+            buttons.addView(allow("This session", ApprovalChoice.SESSION))
+            buttons.addView(allow("Always", ApprovalChoice.ALWAYS))
+            card.addView(buttons)
+        } else {
+            buttons.addView(allow("Allow once", ApprovalChoice.ONCE))
+            card.addView(buttons)
+        }
+        if (!appRequest && pending.rememberable) {
             val remember = row().apply { setPadding(0, 0, 0, 0) }
             remember.addView(allow("This session", ApprovalChoice.SESSION))
             remember.addView(allow("Always in ${pending.appName ?: "this app"}".take(40), ApprovalChoice.ALWAYS))
             card.addView(remember)
-        } else {
+        } else if (!appRequest) {
             card.addView(TextView(this).apply {
                 text = "Asked every time."
                 setTextColor(Color.rgb(200, 206, 214))
@@ -974,6 +984,18 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     fun currentPackage(): String? = rootInActiveWindow?.packageName?.toString() ?: foregroundPackage
+
+    /** The launcher, which agents may always use to find apps; it shows only app names. */
+    fun isHomeApp(target: String): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        val home = if (Build.VERSION.SDK_INT >= 33) {
+            packageManager.resolveActivity(intent, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong()))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        }
+        return home?.activityInfo?.packageName == target
+    }
 
     /**
      * Latch's own screen is off limits to agents. When the owner leaves it in

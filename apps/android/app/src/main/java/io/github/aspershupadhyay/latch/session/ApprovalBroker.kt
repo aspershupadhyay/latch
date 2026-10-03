@@ -12,6 +12,9 @@ enum class ApprovalChoice { DENY, ONCE, SESSION, ALWAYS }
 
 enum class ApprovalOutcome { APPROVED_ONCE, APPROVED_SESSION, APPROVED_ALWAYS, DENIED, EXPIRED }
 
+/** An action to approve, or an app the AI wants to use (answered "this session" or "always"). */
+enum class ApprovalKind { ACTION, APP }
+
 /** What the owner is being asked, exactly as shown. */
 data class PendingApproval(
     val nonce: String,
@@ -23,6 +26,7 @@ data class PendingApproval(
     val rememberable: Boolean = false,
     /** App the action happens in, for the "Always in …" button. */
     val appName: String? = null,
+    val kind: ApprovalKind = ApprovalKind.ACTION,
 )
 
 /**
@@ -43,12 +47,13 @@ class ApprovalBroker {
         timeoutMs: Long,
         rememberable: Boolean = false,
         appName: String? = null,
+        kind: ApprovalKind = ApprovalKind.ACTION,
     ): ApprovalOutcome {
         cancel()
         val nonce = ByteArray(16).also(random::nextBytes).joinToString("") { "%02x".format(it) }
         val deferred = CompletableDeferred<ApprovalChoice>()
         answer = deferred
-        _pending.value = PendingApproval(nonce, title, detail, risk, System.currentTimeMillis() + timeoutMs, rememberable, appName)
+        _pending.value = PendingApproval(nonce, title, detail, risk, System.currentTimeMillis() + timeoutMs, rememberable, appName, kind)
         try {
             val choice = withTimeoutOrNull(timeoutMs) { deferred.await() }
             return when (choice) {

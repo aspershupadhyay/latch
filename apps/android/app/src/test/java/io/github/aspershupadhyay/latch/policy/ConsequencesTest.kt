@@ -106,4 +106,18 @@ class ConsequencesTest {
         val prompt = obs("com.google.android.permissioncontroller", node("n1", text = "Only this time"))
         assertEquals(Consequence.CRITICAL, consequences.judgeTap(prompt, prompt.nodes[0], false).consequence)
     }
+
+    @Test
+    fun flagsMoneyAccountAndPasswordAppsLikeTheGateways() {
+        // The same packages as latch_policy's sensitive_apps_are_recognised_by_package.
+        listOf(
+            "com.phonepe.app", "net.one97.paytm", "com.google.android.apps.nbu.paisa.user",
+            "in.org.npci.upiapp", "com.csam.icici.bank.imobile", "com.x8bit.bitwarden.vault",
+        ).forEach { assertTrue(it, consequences.isSensitiveApp(it)) }
+        listOf("com.android.settings", "com.whatsapp", "com.google.android.apps.maps").forEach {
+            assertTrue(it, !consequences.isSensitiveApp(it))
+        }
+        // The phone also reads the app's name, which the gateway never sees.
+        assertTrue(consequences.isSensitiveApp("com.sbi.lotus", "YONO SBI: Banking & Lifestyle"))
+    }
 }

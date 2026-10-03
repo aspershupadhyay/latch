@@ -93,7 +93,7 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 
 ## 7. Decisions recorded
 
-ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout — see `docs/adr/`.
+ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals — see `docs/adr/`.
 
 ## 8. Real-device feedback (2026-10-02)
 
@@ -119,6 +119,8 @@ The owner's first audit (realme C55, Android 15, Vercel gateway, one session, no
 | Chrome pages report many zero-size, off-screen elements | Observations leave them out and reparent their children | IN_REVIEW |
 | Chrome's new-tab search box is a placeholder that does not take Enter | Clearer error: observe and use the field that now has focus | DONE |
 | With Latch open, agents stopped and asked the owner to say "go ahead": every screen command was refused while Latch was in front | When Latch's own app screen is in front, a screen command (after its capability check) first goes to the home screen, logs it, and then runs; nothing of Latch is ever read or tapped. Shade and lock screen are still refused | IN_REVIEW: re-run on the phone |
+| Approving every send or delete made real tasks unusable (owner) | Access → Apps: every app with a switch. Switched-on apps run without questions except payments, installs, permission prompts, and account deletion; other apps ask once ("This session" / "Always"); money and password apps get a warning and a caution line in both gateways' observations; server instructions ask the AI to report what it did. Activity names each action. Approving inside the AI app was not built (ADR-021) | IN_REVIEW: re-run on the phone |
+| No confirmation after an in-app update | A `MY_PACKAGE_REPLACED` receiver posts "Latch updated to …" | IN_REVIEW |
 | Every test build needed an uninstall and a new pairing | Builds of `main` are now signed release builds published as the `beta` pre-release (`0.1.0-beta.N`; 3 MB instead of 32 MB, not debuggable, https only) with the release key (`LATCH_KEYSTORE_BASE64` + `LATCH_KEYSTORE_PASSWORD`, checked in CI), increasing version codes, and an in-app updater: `latch-update.json` on the release, https-only from this repository, size + SHA-256 + package/version/signer checks, Android `PackageInstaller` (owner taps Update; Android may confirm). Docs: `docs/platform/android.md` § Updates | IN_REVIEW: needs the secrets set, then one install of the release package and an update on the phone; the minified build must pass the real-device checklist |
 
 Not done, deliberately: caching app lists or observations in the gateway (a cached answer would skip the policy and capability check of the moment), and compound actions (`tap → type → submit` under one policy check), which need their own threat review.

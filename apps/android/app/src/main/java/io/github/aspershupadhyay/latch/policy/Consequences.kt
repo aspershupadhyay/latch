@@ -19,6 +19,7 @@ data class PolicyWords(
     @SerialName("critical_packages") val criticalPackages: List<String>,
     @SerialName("call_packages") val callPackages: List<String>,
     @SerialName("search_field_words") val searchFieldWords: List<String>,
+    @SerialName("sensitive_app_words") val sensitiveAppWords: List<String> = emptyList(),
 ) {
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
@@ -87,6 +88,14 @@ class Consequences(private val words: PolicyWords) {
             "enter|${pkg ?: "?"}|${name.lowercase()}".take(MAX_KEY_CHARS),
         )
     }
+
+    /**
+     * Apps that may hold money, accounts, or passwords, from their package and
+     * name; the same words and matching as `latch_policy::is_sensitive_app`.
+     * Only ever adds a warning (ADR-021).
+     */
+    fun isSensitiveApp(packageName: String, label: String = ""): Boolean =
+        words("$packageName $label").any { w -> words.sensitiveAppWords.any { w == it || (it.codePointCount(0, it.length) >= 4 && w.contains(it)) } }
 
     fun isSearchField(node: UiNode): Boolean = listOfNotNull(node.description, node.resourceId).any { field ->
         val ws = words(field)

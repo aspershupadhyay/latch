@@ -4,6 +4,7 @@ import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
+import io.github.aspershupadhyay.latch.data.Autonomy
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -58,6 +59,7 @@ class SessionController(
     private val grants: ApprovalGrants,
     consequences: Consequences,
     appName: (String) -> String? = { null },
+    private val autonomy: Autonomy? = null,
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -69,7 +71,7 @@ class SessionController(
     private val _outdatedGateway = MutableStateFlow<String?>(null)
     val outdatedGateway: StateFlow<String?> = _outdatedGateway.asStateFlow()
 
-    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName)
+    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy)
     private var link: DeviceLink? = null
     private var wanted = false
     private var paused = false
@@ -122,6 +124,7 @@ class SessionController(
         wanted = true
         paused = false
         grants.endSession()
+        autonomy?.endSession()
         expiresAtMs = System.currentTimeMillis() + settings.preferences.value.sessionMinutes * 60_000L
         log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes")
         expiryJob?.cancel()
@@ -157,6 +160,7 @@ class SessionController(
         expiryJob?.cancel()
         approvals.cancel()
         grants.endSession()
+        autonomy?.endSession()
         val closing = link
         link = null
         // Tell the gateway right away so tool calls fail fast instead of timing out.

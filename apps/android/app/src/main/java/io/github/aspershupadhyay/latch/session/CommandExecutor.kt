@@ -7,6 +7,8 @@ import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
+import io.github.aspershupadhyay.latch.data.AppDecision
+import io.github.aspershupadhyay.latch.data.Autonomy
 import io.github.aspershupadhyay.latch.policy.Consequence
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.Judgement
@@ -87,6 +89,8 @@ private const val TRANSITION_FLOOR_MS = 300L
 /** How long to wait for an action to show any effect before taking the screen as it is. */
 private const val EXPECT_CHANGE_MS = 450L
 
+private const val SYSTEM_UI = "com.android.systemui"
+
 private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
 private const val CONSEQUENTIAL_DETAIL =
     "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
@@ -101,6 +105,7 @@ class CommandExecutor(
     private val consequences: Consequences,
     /** Human name of an app, for the "Always in …" button. */
     private val appName: (String) -> String? = { null },
+    private val autonomy: Autonomy? = null,
 ) {
     /**
      * [current] reads the owner's session and switches again later, so an
@@ -131,7 +136,10 @@ class CommandExecutor(
             log.add(ActivityKind.ACTION, "Went to the home screen so the AI can work (Latch is off limits to it)")
         }
 
-        if (command.isAction) approve(envelope, session)
+        // Only apps the owner allowed; the first use of an app asks once.
+        appTarget(command)?.let { requireApp(it, envelope.deadlineMs) }
+
+        val judged = if (command.isAction) approve(envelope, session) else null
 
         if (command == Command.DeviceInfoCommand) {
             val service = bridge.service.value
@@ -184,7 +192,7 @@ class CommandExecutor(
                     is Command.ScrollTo ->
                         found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
                 }
-                log.add(ActivityKind.ACTION, describe(command))
+                log.add(ActivityKind.ACTION, judged ?: describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found)
                 envelope.observeAfter?.let { result = observeAfter(command, service, it, before, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
@@ -197,12 +205,12 @@ class CommandExecutor(
      * the phone's own check of the same screen (whichever is stricter), and
      * waits for the answer or uses one the owner saved.
      */
-    private suspend fun approve(envelope: CommandEnvelope, session: SessionInfo) {
+    private suspend fun approve(envelope: CommandEnvelope, session: SessionInfo): String? {
         val command = envelope.command
         val confirm = envelope.confirm
         val judgement = judge(command)
         val deviceAsks = judgement != null && judgement.consequence != Consequence.NONE
-        if (confirm == null && !session.approveEveryAction && !deviceAsks) return
+        if (confirm == null && !session.approveEveryAction && !deviceAsks) return judgement?.title
 
         // Critical by either judge: asked every time. A gateway older than 1.3 never sends
         // remember keys, so its high-risk prompts are treated the same way.
@@ -221,9 +229,18 @@ class CommandExecutor(
         }
         val risk = confirm?.risk ?: if (deviceAsks) "high" else "medium"
 
+        // ADR-021: in an app the owner switched on, consequential actions run without
+        // asking and are logged; critical ones and "ask me before every action" still ask.
+        val inApp = bridge.service.value?.currentPackage()
+        if (!critical && !session.approveEveryAction && inApp != null && !exempt(inApp) &&
+            autonomy?.decide(inApp) == AppDecision.ALLOWED
+        ) {
+            log.add(ActivityKind.APPROVAL, "Done without asking (app switched on): $title")
+            return title
+        }
         if (key != null && grants.allows(key)) {
             log.add(ActivityKind.APPROVAL, "Allowed by your saved choice: $title")
-            return
+            return title
         }
         log.add(ActivityKind.APPROVAL, "Asked you: $title")
         // Leave the gateway a little time to receive the answer before its deadline.
@@ -246,6 +263,69 @@ class CommandExecutor(
             ApprovalOutcome.EXPIRED -> {
                 log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
+            }
+        }
+        return title
+    }
+
+    /** The launcher is always usable; Latch and system UI are refused by the service itself. */
+    private fun exempt(target: String): Boolean {
+        val service = bridge.service.value ?: return true
+        return target == service.packageName || target == SYSTEM_UI || service.isHomeApp(target)
+    }
+
+    private fun appUsable(target: String): Boolean =
+        autonomy == null || exempt(target) || autonomy.decide(target) == AppDecision.ALLOWED
+
+    /** The app a command works in: the one it opens, or the one in front. */
+    private fun appTarget(command: Command): String? = when (command) {
+        Command.DeviceInfoCommand, Command.ListApps -> null
+        is Command.LaunchApp -> command.packageName
+        // Going home leaves an app; it never works in one.
+        is Command.Global -> if (command.action == GlobalAction.HOME) null else bridge.service.value?.currentPackage()
+        else -> bridge.service.value?.currentPackage()
+    }
+
+    /**
+     * Lets the command run only in an app the owner allowed (ADR-021). The
+     * first time the AI needs an app, the owner is asked once for it. The
+     * launcher is always usable; Latch and system UI are refused elsewhere.
+     */
+    private suspend fun requireApp(target: String, deadlineMs: Long) {
+        val access = autonomy ?: return
+        if (exempt(target) || access.decide(target) == AppDecision.ALLOWED) return
+        val name = appName(target) ?: target
+        val sensitive = consequences.isSensitiveApp(target, name)
+        log.add(ActivityKind.APPROVAL, "Asked you: let the AI use $name")
+        // Leave the gateway a little time to receive the answer before its deadline.
+        val timeout = (deadlineMs - 2_000).coerceAtLeast(5_000)
+        val outcome = approvals.request(
+            title = "Let the AI use $name?",
+            detail = (if (sensitive) "$name may hold money, accounts, or passwords. " else "") +
+                "The AI can see $name's screen and act in it, including sending and deleting, without asking again. " +
+                "Payments, installs, and permissions still ask you every time.",
+            risk = if (sensitive) "high" else "medium",
+            timeoutMs = timeout,
+            rememberable = true,
+            appName = name,
+            kind = ApprovalKind.APP,
+        )
+        when (outcome) {
+            ApprovalOutcome.APPROVED_ALWAYS -> {
+                access.setAllowed(target, true)
+                log.add(ActivityKind.APPROVAL, "You switched on $name for the AI")
+            }
+            ApprovalOutcome.APPROVED_SESSION, ApprovalOutcome.APPROVED_ONCE -> {
+                access.allowForSession(target)
+                log.add(ActivityKind.APPROVAL, "You let the AI use $name for this session")
+            }
+            ApprovalOutcome.DENIED -> {
+                log.add(ActivityKind.APPROVAL, "You did not let the AI use $name")
+                throw ProtocolException(ErrorCode.USER_DENIED, "the owner did not let AI use $name; do not open it again unless they ask")
+            }
+            ApprovalOutcome.EXPIRED -> {
+                log.add(ActivityKind.APPROVAL, "Expired without an answer: let the AI use $name")
+                throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer whether AI may use $name")
             }
         }
     }
@@ -311,6 +391,17 @@ class CommandExecutor(
         }
         if (refusal != null) return result.copy(observationError = refusal)
         return try {
+            // The action may have opened another app; its screen is shared only once the owner allows it.
+            service.currentPackage()?.let { now ->
+                if (!appUsable(now)) {
+                    return result.copy(
+                        observationError = ErrorBody(
+                            ErrorCode.POLICY_REFUSED.wire,
+                            "now in ${appName(now) ?: now}, which the owner has not switched on; call observe and Latch will ask them",
+                        ),
+                    )
+                }
+            }
             val observation = service.observe(after.includeScreenshot, after.maxNodes)
             log.add(ActivityKind.OBSERVE, "Read the screen after the action · ${observation.`package` ?: "unknown app"}")
             result.copy(`package` = observation.`package` ?: result.`package`, observation = observation)
