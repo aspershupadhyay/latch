@@ -39,6 +39,8 @@ import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
+import io.github.aspershupadhyay.latch.update.UpdateInfo
+import io.github.aspershupadhyay.latch.update.UpdateState
 import java.text.DateFormat
 import java.util.Date
 
@@ -296,6 +298,12 @@ fun SettingsScreen(
     onOpenAccessibility: () -> Unit,
     onOpenConsole: () -> Unit,
     onOpenSetup: () -> Unit = {},
+    update: UpdateState = UpdateState.Idle,
+    checkUpdates: Boolean = true,
+    onCheckUpdates: (Boolean) -> Unit = {},
+    onCheckNow: () -> Unit = {},
+    onInstallUpdate: (UpdateInfo) -> Unit = {},
+    reducedMotion: Boolean = false,
 ) {
     val signal = LocalSignal.current
     var confirmForget by remember { mutableStateOf(false) }
@@ -319,6 +327,37 @@ fun SettingsScreen(
             ListRow(LatchIcons.Person, "Accessibility settings", "Turn screen access off at any time", tint = signal.accent2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
             RowDivider()
             ListRow(LatchIcons.Lock, "Privacy", "Screen content goes only to your gateway, only during a session. Nothing is stored on the phone. No analytics.", tint = signal.success)
+        }
+        SectionCaption("Updates")
+        if (update.shownOnHome()) UpdateCard(update, reducedMotion, onInstallUpdate)
+        Card {
+            ListRow(
+                LatchIcons.Sparkle,
+                "Check for updates",
+                when (update) {
+                    UpdateState.Checking -> "Checking\u2026"
+                    UpdateState.UpToDate -> "You have the newest build ($version)"
+                    is UpdateState.Failed -> if (update.info == null) update.message else "Installed: $version"
+                    else -> "Installed: $version"
+                },
+                tint = signal.accent,
+                onClick = onCheckNow,
+                onClickLabel = "Check for updates now",
+            )
+            RowDivider()
+            ListRow(
+                LatchIcons.Clock,
+                "Check when Latch opens",
+                "Asks Latch's GitHub releases for the newest version number. Nothing about this phone or its screen is sent.",
+                tint = signal.accent,
+                trailing = {
+                    Switch(
+                        checked = checkUpdates,
+                        onCheckedChange = onCheckUpdates,
+                        modifier = Modifier.semantics { contentDescription = "Check for updates when Latch opens" },
+                    )
+                },
+            )
         }
         Card {
             ListRow(

@@ -975,6 +975,25 @@ class LatchAccessibilityService : AccessibilityService() {
 
     fun currentPackage(): String? = rootInActiveWindow?.packageName?.toString() ?: foregroundPackage
 
+    /**
+     * Latch's own screen is off limits to agents. When the owner leaves it in
+     * front and an agent starts working, the phone goes to the home screen
+     * instead of refusing: leaving Latch shows the agent nothing of Latch and
+     * changes nothing, and refusing only made agents stop and ask. Only Latch's
+     * app screen moves aside; the shade and lock screen are still refused.
+     * Returns true when it pressed home.
+     */
+    suspend fun stepAsideFromLatch(): Boolean {
+        if (!LatchApp.get(this).ownScreenShown || currentPackage() != packageName) return false
+        invalidate()
+        if (!performGlobalAction(GLOBAL_ACTION_HOME)) return false
+        val start = SystemClock.uptimeMillis()
+        while (SystemClock.uptimeMillis() - start < LEAVE_LATCH_MS && currentPackage() == packageName) delay(20)
+        // The home screen slides in; let it hold still before anyone reads it.
+        awaitSettled(0, LEAVE_QUIET_MS, LEAVE_LATCH_MS, LEAVE_FLOOR_MS, 0)
+        return true
+    }
+
     fun screen(): ScreenInfo = screenInfo()
 
     private suspend fun gesture(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMs: Long) {
@@ -1003,6 +1022,9 @@ class LatchAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val SYSTEM_UI = "com.android.systemui"
+        private const val LEAVE_LATCH_MS = 1_500L
+        private const val LEAVE_QUIET_MS = 200L
+        private const val LEAVE_FLOOR_MS = 300L
         private const val MAX_SCREENSHOT_EDGE = 1280
         private const val MOVE_TOLERANCE_PX = 8
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L

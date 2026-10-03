@@ -5,6 +5,9 @@ name: Test build
 # https://github.com/<owner>/<repo>/releases/download/test-build/latch-android-debug.apk
 # Debug builds are signed with the debug key and install by sideloading. They
 # are not releases; signed releases come from release.yml on a vX.Y.Z tag.
+# latch-update.json next to the APK is what the app's updater reads
+# (apps/android/.../update/Updater.kt); each build's version code is higher
+# than the last, so the app can tell that a newer build exists.
 on:
   push:
     branches: [main]
@@ -43,10 +46,18 @@ jobs:
           # install over the previous one, so the app keeps its pairing.
           if [ -n "$KEYSTORE_B64" ]; then
             mkdir -p ~/.android
-            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "$KEYSTORE_B64" | tr -d ' \r\n' | base64 -d > ~/.android/debug.keystore
+            # A broken secret must fail here, not quietly sign with a one-off key.
+            keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | grep -m1 'SHA256:' \
+              || { echo "::error::LATCH_DEBUG_KEYSTORE_BASE64 is not a keystore with alias androiddebugkey and password android (docs/platform/android.md)."; exit 1; }
           else
             echo "::warning::LATCH_DEBUG_KEYSTORE_BASE64 is not set. This APK gets a one-off key and will not install over earlier test builds."
           fi
+      - name: Number this build
+        run: |
+          # run_number only grows; +100 keeps every CI build above local builds (version code 1).
+          echo "LATCH_VERSION_CODE=$(( GITHUB_RUN_NUMBER + 100 ))" >> "$GITHUB_ENV"
+          echo "LATCH_VERSION_NAME=0.1.0-test.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
       - working-directory: apps/android
         run: ./gradlew --no-daemon assembleDebug
       - name: Publish to the test-build pre-release
@@ -55,8 +66,16 @@ jobs:
         run: |
           cp apps/android/app/build/outputs/apk/debug/app-debug.apk latch-android-debug.apk
           sha256sum latch-android-debug.apk > latch-android-debug.apk.sha256
+          jq -n \
+            --argjson code "$LATCH_VERSION_CODE" \
+            --arg name "$LATCH_VERSION_NAME" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/test-build/latch-android-debug.apk" \
+            --arg sha "$(cut -d' ' -f1 latch-android-debug.apk.sha256)" \
+            --argjson size "$(stat -c %s latch-android-debug.apk)" \
+            --arg commit "${GITHUB_SHA::7}" \
+            '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit}' > latch-update.json
           gh release delete test-build --cleanup-tag --yes || true
-          gh release create test-build latch-android-debug.apk latch-android-debug.apk.sha256 \
+          gh release create test-build latch-android-debug.apk latch-android-debug.apk.sha256 latch-update.json \
             --prerelease --target "$GITHUB_SHA" \
             --title "Test build (latest main)" \
-            --notes "Debug build of ${GITHUB_SHA::7} for testing on your own phone. Android 11+. Not a release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
+            --notes "Debug build $LATCH_VERSION_NAME of ${GITHUB_SHA::7} for testing on your own phone. Android 11+. Not a release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."

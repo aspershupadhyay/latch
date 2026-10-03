@@ -25,6 +25,36 @@ cd apps/android
 
 Every push to `main` also publishes the debug APK to the `test-build` pre-release (`.github/workflows/test-build.yml`), so the newest testable app is always at `releases/download/test-build/latch-android-debug.apk`.
 
+## Updates inside the app
+
+Latch updates itself from its GitHub releases and keeps pairing, saved approvals, and settings (`app/src/main/java/io/github/aspershupadhyay/latch/update/`).
+
+1. When Latch opens (at most every 30 minutes, switch in Settings → *Check when Latch opens*), it reads `latch-update.json` from the release: `version_code`, `version_name`, `apk_url`, `sha256`, `size`, `commit`. Test builds read the `test-build` pre-release; release builds read the newest published release.
+2. A higher `version_code` than the installed one shows **Update available** on Home and in Settings. CI numbers builds: test builds `run_number + 100`, releases `X*1000000 + Y*1000 + Z` from the `vX.Y.Z` tag. Local builds are version 1.
+3. **Update** stops a running session (installing restarts Latch), downloads the APK, and checks it before Android sees it: the address must be under this repository's `releases/download/` over https; the file must have the announced size and SHA-256; it must be Latch's own package, the announced and a newer version, and signed by a certificate the installed app already has.
+4. Android's `PackageInstaller` installs it. The first time, Android asks the owner to allow Latch to install apps (*Install unknown apps → Allow from this source*). Android then shows its own Update screen; on Android 12+ it may skip that screen because Latch is updating itself. A silent update without the owner's tap on **Update** is never attempted.
+
+What protects the owner is Android's rule that an update must carry the same signing key as the installed app. The checks above give clear messages; they are not what makes it safe. A GitHub account takeover could publish a bad manifest, but not a build signed with the key, unless the key also leaked.
+
+### The test-build signing key
+
+Android installs an update only when it is signed with the same key as the installed app. The Android Gradle Plugin signs debug builds with `~/.android/debug.keystore` and makes a fresh one when it is missing, so without a fixed key every CI build has a different key and cannot update the last one.
+
+`test-build.yml` restores a fixed key from the repository secret `LATCH_DEBUG_KEYSTORE_BASE64` (a base64 PKCS12 keystore with the standard debug alias `androiddebugkey` and password `android`). The workflow checks the keystore and prints its SHA-256 certificate fingerprint; a broken secret fails the build instead of quietly signing with a one-off key. To create one on any computer with a JDK:
+
+```sh
+keytool -genkeypair -keystore latch-debug.keystore -storetype PKCS12 \
+  -alias androiddebugkey -storepass android -keypass android \
+  -keyalg RSA -keysize 3072 -validity 10950 -dname "CN=Latch test builds"
+base64 -w0 latch-debug.keystore > latch-debug.keystore.b64   # macOS: base64 -i latch-debug.keystore
+```
+
+Paste the contents of `latch-debug.keystore.b64` into GitHub → repository **Settings → Secrets and variables → Actions → New repository secret**, name `LATCH_DEBUG_KEYSTORE_BASE64`. Keep the keystore file somewhere private; delete it if you have no use for it, since the secret is the copy CI uses.
+
+This key signs **test builds only** (package `io.github.aspershupadhyay.latch.debug`). Releases use a separate key (`LATCH_KEYSTORE_BASE64` and friends below). Anyone with the test key could build an APK that installs over the test app, so treat it as a secret. Changing it later means every phone reinstalls the test app once.
+
+Switching from builds signed with one-off keys to the fixed key also takes one reinstall: Latch says so instead of failing silently ("signed with a different key"). Uninstalling removes pairing; pair again afterwards.
+
 Release builds are minified and signed in CI when `LATCH_KEYSTORE_BASE64`, `LATCH_KEYSTORE_PASSWORD`, `LATCH_KEY_ALIAS`, and `LATCH_KEY_PASSWORD` repository secrets exist.
 
 ## Owner setup on the phone

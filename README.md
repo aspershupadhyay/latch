@@ -44,6 +44,8 @@ That's it. Every step below is just one of these.
    - **"App blocked to protect your device"?** That's Google Play Protect. Follow [Fix: App blocked by Play Protect](#fix-app-blocked-by-play-protect) below.
 3. Open **Latch**.
 
+**Updates:** you only do this once. When a newer build exists, Latch shows **Update available** on Home: tap **Update**, then **Update** again on Android's screen if it asks. Your pairing and settings stay. The first time, Android asks you to allow Latch to install apps.
+
 ### Step 2: Copy thing #1, the owner key 🔑
 
 In the Latch app, tap **Create my own gateway**, then tap **copy** next to **Owner key**.

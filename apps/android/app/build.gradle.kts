@@ -5,6 +5,9 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+/** Where the in-app updater looks for new builds. */
+val RELEASES = "https://github.com/aspershupadhyay/latch/releases"
+
 android {
     namespace = "io.github.aspershupadhyay.latch"
     compileSdk = 36
@@ -15,8 +18,12 @@ android {
         // MediaProjection consent or foreground service is needed for screenshots.
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI sets these so every build is newer than the last and the in-app
+        // updater can tell them apart; local builds stay at 1.
+        versionCode = System.getenv("LATCH_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("LATCH_VERSION_NAME") ?: "0.1.0"
+        // The only place the updater may download from; see update/Updater.kt.
+        buildConfigField("String", "UPDATE_DOWNLOAD_PREFIX", "\"$RELEASES/download/\"")
     }
 
     buildTypes {
@@ -25,6 +32,8 @@ android {
             // Debug builds may talk to a gateway over plain http on a laptop or emulator.
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "true")
             manifestPlaceholders["allowCleartext"] = "true"
+            // Test builds update from the test-build pre-release (.github/workflows/test-build.yml).
+            buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$RELEASES/download/test-build/latch-update.json\"")
         }
         release {
             isMinifyEnabled = true
@@ -32,6 +41,8 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "false")
             manifestPlaceholders["allowCleartext"] = "false"
+            // Releases update from the newest published release (.github/workflows/release.yml).
+            buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$RELEASES/latest/download/latch-update.json\"")
             // Signed in CI from repository secrets; see .github/workflows/release.yml.
             val keystore = System.getenv("LATCH_KEYSTORE_PATH")
             if (keystore != null) {

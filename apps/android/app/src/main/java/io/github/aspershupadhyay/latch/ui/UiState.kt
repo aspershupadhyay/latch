@@ -1,5 +1,7 @@
 package io.github.aspershupadhyay.latch.ui
 
+import io.github.aspershupadhyay.latch.update.UpdateInfo
+import io.github.aspershupadhyay.latch.update.UpdateState
 import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.McpClient
@@ -32,6 +34,8 @@ data class HomeState(
     val signInRequests: List<SignInRequest> = emptyList(),
     /** The gateway's protocol when it is older than the app's; the AI then misses newer tools. */
     val outdatedGateway: String? = null,
+    /** In-app update of Latch itself. */
+    val update: UpdateState = UpdateState.Idle,
 )
 
 class HomeActions(
@@ -48,6 +52,7 @@ class HomeActions(
     val openSetup: () -> Unit = {},
     val reviewSignIns: () -> Unit = {},
     val openGatewayUpdateHelp: () -> Unit = {},
+    val installUpdate: (UpdateInfo) -> Unit = {},
 )
 
 data class ConnectState(

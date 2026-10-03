@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Asked for during setup, so the system does not cut a running session when the screen is off. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- In-app updates of Latch itself from its GitHub releases; Android asks the owner once. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Lists launchable apps for app.list without QUERY_ALL_PACKAGES. -->
     <queries>

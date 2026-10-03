@@ -29,6 +29,8 @@ data class Preferences(
     val showCursor: Boolean = true,
     /** Keep the screen on during a session so a task is not cut off by the lock screen. */
     val keepAwake: Boolean = true,
+    /** Look for a newer Latch on GitHub when the app opens. */
+    val checkUpdates: Boolean = true,
 )
 
 /**
@@ -67,6 +69,7 @@ class Settings(context: Context) {
             setupDone = prefs.getBoolean("setup_done", false),
             showCursor = prefs.getBoolean("show_cursor", true),
             keepAwake = prefs.getBoolean("keep_awake", true),
+            checkUpdates = prefs.getBoolean("check_updates", true),
         )
     }
 
@@ -113,6 +116,7 @@ class Settings(context: Context) {
             putBoolean("setup_done", next.setupDone)
             putBoolean("show_cursor", next.showCursor)
             putBoolean("keep_awake", next.keepAwake)
+            putBoolean("check_updates", next.checkUpdates)
         }
         _preferences.value = next
     }
