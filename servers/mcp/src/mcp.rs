@@ -38,8 +38,10 @@ say not now, do not open that app again unless they ask. In apps they switched o
 without asking; payments, installs, permission prompts, and account deletion still wait for \
 the owner to approve on the phone, and if they deny, do not retry. When an observation says \
 the app may hold money, accounts, or passwords, tell the user what you are about to do there \
-and get their go-ahead in the chat first. When you finish, tell the user which actions you \
-took on the phone: apps opened, and what you tapped, typed, sent, or deleted.";
+and get their go-ahead in the chat first. If a tool says Latch is waiting for the owner, ask \
+the user in the chat and pass on exactly their answer with `answer_approval`; never answer \
+for them. When you finish, tell the user which actions you took on the phone: apps opened, \
+and what you tapped, typed, sent, or deleted.";
 
 /// Shown under the untrusted-content banner for apps `latch_policy::is_sensitive_app` flags.
 pub const SENSITIVE_APP_NOTE: &str = "Caution: this app may hold money, accounts, or passwords. \
@@ -379,6 +381,29 @@ pub fn tool_definitions() -> Vec<Value> {
             }),
             &["package"],
         ),
+        {
+            let mut answer = tool(
+                "answer_approval",
+                "Pass on the owner's answer",
+                "Pass on the owner's answer to a question Latch is waiting on, after a tool said so. \
+                 Ask the user in the chat first and use exactly their answer; never answer on their \
+                 behalf. Returns what the waiting action returned.",
+                false,
+                json!({
+                    "request_id": { "type": "string", "maxLength": 64, "description": "The request id the waiting tool gave." },
+                    "answer": {
+                        "type": "string",
+                        "enum": ["once", "session", "always", "deny"],
+                        "description": "The user's answer: once, session (for this session), always, or deny."
+                    }
+                }),
+                &["request_id", "answer"],
+            );
+            // Clients that confirm risky tools ask the person before this runs.
+            answer["annotations"]["destructiveHint"] = json!(true);
+            answer["annotations"]["openWorldHint"] = json!(false);
+            answer
+        },
     ]
 }
 
@@ -479,6 +504,13 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
 
     if name == "list_devices" {
         return Ok(text_result(render_devices(state)));
+    }
+    if name == "answer_approval" {
+        // This gateway waits for the phone's own answer and never hands a question to the AI app.
+        return Err(ProtocolError::new(
+            ErrorCode::InvalidRequest,
+            "no question is waiting for an answer here; this gateway asks only on the phone",
+        ));
     }
 
     let device_id = devices::resolve_device(state, arg_str(args, "device_id").map_err(bad)?)?;
