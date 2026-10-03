@@ -256,7 +256,8 @@ export class Gateway {
     if (m.method === "tools/call" && (request.headers.get("accept") ?? "").includes("text/event-stream") && (await this.canElicit(client))) {
       return this.streamToolCall(client, message);
     }
-    const reply = await handleMcp({ devices: this.devices, settleMs: this.config.settleMs }, message);
+    // Without elicitation, a question the phone asks pauses the call so the AI can ask in the chat.
+    const reply = await handleMcp({ devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true }, message);
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);
   }
 

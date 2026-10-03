@@ -44,6 +44,28 @@ export interface Executed {
   timing: CommandTiming;
 }
 
+/**
+ * The phone is waiting for the owner, and this AI app cannot show questions
+ * itself (no MCP elicitation): the tool call ends here, the AI asks the user
+ * in the chat, and `answer_approval` resumes the same command (ADR-023).
+ */
+export class ApprovalDeferred extends Error {
+  constructor(readonly request: ApprovalRequest, readonly deviceId: string, readonly conn: string) {
+    super("waiting for the owner");
+  }
+}
+
+/** What `answer_approval` needs to resume a paused tool call. */
+export interface Deferred {
+  tool: string;
+  args: Record<string, unknown>;
+  device: string;
+  conn: string;
+  nonce: string;
+  choices: ApprovalChoice[];
+  title: string;
+}
+
 export interface ExecuteOptions {
   /** Ask the phone to observe after a successful action; ignored for phones older than 1.2. */
   observeAfter?: ObserveAfter;
@@ -55,6 +77,10 @@ export interface ExecuteOptions {
    * resolves undefined when the user dismissed the question.
    */
   askOwner?: (request: ApprovalRequest) => Promise<ApprovalChoice | undefined>;
+  /** End the tool call with [ApprovalDeferred] when the phone asks the owner and `askOwner` cannot. */
+  deferWhenAsked?: boolean;
+  /** Collect the result of a command already sent (after `answer_approval`) instead of sending a new one. */
+  resumeCommandId?: string;
 }
 
 export interface DeviceRecord {
@@ -92,6 +118,7 @@ export const K = {
   pending: (cmd: string) => `latch:pending:${cmd}`,
   result: (cmd: string) => `latch:result:${cmd}`,
   approval: (cmd: string) => `latch:approval:${cmd}`,
+  deferred: (cmd: string) => `latch:deferred:${cmd}`,
   lock: (id: string) => `latch:lock:${id}`,
   observation: (id: string) => `latch:obs:${id}`,
   audit: "latch:audit",
@@ -241,8 +268,30 @@ export class Devices {
     if (live?.conn !== conn) return false;
     const p = pending ? (JSON.parse(pending) as { device: string; conn: string }) : undefined;
     if (p?.device !== id || p.conn !== conn) return true;
-    await this.store.set(K.approval(request.command_id), JSON.stringify(request), { px: CONFIRM_DEADLINE_MS + 15_000 });
+    // The answer may take as long as an approval; keep the command's result deliverable.
+    await this.store.batch([
+      { op: "set", key: K.approval(request.command_id), value: JSON.stringify(request), px: CONFIRM_DEADLINE_MS + 15_000 },
+      { op: "pexpire", key: K.pending(request.command_id), px: CONFIRM_DEADLINE_MS + 15_000 },
+    ]);
     return true;
+  }
+
+  async saveDeferred(commandId: string, deferred: Deferred): Promise<void> {
+    await this.store.set(K.deferred(commandId), JSON.stringify(deferred), { px: CONFIRM_DEADLINE_MS + 15_000 });
+  }
+
+  async deferred(commandId: string): Promise<Deferred | undefined> {
+    const raw = await this.store.get(K.deferred(commandId));
+    return raw ? (JSON.parse(raw) as Deferred) : undefined;
+  }
+
+  async dropDeferred(commandId: string): Promise<void> {
+    await this.store.del(K.deferred(commandId));
+  }
+
+  /** Sends the owner's answer, given in the AI app, to the phone (protocol 1.4). */
+  async sendApprovalAnswer(deferred: Deferred, choice: ApprovalChoice): Promise<void> {
+    await this.store.lpush(K.queue(deferred.device, deferred.conn), JSON.stringify({ type: "approval_answer", nonce: deferred.nonce, choice }), CONFIRM_DEADLINE_MS);
   }
 
   async online(): Promise<LiveSummary[]> {
@@ -322,6 +371,10 @@ export class Devices {
       const result = await this.run(id, command, options, (d) => { decision = d; }, finish);
       return { ...result, timing: { lock_wait_ms: lockWaitMs, phone_ms: result.phoneMs, total_ms: Date.now() - started } };
     } catch (e) {
+      if (e instanceof ApprovalDeferred) {
+        outcome = "waiting_for_owner";
+        throw e;
+      }
       const error = e instanceof ProtocolError ? e : new ProtocolError("internal", "unexpected gateway error");
       outcome = error.code;
       throw error;
@@ -350,7 +403,9 @@ export class Devices {
     }
     const cached = obsRecord ? (JSON.parse(obsRecord) as { conn: string; observation: Observation; received_at_ms: number }) : undefined;
     const now = Date.now();
-    const decision = evaluate(command, {
+    const resume = options.resumeCommandId;
+    // A resumed command passed policy when it was sent; its screen is gone by now.
+    const decision = resume ? { kind: "allow" as const } : evaluate(command, {
       capabilities: live.capabilities,
       session: live.session,
       latestObservation: cached && cached.conn === live.conn ? { observation: cached.observation, receivedAtMs: cached.received_at_ms } : undefined,
@@ -359,7 +414,7 @@ export class Devices {
     if (decision.kind === "deny") throw decision.error;
     setDecision(decision.kind);
     const confirm: ConfirmRequest | undefined = decision.kind === "confirm" ? decision.request : undefined;
-    const deadlineMs = confirm ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
+    const deadlineMs = confirm || resume ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
     const enabled = (c: string) => live.capabilities.some((s) => s.capability === c && s.status === "enabled");
     let observeAfter: ObserveAfter | undefined;
     if (options.observeAfter && isAction(command) && minor >= 2 && enabled("ui.observe")) {
@@ -369,7 +424,7 @@ export class Devices {
       if (minor < 3 && options.legacySettleMs !== undefined) observeAfter.settle_ms = options.legacySettleMs;
     }
 
-    const commandId = newId("c");
+    const commandId = resume ?? newId("c");
     const envelope = {
       type: "command", id: commandId, deadline_ms: deadlineMs, command,
       ...(confirm ? { confirm } : {}),
@@ -382,7 +437,7 @@ export class Devices {
       { op: "set", key: K.pending(commandId), value: JSON.stringify({ device: id, conn: live.conn }), px: deadlineMs + 10_000 },
       { op: "lpush", key: K.queue(id, live.conn), value: JSON.stringify(envelope), px: deadlineMs + 10_000 },
     );
-    await this.store.batch(send);
+    if (!resume) await this.store.batch(send);
     const sentAt = Date.now();
 
     // A little grace on top of the device's own deadline for the network. A phone
@@ -390,7 +445,7 @@ export class Devices {
     let waitUntil = sentAt + deadlineMs + 3_000;
     let lastPresenceCheck = sentAt;
     let result: string | null = null;
-    let approvalSeen = false;
+    let approvalSeen = resume !== undefined;
     for (;;) {
       const [got, approval] = await this.store.batch([
         { op: "getdel", key: K.result(commandId) },
@@ -402,6 +457,11 @@ export class Devices {
         approvalSeen = true;
         waitUntil = Math.max(waitUntil, Date.now() + CONFIRM_DEADLINE_MS + 3_000);
         const request = JSON.parse(approval) as ApprovalRequest;
+        if (request.remote && !options.askOwner && options.deferWhenAsked) {
+          // The AI asks the user in the chat; answer_approval resumes this command.
+          finish.push({ op: "del", key: K.approval(commandId) });
+          throw new ApprovalDeferred(request, id, live.conn);
+        }
         if (request.remote && options.askOwner) {
           // Ask in the AI app while the phone shows its own card; the first answer wins.
           void options.askOwner(request).then(async (choice) => {

@@ -106,7 +106,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app"]);
+  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
   const apps = await client.callTool({ name: "list_apps", arguments: { query: " CHAT " } });

@@ -26,7 +26,7 @@ import org.robolectric.annotation.GraphicsMode
  * `-Psnapshots=verify` fails on any unreviewed visual change. Images live
  * in app/src/test/snapshots.
  */
-@Ignore("Baseline images not recorded yet: Robolectric's Android runtime download was rate-limited. Record with -Psnapshots=record.")
+@Ignore("Run on demand: ./gradlew testDebugUnitTest --tests '*ScreenSnapshotTest' -Psnapshots=record (slow; downloads the Robolectric Android runtime). Remove once baselines are recorded.")
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "w411dp-h914dp-xxhdpi")
@@ -133,5 +133,26 @@ class ScreenSnapshotTest {
             ),
             onClear = {},
         )
+    }
+
+    @Test fun settings_light() = snap(false) {
+        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {}, {})
+    }
+
+    @Test fun apps_light() = snap(false) {
+        AppsScreen(
+            listOf(
+                AppRow("com.google.android.apps.maps", "Maps", sensitive = false, on = true),
+                AppRow("com.android.settings", "Settings", sensitive = false, on = true),
+                AppRow("com.phonepe.app", "PhonePe", sensitive = true, on = false),
+                AppRow("com.whatsapp", "WhatsApp", sensitive = false, on = false),
+            ),
+            loading = false, onToggle = { _, _ -> }, onAllOff = {}, onBack = {},
+        )
+    }
+
+    @Test fun home_update_installing_light() = snap(false) {
+        val info = io.github.aspershupadhyay.latch.update.UpdateInfo(117, "0.1.0-beta.17", "https://github.com/x", "a".repeat(64), 3_000_000, "abc1234")
+        HomeScreen(home(Phase.IDLE).copy(update = io.github.aspershupadhyay.latch.update.UpdateState.Installing(info)), HomeActions())
     }
 }
