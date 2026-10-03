@@ -400,6 +400,7 @@ class CommandExecutor(
                 (after.settleMs - waited).coerceAtLeast(quiet.toLong()),
                 (floor - waited).coerceAtLeast(0),
                 EXPECT_CHANGE_MS,
+                expectKeyboard = command is Command.Tap && !command.longPress,
             )
         }
         val (session, capabilities) = current()

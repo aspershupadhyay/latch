@@ -119,6 +119,8 @@ class LatchAccessibilityService : AccessibilityService() {
             h = 31 * h + if (node.isCheckable && isChecked(node)) 1 else 0
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
+        // The keyboard is its own window: count it, so its slide-in is not taken for a still screen.
+        keyboardBounds()?.let { h = 31 * h + it.top }
         return if (h == 0) 1 else h
     }
 
@@ -127,8 +129,10 @@ class LatchAccessibilityService : AccessibilityService() {
      * from [before] (or [expectChangeMs] passed without a change, so nothing
      * will) and then holds still, meaning two fingerprints in a row are equal
      * and no event arrived for [quietMs]. Never longer than [maxMs].
+     * With [expectKeyboard], a tap that focused a text field also waits for
+     * the keyboard to open, so the agent sees the screen it will type into.
      */
-    suspend fun awaitSettled(before: Int, quietMs: Long, maxMs: Long, minMs: Long, expectChangeMs: Long) {
+    suspend fun awaitSettled(before: Int, quietMs: Long, maxMs: Long, minMs: Long, expectChangeMs: Long, expectKeyboard: Boolean = false) {
         val start = SystemClock.uptimeMillis()
         var previous = screenSignature()
         while (true) {
@@ -139,7 +143,8 @@ class LatchAccessibilityService : AccessibilityService() {
             val current = screenSignature()
             val changed = current != before
             val still = current == previous && current != 0 && now - max(lastUiEventAtMs, start) >= quietMs
-            if (still && elapsed >= minMs && (changed || elapsed >= expectChangeMs)) return
+            val keyboardPending = expectKeyboard && elapsed < KEYBOARD_WAIT_MS && keyboardBounds() == null && editableFocused()
+            if (still && !keyboardPending && elapsed >= minMs && (changed || elapsed >= expectChangeMs)) return
             previous = current
         }
     }
@@ -408,7 +413,7 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     suspend fun observe(includeScreenshot: Boolean, maxNodes: Int): Observation {
-        val root = rootInActiveWindow
+        val root = rootInActiveWindow ?: topAppWindowRoot()
         val packageName = root?.packageName?.toString() ?: foregroundPackage
         refuseRestrictedPackage(packageName)
 
@@ -438,8 +443,16 @@ class LatchAccessibilityService : AccessibilityService() {
                 }
                 val id = "n${ui.size}"
                 val sensitive = Redaction.isSensitive(facts(node))
+                val candidate = toUiNode(node, id, parentId, sensitive)
+                // Some apps (Maps among them) wrap an element in a container that repeats it exactly:
+                // same place, words, and behaviour. List it once and hang its contents on the first.
+                val parent = parentId?.let(ui::get)
+                if (parent != null && sameElement(parent, candidate)) {
+                    for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it to parentId) }
+                    continue
+                }
                 if (sensitive) redacted++
-                ui[id] = toUiNode(node, id, parentId, sensitive)
+                ui[id] = candidate
                 refs[id] = node
                 for (i in 0 until node.childCount) {
                     node.getChild(i)?.let { queue.add(it to id) }
@@ -496,6 +509,20 @@ class LatchAccessibilityService : AccessibilityService() {
             sensitive = sensitive,
         )
     }
+
+    /**
+     * Some dialogs (Android's permission and install prompts among them) leave
+     * no active window for a moment; read the topmost app window instead of
+     * returning an empty screen. System UI windows are never read this way.
+     */
+    private fun topAppWindowRoot(): AccessibilityNodeInfo? =
+        windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .sortedByDescending { it.layer }
+            .firstNotNullOfOrNull { it.root }
+
+    /** Whether [child] repeats [parent] exactly, so listing both would only confuse the agent. */
+    private fun sameElement(parent: UiNode, child: UiNode): Boolean =
+        child.copy(id = parent.id, parent = parent.parent, role = parent.role, resourceId = parent.resourceId, focused = parent.focused) == parent
 
     private fun isChecked(node: AccessibilityNodeInfo): Boolean =
         if (Build.VERSION.SDK_INT >= 36) {
@@ -797,6 +824,9 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** Whether a text field has input focus (a keyboard is on its way, unless a hardware one is used). */
+    private fun editableFocused(): Boolean = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.isEditable == true
+
     /** Screen area of the on-screen keyboard while it is shown. */
     private fun keyboardBounds(): android.graphics.Rect? {
         val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } ?: return null
@@ -1010,7 +1040,7 @@ class LatchAccessibilityService : AccessibilityService() {
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
     }
 
-    fun currentPackage(): String? = rootInActiveWindow?.packageName?.toString() ?: foregroundPackage
+    fun currentPackage(): String? = (rootInActiveWindow ?: topAppWindowRoot())?.packageName?.toString() ?: foregroundPackage
 
     /** The launcher, which agents may always use to find apps; it shows only app names. */
     fun isHomeApp(target: String): Boolean {
@@ -1081,6 +1111,8 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val CURSOR_HIDE_MS = 50L
         private const val SIGNATURE_NODES = 300
         private const val SETTLE_STEP_MS = 60L
+        /** Longest wait for the keyboard after a tap on a text field. */
+        private const val KEYBOARD_WAIT_MS = 1_000L
         private const val MAX_SEARCH_NODES = 2_000
         private const val SCROLL_QUIET_MS = 120L
         private const val SCROLL_MAX_SETTLE_MS = 800L
