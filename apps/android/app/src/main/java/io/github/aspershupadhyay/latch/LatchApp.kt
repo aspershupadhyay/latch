@@ -12,6 +12,8 @@ import androidx.core.app.NotificationManagerCompat
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
+import io.github.aspershupadhyay.latch.data.Autonomy
+import io.github.aspershupadhyay.latch.data.PrefsAutonomyStore
 import io.github.aspershupadhyay.latch.data.PrefsGrantStore
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.PolicyWords
@@ -47,6 +49,12 @@ class LatchApp : Application() {
         private set
     lateinit var setup: GatewaySetup
         private set
+    /** The shared word lists, also used by screens to flag money and password apps. */
+    lateinit var consequences: Consequences
+        private set
+    /** Which apps the AI may use (Access → Apps). */
+    lateinit var autonomy: Autonomy
+        private set
     val http = Pairing.client()
     lateinit var updater: Updater
         private set
@@ -58,8 +66,9 @@ class LatchApp : Application() {
         super.onCreate()
         settings = Settings(this)
         grants = ApprovalGrants(PrefsGrantStore(this))
-        val consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
-        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel)
+        consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
+        autonomy = Autonomy(PrefsAutonomyStore(this))
+        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy)
         setup = GatewaySetup(http)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
@@ -71,8 +80,23 @@ class LatchApp : Application() {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString().take(40)
     }.getOrNull()
 
+    /** Every app with a launcher icon except Latch, as (package, label). Call off the main thread. */
+    fun launchableApps(): List<Pair<String, String>> {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        @Suppress("DEPRECATION")
+        val found = packageManager.queryIntentActivities(intent, 0)
+        return found.map { it.activityInfo.packageName to it.loadLabel(packageManager).toString().take(60) }
+            .filter { it.first != packageName }
+            .distinctBy { it.first }
+    }
+
     private fun createChannels() {
         val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_UPDATES, getString(R.string.channel_updates), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = getString(R.string.channel_updates_description)
+            },
+        )
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_SESSION, getString(R.string.channel_session), NotificationManager.IMPORTANCE_LOW).apply {
                 description = getString(R.string.channel_session_description)
@@ -138,6 +162,8 @@ class LatchApp : Application() {
 
     companion object {
         const val CHANNEL_SESSION = "session"
+        const val CHANNEL_UPDATES = "updates"
+        const val NOTIFICATION_UPDATED = 2
         const val NOTIFICATION_SESSION = 1
         const val ACTION_STOP = "io.github.aspershupadhyay.latch.STOP"
 
@@ -149,5 +175,30 @@ class LatchApp : Application() {
 class StopReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == LatchApp.ACTION_STOP) LatchApp.get(context).session.stop()
+    }
+}
+
+/**
+ * Android closes Latch while it replaces itself, so the app cannot say the
+ * update worked. The system tells this receiver once the new version is in.
+ */
+class UpdatedReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        val manager = NotificationManagerCompat.from(context)
+        if (!manager.areNotificationsEnabled()) return
+        val open = PendingIntent.getActivity(context, 2, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, LatchApp.CHANNEL_UPDATES)
+            .setSmallIcon(R.drawable.ic_stat_latch)
+            .setContentTitle(context.getString(R.string.notification_updated, BuildConfig.VERSION_NAME))
+            .setContentText(context.getString(R.string.notification_updated_text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        try {
+            manager.notify(LatchApp.NOTIFICATION_UPDATED, notification)
+        } catch (e: SecurityException) {
+            // Notifications switched off; Settings still shows the new version.
+        }
     }
 }

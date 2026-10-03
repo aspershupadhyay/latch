@@ -445,7 +445,7 @@ fn word_lists_match_shared_file() {
             .join(",\n")
     };
     let generated = format!(
-        "{{\n  \"consequential_words\": [\n{}\n  ],\n  \"consequential_phrases\": [\n{}\n  ],\n  \"critical_words\": [\n{}\n  ],\n  \"critical_phrases\": [\n{}\n  ],\n  \"critical_packages\": [\n{}\n  ],\n  \"call_packages\": [\n{}\n  ],\n  \"search_field_words\": [\n{}\n  ],\n  \"secret_field_words\": [\n{}\n  ],\n  \"secret_field_phrases\": [\n{}\n  ]\n}}\n",
+        "{{\n  \"consequential_words\": [\n{}\n  ],\n  \"consequential_phrases\": [\n{}\n  ],\n  \"critical_words\": [\n{}\n  ],\n  \"critical_phrases\": [\n{}\n  ],\n  \"critical_packages\": [\n{}\n  ],\n  \"call_packages\": [\n{}\n  ],\n  \"search_field_words\": [\n{}\n  ],\n  \"secret_field_words\": [\n{}\n  ],\n  \"secret_field_phrases\": [\n{}\n  ],\n  \"sensitive_app_words\": [\n{}\n  ]\n}}\n",
         list(CONSEQUENTIAL_WORDS),
         list(CONSEQUENTIAL_PHRASES),
         list(CRITICAL_WORDS),
@@ -455,6 +455,7 @@ fn word_lists_match_shared_file() {
         list(SEARCH_FIELD_WORDS),
         list(SECRET_FIELD_WORDS),
         list(SECRET_FIELD_PHRASES),
+        list(SENSITIVE_APP_WORDS),
     );
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -654,4 +655,25 @@ fn unlabeled_element_borrows_the_nearest_labeled_ancestor() {
         },
     ));
     assert_eq!(c.title, "Tap “Voice call” in com.example.chat");
+}
+
+#[test]
+fn sensitive_apps_are_recognised_by_package() {
+    for pkg in [
+        "com.phonepe.app",
+        "net.one97.paytm",
+        "com.google.android.apps.nbu.paisa.user",
+        "in.org.npci.upiapp",
+        "com.csam.icici.bank.imobile",
+        "com.x8bit.bitwarden.vault",
+    ] {
+        assert!(is_sensitive_app(pkg), "{pkg}");
+    }
+    for pkg in [
+        "com.android.settings",
+        "com.whatsapp",
+        "com.google.android.apps.maps",
+    ] {
+        assert!(!is_sensitive_app(pkg), "{pkg}");
+    }
 }

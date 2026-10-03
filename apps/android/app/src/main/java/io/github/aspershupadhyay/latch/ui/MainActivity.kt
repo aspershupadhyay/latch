@@ -25,6 +25,11 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import android.provider.Settings as AndroidSettings
@@ -78,7 +83,9 @@ import io.github.aspershupadhyay.latch.ui.theme.LatchTheme
 import io.github.aspershupadhyay.latch.update.UpdateInfo
 import io.github.aspershupadhyay.latch.update.Updater
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -516,7 +523,16 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     val always by app.grants.always.collectAsStateWithLifecycle()
     val service by app.bridge.service.collectAsStateWithLifecycle()
+    val autonomy by app.autonomy.state.collectAsStateWithLifecycle()
+    var appsOpen by rememberSaveable { mutableStateOf(false) }
+    if (appsOpen) {
+        BackHandler { appsOpen = false }
+        AppsRoute(app) { appsOpen = false }
+        return
+    }
     CapabilitiesScreen(
+        appsOn = autonomy.allowed.size,
+        onOpenApps = { appsOpen = true },
         enabled = prefs.enabled,
         accessibilityOn = service != null,
         approveEveryAction = prefs.approveEveryAction,
@@ -605,6 +621,37 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openSetup: () -
         onCheckNow = { app.updater.check(manual = true) },
         onInstallUpdate = { info -> installUpdate(app, context, info) },
         reducedMotion = reducedMotion,
+    )
+}
+
+/** Every launchable app with its switch; icons load off the main thread. */
+@Composable
+private fun AppsRoute(app: LatchApp, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val autonomy by app.autonomy.state.collectAsStateWithLifecycle()
+    val installed by produceState<List<Pair<String, String>>?>(null) {
+        value = withContext(Dispatchers.IO) { app.launchableApps() }
+    }
+    val rows = remember(installed, autonomy) {
+        installed.orEmpty().map { (pkg, label) -> AppRow(pkg, label, app.consequences.isSensitiveApp(pkg, label), pkg in autonomy.allowed) }
+    }
+    val icons = remember { mutableStateMapOf<String, ImageBitmap?>() }
+    AppsScreen(
+        apps = rows,
+        loading = installed == null,
+        onToggle = { pkg, on -> app.autonomy.setAllowed(pkg, on) },
+        onAllOff = { app.autonomy.clearAll() },
+        onBack = onBack,
+        icon = { pkg ->
+            LaunchedEffect(pkg) {
+                if (pkg !in icons) {
+                    icons[pkg] = withContext(Dispatchers.IO) {
+                        runCatching { context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull()
+                    }
+                }
+            }
+            icons[pkg]
+        },
     )
 }
 

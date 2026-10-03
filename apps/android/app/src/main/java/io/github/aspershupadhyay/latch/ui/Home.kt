@@ -46,6 +46,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
+import io.github.aspershupadhyay.latch.session.ApprovalKind
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import java.text.DateFormat
 import java.util.Date
@@ -85,20 +86,30 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(LatchIcons.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Approval needed · ${p.risk} risk", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f))
+                        Text(
+                            if (p.kind == ApprovalKind.APP) "App access" else "Approval needed · ${p.risk} risk",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White.copy(alpha = 0.9f),
+                        )
                     }
                     Text(p.title, style = MaterialTheme.typography.titleLarge, color = Color.White)
                     Text(p.detail, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (p.kind == ApprovalKind.APP) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SecondaryButton("Not now", { actions.answer(p.nonce, ApprovalChoice.DENY) }, Modifier.weight(1f), contentColor = Color.White)
+                            SecondaryButton("This session", { actions.answer(p.nonce, ApprovalChoice.SESSION) }, Modifier.weight(1f), contentColor = Color.White)
+                        }
+                        PrimaryButton("Always", { actions.answer(p.nonce, ApprovalChoice.ALWAYS) }, Modifier.fillMaxWidth(), color = Color.White, contentColor = Color(0xFF7C2D12))
+                    } else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         SecondaryButton("Deny", { actions.answer(p.nonce, ApprovalChoice.DENY) }, Modifier.weight(1f), contentColor = Color.White)
                         PrimaryButton("Allow once", { actions.answer(p.nonce, ApprovalChoice.ONCE) }, Modifier.weight(1f), color = Color.White, contentColor = Color(0xFF7C2D12))
                     }
-                    if (p.rememberable) {
+                    if (p.kind != ApprovalKind.APP && p.rememberable) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             SecondaryButton("This session", { actions.answer(p.nonce, ApprovalChoice.SESSION) }, Modifier.weight(1f), contentColor = Color.White)
                             SecondaryButton("Always in ${p.appName ?: "this app"}", { actions.answer(p.nonce, ApprovalChoice.ALWAYS) }, Modifier.weight(1f), contentColor = Color.White)
                         }
-                    } else {
+                    } else if (p.kind != ApprovalKind.APP) {
                         Text("Asked every time.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
                     }
                 }

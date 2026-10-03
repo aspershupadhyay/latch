@@ -448,6 +448,21 @@ fn is_call_package(package: &str) -> bool {
     CALL_PACKAGES.contains(&package)
 }
 
+/// Apps that may hold money, accounts, or passwords, judged from the package
+/// name (and on the phone, also the app's label). Only ever adds a caution:
+/// payments ask the owner regardless (ADR-021).
+pub fn is_sensitive_app(package: &str) -> bool {
+    package
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .any(|w| {
+            SENSITIVE_APP_WORDS
+                .iter()
+                .any(|s| w == *s || (s.chars().count() >= 4 && w.contains(s)))
+        })
+}
+
 /// Tapping a phone number usually starts a call.
 pub fn shows_phone_number(node: &UiNode) -> bool {
     [node.text.as_deref(), node.description.as_deref()]
@@ -708,6 +723,37 @@ const CALL_PACKAGES: &[&str] = &[
     "com.android.phone",
     "com.oplus.dialer",
     "com.coloros.phonemanager",
+];
+
+/// Words in an app's package or name that suggest money, accounts, or passwords.
+const SENSITIVE_APP_WORDS: &[&str] = &[
+    "pay",
+    "bank",
+    "wallet",
+    "upi",
+    "npci",
+    "money",
+    "finance",
+    "loan",
+    "credit",
+    "card",
+    "invest",
+    "trade",
+    "trading",
+    "stock",
+    "crypto",
+    "bitcoin",
+    "paisa",
+    "paytm",
+    "phonepe",
+    "bhim",
+    "cred",
+    "insurance",
+    "tax",
+    "password",
+    "authenticator",
+    "vault",
+    "keychain",
 ];
 
 /// Field names where pressing Enter looks something up instead of sending.

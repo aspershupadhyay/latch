@@ -287,5 +287,15 @@ function matches(node: UiNode, single: readonly string[], phrases: readonly stri
   });
 }
 
+/**
+ * Apps that may hold money, accounts, or passwords, from the package name;
+ * mirrors `latch_policy::is_sensitive_app`. Only ever adds a caution (ADR-021).
+ */
+export function isSensitiveApp(pkg: string): boolean {
+  const words = pkg.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const list = WORDS.sensitive_app_words as readonly string[];
+  return words.some((w) => list.some((s) => w === s || ([...s].length >= 4 && w.includes(s))));
+}
+
 export const isConsequential = (node: UiNode) => matches(node, WORDS.consequential_words, WORDS.consequential_phrases);
 export const looksLikeSecretField = (node: UiNode) => matches(node, WORDS.secret_field_words, WORDS.secret_field_phrases);

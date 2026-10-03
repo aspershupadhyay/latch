@@ -97,6 +97,13 @@ The last setup step asks you to pick a starting point:
 
 Change single switches any time in the **Access** tab. Want to approve **every single** action? Turn on **Ask me before every action**.
 
+**Choose the apps the AI can use:** **Access → Apps the AI can use** lists every app on your phone with a switch.
+
+- **Switched on:** the AI works there without asking you, including sending and deleting. Everything it does is listed in the **Activity** tab.
+- **Switched off:** the first time the AI needs that app, your phone asks once: **Not now**, **This session**, or **Always**. Until you say yes, the AI can't even see that app.
+- **Money and password apps** (banking, UPI, wallets, password managers) show a warning before you switch them on, and the AI is told to check with you in the chat before acting there.
+- **Payments, app installs, Android permission pop-ups, and deleting accounts always ask you on the phone**, even in apps you switched on.
+
 On the same tab, under **While the AI works**:
 
 - **Show where the AI taps** (on by default): a computer-style pointer glides to each spot the AI uses. It's an arrow, turns into a hand over buttons and links, a text cursor over text boxes, and a grabbing hand while swiping, scrolling, or dragging. Every touch shows a fingertip mark; a long press fills a ring; a pinch shows both fingers. It appears when the AI acts and fades away a few seconds after its last action, so it's gone when the task is done. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
@@ -270,7 +277,7 @@ We built Latch so the AI can't sneak around you:
 
 - **Everything starts off.** You switch on each power yourself.
 - **Sessions end on their own** when the timer runs out, and the red **Stop** button is always on screen.
-- **Big actions need your OK.** Before the AI taps things like *Send, Post, Call, Delete,* or presses Enter in a chat, a card pops up on your phone. Tap **Allow once**, or save your answer: **This session**, or **Always in Instagram** (for example). Saved answers are listed under **Access → Always allowed**, where you can remove them.
+- **Only the apps you pick.** The AI can use an app only after you switch it on (or say yes when it first asks). In apps you switched on it doesn't ask again; anywhere else, before the AI taps things like *Send, Post, Call, Delete,* a card pops up on your phone. Tap **Allow once**, or save your answer: **This session**, or **Always in Instagram** (for example).
 - **Money, installs, permissions, and deleting accounts always ask.** Buttons like *Pay, Buy, Transfer, Install,* Android permission prompts, and *Delete account* can't be saved as "always". You're asked every time.
 - **The phone double-checks.** Even if the gateway missed a risky button, the phone checks the same rules on what it sees right now and asks you anyway.
 - **Passwords, PINs, one-time codes, and card numbers are hidden** from the AI, and it can't type into those boxes.

@@ -11,4 +11,8 @@
     <string name="notification_paused">Paused. The AI client can do nothing until you resume.</string>
     <string name="notification_connecting">Connecting to your gateway…</string>
     <string name="action_stop">Stop</string>
+    <string name="channel_updates">App updates</string>
+    <string name="channel_updates_description">Says when Latch has updated itself.</string>
+    <string name="notification_updated">Latch updated to %1$s</string>
+    <string name="notification_updated_text">Your pairing and settings are kept. Tap to open Latch.</string>
 </resources>
