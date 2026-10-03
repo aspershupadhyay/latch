@@ -5,7 +5,7 @@
 import { WORDS } from "./generated/policy-words.js";
 import {
   CAPABILITY_DESCRIPTIONS, MAX_REMEMBER_CHARS, type CapabilityState, type Command, type ConfirmRequest, type Observation,
-  ProtocolError, type RiskLevel, type SessionInfo, type UiNode, isAction, isEmptyRect, nodeAt,
+  ProtocolError, type RiskLevel, type SessionInfo, type UiNode, isEmptyRect, needsOwnerApprovalWhenStrict, nodeAt,
   observationIdOf, requiredCapabilities, validateCommand,
 } from "./protocol.js";
 
@@ -65,7 +65,8 @@ export function evaluate(command: Command, ctx: DeviceContext): Decision {
   } catch (e) {
     return { kind: "deny", error: e as ProtocolError };
   }
-  if (assessment.risk === "high" || (ctx.session.approve_every_action && isAction(command))) {
+  // Asking the owner is itself a question to the owner: never asked about twice.
+  if (command.name !== "owner.ask" && (assessment.risk === "high" || (ctx.session.approve_every_action && needsOwnerApprovalWhenStrict(command)))) {
     return { kind: "confirm", request: assessment };
   }
   return { kind: "allow", risk: assessment.risk };
@@ -161,6 +162,8 @@ function assess(command: Command, observation: Observation | undefined): Assessm
         `enter|${obs.package ?? "?"}|${name.toLowerCase()}`,
       );
     }
+    case "owner.ask":
+      return low(`Ask you: “${shorten(command.params.message)}”`);
     case "ui.wait":
       return low(`Wait for “${shorten(command.params.text)}” to ${command.params.gone ? "disappear" : "appear"}`);
     case "ui.scroll_to": {

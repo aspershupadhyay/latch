@@ -477,6 +477,31 @@
             "name",
             "params"
           ]
+        },
+        {
+          "description": "Since 1.5: ask the owner to do something only a person should do (log\nin, unlock, type a code, choose). The phone shows `message` on a card\nwith \"Done\" and \"I can't\" and answers with an [`crate::ActionResult`]\nwhose `owner` holds the reply. Needs no capability; only the owner can\nanswer, never the AI.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "owner.ask"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
         }
       ]
     },

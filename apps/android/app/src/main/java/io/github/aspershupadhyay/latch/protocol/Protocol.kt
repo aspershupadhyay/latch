@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.4"
+    const val VERSION = "1.5"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -183,6 +183,8 @@ data class ActionResult(
     val found: Boolean? = null,
     /** `ui.type_text` with submit only: false when Enter visibly did nothing. Absent from older apps. */
     val submitted: Boolean? = null,
+    /** `owner.ask` only (since 1.5): done, cant, or no_answer. */
+    val owner: String? = null,
 )
 
 /** Result of `ui.wait` (since 1.3). */
@@ -379,6 +381,15 @@ sealed interface Command {
         override val name = "app.launch"
         override val requiredCapabilities = listOf(Capability.APP_LAUNCH)
     }
+
+    /**
+     * Since 1.5: ask the owner to do something only a person should do (log
+     * in, unlock, a code). Needs no capability; only the owner can answer.
+     */
+    data class AskOwner(val message: String) : Command {
+        override val name = "owner.ask"
+        override val requiredCapabilities = emptyList<Capability>()
+    }
 }
 
 /** Since 1.2: observe after a successful action and return it in the same result. */
@@ -550,6 +561,7 @@ object GatewayParser {
             )
             "app.list" -> Command.ListApps
             "app.launch" -> Command.LaunchApp(params.str("package"))
+            "owner.ask" -> Command.AskOwner(params.str("message"))
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
         }
     }
@@ -580,6 +592,7 @@ object Limits {
     const val MAX_SCROLL_SWIPES = 20
     const val MAX_HOLD_MS = 3_000
     const val MIN_PINCH_SPAN = 20
+    const val MAX_ASK_OWNER_CHARS = 300
 
     fun isValidId(id: String) =
         id.isNotEmpty() && id.length <= MAX_ID_CHARS && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '-' }
@@ -644,6 +657,11 @@ object Validation {
                 if (command.text.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
             is Command.LaunchApp -> if (!Limits.isValidPackage(command.packageName)) invalid("bad package name")
+            is Command.AskOwner -> {
+                val n = command.message.codePointCount(0, command.message.length)
+                if (n !in 1..Limits.MAX_ASK_OWNER_CHARS || command.message.isBlank()) invalid("message must be 1-${Limits.MAX_ASK_OWNER_CHARS} characters")
+                if (command.message.any { Character.isISOControl(it) && it != '\n' }) invalid("control characters")
+            }
             is Command.Pinch -> {
                 id(command.observationId)
                 coordinate(command.centerX)

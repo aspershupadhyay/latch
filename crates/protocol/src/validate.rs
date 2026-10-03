@@ -23,6 +23,8 @@ pub const MAX_QUIET_MS: u32 = 1_000;
 pub const MAX_WAIT_MS: u32 = 15_000;
 pub const MIN_WAIT_MS: u32 = 100;
 pub const MAX_FIND_TEXT_CHARS: usize = 200;
+/// Longest `owner.ask` message, in characters (since 1.5).
+pub const MAX_ASK_OWNER_CHARS: usize = 300;
 pub const MAX_SCROLL_SWIPES: u32 = 20;
 pub const MAX_HOLD_MS: u32 = 3_000;
 pub const MIN_PINCH_SPAN: u32 = 20;
@@ -191,6 +193,18 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
                 return Err(invalid(format!(
                     "max_swipes must be between 1 and {MAX_SCROLL_SWIPES}"
                 )));
+            }
+            Ok(())
+        }
+        Command::AskOwner { message } => {
+            let n = message.chars().count();
+            if n == 0 || n > MAX_ASK_OWNER_CHARS || message.trim().is_empty() {
+                return Err(invalid(format!(
+                    "message must be 1-{MAX_ASK_OWNER_CHARS} characters"
+                )));
+            }
+            if message.chars().any(|c| c.is_control() && c != '\n') {
+                return Err(invalid("message must not contain control characters"));
             }
             Ok(())
         }

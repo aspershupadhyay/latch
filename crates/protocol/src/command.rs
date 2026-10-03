@@ -150,6 +150,14 @@ pub enum Command {
 
     #[serde(rename = "app.launch")]
     LaunchApp { package: String },
+
+    /// Since 1.5: ask the owner to do something only a person should do (log
+    /// in, unlock, type a code, choose). The phone shows `message` on a card
+    /// with "Done" and "I can't" and answers with an [`crate::ActionResult`]
+    /// whose `owner` holds the reply. Needs no capability; only the owner can
+    /// answer, never the AI.
+    #[serde(rename = "owner.ask")]
+    AskOwner { message: String },
 }
 
 fn default_max_nodes() -> u32 {
@@ -183,6 +191,7 @@ impl Command {
             Command::WaitFor { .. } => "ui.wait",
             Command::ScrollTo { .. } => "ui.scroll_to",
             Command::Pinch { .. } => "input.pinch",
+            Command::AskOwner { .. } => "owner.ask",
         }
     }
 
@@ -207,10 +216,13 @@ impl Command {
             Command::ListApps {} | Command::LaunchApp { .. } => vec![Capability::AppLaunch],
             Command::WaitFor { .. } => vec![Capability::UiObserve],
             Command::ScrollTo { .. } => vec![Capability::UiObserve, Capability::InputGesture],
+            // Only shows the owner a question; the owner does the rest.
+            Command::AskOwner { .. } => vec![],
         }
     }
 
     /// True for commands that change device state (as opposed to reading it).
+    /// Asking the owner counts: the owner changes the screen while answering.
     pub fn is_action(&self) -> bool {
         !matches!(
             self,
@@ -221,6 +233,12 @@ impl Command {
         )
     }
 
+    /// True for actions the owner approves under "Ask me before every
+    /// action". Asking the owner is already a question to the owner.
+    pub fn needs_owner_approval_when_strict(&self) -> bool {
+        self.is_action() && !matches!(self, Command::AskOwner { .. })
+    }
+
     /// The lowest protocol minor version a phone must speak to understand this
     /// command exactly (older phones would refuse it or ignore a field).
     pub fn min_minor_version(&self) -> u32 {
@@ -228,6 +246,7 @@ impl Command {
             Command::WaitFor { .. } | Command::ScrollTo { .. } | Command::Pinch { .. } => 3,
             Command::TypeText { submit: true, .. } | Command::Tap { double: true, .. } => 3,
             Command::Swipe { hold_ms, .. } if *hold_ms > 0 => 3,
+            Command::AskOwner { .. } => 5,
             _ => 0,
         }
     }

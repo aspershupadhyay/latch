@@ -70,11 +70,12 @@ fun describe(command: Command): String = when (command) {
     }
     Command.ListApps -> "List installed apps"
     is Command.LaunchApp -> "Open ${command.packageName}"
+    is Command.AskOwner -> "Ask you to do something"
 }
 
 /** Commands that read or act on the screen in front, as opposed to opening an app or going home. */
 private fun worksOnScreen(command: Command): Boolean = when (command) {
-    Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp -> false
+    Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.AskOwner -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
 }
@@ -98,6 +99,7 @@ private const val SYSTEM_UI = "com.android.systemui"
 private const val APPROVAL_WAIT_MS = 110_000L
 
 private const val AGENT_DETAIL = "Your AI asked to do this."
+private const val OWNER_TASK_DETAIL = "Do it on the phone, then tap Done. The AI waits and carries on from there."
 private const val CONSEQUENTIAL_DETAIL =
     "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo."
 private const val CRITICAL_DETAIL =
@@ -153,7 +155,8 @@ class CommandExecutor(
         // Only apps the owner allowed; the first use of an app asks once.
         appTarget(command)?.let { requireApp(it, envelope) }
 
-        val judged = if (command.isAction) approve(envelope, session) else null
+        // Asking the owner is itself a question to the owner, never approved first.
+        val judged = if (command.isAction && command !is Command.AskOwner) approve(envelope, session) else null
 
         if (command == Command.DeviceInfoCommand) {
             val service = bridge.service.value
@@ -192,6 +195,7 @@ class CommandExecutor(
             else -> {
                 var found: Boolean? = null
                 var submitted: Boolean? = null
+                var owner: String? = null
                 // What the screen looked like before, so settling can tell when the action took effect.
                 var before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
                 var expectChangeMs = EXPECT_CHANGE_MS
@@ -212,11 +216,12 @@ class CommandExecutor(
                     }
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName)
+                    is Command.AskOwner -> owner = askOwner(command, envelope)
                     is Command.ScrollTo ->
                         found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
                 }
                 log.add(ActivityKind.ACTION, judged ?: describe(command))
-                var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted)
+                var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted, owner = owner)
                 envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
@@ -301,6 +306,36 @@ class CommandExecutor(
         return title
     }
 
+    /**
+     * Shows the owner what the AI needs them to do and waits for "Done" or
+     * "I can't". The AI app can never answer this (it is not offered there).
+     */
+    private suspend fun askOwner(command: Command.AskOwner, envelope: CommandEnvelope): String {
+        log.add(ActivityKind.APPROVAL, "The AI asked you: ${command.message}")
+        val outcome = approvals.request(
+            title = command.message,
+            detail = OWNER_TASK_DETAIL,
+            risk = "medium",
+            timeoutMs = approvalTimeout(envelope.deadlineMs),
+            kind = ApprovalKind.OWNER_TASK,
+            commandId = envelope.id,
+        )
+        return when (outcome) {
+            ApprovalOutcome.EXPIRED -> {
+                log.add(ActivityKind.APPROVAL, "No answer to the AI's request")
+                "no_answer"
+            }
+            ApprovalOutcome.DENIED -> {
+                log.add(ActivityKind.APPROVAL, "You said you can't do it now")
+                "cant"
+            }
+            else -> {
+                log.add(ActivityKind.APPROVAL, "You said it's done")
+                "done"
+            }
+        }
+    }
+
     /** The launcher is always usable; Latch and system UI are refused by the service itself. */
     private fun exempt(target: String): Boolean {
         val service = bridge.service.value ?: return true
@@ -313,7 +348,7 @@ class CommandExecutor(
 
     /** The app a command works in: the one it opens, or the one in front. */
     private fun appTarget(command: Command): String? = when (command) {
-        Command.DeviceInfoCommand, Command.ListApps -> null
+        Command.DeviceInfoCommand, Command.ListApps, is Command.AskOwner -> null
         is Command.LaunchApp -> command.packageName
         // Going home leaves an app; it never works in one.
         is Command.Global -> if (command.action == GlobalAction.HOME) null else bridge.service.value?.currentPackage()

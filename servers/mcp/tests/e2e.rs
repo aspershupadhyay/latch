@@ -269,6 +269,7 @@ async fn mcp_handshake_and_discovery() {
             "press",
             "list_apps",
             "launch_app",
+            "ask_owner",
             "answer_approval"
         ]
     );
@@ -1031,7 +1032,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.4, 13 tools.",
+        lines[0], "Latch gateway, protocol 1.5, 14 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1049,6 +1050,50 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
         is_error && text.contains(&format!("connected now: {new_id}")),
         "{text}"
     );
+    phone.task.abort();
+}
+
+/// Protocol 1.5: the AI hands a step to the owner (log in, unlock) and gets
+/// their answer and the screen afterwards. It is never asked about itself,
+/// even with "Ask me before every action".
+#[tokio::test]
+async fn ask_owner_hands_a_step_to_the_owner() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    phone
+        .state
+        .lock()
+        .expect("lock")
+        .session
+        .approve_every_action = true;
+    let (is_error, text, _) = call(
+        &gw,
+        "ask_owner",
+        json!({"message": "Please log in to Instagram, then tap Done."}),
+    )
+    .await;
+    assert!(
+        !is_error && text.starts_with("The owner says it's done. The screen after the action:"),
+        "{text}"
+    );
+    {
+        let s = phone.state.lock().expect("lock");
+        assert_eq!(
+            s.owner_questions,
+            ["Please log in to Instagram, then tap Done."]
+        );
+        assert!(s.approval_requests.is_empty(), "{:?}", s.approval_requests);
+    }
+
+    phone.state.lock().expect("lock").owner_reply = latch_protocol::OwnerReply::Cant;
+    let (is_error, text, _) = call(&gw, "ask_owner", json!({"message": "Unlock the phone"})).await;
+    assert!(
+        !is_error && text.starts_with("The owner says they can't do it now."),
+        "{text}"
+    );
+
+    let (is_error, text, _) = call(&gw, "ask_owner", json!({"message": "  "})).await;
+    assert!(is_error && text.contains("invalid_request"), "{text}");
     phone.task.abort();
 }
 

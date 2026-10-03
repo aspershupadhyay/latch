@@ -414,7 +414,8 @@ export class Devices {
     if (decision.kind === "deny") throw decision.error;
     setDecision(decision.kind);
     const confirm: ConfirmRequest | undefined = decision.kind === "confirm" ? decision.request : undefined;
-    const deadlineMs = confirm || resume ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
+    // The owner needs time for an approval, and for whatever they were asked to do.
+    const deadlineMs = confirm || resume || command.name === "owner.ask" ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
     const enabled = (c: string) => live.capabilities.some((s) => s.capability === c && s.status === "enabled");
     let observeAfter: ObserveAfter | undefined;
     if (options.observeAfter && isAction(command) && minor >= 2 && enabled("ui.observe")) {

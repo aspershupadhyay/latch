@@ -218,6 +218,21 @@ pub struct ActionResult {
     /// (the text stayed in the field and the screen said nothing new). Absent from older apps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submitted: Option<bool>,
+    /// `owner.ask` only (since 1.5): what the owner answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<OwnerReply>,
+}
+
+/// The owner's answer to `owner.ask` (since 1.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnerReply {
+    /// The owner says they did it.
+    Done,
+    /// The owner says they cannot or will not.
+    Cant,
+    /// Nobody answered before the deadline.
+    NoAnswer,
 }
 
 /// Result of `ui.wait` (since 1.3).

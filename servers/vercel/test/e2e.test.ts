@@ -130,7 +130,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "answer_approval"]);
+  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
   const apps = await client.callTool({ name: "list_apps", arguments: { query: " CHAT " } });
@@ -175,6 +175,10 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const secret = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n2", text: "hunter2" } });
   assert.match(text(secret), /sensitive_target/);
   // This form ignores Enter: the agent hears so, with the same text as the Rust gateway.
+  // Protocol 1.5: the owner takes a step (log in) and the AI gets the answer.
+  const asked = await client.callTool({ name: "ask_owner", arguments: { message: "Please log in, then tap Done." } });
+  assert.match(text(asked), /^The owner says it's done\. The screen after the action:/);
+  screen = asked;
   const ignored = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n1", text: "alice", submit: true } });
   assert.match(text(ignored), /^Typed, but Enter did nothing visible/);
 
