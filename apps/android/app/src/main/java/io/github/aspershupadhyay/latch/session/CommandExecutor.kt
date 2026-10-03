@@ -91,6 +91,9 @@ private const val EXPECT_CHANGE_MS = 450L
 
 private const val SYSTEM_UI = "com.android.systemui"
 
+/** Longest a question stays open when the gateway waits for it (protocol 1.4); under the gateway's 120 s. */
+private const val APPROVAL_WAIT_MS = 110_000L
+
 private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
 private const val CONSEQUENTIAL_DETAIL =
     "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
@@ -106,7 +109,15 @@ class CommandExecutor(
     /** Human name of an app, for the "Always in …" button. */
     private val appName: (String) -> String? = { null },
     private val autonomy: Autonomy? = null,
+    /** The gateway keeps waiting while the owner answers (protocol 1.4), so questions may stay open longer. */
+    private val longApprovals: () -> Boolean = { false },
 ) {
+    /** How long a question waits for the owner, given the command's own deadline. */
+    private fun approvalTimeout(deadlineMs: Long): Long {
+        val own = (deadlineMs - 2_000).coerceAtLeast(5_000)
+        return if (longApprovals()) maxOf(own, APPROVAL_WAIT_MS) else own
+    }
+
     /**
      * [current] reads the owner's session and switches again later, so an
      * observation after an action respects a pause or switch made meanwhile.
@@ -137,7 +148,7 @@ class CommandExecutor(
         }
 
         // Only apps the owner allowed; the first use of an app asks once.
-        appTarget(command)?.let { requireApp(it, envelope.deadlineMs) }
+        appTarget(command)?.let { requireApp(it, envelope) }
 
         val judged = if (command.isAction) approve(envelope, session) else null
 
@@ -250,9 +261,9 @@ class CommandExecutor(
         }
         log.add(ActivityKind.APPROVAL, "Asked you: $title")
         // Leave the gateway a little time to receive the answer before its deadline.
-        val timeout = (envelope.deadlineMs - 2_000).coerceAtLeast(5_000)
+        val timeout = approvalTimeout(envelope.deadlineMs)
         val app = bridge.service.value?.currentPackage()?.let(appName)
-        when (approvals.request(title, detail, risk, timeout, rememberable = key != null, appName = app)) {
+        when (approvals.request(title, detail, risk, timeout, rememberable = key != null, appName = app, commandId = envelope.id)) {
             ApprovalOutcome.APPROVED_ONCE -> log.add(ActivityKind.APPROVAL, "You approved: $title")
             ApprovalOutcome.APPROVED_SESSION -> {
                 grants.allowForSession(key!!)
@@ -298,14 +309,13 @@ class CommandExecutor(
      * first time the AI needs an app, the owner is asked once for it. The
      * launcher is always usable; Latch and system UI are refused elsewhere.
      */
-    private suspend fun requireApp(target: String, deadlineMs: Long) {
+    private suspend fun requireApp(target: String, envelope: CommandEnvelope) {
         val access = autonomy ?: return
         if (exempt(target) || access.decide(target) == AppDecision.ALLOWED) return
         val name = appName(target) ?: target
         val sensitive = consequences.isSensitiveApp(target, name)
         log.add(ActivityKind.APPROVAL, "Asked you: let the AI use $name")
-        // Leave the gateway a little time to receive the answer before its deadline.
-        val timeout = (deadlineMs - 2_000).coerceAtLeast(5_000)
+        val timeout = approvalTimeout(envelope.deadlineMs)
         val outcome = approvals.request(
             title = "Let the AI use $name?",
             detail = (if (sensitive) "$name may hold money, accounts, or passwords. " else "") +
@@ -316,6 +326,7 @@ class CommandExecutor(
             rememberable = true,
             appName = name,
             kind = ApprovalKind.APP,
+            commandId = envelope.id,
         )
         when (outcome) {
             ApprovalOutcome.APPROVED_ALWAYS -> {

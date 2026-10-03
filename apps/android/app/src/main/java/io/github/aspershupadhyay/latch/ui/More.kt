@@ -109,6 +109,8 @@ fun CapabilitiesScreen(
     onRemoveAllSaved: () -> Unit = {},
     appsOn: Int = 0,
     onOpenApps: () -> Unit = {},
+    remoteApprovals: Boolean = false,
+    onRemoteApprovals: (Boolean) -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
@@ -150,6 +152,26 @@ fun CapabilitiesScreen(
                         checked = approveEveryAction,
                         onCheckedChange = onApproveEveryAction,
                         modifier = Modifier.semantics { contentDescription = "Ask me before every action" },
+                    )
+                },
+            )
+        }
+
+        Card {
+            ListRow(
+                LatchIcons.Sparkle,
+                "Answer questions in the AI app too",
+                if (remoteApprovals) {
+                    "When Latch asks you something, your AI app asks too, so you can answer from your computer. Anyone using that AI app can answer."
+                } else {
+                    "Off: only this phone can answer Latch's questions."
+                },
+                tint = signal.accent,
+                trailing = {
+                    Switch(
+                        checked = remoteApprovals,
+                        onCheckedChange = onRemoteApprovals,
+                        modifier = Modifier.semantics { contentDescription = "Answer Latch's questions in the AI app too" },
                     )
                 },
             )

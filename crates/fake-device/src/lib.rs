@@ -79,6 +79,7 @@ impl FakeState {
                 expires_at_ms: now_ms() + 60 * 60 * 1000,
                 approve_every_action: false,
                 paused: false,
+                remote_approvals: false,
             },
             approval: Approval::Approve,
             approval_requests: Vec::new(),
@@ -555,7 +556,7 @@ pub async fn run(
                 )
                 .await?;
             }
-            GatewayToDevice::Cancel { .. } => {}
+            GatewayToDevice::Cancel { .. } | GatewayToDevice::ApprovalAnswer { .. } => {}
             GatewayToDevice::Revoked { .. } => {
                 lock(&state).revoked = true;
                 break;
@@ -673,7 +674,9 @@ pub async fn run_poll(
                         lock(&state).revoked = true;
                         return Ok(());
                     }
-                    GatewayToDevice::Cancel { .. } | GatewayToDevice::Welcome { .. } => {}
+                    GatewayToDevice::Cancel { .. }
+                    | GatewayToDevice::Welcome { .. }
+                    | GatewayToDevice::ApprovalAnswer { .. } => {}
                 }
             }
             (401, _) => {

@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.3"
+    const val VERSION = "1.4"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -97,6 +97,8 @@ data class SessionInfo(
     @SerialName("expires_at_ms") val expiresAtMs: Long,
     @SerialName("approve_every_action") val approveEveryAction: Boolean = false,
     val paused: Boolean = false,
+    /** Since 1.4: approvals may also be answered in the AI app (the owner's switch). */
+    @SerialName("remote_approvals") val remoteApprovals: Boolean = false,
 )
 
 @Serializable
@@ -247,6 +249,31 @@ object Outgoing {
             })
         })
     }.toString()
+
+    /**
+     * Since 1.4: the phone waits for the owner on [commandId]. [remote] says
+     * whether an answer from the AI app counts (the owner's switch).
+     */
+    fun approvalRequest(
+        commandId: String,
+        nonce: String,
+        title: String,
+        detail: String,
+        app: Boolean,
+        choices: List<String>,
+        remote: Boolean,
+        expiresAtMs: Long,
+    ): String = buildJsonObject {
+        put("type", "approval_request")
+        put("command_id", commandId)
+        put("nonce", nonce)
+        put("title", title.trim().replace(Regex("\\p{Cntrl}"), " ").take(200).ifBlank { "Approve this action?" })
+        put("detail", detail.trim().replace(Regex("\\p{Cntrl}"), " ").take(600).ifBlank { "Requested by an AI agent connected through Latch." })
+        put("kind", if (app) "app" else "action")
+        put("choices", kotlinx.serialization.json.JsonArray(choices.map { JsonPrimitive(it) }))
+        put("remote", remote)
+        put("expires_at_ms", expiresAtMs)
+    }.toString()
 }
 
 // ---- Gateway → device ----
@@ -374,6 +401,8 @@ sealed interface GatewayMessage {
     data class CommandMessage(val envelope: CommandEnvelope) : GatewayMessage
     data class Cancel(val id: String) : GatewayMessage
     data class Revoked(val reason: String) : GatewayMessage
+    /** Since 1.4: the owner answered in the AI app; [choice] is once, session, always, or deny. */
+    data class ApprovalAnswer(val nonce: String, val choice: String) : GatewayMessage
 }
 
 /**
@@ -416,6 +445,13 @@ object GatewayParser {
             )
             "cancel" -> GatewayMessage.Cancel(root.str("id"))
             "revoked" -> GatewayMessage.Revoked(root.str("reason"))
+            "approval_answer" -> {
+                val nonce = root.str("nonce")
+                if (!Regex("^[0-9a-f]{32}$").matches(nonce)) invalid("nonce must be 32 lowercase hex characters")
+                val choice = root.str("choice")
+                if (choice !in setOf("once", "session", "always", "deny")) invalid("unknown approval choice")
+                GatewayMessage.ApprovalAnswer(nonce, choice)
+            }
             "command" -> {
                 val id = root.str("id")
                 if (!Limits.isValidId(id)) invalid("bad command id")

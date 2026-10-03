@@ -24,6 +24,52 @@ pub struct SessionInfo {
     /// When true the owner paused the session; commands are refused.
     #[serde(default)]
     pub paused: bool,
+    /// Since 1.4: the owner lets approvals be answered in the AI app as well as
+    /// on the phone. The gateway then asks the AI app's user (MCP elicitation)
+    /// whenever the phone sends an [`ApprovalRequest`] marked `remote`.
+    #[serde(default)]
+    pub remote_approvals: bool,
+}
+
+/// What an approval is about (since 1.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalKind {
+    /// One action, such as a tap on "Send".
+    Action,
+    /// Letting the AI use an app at all.
+    App,
+}
+
+/// An answer to an approval (since 1.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalChoice {
+    Once,
+    Session,
+    Always,
+    Deny,
+}
+
+/// The phone is waiting for the owner to answer an approval for a running
+/// command (since 1.4). Gateways keep waiting for that command's result
+/// while it is open, and may relay an answer when `remote` is true.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ApprovalRequest {
+    /// The command the approval belongs to.
+    pub command_id: String,
+    /// Random, 32 lowercase hex characters; an answer must quote it.
+    pub nonce: String,
+    /// What the owner is asked, e.g. "Tap “Send” in com.example.chat". Untrusted app text may appear quoted.
+    pub title: String,
+    pub detail: String,
+    pub kind: ApprovalKind,
+    /// The answers the phone offers; `deny` is always possible.
+    pub choices: Vec<ApprovalChoice>,
+    /// The owner allows answering from the AI app (their `remote_approvals` switch).
+    pub remote: bool,
+    /// Unix ms (device clock) when the phone stops waiting.
+    pub expires_at_ms: u64,
 }
 
 /// First message on every device connection.
@@ -67,6 +113,8 @@ pub enum DeviceToGateway {
     Bye {
         reason: String,
     },
+    /// Since 1.4: the phone is waiting for the owner's answer to an approval.
+    ApprovalRequest(ApprovalRequest),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -128,6 +176,13 @@ pub enum GatewayToDevice {
     /// The gateway owner revoked this device. Forget the credential and disconnect.
     Revoked {
         reason: String,
+    },
+    /// Since 1.4: the owner answered an [`ApprovalRequest`] in the AI app. The
+    /// phone applies it only if the nonce matches its open request and the
+    /// owner's `remote_approvals` switch is on.
+    ApprovalAnswer {
+        nonce: String,
+        choice: ApprovalChoice,
     },
 }
 

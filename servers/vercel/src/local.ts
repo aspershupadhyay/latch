@@ -24,7 +24,19 @@ async function toRequest(req: IncomingMessage, origin: string): Promise<Request>
 async function send(res: ServerResponse, response: Response) {
   res.statusCode = response.status;
   response.headers.forEach((v, k) => res.setHeader(k, v));
-  res.end(Buffer.from(await response.arrayBuffer()));
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  // Streamed, so event-stream answers (elicitation) reach the client as they happen.
+  res.flushHeaders();
+  const reader = response.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    res.write(value);
+  }
+  res.end();
 }
 
 export function startLocal(gateway: Gateway, port: number) {

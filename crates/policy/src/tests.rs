@@ -81,6 +81,7 @@ fn session() -> SessionInfo {
         expires_at_ms: NOW + 60_000,
         approve_every_action: false,
         paused: false,
+        remote_approvals: false,
     }
 }
 

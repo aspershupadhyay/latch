@@ -58,6 +58,8 @@ class DeviceLink(
         fun cancel(commandId: String)
         /** The protocol version the gateway answered `hello` with, on every (re)connect. */
         fun gatewayProtocol(version: String) = Unit
+        /** Since 1.4: the owner answered an approval in the AI app. */
+        fun approvalAnswer(nonce: String, choice: String) = Unit
     }
 
     private val base = gatewayUrl.trimEnd('/')
@@ -97,6 +99,11 @@ class DeviceLink(
             }
         }
         connection = null
+    }
+
+    /** Sends a protocol message (e.g. an approval request); ignored while disconnected. */
+    fun send(body: String) {
+        scope.launch(Dispatchers.IO) { post(body) }
     }
 
     /** Sends the owner's current switches and session; ignored while disconnected. */
@@ -232,6 +239,7 @@ class DeviceLink(
                 commands.send(message.envelope)
             }
             is GatewayMessage.Cancel -> events.cancel(message.id)
+            is GatewayMessage.ApprovalAnswer -> events.approvalAnswer(message.nonce, message.choice)
             is GatewayMessage.Revoked -> {
                 events.rejected(revoked = true)
                 loop?.cancel()

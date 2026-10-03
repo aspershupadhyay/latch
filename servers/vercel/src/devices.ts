@@ -4,7 +4,7 @@
 
 import { evaluate } from "./policy.js";
 import {
-  type CapabilityState, type Command, type ConfirmRequest, type ErrorCode, type Hello, type Observation, type ObserveAfter,
+  type ApprovalChoice, type ApprovalRequest, type CapabilityState, type Command, type ConfirmRequest, type ErrorCode, type Hello, type Observation, type ObserveAfter,
   type Outcome, ProtocolError, RECOVERY_HINTS, type SessionInfo, isAction, minMinorVersion, minorVersion, normalizeObservation,
 } from "./protocol.js";
 import { newId } from "./secret.js";
@@ -49,6 +49,12 @@ export interface ExecuteOptions {
   observeAfter?: ObserveAfter;
   /** Fixed settle time for 1.2 phones, which ignore `quiet_ms` and would wait the whole `settle_ms`. */
   legacySettleMs?: number;
+  /**
+   * Asks the AI app's user to answer an approval the phone is waiting on
+   * (protocol 1.4, MCP elicitation). Undefined when the client cannot ask, or
+   * resolves undefined when the user dismissed the question.
+   */
+  askOwner?: (request: ApprovalRequest) => Promise<ApprovalChoice | undefined>;
 }
 
 export interface DeviceRecord {
@@ -85,6 +91,7 @@ export const K = {
   queue: (id: string, conn: string) => `latch:q:${id}:${conn}`,
   pending: (cmd: string) => `latch:pending:${cmd}`,
   result: (cmd: string) => `latch:result:${cmd}`,
+  approval: (cmd: string) => `latch:approval:${cmd}`,
   lock: (id: string) => `latch:lock:${id}`,
   observation: (id: string) => `latch:obs:${id}`,
   audit: "latch:audit",
@@ -218,6 +225,23 @@ export class Devices {
     const p = JSON.parse(pending) as { device: string; conn: string };
     if (p.device !== id || p.conn !== conn) return true;
     await this.store.set(K.result(commandId), JSON.stringify(outcome), { px: 60_000 });
+    return true;
+  }
+
+  /**
+   * Notes that the phone is waiting for the owner on a running command
+   * (protocol 1.4), if the command was sent to this phone on this connection.
+   */
+  async recordApproval(id: string, conn: string, request: ApprovalRequest): Promise<boolean> {
+    const [rawLive, pending] = await this.store.batch([
+      { op: "get", key: K.live(id) },
+      { op: "get", key: K.pending(request.command_id) },
+    ]);
+    const live = rawLive ? (JSON.parse(rawLive) as Live) : undefined;
+    if (live?.conn !== conn) return false;
+    const p = pending ? (JSON.parse(pending) as { device: string; conn: string }) : undefined;
+    if (p?.device !== id || p.conn !== conn) return true;
+    await this.store.set(K.approval(request.command_id), JSON.stringify(request), { px: CONFIRM_DEADLINE_MS + 15_000 });
     return true;
   }
 
@@ -361,13 +385,33 @@ export class Devices {
     await this.store.batch(send);
     const sentAt = Date.now();
 
-    // A little grace on top of the device's own deadline for the network.
-    const waitUntil = sentAt + deadlineMs + 3_000;
+    // A little grace on top of the device's own deadline for the network. A phone
+    // that is waiting for the owner (protocol 1.4) gets one approval's worth more.
+    let waitUntil = sentAt + deadlineMs + 3_000;
     let lastPresenceCheck = sentAt;
     let result: string | null = null;
+    let approvalSeen = false;
     for (;;) {
-      result = await this.store.getdel(K.result(commandId));
+      const [got, approval] = await this.store.batch([
+        { op: "getdel", key: K.result(commandId) },
+        ...(approvalSeen ? [] : [{ op: "get" as const, key: K.approval(commandId) }]),
+      ]);
+      result = got ?? null;
       if (result) break;
+      if (!approvalSeen && approval) {
+        approvalSeen = true;
+        waitUntil = Math.max(waitUntil, Date.now() + CONFIRM_DEADLINE_MS + 3_000);
+        const request = JSON.parse(approval) as ApprovalRequest;
+        if (request.remote && options.askOwner) {
+          // Ask in the AI app while the phone shows its own card; the first answer wins.
+          void options.askOwner(request).then(async (choice) => {
+            if (choice === undefined) return;
+            await this.store.lpush(
+              K.queue(id, live.conn), JSON.stringify({ type: "approval_answer", nonce: request.nonce, choice }), CONFIRM_DEADLINE_MS,
+            );
+          }).catch(() => undefined);
+        }
+      }
       if (Date.now() > waitUntil) {
         finish.push(
           { op: "del", key: K.pending(commandId) },
@@ -382,6 +426,7 @@ export class Devices {
       await sleep(this.timing.resultIntervalMs);
     }
     const phoneMs = Date.now() - sentAt;
+    if (approvalSeen) finish.push({ op: "del", key: K.approval(commandId) });
 
     const outcome = JSON.parse(result) as Outcome;
     if (outcome.status === "error") throw new ProtocolError(outcome.error.code, outcome.error.message);

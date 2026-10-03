@@ -40,6 +40,9 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
         let msg: DeviceToGateway = serde_json::from_str(json).map_err(|e| e.to_string())?;
         match &msg {
             DeviceToGateway::Hello(hello) => validate::hello(hello).map_err(err)?,
+            DeviceToGateway::ApprovalRequest(request) => {
+                validate::approval_request(request).map_err(err)?
+            }
             DeviceToGateway::Result {
                 outcome: Outcome::Ok { data },
                 ..
@@ -67,8 +70,12 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
         Ok(())
     } else if name.starts_with("g2d-") {
         let msg: GatewayToDevice = serde_json::from_str(json).map_err(|e| e.to_string())?;
-        if let GatewayToDevice::Command(envelope) = &msg {
-            validate::envelope(envelope).map_err(err)?;
+        match &msg {
+            GatewayToDevice::Command(envelope) => validate::envelope(envelope).map_err(err)?,
+            GatewayToDevice::ApprovalAnswer { nonce, .. } => {
+                validate::approval_nonce(nonce).map_err(err)?
+            }
+            _ => {}
         }
         let reparsed: GatewayToDevice =
             serde_json::from_str(&serde_json::to_string(&msg).map_err(|e| e.to_string())?)

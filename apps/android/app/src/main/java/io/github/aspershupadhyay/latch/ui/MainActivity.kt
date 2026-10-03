@@ -533,6 +533,8 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
     CapabilitiesScreen(
         appsOn = autonomy.allowed.size,
         onOpenApps = { appsOpen = true },
+        remoteApprovals = prefs.remoteApprovals,
+        onRemoteApprovals = { v -> app.settings.update { it.copy(remoteApprovals = v) } },
         enabled = prefs.enabled,
         accessibilityOn = service != null,
         approveEveryAction = prefs.approveEveryAction,

@@ -1,0 +1,11 @@
+{
+  "type": "approval_request",
+  "command_id": "c_42",
+  "nonce": "not-a-nonce",
+  "title": "Tap “Send” in com.example.chat",
+  "detail": "Requested by an AI agent connected through Latch.",
+  "kind": "action",
+  "choices": ["once", "deny"],
+  "remote": true,
+  "expires_at_ms": 1800000120000
+}

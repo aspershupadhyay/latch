@@ -37,4 +37,32 @@ class ApprovalBrokerTest {
         broker.answer(pending.nonce, ApprovalChoice.DENY)
         assertEquals(ApprovalOutcome.DENIED, outcome.await())
     }
+
+    @Test
+    fun remoteAnswersMustQuoteTheNonceAndOfferedChoice() = runTest {
+        val broker = ApprovalBroker()
+        var offered: PendingApproval? = null
+        broker.onRequested = { offered = it }
+        val outcome = async { broker.request("Tap “Send”", "d", "high", 60_000, rememberable = false, commandId = "c_1") }
+        yield()
+        val pending = broker.pending.value!!
+        assertEquals("c_1", offered?.commandId)
+        assertEquals(listOf("once", "deny"), offered?.choices)
+        // A critical request offers no "always", so a remote "always" is refused.
+        assertEquals(false, broker.answerRemote(pending.nonce, "always"))
+        assertEquals(false, broker.answerRemote("0".repeat(32), "once"))
+        assertEquals(true, broker.answerRemote(pending.nonce, "once"))
+        assertEquals(ApprovalOutcome.APPROVED_ONCE, outcome.await())
+    }
+
+    @Test
+    fun appQuestionsOfferSessionAlwaysOrDeny() = runTest {
+        val broker = ApprovalBroker()
+        val outcome = async { broker.request("Let the AI use Maps?", "d", "medium", 60_000, rememberable = true, kind = ApprovalKind.APP) }
+        yield()
+        val pending = broker.pending.value!!
+        assertEquals(listOf("session", "always", "deny"), pending.choices)
+        assertEquals(true, broker.answerRemote(pending.nonce, "always"))
+        assertEquals(ApprovalOutcome.APPROVED_ALWAYS, outcome.await())
+    }
 }

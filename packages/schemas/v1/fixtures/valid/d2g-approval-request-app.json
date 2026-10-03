@@ -1,0 +1,11 @@
+{
+  "type": "approval_request",
+  "command_id": "c_43",
+  "nonce": "fedcba9876543210fedcba9876543210",
+  "title": "Let the AI use Maps?",
+  "detail": "The AI can see Maps's screen and act in it.",
+  "kind": "app",
+  "choices": ["session", "always", "deny"],
+  "remote": false,
+  "expires_at_ms": 1800000120000
+}

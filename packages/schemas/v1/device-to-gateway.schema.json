@@ -85,9 +85,99 @@
         "type",
         "reason"
       ]
+    },
+    {
+      "description": "Since 1.4: the phone is waiting for the owner's answer to an approval.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "approval_request"
+        }
+      },
+      "$ref": "#/$defs/ApprovalRequest",
+      "required": [
+        "type"
+      ]
     }
   ],
   "$defs": {
+    "ApprovalChoice": {
+      "description": "An answer to an approval (since 1.4).",
+      "type": "string",
+      "enum": [
+        "once",
+        "session",
+        "always",
+        "deny"
+      ]
+    },
+    "ApprovalKind": {
+      "description": "What an approval is about (since 1.4).",
+      "oneOf": [
+        {
+          "description": "One action, such as a tap on \"Send\".",
+          "type": "string",
+          "const": "action"
+        },
+        {
+          "description": "Letting the AI use an app at all.",
+          "type": "string",
+          "const": "app"
+        }
+      ]
+    },
+    "ApprovalRequest": {
+      "description": "The phone is waiting for the owner to answer an approval for a running\ncommand (since 1.4). Gateways keep waiting for that command's result\nwhile it is open, and may relay an answer when `remote` is true.",
+      "type": "object",
+      "properties": {
+        "choices": {
+          "description": "The answers the phone offers; `deny` is always possible.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ApprovalChoice"
+          }
+        },
+        "command_id": {
+          "description": "The command the approval belongs to.",
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "expires_at_ms": {
+          "description": "Unix ms (device clock) when the phone stops waiting.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/ApprovalKind"
+        },
+        "nonce": {
+          "description": "Random, 32 lowercase hex characters; an answer must quote it.",
+          "type": "string"
+        },
+        "remote": {
+          "description": "The owner allows answering from the AI app (their `remote_approvals` switch).",
+          "type": "boolean"
+        },
+        "title": {
+          "description": "What the owner is asked, e.g. \"Tap “Send” in com.example.chat\". Untrusted app text may appear quoted.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "nonce",
+        "title",
+        "detail",
+        "kind",
+        "choices",
+        "remote",
+        "expires_at_ms"
+      ]
+    },
     "Capability": {
       "description": "A named, separately grantable device capability.\n\nCapabilities are what the phone owner switches on and off. Every command\nmaps to the capabilities it needs (see [`crate::Command::required_capabilities`]);\na command whose capabilities are not all enabled is refused before it\nreaches the platform.",
       "oneOf": [
@@ -381,6 +471,11 @@
         },
         "paused": {
           "description": "When true the owner paused the session; commands are refused.",
+          "type": "boolean",
+          "default": false
+        },
+        "remote_approvals": {
+          "description": "Since 1.4: the owner lets approvals be answered in the AI app as well as\non the phone. The gateway then asks the AI app's user (MCP elicitation)\nwhenever the phone sends an [`ApprovalRequest`] marked `remote`.",
           "type": "boolean",
           "default": false
         }

@@ -71,7 +71,10 @@ class SessionController(
     private val _outdatedGateway = MutableStateFlow<String?>(null)
     val outdatedGateway: StateFlow<String?> = _outdatedGateway.asStateFlow()
 
-    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy)
+    /** Minor protocol version of the connected gateway; 1.4 relays approvals and waits for them. */
+    @Volatile private var gatewayMinor = 0
+
+    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy) { gatewayMinor >= 4 }
     private var link: DeviceLink? = null
     private var wanted = false
     private var paused = false
@@ -80,6 +83,7 @@ class SessionController(
     @Volatile private var runningCommandId: String? = null
 
     init {
+        approvals.onRequested = ::offerApproval
         scope.launch {
             combine(settings.preferences, bridge.service) { _, _ -> Unit }.collect { pushState() }
         }
@@ -107,7 +111,9 @@ class SessionController(
         }
     }
 
-    private fun sessionInfo() = SessionInfo(expiresAtMs, settings.preferences.value.approveEveryAction, paused)
+    private fun sessionInfo() = SessionInfo(
+        expiresAtMs, settings.preferences.value.approveEveryAction, paused, settings.preferences.value.remoteApprovals,
+    )
 
     private fun wireCapabilities() = capabilityStatuses().map { (c, s) -> CapabilityState(c.wire, s.wire) }
 
@@ -228,6 +234,7 @@ class SessionController(
         }
 
         override fun gatewayProtocol(version: String) {
+            gatewayMinor = Protocol.minorOf(version) ?: 0
             val behind = Protocol.minorOf(version)?.let { it < Protocol.MINOR } ?: false
             scope.launch { _outdatedGateway.value = if (behind) version else null }
         }
@@ -235,6 +242,26 @@ class SessionController(
         override fun cancel(commandId: String) {
             scope.launch { if (runningCommandId == commandId) approvals.cancel() }
         }
+
+        override fun approvalAnswer(nonce: String, choice: String) {
+            scope.launch {
+                // Only when the owner allowed it; a gateway cannot answer on its own otherwise.
+                if (!settings.preferences.value.remoteApprovals) return@launch
+                if (approvals.answerRemote(nonce, choice)) log.add(ActivityKind.APPROVAL, "Answered in the AI app: $choice")
+            }
+        }
+    }
+
+    /** Tells a 1.4 gateway the phone waits for the owner; it may ask in the AI app too. */
+    private fun offerApproval(pending: PendingApproval) {
+        val id = pending.commandId ?: return
+        if (gatewayMinor < 4) return
+        link?.send(
+            Outgoing.approvalRequest(
+                id, pending.nonce, pending.title, pending.detail, pending.kind == ApprovalKind.APP, pending.choices,
+                settings.preferences.value.remoteApprovals, pending.expiresAtMs,
+            ),
+        )
     }
 
     private fun fail(message: String) {
@@ -253,7 +280,9 @@ class SessionController(
     private suspend fun runCommand(envelope: CommandEnvelope): String = withContext(Dispatchers.Main.immediate) {
         runningCommandId = envelope.id
         try {
-            val data = withTimeout(envelope.deadlineMs.coerceIn(1_000, 180_000)) {
+            // A 1.4 gateway keeps waiting while the owner is asked, so the command may too.
+            val limit = envelope.deadlineMs.coerceIn(1_000, 180_000) + if (gatewayMinor >= 4) APPROVAL_GRACE_MS else 0
+            val data = withTimeout(limit) {
                 executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() }
             }
             Outgoing.ok(envelope.id, data)
@@ -269,6 +298,9 @@ class SessionController(
         }
     }
 }
+
+/** Extra time a command may take while the owner answers an approval (protocol 1.4 gateways). */
+private const val APPROVAL_GRACE_MS = 120_000L
 
 /** Gateway address handling, shared by pairing and the session. */
 object Pairing {
