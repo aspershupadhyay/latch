@@ -14,7 +14,7 @@ class UpdateManifestTest {
 
     private fun manifest(
         code: String = "142",
-        url: String = "${prefix}test-build/latch-android-debug.apk",
+        url: String = "${prefix}test-build/latch-android.apk",
         hash: String = sha,
         size: String = "33554432",
         extra: String = "",

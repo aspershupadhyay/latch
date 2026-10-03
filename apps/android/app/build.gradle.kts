@@ -41,16 +41,20 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "false")
             manifestPlaceholders["allowCleartext"] = "false"
-            // Releases update from the newest published release (.github/workflows/release.yml).
-            buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$RELEASES/latest/download/latch-update.json\"")
-            // Signed in CI from repository secrets; see .github/workflows/release.yml.
-            val keystore = System.getenv("LATCH_KEYSTORE_PATH")
+            // Releases update from the newest published release (release.yml); test builds of
+            // main set LATCH_UPDATE_MANIFEST_URL to the test-build pre-release (test-build.yml).
+            val manifest = System.getenv("LATCH_UPDATE_MANIFEST_URL")?.takeIf { it.isNotBlank() }
+                ?: "$RELEASES/latest/download/latch-update.json"
+            buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$manifest\"")
+            // Signed in CI from repository secrets; see docs/platform/android.md. A PKCS12 keystore
+            // has one password, so alias and key password default to "latch" and the store password.
+            val keystore = System.getenv("LATCH_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
             if (keystore != null) {
                 signingConfig = signingConfigs.create("release") {
                     storeFile = file(keystore)
                     storePassword = System.getenv("LATCH_KEYSTORE_PASSWORD")
-                    keyAlias = System.getenv("LATCH_KEY_ALIAS")
-                    keyPassword = System.getenv("LATCH_KEY_PASSWORD")
+                    keyAlias = System.getenv("LATCH_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "latch"
+                    keyPassword = System.getenv("LATCH_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: storePassword
                 }
             }
         }
