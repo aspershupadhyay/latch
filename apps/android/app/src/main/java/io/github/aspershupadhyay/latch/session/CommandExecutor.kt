@@ -9,6 +9,7 @@ import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
 import io.github.aspershupadhyay.latch.data.AppDecision
 import io.github.aspershupadhyay.latch.data.Autonomy
+import io.github.aspershupadhyay.latch.files.PhoneFiles
 import io.github.aspershupadhyay.latch.policy.Consequence
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.Judgement
@@ -22,6 +23,11 @@ import io.github.aspershupadhyay.latch.protocol.DeviceDescriptor
 import io.github.aspershupadhyay.latch.protocol.DeviceInfo
 import io.github.aspershupadhyay.latch.protocol.ErrorBody
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
+import io.github.aspershupadhyay.latch.protocol.FileChunk
+import io.github.aspershupadhyay.latch.protocol.FileItem
+import io.github.aspershupadhyay.latch.protocol.FileList
+import io.github.aspershupadhyay.latch.protocol.FileLocation
+import io.github.aspershupadhyay.latch.protocol.FilePreview
 import io.github.aspershupadhyay.latch.protocol.GlobalAction
 import io.github.aspershupadhyay.latch.protocol.Observation
 import io.github.aspershupadhyay.latch.protocol.ObserveAfter
@@ -31,6 +37,7 @@ import io.github.aspershupadhyay.latch.protocol.ScreenInfo
 import io.github.aspershupadhyay.latch.protocol.SessionInfo
 import io.github.aspershupadhyay.latch.protocol.Target
 import io.github.aspershupadhyay.latch.protocol.WaitResult
+import io.github.aspershupadhyay.latch.protocol.isFileChange
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 
@@ -71,11 +78,28 @@ fun describe(command: Command): String = when (command) {
     Command.ListApps -> "List installed apps"
     is Command.LaunchApp -> "Open ${command.packageName}"
     is Command.AskOwner -> "Ask you to do something"
+    is Command.ListFiles -> "List files in ${where(command.location)}"
+    is Command.PreviewFile -> "Look at a file"
+    is Command.ReadFile -> "Copy a file from your phone"
+    is Command.WriteFile -> (if (command.overwrite) "Replace" else if (command.append) "Add to" else "Save") +
+        " “${command.fileName}” " + (if (command.overwrite || command.append) "in " else "to ") + where(command.location)
+    is Command.MakeFolder -> "Create the folder “${command.folderName}”"
+    is Command.RenameFile -> "Rename a file to “${command.newName}”"
+    is Command.DeleteFile -> "Delete a file from your phone"
+    is Command.Share -> "Share ${command.ids.size} ${if (command.ids.size == 1) "file" else "files"} to ${command.packageName}"
+}
+
+private fun where(location: FileLocation) = when (location) {
+    FileLocation.PHOTOS -> "your photos"
+    FileLocation.DOWNLOADS -> "Downloads"
+    FileLocation.FOLDER -> "your Latch folder"
 }
 
 /** Commands that read or act on the screen in front, as opposed to opening an app or going home. */
 private fun worksOnScreen(command: Command): Boolean = when (command) {
-    Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.AskOwner -> false
+    Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.AskOwner,
+    is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
+    is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
 }
@@ -99,6 +123,7 @@ private const val SYSTEM_UI = "com.android.systemui"
 private const val APPROVAL_WAIT_MS = 110_000L
 
 private const val AGENT_DETAIL = "Your AI asked to do this."
+private const val FILE_DETAIL = "Your AI asked to do this. The file's current contents cannot be brought back afterwards."
 private const val OWNER_TASK_DETAIL = "Do it on the phone, then tap Done. The AI waits and carries on from there."
 private const val CONSEQUENTIAL_DETAIL =
     "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo."
@@ -116,6 +141,8 @@ class CommandExecutor(
     private val autonomy: Autonomy? = null,
     /** The gateway keeps waiting while the owner answers (protocol 1.4), so questions may stay open longer. */
     private val longApprovals: () -> Boolean = { false },
+    /** Photos, Downloads, and the picked folder (protocol 1.6). */
+    private val files: PhoneFiles? = null,
 ) {
     /** How long a question waits for the owner, given the command's own deadline. */
     private fun approvalTimeout(deadlineMs: Long): Long {
@@ -176,7 +203,47 @@ class CommandExecutor(
             ?: throw ProtocolException(ErrorCode.PERMISSION_MISSING, "the Latch accessibility service is switched off")
 
         val action = ActionResult()
+        fun files() = files ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot use files")
         return when (command) {
+            is Command.ListFiles -> {
+                val list = files().list(command.location, command.folder, command.query, command.limit, command.offset)
+                log.add(ActivityKind.OBSERVE, "${describe(command)} · ${list.items.size} shown")
+                Protocol.json.encodeToJsonElement(FileList.serializer(), list)
+            }
+            is Command.PreviewFile -> {
+                val preview = files().preview(command.id)
+                log.add(ActivityKind.OBSERVE, "Looked at “${preview.item.name}”")
+                Protocol.json.encodeToJsonElement(FilePreview.serializer(), preview)
+            }
+            is Command.ReadFile -> {
+                val chunk = files().read(command.id, command.offset, command.length)
+                // One line per file, not per chunk.
+                if (command.offset == 0L) log.add(ActivityKind.OBSERVE, "Copied “${chunk.item.name}” off the phone")
+                Protocol.json.encodeToJsonElement(FileChunk.serializer(), chunk)
+            }
+            is Command.WriteFile -> {
+                val item = files().write(
+                    command.location, command.folder, command.subfolder, command.fileName, command.mime,
+                    command.dataBase64, command.append, command.overwrite,
+                )
+                if (!command.append) log.add(ActivityKind.ACTION, judged ?: describe(command))
+                Protocol.json.encodeToJsonElement(FileItem.serializer(), item)
+            }
+            is Command.MakeFolder -> {
+                val item = files().mkdir(command.folder, command.folderName)
+                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                Protocol.json.encodeToJsonElement(FileItem.serializer(), item)
+            }
+            is Command.RenameFile -> {
+                val item = files().rename(command.id, command.newName)
+                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                Protocol.json.encodeToJsonElement(FileItem.serializer(), item)
+            }
+            is Command.DeleteFile -> {
+                files().delete(command.id)
+                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                Protocol.json.encodeToJsonElement(ActionResult.serializer(), action)
+            }
             is Command.Observe -> {
                 val observation = service.observe(command.includeScreenshot, command.maxNodes)
                 log.add(ActivityKind.OBSERVE, "${describe(command)} · ${observation.`package` ?: "unknown app"}")
@@ -217,6 +284,7 @@ class CommandExecutor(
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName)
                     is Command.AskOwner -> owner = askOwner(command, envelope)
+                    is Command.Share -> files().share(service, command.packageName, command.ids, command.text)
                     is Command.ScrollTo ->
                         found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
                 }
@@ -235,6 +303,7 @@ class CommandExecutor(
      */
     private suspend fun approve(envelope: CommandEnvelope, session: SessionInfo): String? {
         val command = envelope.command
+        if (command.isFileChange) return approveFileChange(envelope, session)
         val confirm = envelope.confirm
         val judgement = judge(command)
         val deviceAsks = judgement != null && judgement.consequence != Consequence.NONE
@@ -307,6 +376,48 @@ class CommandExecutor(
     }
 
     /**
+     * Saving, renaming, and deleting files (ADR-026). Replacing an existing file
+     * and deleting ask every time, unless Auto mode is on; "Ask me before every
+     * action" asks for every change (not for the later chunks of one save).
+     */
+    private suspend fun approveFileChange(envelope: CommandEnvelope, session: SessionInfo): String {
+        val command = envelope.command
+        val files = files ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot use files")
+        val title = when (command) {
+            is Command.DeleteFile -> "Delete “${files.nameOf(command.id) ?: "a file"}” from your phone"
+            is Command.RenameFile -> "Rename “${files.nameOf(command.id) ?: "a file"}” to “${command.newName}”"
+            else -> describe(command)
+        }
+        // Replacing asks only when there is something to replace.
+        val replaces = command is Command.WriteFile && command.overwrite &&
+            files.existing(command.location, command.folder, command.subfolder, command.fileName) != null
+        val risky = command is Command.DeleteFile || replaces
+        val strict = session.approveEveryAction && !(command is Command.WriteFile && command.append)
+        if (!risky && !strict) return title
+        if (!strict && autonomy?.state?.value?.autoOn == true) {
+            log.add(ActivityKind.APPROVAL, "Done without asking (Auto mode): $title")
+            return title
+        }
+        log.add(ActivityKind.APPROVAL, "Asked you: $title")
+        val outcome = approvals.request(
+            title, if (risky) FILE_DETAIL else AGENT_DETAIL, if (risky) "high" else "medium",
+            approvalTimeout(envelope.deadlineMs), commandId = envelope.id,
+        )
+        when (outcome) {
+            ApprovalOutcome.DENIED -> {
+                log.add(ActivityKind.APPROVAL, "You denied: $title")
+                throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
+            }
+            ApprovalOutcome.EXPIRED -> {
+                log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
+                throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
+            }
+            else -> log.add(ActivityKind.APPROVAL, "You approved: $title")
+        }
+        return title
+    }
+
+    /**
      * Shows the owner what the AI needs them to do and waits for "Done" or
      * "I can't". The AI app can never answer this (it is not offered there).
      */
@@ -348,8 +459,12 @@ class CommandExecutor(
 
     /** The app a command works in: the one it opens, or the one in front. */
     private fun appTarget(command: Command): String? = when (command) {
-        Command.DeviceInfoCommand, Command.ListApps, is Command.AskOwner -> null
+        Command.DeviceInfoCommand, Command.ListApps, is Command.AskOwner,
+        is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
+        is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile -> null
         is Command.LaunchApp -> command.packageName
+        // Sharing opens that app: only apps the owner allowed (or Auto mode).
+        is Command.Share -> command.packageName
         // Going home leaves an app; it never works in one.
         is Command.Global -> if (command.action == GlobalAction.HOME) null else bridge.service.value?.currentPackage()
         else -> bridge.service.value?.currentPackage()
@@ -437,9 +552,10 @@ class CommandExecutor(
             delay(after.settleMs.toLong())
         } else {
             // Opening an app or going home starts with an animation that sends few events.
-            val floor = if (command is Command.LaunchApp || command is Command.Global) TRANSITION_FLOOR_MS else 0L
+            val opening = (command as? Command.LaunchApp)?.packageName ?: (command as? Command.Share)?.packageName
+            val floor = if (opening != null || command is Command.Global) TRANSITION_FLOOR_MS else 0L
             // An app that is still starting would be observed as the previous app: wait for it first.
-            val waited = if (command is Command.LaunchApp) service.awaitForeground(command.packageName, after.settleMs.toLong()) else 0L
+            val waited = if (opening != null) service.awaitForeground(opening, after.settleMs.toLong()) else 0L
             // Then wait for the screen to change and hold still: a new page slides in silently,
             // so the agent would otherwise get the old page or one caught mid-animation.
             service.awaitSettled(

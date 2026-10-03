@@ -160,7 +160,7 @@ The owner asked for the full feature list, ordered by priority, to be built one 
 | Wake and keep-awake | Turn the screen on and keep it on during a session so a task is not cut off by the lock. |
 | More gestures | Double tap, long-press-drag, drag and drop, pinch, fling, pull to refresh. |
 
-**Wave 2 — files and posting** (ADR-026)
+**Wave 2 — files and posting** (ADR-026) · IN_REVIEW (built 2026-10-04 in one change, protocol 1.6, not yet run on a phone): gallery read, Download, picked folder with full create/read/update/delete and subfolders, computer ⇄ phone links (`get_file_link`, `upload_link`), `share_to_app` to any app. Replacing and deleting ask unless Auto mode is on.
 
 | Feature | Outcome |
 |---|---|

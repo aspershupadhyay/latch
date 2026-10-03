@@ -5,7 +5,7 @@
 import { evaluate } from "./policy.js";
 import {
   type ApprovalChoice, type ApprovalRequest, type CapabilityState, type Command, type ConfirmRequest, type ErrorCode, type Hello, type Observation, type ObserveAfter,
-  type Outcome, ProtocolError, RECOVERY_HINTS, type SessionInfo, isAction, minMinorVersion, minorVersion, normalizeObservation,
+  type Outcome, ProtocolError, RECOVERY_HINTS, type SessionInfo, changesScreen, minMinorVersion, minorVersion, normalizeObservation,
 } from "./protocol.js";
 import { newId } from "./secret.js";
 import type { BatchOp, Store } from "./store.js";
@@ -418,7 +418,7 @@ export class Devices {
     const deadlineMs = confirm || resume || command.name === "owner.ask" ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
     const enabled = (c: string) => live.capabilities.some((s) => s.capability === c && s.status === "enabled");
     let observeAfter: ObserveAfter | undefined;
-    if (options.observeAfter && isAction(command) && minor >= 2 && enabled("ui.observe")) {
+    if (options.observeAfter && changesScreen(command) && minor >= 2 && enabled("ui.observe")) {
       const { quiet_ms: quiet, ...rest } = options.observeAfter;
       observeAfter = { ...rest, include_screenshot: rest.include_screenshot && enabled("screen.capture") };
       if (minor >= 3 && quiet !== undefined) observeAfter.quiet_ms = quiet;
@@ -433,7 +433,7 @@ export class Devices {
     };
     const send: BatchOp[] = [];
     // Whatever happens next, the old screen can no longer be trusted.
-    if (isAction(command)) send.push({ op: "del", key: K.observation(id) });
+    if (changesScreen(command)) send.push({ op: "del", key: K.observation(id) });
     send.push(
       { op: "set", key: K.pending(commandId), value: JSON.stringify({ device: id, conn: live.conn }), px: deadlineMs + 10_000 },
       { op: "lpush", key: K.queue(id, live.conn), value: JSON.stringify(envelope), px: deadlineMs + 10_000 },

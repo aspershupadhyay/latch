@@ -10,8 +10,8 @@
 //! lower it.
 
 use latch_protocol::{
-    CapabilityState, CapabilityStatus, Command, ConfirmRequest, ErrorCode, Observation,
-    ProtocolError, RiskLevel, SessionInfo, Target, UiNode, validate,
+    CapabilityState, CapabilityStatus, Command, ConfirmRequest, ErrorCode, FileLocation,
+    Observation, ProtocolError, RiskLevel, SessionInfo, Target, UiNode, validate,
 };
 
 /// Actions must be planned against an observation at most this old.
@@ -154,6 +154,8 @@ struct Assessment {
 }
 
 const AGENT_DETAIL: &str = "Your AI asked to do this.";
+const FILE_DETAIL: &str =
+    "Your AI asked to do this. The file's current contents cannot be brought back afterwards.";
 const CONSEQUENTIAL_DETAIL: &str = "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo.";
 const CRITICAL_DETAIL: &str = "Your AI asked to do this. It involves money, installing an app, a permission, or deleting an account, so Latch asks every time.";
 
@@ -175,6 +177,17 @@ impl Assessment {
             risk: RiskLevel::Medium,
             title,
             detail: AGENT_DETAIL.into(),
+            remember: None,
+        }
+    }
+
+    /// Replacing or deleting a file: asked every time unless the owner's
+    /// Auto mode covers it (decided on the phone).
+    fn file_risk(title: String) -> Self {
+        Assessment {
+            risk: RiskLevel::High,
+            title,
+            detail: FILE_DETAIL.into(),
             remember: None,
         }
     }
@@ -356,6 +369,56 @@ fn assess(
                 format!("enter|{}|{}", package.unwrap_or("?"), name.to_lowercase()),
             ))
         }
+        Command::ListFiles { location, .. } => {
+            Ok(low(format!("List files in {}", where_on_phone(*location))))
+        }
+        Command::PreviewFile { .. } => Ok(low("Look at a file".into())),
+        Command::ReadFile { .. } => Ok(low("Copy a file from your phone".into())),
+        Command::WriteFile {
+            location,
+            name,
+            overwrite,
+            append,
+            ..
+        } => {
+            let title = if *overwrite {
+                format!(
+                    "Replace “{}” in {}",
+                    shorten(name),
+                    where_on_phone(*location)
+                )
+            } else if *append {
+                format!(
+                    "Add to “{}” in {}",
+                    shorten(name),
+                    where_on_phone(*location)
+                )
+            } else {
+                format!("Save “{}” to {}", shorten(name), where_on_phone(*location))
+            };
+            // Replacing loses the old file: the owner approves (Auto mode aside, on the phone).
+            Ok(if *overwrite {
+                Assessment::file_risk(title)
+            } else {
+                Assessment::medium(title)
+            })
+        }
+        Command::MakeFolder { name, .. } => Ok(Assessment::medium(format!(
+            "Create the folder “{}”",
+            shorten(name)
+        ))),
+        Command::RenameFile { name, .. } => Ok(Assessment::medium(format!(
+            "Rename a file to “{}”",
+            shorten(name)
+        ))),
+        Command::DeleteFile { .. } => Ok(Assessment::file_risk(
+            "Delete a file from your phone".into(),
+        )),
+        Command::Share { package, ids, .. } => Ok(Assessment::medium(format!(
+            "Share {} {} to {package}",
+            ids.len(),
+            if ids.len() == 1 { "file" } else { "files" }
+        ))),
         Command::AskOwner { message } => Ok(low(format!("Ask you: “{}”", shorten(message)))),
         Command::WaitFor { text, gone, .. } => Ok(low(format!(
             "Wait for “{}” to {}",
@@ -585,6 +648,14 @@ fn label_of(node: &UiNode) -> String {
 }
 
 /// One line of at most 48 characters, for approval prompts.
+fn where_on_phone(location: FileLocation) -> &'static str {
+    match location {
+        FileLocation::Photos => "your photos",
+        FileLocation::Downloads => "Downloads",
+        FileLocation::Folder => "your Latch folder",
+    }
+}
+
 fn shorten(raw: &str) -> String {
     let single_line: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut label: String = single_line.chars().take(48).collect();

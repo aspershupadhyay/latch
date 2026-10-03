@@ -17,6 +17,8 @@ use latch_protocol::{
     SessionInfo, Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
+
+pub mod files;
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
 
 /// 1x1 transparent PNG; the fake device has no real pixels.
@@ -55,6 +57,10 @@ pub struct FakeState {
     pub owner_reply: OwnerReply,
     /// Every `owner.ask` message shown to the simulated owner.
     pub owner_questions: Vec<String>,
+    /// Photos, Downloads, and the picked folder (protocol 1.6).
+    pub files: files::FakeFiles,
+    /// Every `app.share`: package, file names, text.
+    pub shared: Vec<(String, Vec<String>, Option<String>)>,
     /// Every command the device executed (not refused).
     pub executed: Vec<String>,
     pub device_id: Option<String>,
@@ -89,6 +95,8 @@ impl FakeState {
             approval_requests: Vec::new(),
             owner_reply: OwnerReply::Done,
             owner_questions: Vec::new(),
+            files: files::FakeFiles::default(),
+            shared: Vec::new(),
             executed: Vec::new(),
             device_id: None,
             revoked: false,
@@ -274,6 +282,81 @@ pub fn handle(
             Ok(value)
         }
         Command::Pinch { .. } => {
+            state.latest = None;
+            done(state)
+        }
+        Command::ListFiles {
+            location,
+            folder,
+            query,
+            limit,
+            offset,
+        } => {
+            let list = state.files.list(
+                *location,
+                folder.as_deref(),
+                query.as_deref(),
+                *limit,
+                *offset,
+            )?;
+            state.executed.push("file.list".into());
+            serde_json::to_value(list).map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::PreviewFile { id } => {
+            let preview = state.files.preview(id)?;
+            state.executed.push("file.preview".into());
+            serde_json::to_value(preview).map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::ReadFile { id, offset, length } => {
+            let chunk = state.files.read(id, *offset, *length)?;
+            state.executed.push("file.read".into());
+            serde_json::to_value(chunk).map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::WriteFile {
+            location,
+            folder,
+            subfolder,
+            name,
+            mime,
+            data_base64,
+            append,
+            overwrite,
+        } => {
+            let item = state.files.write(
+                *location,
+                folder.as_deref(),
+                subfolder.as_deref(),
+                name,
+                mime.as_deref(),
+                data_base64,
+                *append,
+                *overwrite,
+            )?;
+            state.executed.push("file.write".into());
+            serde_json::to_value(item).map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::MakeFolder { folder, name } => {
+            let item = state.files.mkdir(folder.as_deref(), name)?;
+            state.executed.push("file.mkdir".into());
+            serde_json::to_value(item).map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::RenameFile { id, name } => {
+            let item = state.files.rename(id, name)?;
+            state.executed.push("file.rename".into());
+            serde_json::to_value(item).map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::DeleteFile { id } => {
+            state.files.delete(id)?;
+            state.executed.push("file.delete".into());
+            serde_json::to_value(ActionResult::default())
+                .map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::Share { package, ids, text } => {
+            let names = ids
+                .iter()
+                .map(|id| state.files.name_of(id))
+                .collect::<Result<Vec<_>, _>>()?;
+            state.shared.push((package.clone(), names, text.clone()));
             state.latest = None;
             done(state)
         }

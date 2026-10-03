@@ -27,6 +27,7 @@ import io.github.aspershupadhyay.latch.ui.MainActivity
 import io.github.aspershupadhyay.latch.update.Updater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import io.github.aspershupadhyay.latch.files.PhoneFiles
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -56,6 +57,9 @@ class LatchApp : Application() {
     lateinit var autonomy: Autonomy
         private set
     val http = Pairing.client()
+    /** Photos, Downloads, and the folder the owner picked (protocol 1.6). */
+    lateinit var files: PhoneFiles
+        private set
     lateinit var updater: Updater
         private set
 
@@ -68,7 +72,8 @@ class LatchApp : Application() {
         grants = ApprovalGrants(PrefsGrantStore(this))
         consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
         autonomy = Autonomy(PrefsAutonomyStore(this))
-        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy)
+        files = PhoneFiles(this) { settings.preferences.value.filesFolder?.let(android.net.Uri::parse) }
+        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files)
         setup = GatewaySetup(http)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()

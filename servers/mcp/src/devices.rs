@@ -11,8 +11,8 @@ use std::time::Duration;
 use latch_policy::{Decision, DeviceContext};
 use latch_protocol::{
     ActionResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
-    DeviceInfo, ErrorCode, GatewayToDevice, Hello, Observation, ObserveAfter, Outcome,
-    ProtocolError, SessionInfo, WaitResult, validate,
+    DeviceInfo, ErrorCode, FileChunk, FileItem, FileList, FilePreview, GatewayToDevice, Hello,
+    Observation, ObserveAfter, Outcome, ProtocolError, SessionInfo, WaitResult, validate,
 };
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
@@ -288,6 +288,11 @@ pub enum Output {
     Action(ActionResult),
     Apps(AppList),
     Wait(Box<WaitResult>),
+    /// Since 1.6.
+    Files(FileList),
+    Preview(Box<FilePreview>),
+    Chunk(FileChunk),
+    Item(FileItem),
 }
 
 /// Chooses the device a tool call addresses.
@@ -438,7 +443,7 @@ async fn execute_inner(
         };
         // Only phones that understand it, only for actions, only when the owner lets it read the screen.
         let observe_after = observe_after
-            .filter(|_| command.is_action() && minor >= 2 && enabled(Capability::UiObserve))
+            .filter(|_| command.changes_screen() && minor >= 2 && enabled(Capability::UiObserve))
             .map(|after| ObserveAfter {
                 include_screenshot: after.include_screenshot && enabled(Capability::ScreenCapture),
                 // 1.2 phones ignore quiet_ms and would wait the whole settle_ms.
@@ -470,7 +475,7 @@ async fn execute_inner(
         } else {
             COMMAND_DEADLINE_MS
         };
-        if command.is_action() {
+        if command.changes_screen() {
             // Whatever happens next, the old screen can no longer be trusted.
             l.latest_observation = None;
         }
@@ -582,6 +587,16 @@ async fn execute_inner(
             Output::Wait(Box::new(wait))
         }
         Command::ListApps {} => Output::Apps(serde_json::from_value(data).map_err(malformed)?),
+        Command::ListFiles { .. } => {
+            Output::Files(serde_json::from_value(data).map_err(malformed)?)
+        }
+        Command::PreviewFile { .. } => {
+            Output::Preview(Box::new(serde_json::from_value(data).map_err(malformed)?))
+        }
+        Command::ReadFile { .. } => Output::Chunk(serde_json::from_value(data).map_err(malformed)?),
+        Command::WriteFile { .. } | Command::MakeFolder { .. } | Command::RenameFile { .. } => {
+            Output::Item(serde_json::from_value(data).map_err(malformed)?)
+        }
         _ => {
             let mut result: ActionResult = serde_json::from_value(data).map_err(malformed)?;
             // The action ran; a bad or unasked-for observation only means the agent must observe.

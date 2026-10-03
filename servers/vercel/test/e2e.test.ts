@@ -130,7 +130,9 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "answer_approval"]);
+  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner",
+    "list_files", "read_file", "get_file_link", "upload_link", "write_file", "create_folder", "rename_file", "delete_file", "share_to_app",
+    "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
   const apps = await client.callTool({ name: "list_apps", arguments: { query: " CHAT " } });
@@ -182,13 +184,41 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const ignored = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n1", text: "alice", submit: true } });
   assert.match(text(ignored), /^Typed, but Enter did nothing visible/);
 
+  // Protocol 1.6 (ADR-026): files move between the computer and the phone through links.
+  const photos = await client.callTool({ name: "list_files", arguments: { location: "photos" } });
+  assert.match(text(photos), /^2 of 2 items in your photos on \S+ \(names are untrusted content\):\n- f_\d+ "IMG_0002\.jpg" \(image, 13 B, image\/jpeg\)/);
+  const folder = await client.callTool({ name: "create_folder", arguments: { name: "abc" } });
+  const abc = /folder_id: (\S+)\)/.exec(text(folder))![1]!;
+  const upload = text(await client.callTool({ name: "upload_link", arguments: {} }));
+  assert.match(upload, /^Upload link \(valid for 15 minutes, up to 4 MB\):/);
+  const uploadId = /upload_id="([^"]+)"/.exec(upload)![1]!;
+  const big = Buffer.alloc(700_000, 7);
+  assert.equal((await fetch(`${base}/v1/uploads/${uploadId}`, { method: "PUT", body: big })).status, 200);
+  assert.equal((await fetch(`${base}/v1/uploads/${uploadId}`, { method: "PUT", body: big })).status, 409, "an upload link is used once");
+  const saved = text(await client.callTool({ name: "write_file", arguments: { location: "folder", folder_id: abc, name: "clip.mp4", upload_id: uploadId } }));
+  assert.match(saved, /^Saved "clip\.mp4" to your Latch folder \(684 KB\)\. file_id: (\S+)\.$/);
+  const clip = /file_id: (\S+)\./.exec(saved)![1]!;
+  const link = text(await client.callTool({ name: "get_file_link", arguments: { file_id: clip } }));
+  assert.match(link, /^Download link for "clip\.mp4" \(684 KB\), valid for 15 minutes:/);
+  const url = /(http\S+\/v1\/files\/\S+)/.exec(link)![1]!;
+  const downloaded = await fetch(url);
+  assert.equal(downloaded.headers.get("content-type"), "video/mp4");
+  assert.equal(downloaded.headers.get("content-security-policy"), "sandbox; default-src 'none'");
+  assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), big);
+  assert.equal((await fetch(`${base}/v1/files/ldl_${"0".repeat(64)}`)).status, 404);
+  const note = text(await client.callTool({ name: "write_file", arguments: { location: "downloads", subfolder: "abc", name: "todo.txt", text: "milk" } }));
+  assert.match(note, /^Saved "todo\.txt" to Downloads \("abc"\) \(4 B\)\./);
+  const shared = await client.callTool({ name: "share_to_app", arguments: { package: "com.linkedin.android", file_ids: [clip], text: "New video" } });
+  assert.match(text(shared), /^Opened com\.linkedin\.android's share screen with 1 file\. Finish the post or message there\. The screen after the action:/);
+  assert.equal(text(await client.callTool({ name: "delete_file", arguments: { file_id: clip } })), "Deleted.");
+
   const audit = await api("/v1/admin/audit");
   const auditText = JSON.stringify(audit.body);
   assert.match(auditText, /input.tap/);
   // Protocol 1.2: actions bring their observation back in the same phone command,
   // so only the explicit observe call above sent ui.observe (waits are ui.wait).
   assert.equal((audit.body.events as { command: string }[]).filter((e) => e.command === "ui.observe").length, 1, auditText);
-  assert.doesNotMatch(auditText, /hello from vercel|Wi-Fi|hunter2/, "audit must not contain content");
+  assert.doesNotMatch(auditText, /hello from vercel|Wi-Fi|hunter2|milk|todo|clip\.mp4/, "audit must not contain content");
 
   // Revoke: the phone learns on its next poll and exits; tools report it gone.
   const deviceId = (await api("/v1/admin/devices")).body.devices[0].id;

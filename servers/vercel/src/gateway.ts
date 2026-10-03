@@ -3,8 +3,9 @@
 // phone app and the owner console work against either.
 
 import { type DeviceRecord, Devices, type Timing } from "./devices.js";
+import { MAX_TRANSFER_BYTES, Transfers } from "./files.js";
 import { type Elicit, type ElicitResult, askOwnerVia, handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
-import { type ApprovalRequest, type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, parseApprovalRequest, validateHello } from "./protocol.js";
+import { type ApprovalRequest, type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, isValidMime, parseApprovalRequest, validateHello } from "./protocol.js";
 import { OAuth } from "./oauth.js";
 import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret.js";
 import type { Store } from "./store.js";
@@ -72,12 +73,15 @@ async function readJson(request: Request, limit: number): Promise<unknown> {
 
 export class Gateway {
   readonly devices: Devices;
+  /** File links (protocol 1.6). */
+  readonly transfers: Transfers;
   readonly oauth: OAuth;
   /** When this instance last wrote `last_used_ms` per MCP client. */
   private readonly lastUsedWrites = new Map<string, number>();
 
   constructor(private readonly store: Store, private readonly config: GatewayConfig) {
     this.devices = new Devices(store, config.timing);
+    this.transfers = new Transfers(store);
     const setup = () => this.setupMode;
     this.oauth = new OAuth(store, {
       get adminToken() {
@@ -137,6 +141,9 @@ export class Gateway {
       return this.mcp(request, linkToken ?? bearer(request.headers.get("authorization")));
     }
     if (path === "/v1/pair" && m === "POST") return this.pair(request);
+    // File links (protocol 1.6): the 256-bit token in the path is the credential.
+    if (path.startsWith("/v1/files/") && m === "GET") return this.fileDownload(path.slice("/v1/files/".length));
+    if (path.startsWith("/v1/uploads/") && (m === "PUT" || m === "POST")) return this.fileUpload(request, path.slice("/v1/uploads/".length));
     if (path === "/v1/device/hello" && m === "POST") return this.hello(request);
     if (path === "/v1/device/poll" && m === "GET") return this.poll(request);
     if (path === "/v1/device/messages" && m === "POST") return this.messages(request);
@@ -147,6 +154,37 @@ export class Gateway {
       return this.admin(request, path.slice("/v1/admin/".length), m);
     }
     return error(404, "not found");
+  }
+
+  // ---- File links (protocol 1.6) ----
+
+  private async fileDownload(token: string): Promise<Response> {
+    const file = await this.transfers.download(decodeURIComponent(token));
+    if (!file) return error(404, "this link has expired or never existed");
+    // The name came from the phone: keep only safe characters in the header.
+    const safe = [...file.name].map((c) => (/[A-Za-z0-9 ._()-]/.test(c) ? c : "_")).join("");
+    return new Response(new Uint8Array(file.bytes), {
+      status: 200,
+      headers: {
+        "content-type": isValidMime(file.mime) ? file.mime : "application/octet-stream",
+        "content-disposition": `attachment; filename="${safe}"`,
+        "cache-control": "no-store",
+        // A phone file is never a page of this gateway (the owner console lives here).
+        "x-content-type-options": "nosniff",
+        "content-security-policy": "sandbox; default-src 'none'",
+      },
+    });
+  }
+
+  private async fileUpload(request: Request, token: string): Promise<Response> {
+    const declared = Number(request.headers.get("content-length") ?? "0");
+    if (declared > MAX_TRANSFER_BYTES) return error(413, "the file is larger than 4 MB");
+    const bytes = Buffer.from(await request.arrayBuffer());
+    const result = await this.transfers.putUpload(decodeURIComponent(token), bytes);
+    if (result === "too_large") return error(413, "the file is larger than 4 MB");
+    if (result === "used") return error(409, "this upload link was already used; ask for a new one");
+    if (result === "unknown") return error(404, "this link has expired or never existed");
+    return json(200, { ok: true, upload_id: token, size: bytes.length });
   }
 
   // ---- Public ----
@@ -254,10 +292,13 @@ export class Gateway {
     // Clients that can show questions get the tool call as an event stream, so an
     // approval the phone waits on can be asked in the AI app as well.
     if (m.method === "tools/call" && (request.headers.get("accept") ?? "").includes("text/event-stream") && (await this.canElicit(client))) {
-      return this.streamToolCall(client, message);
+      return this.streamToolCall(client, message, new URL(request.url).origin);
     }
     // Without elicitation, a question the phone asks pauses the call so the AI can ask in the chat.
-    const reply = await handleMcp({ devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true }, message);
+    const reply = await handleMcp(
+      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, baseUrl: new URL(request.url).origin },
+      message,
+    );
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);
   }
 
@@ -289,10 +330,10 @@ export class Gateway {
     await this.store.set(`latch:elicit:${m.id}`, JSON.stringify(result).slice(0, 4096), { px: 60_000 });
   }
 
-  private streamToolCall(client: string, message: unknown): Response {
+  private streamToolCall(client: string, message: unknown, baseUrl: string): Response {
     const encoder = new TextEncoder();
     const store = this.store;
-    const ctx = { devices: this.devices, settleMs: this.config.settleMs };
+    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, baseUrl };
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         let open = true;

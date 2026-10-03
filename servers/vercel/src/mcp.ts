@@ -6,6 +6,7 @@ import { SERVER } from "./generated/contract.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live } from "./devices.js";
 import { type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
+import { FILE_TOOLS, runFileTool, type Transfers, uploadLink } from "./files.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
 type Tool = (typeof SERVER.tools)[number];
@@ -20,6 +21,9 @@ export interface McpContext {
   deferWhenAsked?: boolean;
   /** Set by answer_approval: collect this command's result instead of sending a new one. */
   resumeCommandId?: string;
+  /** File links (protocol 1.6) and the address AI apps reach this gateway at. */
+  transfers?: Transfers;
+  baseUrl?: string;
 }
 
 /** What an MCP client answered to `elicitation/create`, or undefined when it never did. */
@@ -194,8 +198,26 @@ async function answerApproval(ctx: McpContext, args: Record<string, unknown>): P
 
 async function runTool(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === "list_devices") return textResult(await renderDevices(ctx.devices));
+  if (name === "upload_link") {
+    if (!ctx.transfers || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
+    return uploadLink(ctx.transfers, ctx.baseUrl);
+  }
 
   const { id: deviceId, live } = await ctx.devices.resolveDevice(argStr(args, "device_id"));
+  if ((FILE_TOOLS as readonly string[]).includes(name)) {
+    if (!ctx.transfers || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
+    return runFileTool({
+      devices: ctx.devices,
+      transfers: ctx.transfers,
+      baseUrl: ctx.baseUrl,
+      live,
+      execute: (command, observeAfter = false, screenshot = false) =>
+        execute(ctx, deviceId, command, observeAfter
+          ? { observeAfter: { settle_ms: SETTLE_MAX_MS, quiet_ms: QUIET_MS, include_screenshot: screenshot, max_nodes: 400 } }
+          : {}),
+      observationResult: (obs, withheld) => observationResult(deviceId, obs as Observation, withheld),
+    }, name, args, deviceId);
+  }
   const screenshotAfter = argBool(args, "screenshot_after", false);
   let command: Command;
   switch (name) {

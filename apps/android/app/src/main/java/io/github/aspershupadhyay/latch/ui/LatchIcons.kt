@@ -202,6 +202,25 @@ object LatchIcons {
         curveTo(3f, 16.3f, 4.8f, 18f, 7f, 18f); close()
     }
 
+    val Folder = icon("folder") {
+        moveTo(3f, 7f); lineTo(3f, 18f); lineTo(21f, 18f); lineTo(21f, 9f); lineTo(12f, 9f)
+        lineTo(10f, 6f); lineTo(4f, 6f); close()
+    }
+
+    val Photo = icon("photo") {
+        moveTo(4f, 5f); lineTo(20f, 5f); lineTo(20f, 19f); lineTo(4f, 19f); close()
+        moveTo(4f, 16f); lineTo(9f, 11f); lineTo(13f, 15f); lineTo(15.5f, 12.5f); lineTo(20f, 17f)
+        circle(15.5f, 8.8f, 1.3f)
+    }
+
+    val Share = icon("share") {
+        circle(6f, 12f, 2.4f)
+        circle(18f, 6f, 2.4f)
+        circle(18f, 18f, 2.4f)
+        moveTo(8.2f, 10.9f); lineTo(15.8f, 7.1f)
+        moveTo(8.2f, 13.1f); lineTo(15.8f, 16.9f)
+    }
+
     val Trash = icon("trash") {
         moveTo(4f, 7f); lineTo(20f, 7f)
         moveTo(9f, 7f); lineTo(9f, 4f); lineTo(15f, 4f); lineTo(15f, 7f)

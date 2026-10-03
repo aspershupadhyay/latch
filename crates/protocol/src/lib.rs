@@ -10,9 +10,11 @@
 //! Schema in `packages/schemas/v1` and the fixtures beside it are generated
 //! from, and tested against, these types.
 
+pub mod b64;
 mod capability;
 mod command;
 mod error;
+mod files;
 mod message;
 mod observation;
 pub mod validate;
@@ -22,6 +24,7 @@ pub use command::{
     Command, ConfirmRequest, Direction, GlobalAction, MAX_REMEMBER_CHARS, Point, RiskLevel, Target,
 };
 pub use error::{ErrorCode, ProtocolError};
+pub use files::{FileChunk, FileItem, FileKind, FileList, FileLocation, FilePreview};
 pub use message::{
     ActionResult, AppEntry, AppList, ApprovalChoice, ApprovalKind, ApprovalRequest,
     CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceToGateway, GatewayToDevice, Hello,
@@ -33,7 +36,7 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.5";
+pub const PROTOCOL_VERSION: &str = "1.6";
 
 /// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
 pub fn minor_version(version: &str) -> Option<u32> {

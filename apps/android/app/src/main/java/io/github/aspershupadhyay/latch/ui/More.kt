@@ -77,6 +77,23 @@ val catalog = mapOf(
         "Open apps", "See and open your installed apps.",
         "Names of apps you can open.", "Open an installed app. Never Latch itself.", "medium", LatchIcons.Apps,
     ),
+    Capability.FILE_READ to CapabilityCopy(
+        "See files", "Photos you allow, Downloads, your Latch folder.",
+        "Names and contents of photos and videos you allow, of files Latch saved in Downloads, and of the folder you pick below. Nothing else on the phone.",
+        "Copy those files to your AI, for example to your computer.", "high", LatchIcons.Folder,
+    ),
+    Capability.FILE_WRITE to CapabilityCopy(
+        "Save and change files", "Replacing and deleting ask you first.",
+        "Nothing extra.",
+        "Save new files (in your photos, Downloads, or your Latch folder), make folders, rename. Replacing or deleting a file asks you, unless Auto mode is on.",
+        "high", LatchIcons.Folder,
+    ),
+    Capability.APP_SHARE to CapabilityCopy(
+        "Share to apps", "Like the Share button: Instagram, YouTube, X, ….",
+        "Nothing extra.",
+        "Open an app's share screen with files, ready to post or send. Only apps you switched on. Posting and sending follow your app rules.",
+        "medium", LatchIcons.Share,
+    ),
 )
 
 @Composable
@@ -115,6 +132,11 @@ fun CapabilitiesScreen(
     onRemoteApprovals: (Boolean) -> Unit = {},
     auto: AutoMode = AutoMode.OFF,
     onAuto: (AutoMode) -> Unit = {},
+    folderName: String? = null,
+    photosAllowed: Boolean = false,
+    onPickFolder: () -> Unit = {},
+    onForgetFolder: () -> Unit = {},
+    onAllowPhotos: () -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
@@ -219,6 +241,43 @@ fun CapabilitiesScreen(
                     }
                 }
             }
+        }
+
+        SectionCaption("Files")
+        Card {
+            ListRow(
+                LatchIcons.Folder,
+                if (folderName != null) "Your Latch folder: $folderName" else "Pick a folder for the AI",
+                if (folderName != null) {
+                    "The AI may read, save, rename, and delete files in this folder only."
+                } else {
+                    "One folder the AI may use, for example Documents/AI. It never sees other folders."
+                },
+                tint = if (folderName != null) signal.accent else signal.text2,
+                onClick = onPickFolder,
+                onClickLabel = if (folderName != null) "Pick a different folder" else "Pick a folder",
+                trailing = {
+                    if (folderName != null) {
+                        TextButton(
+                            onClick = onForgetFolder,
+                            modifier = Modifier.semantics { contentDescription = "Stop sharing the folder $folderName with the AI" },
+                        ) { Text("Remove") }
+                    }
+                },
+            )
+            RowDivider()
+            ListRow(
+                LatchIcons.Photo,
+                if (photosAllowed) "Photos: allowed" else "Photos: not allowed",
+                if (photosAllowed) {
+                    "The AI can see the photos and videos you allowed. Tap to change which."
+                } else {
+                    "Allow all photos, or only the ones you choose. Saving new pictures works without this."
+                },
+                tint = if (photosAllowed) signal.accent else signal.text2,
+                onClick = onAllowPhotos,
+                onClickLabel = "Choose which photos the AI can see",
+            )
         }
 
         SectionCaption("While the AI works")

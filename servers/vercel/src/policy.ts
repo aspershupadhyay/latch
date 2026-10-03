@@ -4,7 +4,7 @@
 
 import { WORDS } from "./generated/policy-words.js";
 import {
-  CAPABILITY_DESCRIPTIONS, MAX_REMEMBER_CHARS, type CapabilityState, type Command, type ConfirmRequest, type Observation,
+  CAPABILITY_DESCRIPTIONS, MAX_REMEMBER_CHARS, type CapabilityState, type Command, type ConfirmRequest, type FileLocation, type Observation,
   ProtocolError, type RiskLevel, type SessionInfo, type UiNode, isEmptyRect, needsOwnerApprovalWhenStrict, nodeAt,
   observationIdOf, requiredCapabilities, validateCommand,
 } from "./protocol.js";
@@ -162,6 +162,23 @@ function assess(command: Command, observation: Observation | undefined): Assessm
         `enter|${obs.package ?? "?"}|${name.toLowerCase()}`,
       );
     }
+    case "file.list": return low(`List files in ${WHERE[command.params.location]}`);
+    case "file.preview": return low("Look at a file");
+    case "file.read": return low("Copy a file from your phone");
+    case "file.write": {
+      const { location, name, overwrite, append } = command.params;
+      const verb = overwrite ? "Replace" : append ? "Add to" : "Save";
+      const title = `${verb} “${shorten(name)}” ${overwrite || append ? "in" : "to"} ${WHERE[location]}`;
+      // Replacing loses the old file: the owner approves (Auto mode aside, on the phone).
+      return overwrite ? { risk: "high", title, detail: FILE_DETAIL } : medium(title);
+    }
+    case "file.mkdir": return medium(`Create the folder “${shorten(command.params.name)}”`);
+    case "file.rename": return medium(`Rename a file to “${shorten(command.params.name)}”`);
+    case "file.delete": return { risk: "high", title: "Delete a file from your phone", detail: FILE_DETAIL };
+    case "app.share": {
+      const n = command.params.ids.length;
+      return medium(`Share ${n} ${n === 1 ? "file" : "files"} to ${command.params.package}`);
+    }
     case "owner.ask":
       return low(`Ask you: “${shorten(command.params.message)}”`);
     case "ui.wait":
@@ -269,6 +286,9 @@ export function labelOf(node: UiNode): string {
 }
 
 /** One line of at most 48 characters, for approval prompts. */
+const FILE_DETAIL = "Your AI asked to do this. The file's current contents cannot be brought back afterwards.";
+const WHERE: Record<FileLocation, string> = { photos: "your photos", downloads: "Downloads", folder: "your Latch folder" };
+
 function shorten(raw: string): string {
   const single = raw.split(/\s+/u).filter(Boolean).join(" ");
   const chars = [...single];

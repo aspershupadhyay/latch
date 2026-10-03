@@ -215,6 +215,21 @@
           "description": "List launchable apps and open one.",
           "type": "string",
           "const": "app.launch"
+        },
+        {
+          "description": "Since 1.6: list and read allowed photos, Latch's downloads, and the picked folder.",
+          "type": "string",
+          "const": "file.read"
+        },
+        {
+          "description": "Since 1.6: save, rename, and delete files in those places.",
+          "type": "string",
+          "const": "file.write"
+        },
+        {
+          "description": "Since 1.6: open an app's share screen with files.",
+          "type": "string",
+          "const": "app.share"
         }
       ]
     },

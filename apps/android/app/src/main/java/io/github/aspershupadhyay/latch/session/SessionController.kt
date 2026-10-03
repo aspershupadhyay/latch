@@ -5,6 +5,7 @@ import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
 import io.github.aspershupadhyay.latch.data.Autonomy
+import io.github.aspershupadhyay.latch.files.PhoneFiles
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -60,6 +61,7 @@ class SessionController(
     consequences: Consequences,
     appName: (String) -> String? = { null },
     private val autonomy: Autonomy? = null,
+    private val files: PhoneFiles? = null,
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -74,7 +76,7 @@ class SessionController(
     /** Minor protocol version of the connected gateway; 1.4 relays approvals and waits for them. */
     @Volatile private var gatewayMinor = 0
 
-    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy) { gatewayMinor >= 4 }
+    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files)
     private var link: DeviceLink? = null
     private var wanted = false
     private var paused = false
@@ -130,6 +132,7 @@ class SessionController(
         wanted = true
         paused = false
         grants.endSession()
+        files?.reset()
         // "This session" app answers from an earlier session are gone already (stop clears them);
         // Auto mode chosen "for this session" just before starting must survive the start.
         expiresAtMs = System.currentTimeMillis() + settings.preferences.value.sessionMinutes * 60_000L
@@ -168,6 +171,8 @@ class SessionController(
         approvals.cancel()
         grants.endSession()
         autonomy?.endSession()
+        // File ids live for one session.
+        files?.reset()
         val closing = link
         link = null
         // Tell the gateway right away so tool calls fail fast instead of timing out.
