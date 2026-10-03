@@ -125,6 +125,29 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * What the screen says, without positions and without text fields: changes
+     * when a search shows results or a message joins a chat, but not when the
+     * field the agent typed into grows a line or the layout shifts.
+     */
+    private fun contentSignature(): Int {
+        val root = rootInActiveWindow ?: return 0
+        var h = root.packageName?.hashCode() ?: 0
+        val queue = ArrayDeque(listOf(root))
+        var seen = 0
+        while (queue.isNotEmpty() && seen < SIGNATURE_NODES) {
+            val node = queue.removeFirst()
+            if (!node.isVisibleToUser) continue
+            seen++
+            if (!node.isEditable) {
+                h = 31 * h + (node.text?.hashCode() ?: 0)
+                h = 31 * h + (node.contentDescription?.hashCode() ?: 0)
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return h
+    }
+
+    /**
      * Waits until the screen shows the result of an action: it has changed
      * from [before] (or [expectChangeMs] passed without a change, so nothing
      * will) and then holds still, meaning two fingerprints in a row are equal
@@ -843,7 +866,14 @@ class LatchAccessibilityService : AccessibilityService() {
         return r.takeUnless { it.isEmpty }
     }
 
-    fun typeText(observationId: String, elementId: String, text: String, submit: Boolean = false) {
+    /**
+     * What typing did: the screen fingerprint right after the text went in
+     * (before Enter), so settling waits for what the app does with it, and,
+     * with submit, whether Enter visibly did anything.
+     */
+    class Typed(val signature: Int, val submitted: Boolean?)
+
+    suspend fun typeText(observationId: String, elementId: String, text: String, submit: Boolean = false): Typed {
         val snap = requireFresh(observationId)
         invalidate()
         val node = liveNode(snap, elementId)
@@ -862,16 +892,34 @@ class LatchAccessibilityService : AccessibilityService() {
         if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
             throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "the field did not accept text")
         }
-        if (submit) {
-            // The keyboard's own action key for this field: Enter, Search, Send, Go, or Done.
-            node.refresh()
-            if (!node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
-                throw ProtocolException(
-                    ErrorCode.TARGET_NOT_FOUND,
-                    "the text was typed, but this field does not take Enter; it may be a placeholder that opens the real search box. Observe and use the field that now has focus",
-                )
-            }
+        val typed = screenSignature()
+        if (!submit) return Typed(typed, null)
+        val content = contentSignature()
+        // The keyboard's own action key for this field: Enter, Search, Send, Go, or Done.
+        node.refresh()
+        if (!node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
+            throw ProtocolException(
+                ErrorCode.TARGET_NOT_FOUND,
+                "the text was typed, but this field does not take Enter; it may be a placeholder that opens the real search box. Observe and use the field that now has focus",
+            )
         }
+        return Typed(typed, awaitSubmitEffect(node, text, content))
+    }
+
+    /**
+     * Some apps accept Enter and do nothing with it (WhatsApp sends only with
+     * its Send button). Enter counts as done once the field lost the text or
+     * the rest of the screen said something new; otherwise the agent is told.
+     */
+    private suspend fun awaitSubmitEffect(field: AccessibilityNodeInfo, text: String, before: Int): Boolean {
+        val start = SystemClock.uptimeMillis()
+        while (SystemClock.uptimeMillis() - start < SUBMIT_EFFECT_MS) {
+            delay(SETTLE_STEP_MS)
+            if (!field.refresh() || !field.isVisibleToUser) return true
+            if (field.text?.toString()?.trimEnd('\n') != text) return true
+            if (contentSignature() != before) return true
+        }
+        return false
     }
 
     // ---- Waiting and scrolling on the phone, without a round trip per step ----
@@ -1121,6 +1169,8 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val SETTLE_STEP_MS = 60L
         /** Longest wait for the keyboard after a tap on a text field. */
         private const val KEYBOARD_WAIT_MS = 1_000L
+        /** How long Enter has to show an effect before the agent hears it did nothing. */
+        private const val SUBMIT_EFFECT_MS = 1_000L
         private const val MAX_SEARCH_NODES = 2_000
         private const val SCROLL_QUIET_MS = 120L
         private const val SCROLL_MAX_SETTLE_MS = 800L

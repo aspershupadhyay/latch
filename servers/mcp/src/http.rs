@@ -253,6 +253,15 @@ async fn pair(State(state): State<Arc<AppState>>, Json(request): Json<PairReques
         last_seen_ms: None,
     };
     let device_id = record.id.clone();
+    // A phone that pairs again (reinstalled app, cleared data) left its old
+    // entry behind: drop offline entries with the same name and model.
+    let replaced: Vec<String> = state
+        .store()
+        .devices()
+        .iter()
+        .filter(|d| same_phone(d, &record) && !state.devices.is_online(&d.id))
+        .map(|d| d.id.clone())
+        .collect();
     if let Err(e) = state.store().insert(record) {
         tracing::error!(error = %e, "could not persist paired device");
         return error(
@@ -260,7 +269,15 @@ async fn pair(State(state): State<Arc<AppState>>, Json(request): Json<PairReques
             "could not save the pairing",
         );
     }
-    tracing::info!(device_id, "device paired");
+    for old in &replaced {
+        if let Err(e) = state.store().remove(old) {
+            tracing::warn!(error = %e, "could not remove the earlier pairing");
+        }
+        state
+            .devices
+            .kick(old, "replaced by a newer pairing of this phone");
+    }
+    tracing::info!(device_id, replaced = replaced.len(), "device paired");
     Json(json!({
         "device_id": device_id,
         "name": name,
@@ -269,6 +286,13 @@ async fn pair(State(state): State<Arc<AppState>>, Json(request): Json<PairReques
         "device_path": "/v1/device",
     }))
     .into_response()
+}
+
+/// Two pairings of the same phone: same name, model, and platform. Only
+/// offline entries are ever replaced, so a second identical phone that is
+/// connected keeps its pairing.
+fn same_phone(a: &DeviceRecord, b: &DeviceRecord) -> bool {
+    a.name == b.name && a.model == b.model && a.platform == b.platform
 }
 
 // ---- Owner console API ----

@@ -125,7 +125,7 @@ export const SERVER = {
         "readOnlyHint": false,
         "title": "Type text"
       },
-      "description": "Replace the text in an editable element. Refused for password, PIN, OTP, and payment fields. With submit=true it then presses the keyboard's Enter/Search/Send key in that field: searching runs at once, sending a message waits for the owner's approval. Returns the new observation.",
+      "description": "Replace the text in an editable element. Refused for password, PIN, OTP, and payment fields. With submit=true it then presses the keyboard's Enter/Search/Send key in that field. Some apps ignore Enter (WhatsApp sends only with its Send button); the result then says so, and you tap the app's own button. Returns the new observation.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

@@ -238,8 +238,8 @@ pub fn tool_definitions() -> Vec<Value> {
             "Type text",
             "Replace the text in an editable element. Refused for password, PIN, OTP, and payment \
              fields. With submit=true it then presses the keyboard's Enter/Search/Send key in that \
-             field: searching runs at once, sending a message waits for the owner's approval. \
-             Returns the new observation.",
+             field. Some apps ignore Enter (WhatsApp sends only with its Send button); the \
+             result then says so, and you tap the app's own button. Returns the new observation.",
             false,
             json!({
                 "device_id": device_id_schema(),
@@ -704,6 +704,7 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
     let done = match (&finding, action.found) {
         (Some(text), Some(true)) => format!("Found {}.", quote(text, 60)),
         (Some(text), _) => format!("Did not find {} after scrolling.", quote(text, 60)),
+        (None, _) if action.submitted == Some(false) => NOT_SUBMITTED.into(),
         (None, _) => "Done.".into(),
     };
     let headline = format!("{done} The screen after the action:");
@@ -739,6 +740,10 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
 const SETTLE_MAX_MS: u32 = 1_500;
 /// The screen counts as settled after this long without changes.
 const QUIET_MS: u32 = 150;
+
+/// Said when the phone pressed Enter and nothing visibly happened.
+const NOT_SUBMITTED: &str = "Typed, but Enter did nothing visible: the text is still in the field. \
+If the app has its own Send or Search button, tap it.";
 
 fn positive(value: i32, name: &str) -> Result<u32, ProtocolError> {
     u32::try_from(value).map_err(|_| {

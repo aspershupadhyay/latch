@@ -240,17 +240,31 @@ pub fn handle(
             submit,
             ..
         } => {
-            match target_effect(&Target::Element {
+            let submitted = match target_effect(&Target::Element {
                 element: element.clone(),
             })? {
                 // In the chat app the keyboard's action key sends, like most messengers.
-                Effect::EditDraft if *submit => state.phone.sent_messages.push(text.clone()),
-                Effect::EditDraft => state.phone.draft = text.clone(),
-                Effect::EditUsername => state.phone.username = text.clone(),
+                Effect::EditDraft if *submit => {
+                    state.phone.sent_messages.push(text.clone());
+                    true
+                }
+                Effect::EditDraft => {
+                    state.phone.draft = text.clone();
+                    false
+                }
+                // The sign-in form ignores Enter, like apps that only send with their own button.
+                Effect::EditUsername => {
+                    state.phone.username = text.clone();
+                    false
+                }
                 _ => return Err(err(ErrorCode::InvalidRequest, "not editable")),
-            }
+            };
             state.latest = None;
-            done(state)
+            let mut value = done(state)?;
+            if *submit {
+                value["submitted"] = serde_json::Value::Bool(submitted);
+            }
+            Ok(value)
         }
         Command::Pinch { .. } => {
             state.latest = None;

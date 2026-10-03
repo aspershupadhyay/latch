@@ -89,6 +89,9 @@ private const val TRANSITION_FLOOR_MS = 300L
 /** How long to wait for an action to show any effect before taking the screen as it is. */
 private const val EXPECT_CHANGE_MS = 450L
 
+/** After typing, how long to wait for the app to answer it (search results, suggestions). */
+private const val TYPE_EXPECT_CHANGE_MS = 900L
+
 private const val SYSTEM_UI = "com.android.systemui"
 
 /** Longest a question stays open when the gateway waits for it (protocol 1.4); under the gateway's 120 s. */
@@ -188,8 +191,10 @@ class CommandExecutor(
             }
             else -> {
                 var found: Boolean? = null
+                var submitted: Boolean? = null
                 // What the screen looked like before, so settling can tell when the action took effect.
-                val before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
+                var before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
+                var expectChangeMs = EXPECT_CHANGE_MS
                 when (command) {
                     is Command.Tap -> service.tap(command.observationId, command.target, command.longPress, command.double)
                     is Command.Swipe -> service.swipe(
@@ -197,15 +202,22 @@ class CommandExecutor(
                     )
                     is Command.Pinch ->
                         service.pinch(command.observationId, command.centerX, command.centerY, command.startSpan, command.endSpan, command.durationMs)
-                    is Command.TypeText -> service.typeText(command.observationId, command.element, command.text, command.submit)
+                    is Command.TypeText -> {
+                        val typed = service.typeText(command.observationId, command.element, command.text, command.submit)
+                        submitted = typed.submitted
+                        // The text itself shows at once; what matters is what the app does with it
+                        // (search results load a moment later), so settle against the typed screen.
+                        before = typed.signature
+                        expectChangeMs = if (typed.submitted == false) 0L else TYPE_EXPECT_CHANGE_MS
+                    }
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName)
                     is Command.ScrollTo ->
                         found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
                 }
                 log.add(ActivityKind.ACTION, judged ?: describe(command))
-                var result = action.copy(`package` = service.currentPackage(), found = found)
-                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, result, current) }
+                var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted)
+                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
         }
@@ -381,6 +393,7 @@ class CommandExecutor(
         service: LatchAccessibilityService,
         after: ObserveAfter,
         before: Int,
+        expectChangeMs: Long,
         result: ActionResult,
         current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
     ): ActionResult {
@@ -399,7 +412,7 @@ class CommandExecutor(
                 quiet.toLong(),
                 (after.settleMs - waited).coerceAtLeast(quiet.toLong()),
                 (floor - waited).coerceAtLeast(0),
-                EXPECT_CHANGE_MS,
+                expectChangeMs,
                 expectKeyboard = command is Command.Tap && !command.longPress,
             )
         }

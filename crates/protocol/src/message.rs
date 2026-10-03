@@ -214,6 +214,10 @@ pub struct ActionResult {
     /// `ui.scroll_to` only (since 1.3): whether the text is now on screen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub found: Option<bool>,
+    /// `ui.type_text` with submit only: false when Enter visibly did nothing
+    /// (the text stayed in the field and the screen said nothing new). Absent from older apps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submitted: Option<bool>,
 }
 
 /// Result of `ui.wait` (since 1.3).
