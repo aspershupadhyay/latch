@@ -160,11 +160,11 @@ The owner asked for the full feature list, ordered by priority, to be built one 
 | Wake and keep-awake | Turn the screen on and keep it on during a session so a task is not cut off by the lock. |
 | More gestures | Double tap, long-press-drag, drag and drop, pinch, fling, pull to refresh. |
 
-**Wave 2 — files and posting** (ADR required: adds file tools)
+**Wave 2 — files and posting** (ADR-026)
 
 | Feature | Outcome |
 |---|---|
-| `ask_owner` hand-off | The agent asks the owner to do something (log in, unlock, choose); a screen-reader-friendly card waits until done. |
+| `ask_owner` hand-off | The agent asks the owner to do something (log in, unlock, choose); a screen-reader-friendly card waits until done. **IN_REVIEW** (protocol 1.5, ADR-026): card at the top of the screen with Done / I can't, answered only on the phone, both gateways, fake phone, e2e tests; needs a phone run. |
 | Gallery read | List photos and videos (name, date, size, thumbnail) within the media the owner allowed. |
 | Folder grant with CRUD | One owner-picked folder (Storage Access Framework): list, read, create, edit, rename, delete. Delete and overwrite always need approval. |
 | Send / read file | Move a file between the agent and the granted folder, with size and type limits; contents never logged. |

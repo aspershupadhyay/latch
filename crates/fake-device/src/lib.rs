@@ -13,8 +13,8 @@ use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
     ActionResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
     DeviceDescriptor, DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello,
-    Observation, Outcome, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo,
-    Target, WaitResult, validate,
+    Observation, Outcome, OwnerReply, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot,
+    SessionInfo, Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
@@ -51,6 +51,10 @@ pub struct FakeState {
     pub approval: Approval,
     /// Titles of every approval request shown to the simulated owner.
     pub approval_requests: Vec<String>,
+    /// How the simulated owner answers `owner.ask`.
+    pub owner_reply: OwnerReply,
+    /// Every `owner.ask` message shown to the simulated owner.
+    pub owner_questions: Vec<String>,
     /// Every command the device executed (not refused).
     pub executed: Vec<String>,
     pub device_id: Option<String>,
@@ -83,6 +87,8 @@ impl FakeState {
             },
             approval: Approval::Approve,
             approval_requests: Vec::new(),
+            owner_reply: OwnerReply::Done,
+            owner_questions: Vec::new(),
             executed: Vec::new(),
             device_id: None,
             revoked: false,
@@ -137,7 +143,8 @@ pub fn handle(
     }
 
     let approval_needed = envelope.confirm.is_some()
-        || (state.session.approve_every_action && envelope.command.is_action());
+        || (state.session.approve_every_action
+            && envelope.command.needs_owner_approval_when_strict());
     if approval_needed {
         let title = envelope
             .confirm
@@ -269,6 +276,15 @@ pub fn handle(
         Command::Pinch { .. } => {
             state.latest = None;
             done(state)
+        }
+        Command::AskOwner { message } => {
+            state.owner_questions.push(message.clone());
+            let reply = state.owner_reply;
+            state.latest = None;
+            let mut value = done(state)?;
+            value["owner"] =
+                serde_json::to_value(reply).map_err(|_| err(ErrorCode::Internal, "encode"))?;
+            Ok(value)
         }
         Command::Swipe { .. } => {
             if state.phone.screen == Screen::Settings {

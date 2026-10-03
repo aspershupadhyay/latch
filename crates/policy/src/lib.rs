@@ -127,8 +127,10 @@ pub fn evaluate(command: &Command, ctx: &DeviceContext<'_>) -> Decision {
         Err(error) => return Decision::Deny(error),
     };
 
-    let needs_approval = assessment.risk == RiskLevel::High
-        || (ctx.session.approve_every_action && command.is_action());
+    // Asking the owner is itself a question to the owner: never asked about twice.
+    let needs_approval = !matches!(command, Command::AskOwner { .. })
+        && (assessment.risk == RiskLevel::High
+            || (ctx.session.approve_every_action && command.needs_owner_approval_when_strict()));
     if needs_approval {
         Decision::Confirm(ConfirmRequest {
             title: assessment.title,
@@ -354,6 +356,7 @@ fn assess(
                 format!("enter|{}|{}", package.unwrap_or("?"), name.to_lowercase()),
             ))
         }
+        Command::AskOwner { message } => Ok(low(format!("Ask you: “{}”", shorten(message)))),
         Command::WaitFor { text, gone, .. } => Ok(low(format!(
             "Wait for “{}” to {}",
             shorten(text),

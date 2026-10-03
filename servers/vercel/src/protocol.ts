@@ -1,8 +1,8 @@
-// Latch device protocol v1.4 for the Vercel gateway. The normative definition
+// Latch device protocol v1.5 for the Vercel gateway. The normative definition
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.4";
+export const PROTOCOL_VERSION = "1.5";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -112,7 +112,12 @@ export type Command =
   | { name: "ui.scroll_to"; params: { observation_id: string; text: string; direction: Direction; container?: string; max_swipes: number } }
   | { name: "nav.global"; params: { action: "back" | "home" | "recents" } }
   | { name: "app.list"; params: Record<string, never> }
-  | { name: "app.launch"; params: { package: string } };
+  | { name: "app.launch"; params: { package: string } }
+  /** Since 1.5: ask the owner to do something only a person should do; needs no capability. */
+  | { name: "owner.ask"; params: { message: string } };
+
+/** The owner's answer to `owner.ask` (since 1.5), in `ActionResult.owner`. */
+export type OwnerReply = "done" | "cant" | "no_answer";
 
 export type RiskLevel = "low" | "medium" | "high";
 /**
@@ -146,6 +151,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.type" && c.params.submit === true) return 3;
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
+  if (c.name === "owner.ask") return 5;
   return 0;
 }
 
@@ -162,10 +168,16 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "app.list": case "app.launch": return ["app.launch"];
     case "ui.wait": return ["ui.observe"];
     case "ui.scroll_to": return ["ui.observe", "input.gesture"];
+    // Only shows the owner a question; the owner does the rest.
+    case "owner.ask": return [];
   }
 }
 
+/** Asking the owner counts as an action: the owner changes the screen while answering. */
 export const isAction = (c: Command) => !["device.info", "ui.observe", "app.list", "ui.wait"].includes(c.name);
+
+/** Actions the owner approves under "Ask me before every action"; asking the owner is already a question. */
+export const needsOwnerApprovalWhenStrict = (c: Command) => isAction(c) && c.name !== "owner.ask";
 
 export function observationIdOf(c: Command): string | undefined {
   return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" || c.name === "ui.scroll_to" || c.name === "input.pinch"
@@ -179,6 +191,7 @@ export const LIMITS = {
   maxTextChars: 2_000, maxNodes: 2_000, maxSwipeMs: 5_000, maxCoordinate: 20_000, maxIdChars: 64,
   maxPackageChars: 255, maxNodeTextChars: 4_000, maxScreenshotBase64: 6 * 1024 * 1024,
   maxMessageBytes: 8 * 1024 * 1024, minWaitMs: 100, maxWaitMs: 15_000, maxFindTextChars: 200, maxScrollSwipes: 20, maxHoldMs: 3_000, minPinchSpan: 20,
+  maxAskOwnerChars: 300,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
@@ -267,6 +280,15 @@ export function validateCommand(c: Command): void {
     case "app.launch":
       if (!isValidPackage(c.params.package)) throw invalid("package must be an application id such as com.example.app");
       return;
+    case "owner.ask": {
+      const n = [...c.params.message].length;
+      if (n === 0 || n > LIMITS.maxAskOwnerChars || c.params.message.trim() === "") {
+        throw invalid(`message must be 1-${LIMITS.maxAskOwnerChars} characters`);
+      }
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(c.params.message)) throw invalid("message must not contain control characters");
+      return;
+    }
   }
 }
 
@@ -333,6 +355,7 @@ export function parseCommand(raw: unknown): Command {
       return { name, params: { action } };
     }
     case "app.launch": return { name, params: { package: str("package") } };
+    case "owner.ask": return { name, params: { message: str("message") } };
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
 }

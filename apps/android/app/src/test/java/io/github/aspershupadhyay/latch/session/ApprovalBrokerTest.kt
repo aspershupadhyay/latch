@@ -55,6 +55,21 @@ class ApprovalBrokerTest {
         assertEquals(ApprovalOutcome.APPROVED_ONCE, outcome.await())
     }
 
+    /** Protocol 1.5: a step handed to the owner is answered on the phone only. */
+    @Test
+    fun ownerTasksCannotBeAnsweredRemotely() = runTest {
+        val broker = ApprovalBroker()
+        val outcome = async {
+            broker.request("Please log in", "d", "medium", 60_000, kind = ApprovalKind.OWNER_TASK, commandId = "c_2")
+        }
+        yield()
+        val pending = broker.pending.value!!
+        assertEquals(emptyList<String>(), pending.choices)
+        for (choice in listOf("once", "session", "always", "deny")) assertEquals(false, broker.answerRemote(pending.nonce, choice))
+        broker.answer(pending.nonce, ApprovalChoice.ONCE)
+        assertEquals(ApprovalOutcome.APPROVED_ONCE, outcome.await())
+    }
+
     @Test
     fun appQuestionsOfferSessionAlwaysOrDeny() = runTest {
         val broker = ApprovalBroker()

@@ -290,6 +290,9 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     case "launch_app":
       command = { name: "app.launch", params: { package: reqStr(args, "package") } };
       break;
+    case "ask_owner":
+      command = { name: "owner.ask", params: { message: reqStr(args, "message") } };
+      break;
     default:
       throw new ProtocolError("internal", "unexpected result type from the phone");
   }
@@ -303,8 +306,9 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
   const finding = command.name === "ui.scroll_to" ? command.params.text : undefined;
   const found = (run.data as { found?: unknown }).found === true;
   const notSubmitted = (run.data as { submitted?: unknown }).submitted === false;
+  const owner = (run.data as { owner?: unknown }).owner;
   const doneText = finding === undefined
-    ? notSubmitted ? NOT_SUBMITTED : "Done."
+    ? owner !== undefined ? ownerSaid(owner) : notSubmitted ? NOT_SUBMITTED : "Done."
     : found ? `Found ${quote(finding, 60)}.` : `Did not find ${quote(finding, 60)} after scrolling.`;
   const done = (result: ToolResult) => {
     result.content.unshift({ type: "text", text: `${doneText} The screen after the action:` });
@@ -327,6 +331,13 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
 const SETTLE_MAX_MS = 1_500;
 /** The screen counts as settled after this long without changes. */
 const QUIET_MS = 150;
+
+/** What the owner answered to `ask_owner`, for the AI (same text as the Rust gateway). */
+function ownerSaid(reply: unknown): string {
+  if (reply === "done") return "The owner says it's done.";
+  if (reply === "cant") return "The owner says they can't do it now. Do not ask again; tell the user and stop or find another way.";
+  return "The owner did not answer within 2 minutes. Tell the user what you need from them.";
+}
 
 /** Said when the phone pressed Enter and nothing visibly happened. */
 const NOT_SUBMITTED = "Typed, but Enter did nothing visible: the text is still in the field. If the app has its own Send or Search button, tap it.";

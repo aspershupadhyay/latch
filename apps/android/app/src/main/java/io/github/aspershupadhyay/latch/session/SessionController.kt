@@ -257,6 +257,8 @@ class SessionController(
     private fun offerApproval(pending: PendingApproval) {
         val id = pending.commandId ?: return
         if (gatewayMinor < 4) return
+        // A step handed to the owner is answered on the phone only, never in the AI app.
+        if (pending.kind == ApprovalKind.OWNER_TASK) return
         link?.send(
             Outgoing.approvalRequest(
                 id, pending.nonce, pending.title, pending.detail, pending.kind == ApprovalKind.APP, pending.choices,

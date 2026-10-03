@@ -464,7 +464,8 @@ async fn execute_inner(
             Decision::Confirm(request) => ("confirm", Some(request)),
             Decision::Deny(error) => return Err(("deny", error)),
         };
-        let deadline_ms = if confirm.is_some() {
+        // The owner needs time for an approval, and for whatever they were asked to do.
+        let deadline_ms = if confirm.is_some() || matches!(command, Command::AskOwner { .. }) {
             CONFIRM_DEADLINE_MS
         } else {
             COMMAND_DEADLINE_MS

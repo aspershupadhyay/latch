@@ -12,8 +12,12 @@ enum class ApprovalChoice { DENY, ONCE, SESSION, ALWAYS }
 
 enum class ApprovalOutcome { APPROVED_ONCE, APPROVED_SESSION, APPROVED_ALWAYS, DENIED, EXPIRED }
 
-/** An action to approve, or an app the AI wants to use (answered "this session" or "always"). */
-enum class ApprovalKind { ACTION, APP }
+/**
+ * An action to approve, an app the AI wants to use (answered "this session"
+ * or "always"), or a step the AI hands to the owner (answered Done or I
+ * can't, only on the phone; since 1.5).
+ */
+enum class ApprovalKind { ACTION, APP, OWNER_TASK }
 
 /** What the owner is being asked, exactly as shown. */
 data class PendingApproval(
@@ -33,6 +37,8 @@ data class PendingApproval(
     /** What the owner may answer, in protocol words (protocol 1.4). */
     val choices: List<String>
         get() = when {
+            // Only the owner, on the phone, can say a step is done.
+            kind == ApprovalKind.OWNER_TASK -> emptyList()
             kind == ApprovalKind.APP -> listOf("session", "always", "deny")
             rememberable -> listOf("once", "session", "always", "deny")
             else -> listOf("once", "deny")

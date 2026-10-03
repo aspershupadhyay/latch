@@ -23,6 +23,7 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
 /** Plain-language heading for a question, by what it is about. */
 fun approvalHeading(p: PendingApproval): String = when {
+    p.kind == ApprovalKind.OWNER_TASK -> "Your AI needs you"
     p.kind == ApprovalKind.APP -> "The AI wants to use an app"
     p.risk == "high" -> "Check this before it happens"
     else -> "The AI is asking you"
@@ -46,6 +47,13 @@ fun ApprovalCard(p: PendingApproval, answer: (String, ApprovalChoice) -> Unit) {
             }
             Text(p.title, style = MaterialTheme.typography.titleLarge, color = signal.text)
             Text(p.detail, style = MaterialTheme.typography.bodyMedium, color = signal.text2)
+            if (p.kind == ApprovalKind.OWNER_TASK) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SecondaryButton("I can't", { answer(p.nonce, ApprovalChoice.DENY) }, Modifier.weight(1f), contentColor = signal.text2)
+                    PrimaryButton("Done", { answer(p.nonce, ApprovalChoice.ONCE) }, Modifier.weight(1f))
+                }
+                return@Column
+            }
             if (p.kind == ApprovalKind.APP) {
                 PrimaryButton("Allow always", { answer(p.nonce, ApprovalChoice.ALWAYS) }, Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

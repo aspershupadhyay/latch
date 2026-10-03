@@ -307,6 +307,7 @@ class LatchAccessibilityService : AccessibilityService() {
         val warning = if (dark) Color.rgb(255, 159, 10) else Color.rgb(194, 98, 10)
         val tint = if (pending.risk == "high") warning else accent
         val appRequest = pending.kind == ApprovalKind.APP
+        val ownerTask = pending.kind == ApprovalKind.OWNER_TASK
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(18), dp(20), dp(16))
@@ -320,6 +321,7 @@ class LatchAccessibilityService : AccessibilityService() {
         }
         card.addView(TextView(this).apply {
             this.text = when {
+                ownerTask -> "Your AI needs you"
                 appRequest -> "The AI wants to use an app"
                 pending.risk == "high" -> "Check this before it happens"
                 else -> "The AI is asking you"
@@ -373,7 +375,9 @@ class LatchAccessibilityService : AccessibilityService() {
                 addView(v, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = dp(10) })
             }
         }
-        if (appRequest) {
+        if (ownerTask) {
+            card.addView(row(deny("I can't"), allow("Done", ApprovalChoice.ONCE, primary = true)))
+        } else if (appRequest) {
             // An app is allowed for a while, never for one command: that would ask again at once.
             card.addView(row(allow("Allow always", ApprovalChoice.ALWAYS, primary = true)))
             card.addView(row(allow("Just this session", ApprovalChoice.SESSION), deny("Not now")))
@@ -398,9 +402,11 @@ class LatchAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.BOTTOM
+            // A step for the owner happens in the app underneath, often with the keyboard
+            // up: the card waits at the top, out of the way.
+            gravity = if (ownerTask) Gravity.TOP else Gravity.BOTTOM
             horizontalMargin = 0.03f
-            verticalMargin = 0.03f
+            verticalMargin = if (ownerTask) 0.06f else 0.03f
         }
         getSystemService(WindowManager::class.java).addView(card, params)
         approvalCard = card
