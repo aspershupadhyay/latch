@@ -83,7 +83,7 @@ class ScreenSnapshotTest {
     @Test fun home_active_dark() = snap(true) { HomeScreen(home(Phase.ACTIVE), HomeActions()) }
     @Test fun home_approval_light() = snap(false) {
         HomeScreen(
-            home(Phase.ACTIVE, PendingApproval("n", "Tap “Send” in WhatsApp", "Requested by an AI agent connected through Latch. This control may send, buy, delete, publish, or change something that is hard to undo.", "high", now)),
+            home(Phase.ACTIVE, PendingApproval("n", "Tap “Send” in WhatsApp", "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo.", "high", now)),
             HomeActions(),
         )
     }

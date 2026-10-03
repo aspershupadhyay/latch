@@ -94,11 +94,11 @@ private const val SYSTEM_UI = "com.android.systemui"
 /** Longest a question stays open when the gateway waits for it (protocol 1.4); under the gateway's 120 s. */
 private const val APPROVAL_WAIT_MS = 110_000L
 
-private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
+private const val AGENT_DETAIL = "Your AI asked to do this."
 private const val CONSEQUENTIAL_DETAIL =
-    "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
+    "Your AI asked to do this. It may send, call, post, delete, or change something that's hard to undo."
 private const val CRITICAL_DETAIL =
-    "Requested by an AI agent connected through Latch. This involves money, app installs, permissions, or account deletion, so Latch asks every time."
+    "Your AI asked to do this. It involves money, installing an app, a permission, or deleting an account, so Latch asks every time."
 
 class CommandExecutor(
     private val bridge: DeviceBridge,

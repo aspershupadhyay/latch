@@ -43,7 +43,7 @@ data class Signal(
     /** Backgrounds for the status card and alerts. White text stays above 4.5:1 on every stop. */
     val activeBrush get() = Brush.linearGradient(listOf(Color(0xFF2B2F8F), Color(0xFF4338CA), Color(0xFF5B4FD9)))
     val idleBrush get() = Brush.linearGradient(listOf(Color(0xFF0F1222), Color(0xFF1C2140)))
-    val attentionBrush get() = Brush.linearGradient(listOf(Color(0xFF6B3A0A), Color(0xFF9A5413)))
+    val attentionBrush get() = Brush.linearGradient(listOf(Color(0xFFC2410C), Color(0xFFEA580C)))
     val stopBrush get() = Brush.linearGradient(listOf(Color(0xFF7F1D1D), Color(0xFF9F1239)))
 }
 

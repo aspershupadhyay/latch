@@ -268,7 +268,7 @@ object Outgoing {
         put("command_id", commandId)
         put("nonce", nonce)
         put("title", title.trim().replace(Regex("\\p{Cntrl}"), " ").take(200).ifBlank { "Approve this action?" })
-        put("detail", detail.trim().replace(Regex("\\p{Cntrl}"), " ").take(600).ifBlank { "Requested by an AI agent connected through Latch." })
+        put("detail", detail.trim().replace(Regex("\\p{Cntrl}"), " ").take(600).ifBlank { "Your AI asked to do this." })
         put("kind", if (app) "app" else "action")
         put("choices", kotlinx.serialization.json.JsonArray(choices.map { JsonPrimitive(it) }))
         put("remote", remote)

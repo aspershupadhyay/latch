@@ -188,7 +188,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
 private fun HeroCard(state: HomeState, actions: HomeActions) {
     val motion = !state.reducedMotion
     val (start, end) = when {
-        state.pending != null -> Color(0xFF6B3A0A) to Color(0xFF9A5413)
+        state.pending != null -> Color(0xFFC2410C) to Color(0xFFEA580C)
         state.phase == Phase.ACTIVE -> Color(0xFF2B2F8F) to Color(0xFF5048E5)
         state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> Color(0xFF7F1D1D) to Color(0xFF9F1239)
         else -> Color(0xFF0F1222) to Color(0xFF232A52)
