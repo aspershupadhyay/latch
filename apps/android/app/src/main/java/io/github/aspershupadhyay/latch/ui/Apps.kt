@@ -18,7 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
+
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -101,7 +101,7 @@ fun AppsScreen(
                     },
                     tint = if (trustCritical) signal.danger else signal.warning,
                     trailing = {
-                        Switch(
+                        LatchSwitch(
                             checked = trustCritical,
                             onCheckedChange = { on -> if (on) confirmTrust = true else onTrustCritical(false) },
                             modifier = Modifier.semantics { contentDescription = "Also allow payments and permissions without asking" },
@@ -143,7 +143,7 @@ fun AppsScreen(
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                Switch(
+                LatchSwitch(
                     checked = app.on,
                     onCheckedChange = { on -> if (on && app.sensitive) confirm = app else onToggle(app.packageName, on) },
                     modifier = Modifier.semantics { contentDescription = "Let the AI use ${app.label}" },

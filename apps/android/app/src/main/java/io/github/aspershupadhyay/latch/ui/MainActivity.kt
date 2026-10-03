@@ -143,7 +143,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     SETTINGS("Settings", LatchIcons.Sliders),
 }
 
-private enum class Onboarding { WELCOME, CREATE, JOIN }
+private enum class Onboarding { WELCOME, CREATE, JOIN, GUIDE }
 
 /** Copies text; secrets are flagged so Android hides them from the clipboard preview. */
 fun copyToClipboard(context: Context, label: String, value: String, sensitive: Boolean) {
@@ -220,7 +220,11 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
     }
 
     when (step) {
-        Onboarding.WELCOME -> WelcomeScreen(onCreateGateway = { step = Onboarding.CREATE }, onHaveGateway = { step = Onboarding.JOIN }, notice = notice)
+        Onboarding.WELCOME -> WelcomeScreen(
+            onCreateGateway = { step = Onboarding.CREATE }, onHaveGateway = { step = Onboarding.JOIN }, notice = notice,
+            onGuide = { step = Onboarding.GUIDE },
+        )
+        Onboarding.GUIDE -> GuideScreen(onBack = { step = Onboarding.WELCOME }, onStart = { step = Onboarding.CREATE })
         Onboarding.CREATE -> CreateGatewayScreen(
             CreateGatewayState(ownerKey, keyCopied, deployOpened, address, busy, error),
             CreateGatewayActions(
@@ -252,6 +256,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     var setupOpen by rememberSaveable { mutableStateOf(false) }
+    var guideOpen by rememberSaveable { mutableStateOf(false) }
     val signal = LocalSignal.current
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
@@ -279,6 +284,12 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
             app.settings.update { it.copy(setupDone = true) }
             setupOpen = false
         }
+        return
+    }
+
+    if (guideOpen) {
+        BackHandler { guideOpen = false }
+        GuideScreen(onBack = { guideOpen = false })
         return
     }
 
@@ -332,7 +343,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                         val entries by app.log.entries.collectAsStateWithLifecycle()
                         ActivityScreen(entries, app.log::clear)
                     }
-                    Tab.SETTINGS -> SettingsRoute(app, reducedMotion) { setupOpen = true }
+                    Tab.SETTINGS -> SettingsRoute(app, reducedMotion, openGuide = { guideOpen = true }) { setupOpen = true }
                 }
             }
         }
@@ -433,13 +444,13 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
     val p = pairing ?: return
 
     val (phase, headline, detail) = when (val s = state) {
-        SessionState.Unpaired, SessionState.Idle -> Triple(Phase.IDLE, "Ready. Nothing is shared.", "Start a session when you want an AI to work with this phone.")
-        is SessionState.Connecting -> Triple(Phase.CONNECTING, "Connecting…", "No commands run until your gateway confirms.")
-        is SessionState.Reconnecting -> Triple(Phase.RECONNECTING, "Reconnecting", "Nothing can run while offline. Stop ends the session.")
+        SessionState.Unpaired, SessionState.Idle -> Triple(Phase.IDLE, "Ready", "Nothing is shared until you start. Start when you want your AI to help on this phone.")
+        is SessionState.Connecting -> Triple(Phase.CONNECTING, "Connecting\u2026", "Nothing happens until your relay answers.")
+        is SessionState.Reconnecting -> Triple(Phase.RECONNECTING, "Reconnecting", "The internet dropped. Nothing can happen until it's back.")
         is SessionState.Active -> when {
-            pending != null -> Triple(Phase.ACTIVE, "Waiting for you", "Nothing happens until you answer.")
-            s.paused -> Triple(Phase.PAUSED, "Paused", "The AI can neither see nor act until you resume.")
-            else -> Triple(Phase.ACTIVE, "Session active", "An AI can use what you allowed. Stop ends everything at once.")
+            pending != null -> Triple(Phase.ACTIVE, "Your answer is needed", "The AI waits until you answer below.")
+            s.paused -> Triple(Phase.PAUSED, "Paused", "The AI can't see or do anything until you resume.")
+            else -> Triple(Phase.ACTIVE, "Your AI can work now", "Only in the apps you allowed. Stop ends everything at once.")
         }
         is SessionState.Revoked -> Triple(Phase.REVOKED, "Revoked", s.reason)
         is SessionState.Failed -> Triple(Phase.FAILED, "Stopped", s.message)
@@ -535,6 +546,8 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         onOpenApps = { appsOpen = true },
         remoteApprovals = prefs.remoteApprovals,
         onRemoteApprovals = { v -> app.settings.update { it.copy(remoteApprovals = v) } },
+        auto = autonomy.auto,
+        onAuto = app.autonomy::setAuto,
         enabled = prefs.enabled,
         accessibilityOn = service != null,
         approveEveryAction = prefs.approveEveryAction,
@@ -600,7 +613,7 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
 }
 
 @Composable
-private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openSetup: () -> Unit) {
+private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -> Unit, openSetup: () -> Unit) {
     val context = LocalContext.current
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
@@ -623,6 +636,7 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openSetup: () -
         onCheckNow = { app.updater.check(manual = true) },
         onInstallUpdate = { info -> installUpdate(app, context, info) },
         reducedMotion = reducedMotion,
+        onOpenGuide = openGuide,
     )
 }
 

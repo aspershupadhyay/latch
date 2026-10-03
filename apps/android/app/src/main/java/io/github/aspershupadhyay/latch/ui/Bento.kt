@@ -114,11 +114,12 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = color ?: signal.ink,
             contentColor = contentColor ?: if (color == null) signal.onInk else Color.White,
         ),
+        elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
         modifier = modifier.heightIn(min = 52.dp),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
@@ -126,12 +127,16 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
 @Composable
 fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, contentColor: Color? = null) {
     val signal = LocalSignal.current
-    OutlinedButton(
+    // A soft filled button, quieter than the primary one (Apple's "gray" button style).
+    Button(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, (contentColor ?: signal.text).copy(alpha = 0.35f)),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor ?: signal.text),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (contentColor != null) contentColor.copy(alpha = 0.16f) else signal.accent.copy(alpha = if (signal.dark) 0.18f else 0.10f),
+            contentColor = contentColor ?: signal.accent,
+        ),
+        elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
         modifier = modifier.heightIn(min = 52.dp),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
