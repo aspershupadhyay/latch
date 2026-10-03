@@ -39,7 +39,7 @@ That's it. Every step below is just one of these.
 
 ### Step 1: Get the app 📲
 
-1. On your phone, download the app: **[latch-android-debug.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk)**
+1. On your phone, download the app: **[latch-android.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android.apk)**
 2. Open the file. If Android says *"For your security, your phone is not allowed to install unknown apps"*, tap **Settings**, turn on **Allow from this source**, then go back and tap **Install**.
    - **"App blocked to protect your device"?** That's Google Play Protect. Follow [Fix: App blocked by Play Protect](#fix-app-blocked-by-play-protect) below.
 3. Open **Latch**.
@@ -171,9 +171,9 @@ Installing over USB isn't blocked, and Android doesn't mark it "restricted" eith
    - realme / OPPO: **Settings → About device → Version** → tap **Build number** 7 times.
    - Samsung: **Settings → About phone → Software information** → tap **Build number** 7 times.
 2. Turn on **USB debugging**: **Settings → System → Developer options** (Xiaomi: **Settings → Additional settings → Developer options**) → **USB debugging** on. Xiaomi also needs **Install via USB** on.
-3. On the computer, install [Android platform-tools](https://developer.android.com/tools/releases/platform-tools), download [latch-android-debug.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android-debug.apk), connect the phone by USB, tap **Allow** on the phone, and run:
+3. On the computer, install [Android platform-tools](https://developer.android.com/tools/releases/platform-tools), download [latch-android.apk](https://github.com/aspershupadhyay/latch/releases/download/test-build/latch-android.apk), connect the phone by USB, tap **Allow** on the phone, and run:
    ```
-   adb install -r latch-android-debug.apk
+   adb install -r latch-android.apk
    ```
 4. Done. You can turn **USB debugging** off again.
 
@@ -200,7 +200,7 @@ Installing over USB isn't blocked, and Android doesn't mark it "restricted" eith
 
 **Still no "Allow restricted settings"?** Use [Option A](#fix-app-blocked-by-play-protect) (install from a computer). Apps installed that way are never restricted. If Latch is already installed and USB debugging is on, this one command does the same thing:
 ```
-adb shell cmd appops set io.github.aspershupadhyay.latch.debug ACCESS_RESTRICTED_SETTINGS allow
+adb shell cmd appops set io.github.aspershupadhyay.latch ACCESS_RESTRICTED_SETTINGS allow
 ```
 
 ### Fix: Session stops when the screen is off

@@ -1,10 +1,10 @@
 name: Test build
 
-# Every push to main republishes the debug APK under one fixed pre-release, so
-# the owner always has the same download link for the newest testable app:
-# https://github.com/<owner>/<repo>/releases/download/test-build/latch-android-debug.apk
-# Debug builds are signed with the debug key and install by sideloading. They
-# are not releases; signed releases come from release.yml on a vX.Y.Z tag.
+# Every push to main republishes the app under one fixed pre-release, so the
+# owner always has the same download link for the newest testable app:
+# https://github.com/<owner>/<repo>/releases/download/test-build/latch-android.apk
+# It is a release build (minified, https only), signed with the release key,
+# so it installs over the previous test build and later over public releases.
 # latch-update.json next to the APK is what the app's updater reads
 # (apps/android/.../update/Updater.kt); each build's version code is higher
 # than the last, so the app can tell that a newer build exists.
@@ -37,45 +37,47 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           # Runner images preset ANDROID_SDK_ROOT to another SDK; AGP rejects a mismatch.
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
-      - name: Use the stable test-build signing key
+      - name: Restore the release signing key
         env:
-          KEYSTORE_B64: ${{ secrets.LATCH_DEBUG_KEYSTORE_BASE64 }}
+          KEYSTORE_B64: ${{ secrets.LATCH_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.LATCH_KEYSTORE_PASSWORD }}
         run: |
-          # The Android Gradle Plugin signs debug builds with ~/.android/debug.keystore
-          # and makes a new one when it is missing. A fixed key lets each test build
-          # install over the previous one, so the app keeps its pairing.
-          if [ -n "$KEYSTORE_B64" ]; then
-            mkdir -p ~/.android
-            echo "$KEYSTORE_B64" | tr -d ' \r\n' | base64 -d > ~/.android/debug.keystore
-            # A broken secret must fail here, not quietly sign with a one-off key.
-            keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | grep -m1 'SHA256:' \
-              || { echo "::error::LATCH_DEBUG_KEYSTORE_BASE64 is not a keystore with alias androiddebugkey and password android (docs/platform/android.md)."; exit 1; }
-          else
-            echo "::warning::LATCH_DEBUG_KEYSTORE_BASE64 is not set. This APK gets a one-off key and will not install over earlier test builds."
+          # Android installs an update only when it carries the same key as the
+          # installed app, and refuses unsigned APKs, so there is nothing to publish without it.
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Set the LATCH_KEYSTORE_BASE64 and LATCH_KEYSTORE_PASSWORD repository secrets (docs/platform/android.md)."
+            exit 1
           fi
+          echo "$KEYSTORE_B64" | tr -d ' \r\n' | base64 -d > "$RUNNER_TEMP/latch.jks"
+          keytool -list -v -keystore "$RUNNER_TEMP/latch.jks" -storepass "$KEYSTORE_PASSWORD" -alias latch | grep -m1 'SHA256:' \
+            || { echo "::error::LATCH_KEYSTORE_BASE64 is not a keystore with alias latch, or LATCH_KEYSTORE_PASSWORD does not open it."; exit 1; }
+          echo "LATCH_KEYSTORE_PATH=$RUNNER_TEMP/latch.jks" >> "$GITHUB_ENV"
       - name: Number this build
         run: |
           # run_number only grows; +100 keeps every CI build above local builds (version code 1).
           echo "LATCH_VERSION_CODE=$(( GITHUB_RUN_NUMBER + 100 ))" >> "$GITHUB_ENV"
           echo "LATCH_VERSION_NAME=0.1.0-test.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "LATCH_UPDATE_MANIFEST_URL=https://github.com/$GITHUB_REPOSITORY/releases/download/test-build/latch-update.json" >> "$GITHUB_ENV"
       - working-directory: apps/android
-        run: ./gradlew --no-daemon assembleDebug
+        env:
+          LATCH_KEYSTORE_PASSWORD: ${{ secrets.LATCH_KEYSTORE_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
       - name: Publish to the test-build pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp apps/android/app/build/outputs/apk/debug/app-debug.apk latch-android-debug.apk
-          sha256sum latch-android-debug.apk > latch-android-debug.apk.sha256
+          cp apps/android/app/build/outputs/apk/release/app-release.apk latch-android.apk
+          sha256sum latch-android.apk > latch-android.apk.sha256
           jq -n \
             --argjson code "$LATCH_VERSION_CODE" \
             --arg name "$LATCH_VERSION_NAME" \
-            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/test-build/latch-android-debug.apk" \
-            --arg sha "$(cut -d' ' -f1 latch-android-debug.apk.sha256)" \
-            --argjson size "$(stat -c %s latch-android-debug.apk)" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/test-build/latch-android.apk" \
+            --arg sha "$(cut -d' ' -f1 latch-android.apk.sha256)" \
+            --argjson size "$(stat -c %s latch-android.apk)" \
             --arg commit "${GITHUB_SHA::7}" \
             '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit}' > latch-update.json
           gh release delete test-build --cleanup-tag --yes || true
-          gh release create test-build latch-android-debug.apk latch-android-debug.apk.sha256 latch-update.json \
+          gh release create test-build latch-android.apk latch-android.apk.sha256 latch-update.json \
             --prerelease --target "$GITHUB_SHA" \
             --title "Test build (latest main)" \
-            --notes "Debug build $LATCH_VERSION_NAME of ${GITHUB_SHA::7} for testing on your own phone. Android 11+. Not a release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
+            --notes "Build $LATCH_VERSION_NAME of ${GITHUB_SHA::7} for testing on your own phone. Android 11+. Signed release build; updates from inside the app. Not a release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."

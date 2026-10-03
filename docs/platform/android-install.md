@@ -27,7 +27,7 @@ anyway" button.
   1. On the phone: *Settings → About phone*, tap *Build number* 7 times, then
      *Developer options → USB debugging* on.
   2. On the computer (Android platform-tools):
-     `adb install -r latch-android-debug.apk`
+     `adb install -r latch-android.apk`
 - **Pause Play Protect only for the install.** Play Store → profile picture
   → *Play Protect* → ⚙ → turn off *Scan apps with Play Protect*, install
   Latch, then **turn it back on**. Play Protect keeps protecting the rest of
@@ -63,7 +63,7 @@ phone's brand):
 **If the menu never appears**, install with `adb install` (above); or, with
 the app already installed and USB debugging on, allow it from the computer:
 `adb shell cmd appops set <package> ACCESS_RESTRICTED_SETTINGS allow`
-(the test build's package is `io.github.aspershupadhyay.latch.debug`).
+(the test build's package is `io.github.aspershupadhyay.latch`).
 
 ## What the project is doing about it
 
@@ -84,8 +84,8 @@ the app already installed and USB debugging on, allow it from the computer:
 - **Play Protect review.** Developers can ask Google to review a Play
   Protect warning for their app (Play Console help: "Play Protect
   warnings"). That is worth doing once the release key and verification are
-  in place, because a review is tied to the signing key, and test builds
-  are signed with a debug key.
+  in place, because a review is tied to the signing key. Test builds are
+  signed with the release key since 2026-10-03.
 
 Sources: Google's announcement of the pilot
 (security.googleblog.com, February 2024, and blog.google India, October 2024),
