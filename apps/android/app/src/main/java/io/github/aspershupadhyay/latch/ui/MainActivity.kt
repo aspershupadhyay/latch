@@ -642,6 +642,8 @@ private fun AppsRoute(app: LatchApp, onBack: () -> Unit) {
         onToggle = { pkg, on -> app.autonomy.setAllowed(pkg, on) },
         onAllOff = { app.autonomy.clearAll() },
         onBack = onBack,
+        trustCritical = autonomy.trustCritical,
+        onTrustCritical = app.autonomy::setTrustCritical,
         icon = { pkg ->
             LaunchedEffect(pkg) {
                 if (pkg !in icons) {

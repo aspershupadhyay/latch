@@ -230,12 +230,18 @@ class CommandExecutor(
         val risk = confirm?.risk ?: if (deviceAsks) "high" else "medium"
 
         // ADR-021: in an app the owner switched on, consequential actions run without
-        // asking and are logged; critical ones and "ask me before every action" still ask.
+        // asking and are logged. Critical ones ask too, unless the owner opted in to
+        // trusting those as well (ADR-022), which also covers Android's permission and
+        // install dialogs. "Ask me before every action" overrides both.
         val inApp = bridge.service.value?.currentPackage()
-        if (!critical && !session.approveEveryAction && inApp != null && !exempt(inApp) &&
-            autonomy?.decide(inApp) == AppDecision.ALLOWED
-        ) {
-            log.add(ActivityKind.APPROVAL, "Done without asking (app switched on): $title")
+        val trustCritical = autonomy?.state?.value?.trustCritical == true
+        val appOn = inApp != null && !exempt(inApp) && autonomy?.decide(inApp) == AppDecision.ALLOWED
+        val systemDialog = inApp != null && consequences.isCriticalPackage(inApp)
+        if (!session.approveEveryAction && ((appOn && (!critical || trustCritical)) || (systemDialog && trustCritical))) {
+            log.add(
+                ActivityKind.APPROVAL,
+                if (critical) "Done without asking (you allow payments and permissions): $title" else "Done without asking (app switched on): $title",
+            )
             return title
         }
         if (key != null && grants.allows(key)) {
@@ -271,7 +277,8 @@ class CommandExecutor(
     /** The launcher is always usable; Latch and system UI are refused by the service itself. */
     private fun exempt(target: String): Boolean {
         val service = bridge.service.value ?: return true
-        return target == service.packageName || target == SYSTEM_UI || service.isHomeApp(target)
+        // Permission and install dialogs belong to the app that opened them; their buttons are critical anyway.
+        return target == service.packageName || target == SYSTEM_UI || service.isHomeApp(target) || consequences.isCriticalPackage(target)
     }
 
     private fun appUsable(target: String): Boolean =
@@ -303,7 +310,7 @@ class CommandExecutor(
             title = "Let the AI use $name?",
             detail = (if (sensitive) "$name may hold money, accounts, or passwords. " else "") +
                 "The AI can see $name's screen and act in it, including sending and deleting, without asking again. " +
-                "Payments, installs, and permissions still ask you every time.",
+                if (access.state.value.trustCritical) "You also allowed payments, installs, and permissions without asking." else "Payments, installs, and permissions still ask you every time.",
             risk = if (sensitive) "high" else "medium",
             timeoutMs = timeout,
             rememberable = true,
