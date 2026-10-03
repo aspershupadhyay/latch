@@ -502,6 +502,296 @@
             "name",
             "params"
           ]
+        },
+        {
+          "description": "Since 1.6: list files in a location, newest first. `folder` is a\nfolder id from an earlier answer (location `folder` only); `query`\nfilters by name. Answers with a [`crate::FileList`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 50,
+                  "minimum": 0
+                },
+                "location": {
+                  "$ref": "#/$defs/FileLocation"
+                },
+                "offset": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "query": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "location"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.6: a look at one file: text, or a downscaled image. Answers\nwith a [`crate::FilePreview`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.preview"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.6: raw bytes of a file from `offset`, at most `length`.\nAnswers with a [`crate::FileChunk`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.read"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "length": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "offset": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "default": 0,
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "length"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.6: save bytes as a new file, or append them to a file this\nsession created (`append`). In `folder` the file goes into `folder`\n(a folder id, default the picked folder); in `photos` and\n`downloads` into `subfolder` (default \"Latch\"). An existing name is\nkept and the new file gets a free name, unless `overwrite`, which the\nowner approves. Answers with a [`crate::FileItem`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.write"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "append": {
+                  "type": "boolean"
+                },
+                "data_base64": {
+                  "type": "string"
+                },
+                "folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "location": {
+                  "$ref": "#/$defs/FileLocation"
+                },
+                "mime": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "overwrite": {
+                  "type": "boolean"
+                },
+                "subfolder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "location",
+                "name",
+                "data_base64"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.6: create a folder inside the picked folder (or `folder`).\nAnswers with a [`crate::FileItem`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.mkdir"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.6: rename a file or folder. Answers with a [`crate::FileItem`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.rename"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.6: delete a file or folder; the owner approves.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.delete"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.6: open `package`'s Android share screen with these files\n(and optional text), so the owner or the AI can finish the post or\nmessage in that app. Answers with an [`crate::ActionResult`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "app.share"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "package": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "package",
+                "ids"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
         }
       ]
     },
@@ -584,6 +874,26 @@
         "down",
         "left",
         "right"
+      ]
+    },
+    "FileLocation": {
+      "description": "Where on the phone a file lives.",
+      "oneOf": [
+        {
+          "description": "Photos and videos the owner allowed (Android's photo permission).\nNew files saved here appear in the gallery (`Pictures/<subfolder>`).",
+          "type": "string",
+          "const": "photos"
+        },
+        {
+          "description": "The phone's Download folder (`Download/<subfolder>`). Without extra\npermissions the phone lists only files Latch saved there.",
+          "type": "string",
+          "const": "downloads"
+        },
+        {
+          "description": "The one folder the owner picked in Latch, and its subfolders.",
+          "type": "string",
+          "const": "folder"
+        }
       ]
     },
     "GlobalAction": {

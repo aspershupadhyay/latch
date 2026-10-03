@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.5"
+    const val VERSION = "1.6"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -73,6 +73,12 @@ enum class Capability(val wire: String) {
     INPUT_TEXT("input.text"),
     NAV_GLOBAL("nav.global"),
     APP_LAUNCH("app.launch"),
+    /** Since 1.6: list and read allowed photos, Latch's downloads, and the picked folder. */
+    FILE_READ("file.read"),
+    /** Since 1.6: save, rename, and delete files there. */
+    FILE_WRITE("file.write"),
+    /** Since 1.6: open an app's share screen with files. */
+    APP_SHARE("app.share"),
     ;
 
     companion object {
@@ -185,6 +191,57 @@ data class ActionResult(
     val submitted: Boolean? = null,
     /** `owner.ask` only (since 1.5): done, cant, or no_answer. */
     val owner: String? = null,
+)
+
+// ---- Files (since 1.6, ADR-026) ----
+
+enum class FileLocation(val wire: String) {
+    PHOTOS("photos"),
+    DOWNLOADS("downloads"),
+    FOLDER("folder"),
+    ;
+
+    companion object {
+        fun fromWire(wire: String): FileLocation? = entries.firstOrNull { it.wire == wire }
+    }
+}
+
+/** One file or folder. [id] is opaque and valid for this session; [name] is untrusted. */
+@Serializable
+data class FileItem(
+    val id: String,
+    val name: String,
+    /** folder, image, video, or file. */
+    val kind: String,
+    val location: String,
+    val mime: String? = null,
+    val size: Long? = null,
+    @SerialName("modified_ms") val modifiedMs: Long? = null,
+)
+
+@Serializable
+data class FileList(
+    val location: String,
+    @SerialName("folder_name") val folderName: String? = null,
+    val items: List<FileItem>,
+    val total: Int,
+    @SerialName("next_offset") val nextOffset: Int? = null,
+)
+
+@Serializable
+data class FilePreview(
+    val item: FileItem,
+    val text: String? = null,
+    @SerialName("text_truncated") val textTruncated: Boolean = false,
+    val image: Screenshot? = null,
+)
+
+@Serializable
+data class FileChunk(
+    val item: FileItem,
+    val offset: Long,
+    @SerialName("data_base64") val dataBase64: String,
+    val eof: Boolean,
 )
 
 /** Result of `ui.wait` (since 1.3). */
@@ -390,7 +447,65 @@ sealed interface Command {
         override val name = "owner.ask"
         override val requiredCapabilities = emptyList<Capability>()
     }
+
+    // ---- Since 1.6: files by opaque id (ADR-026) ----
+
+    data class ListFiles(val location: FileLocation, val folder: String?, val query: String?, val limit: Int, val offset: Int) : Command {
+        override val name = "file.list"
+        override val requiredCapabilities = listOf(Capability.FILE_READ)
+        override val isAction = false
+    }
+
+    data class PreviewFile(val id: String) : Command {
+        override val name = "file.preview"
+        override val requiredCapabilities = listOf(Capability.FILE_READ)
+        override val isAction = false
+    }
+
+    data class ReadFile(val id: String, val offset: Long, val length: Int) : Command {
+        override val name = "file.read"
+        override val requiredCapabilities = listOf(Capability.FILE_READ)
+        override val isAction = false
+    }
+
+    data class WriteFile(
+        val location: FileLocation,
+        val folder: String?,
+        val subfolder: String?,
+        val fileName: String,
+        val mime: String?,
+        val dataBase64: String,
+        val append: Boolean,
+        val overwrite: Boolean,
+    ) : Command {
+        override val name = "file.write"
+        override val requiredCapabilities = listOf(Capability.FILE_WRITE)
+    }
+
+    data class MakeFolder(val folder: String?, val folderName: String) : Command {
+        override val name = "file.mkdir"
+        override val requiredCapabilities = listOf(Capability.FILE_WRITE)
+    }
+
+    data class RenameFile(val id: String, val newName: String) : Command {
+        override val name = "file.rename"
+        override val requiredCapabilities = listOf(Capability.FILE_WRITE)
+    }
+
+    data class DeleteFile(val id: String) : Command {
+        override val name = "file.delete"
+        override val requiredCapabilities = listOf(Capability.FILE_WRITE)
+    }
+
+    data class Share(val packageName: String, val ids: List<String>, val text: String?) : Command {
+        override val name = "app.share"
+        override val requiredCapabilities = listOf(Capability.APP_SHARE)
+    }
 }
+
+/** Saving, renaming, and deleting files: changes made off screen. */
+val Command.isFileChange: Boolean
+    get() = this is Command.WriteFile || this is Command.MakeFolder || this is Command.RenameFile || this is Command.DeleteFile
 
 /** Since 1.2: observe after a successful action and return it in the same result. */
 data class ObserveAfter(
@@ -439,6 +554,10 @@ object GatewayParser {
         val value = this[key] ?: return default
         return (value as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull ?: invalid("$key must be a boolean")
     }
+
+    private fun JsonObject.optStr(key: String): String? = if (this[key] == null || this[key] is kotlinx.serialization.json.JsonNull) null else str(key)
+
+    private fun location(wire: String): FileLocation = FileLocation.fromWire(wire) ?: invalid("location must be photos, downloads, or folder")
 
     private fun JsonObject.obj(key: String): JsonObject = this[key] as? JsonObject ?: invalid("$key must be an object")
 
@@ -562,6 +681,39 @@ object GatewayParser {
             "app.list" -> Command.ListApps
             "app.launch" -> Command.LaunchApp(params.str("package"))
             "owner.ask" -> Command.AskOwner(params.str("message"))
+            "file.list" -> Command.ListFiles(
+                location(params.str("location")),
+                params.optStr("folder"),
+                params.optStr("query"),
+                if (params.containsKey("limit")) params.int("limit") else 50,
+                if (params.containsKey("offset")) params.int("offset") else 0,
+            )
+            "file.preview" -> Command.PreviewFile(params.str("id"))
+            "file.read" -> Command.ReadFile(
+                params.str("id"),
+                if (params.containsKey("offset")) params.long("offset") else 0L,
+                params.int("length"),
+            )
+            "file.write" -> Command.WriteFile(
+                location(params.str("location")),
+                params.optStr("folder"),
+                params.optStr("subfolder"),
+                params.str("name"),
+                params.optStr("mime"),
+                params.str("data_base64"),
+                params.bool("append", false),
+                params.bool("overwrite", false),
+            )
+            "file.mkdir" -> Command.MakeFolder(params.optStr("folder"), params.str("name"))
+            "file.rename" -> Command.RenameFile(params.str("id"), params.str("name"))
+            "file.delete" -> Command.DeleteFile(params.str("id"))
+            "app.share" -> Command.Share(
+                params.str("package"),
+                (params["ids"] as? kotlinx.serialization.json.JsonArray)?.map {
+                    (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: invalid("ids must be strings")
+                } ?: invalid("ids must be a list"),
+                params.optStr("text"),
+            )
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
         }
     }
@@ -581,7 +733,8 @@ object Limits {
     const val MAX_COORDINATE = 20_000
     const val MAX_ID_CHARS = 64
     const val MAX_PACKAGE_CHARS = 255
-    const val MAX_GATEWAY_FRAME_CHARS = 64 * 1024
+    /** Since 1.6 room for one file chunk. */
+    const val MAX_GATEWAY_FRAME_CHARS = 1024 * 1024
     const val MAX_NODE_TEXT_CHARS = 4_000
     const val MAX_SETTLE_MS = 3_000
     const val MAX_REMEMBER_CHARS = 160
@@ -593,6 +746,22 @@ object Limits {
     const val MAX_HOLD_MS = 3_000
     const val MIN_PINCH_SPAN = 20
     const val MAX_ASK_OWNER_CHARS = 300
+    const val MAX_FILE_CHUNK_BYTES = 512 * 1024
+    const val MAX_PREVIEW_TEXT_BYTES = 64 * 1024
+    const val MAX_FILE_NAME_CHARS = 120
+    const val MAX_FILE_LIST = 200
+    const val MAX_SHARE_FILES = 10
+    const val MAX_MIME_CHARS = 100
+
+    /** No path separators, control characters, or leading dot; same rule as the gateways. */
+    fun isValidFileName(name: String): Boolean {
+        val n = name.codePointCount(0, name.length)
+        return n in 1..MAX_FILE_NAME_CHARS && name.trim() == name && !name.startsWith(".") &&
+            name.none { Character.isISOControl(it) || it in "/\\:*?\"<>|" }
+    }
+
+    fun isValidMime(mime: String): Boolean =
+        mime.length <= MAX_MIME_CHARS && Regex("^[A-Za-z0-9.+_-]+/[A-Za-z0-9.+_-]+$").matches(mime)
 
     fun isValidId(id: String) =
         id.isNotEmpty() && id.length <= MAX_ID_CHARS && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '-' }
@@ -657,6 +826,55 @@ object Validation {
                 if (command.text.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
             is Command.LaunchApp -> if (!Limits.isValidPackage(command.packageName)) invalid("bad package name")
+            is Command.ListFiles -> {
+                command.folder?.let(::id)
+                command.query?.let(::findText)
+                if (command.limit !in 1..Limits.MAX_FILE_LIST) invalid("limit out of range")
+                if (command.offset < 0) invalid("offset must not be negative")
+            }
+            is Command.PreviewFile -> id(command.id)
+            is Command.DeleteFile -> id(command.id)
+            is Command.ReadFile -> {
+                id(command.id)
+                if (command.offset < 0) invalid("offset must not be negative")
+                if (command.length !in 1..Limits.MAX_FILE_CHUNK_BYTES) invalid("length out of range")
+            }
+            is Command.WriteFile -> {
+                if (!Limits.isValidFileName(command.fileName)) invalid("bad file name")
+                command.folder?.let {
+                    if (command.location != FileLocation.FOLDER) invalid("folder is only for location folder")
+                    id(it)
+                }
+                command.subfolder?.let {
+                    if (command.location == FileLocation.FOLDER) invalid("subfolder is for photos and downloads")
+                    if (!Limits.isValidFileName(it)) invalid("bad subfolder name")
+                }
+                command.mime?.let { if (!Limits.isValidMime(it)) invalid("bad mime type") }
+                if (command.append && command.overwrite) invalid("a write either appends or overwrites, not both")
+                if (command.dataBase64.length > (Limits.MAX_FILE_CHUNK_BYTES + 2) / 3 * 4 ||
+                    !command.dataBase64.all { it.isLetterOrDigit() && it.code < 128 || it == '+' || it == '/' || it == '=' }
+                ) {
+                    invalid("data_base64 too long or not base64")
+                }
+            }
+            is Command.MakeFolder -> {
+                command.folder?.let(::id)
+                if (!Limits.isValidFileName(command.folderName)) invalid("bad folder name")
+            }
+            is Command.RenameFile -> {
+                id(command.id)
+                if (!Limits.isValidFileName(command.newName)) invalid("bad file name")
+            }
+            is Command.Share -> {
+                if (!Limits.isValidPackage(command.packageName)) invalid("bad package name")
+                if (command.ids.size !in 1..Limits.MAX_SHARE_FILES) invalid("ids must hold 1-${Limits.MAX_SHARE_FILES} file ids")
+                command.ids.forEach(::id)
+                command.text?.let { t ->
+                    if (t.codePointCount(0, t.length) > Limits.MAX_TEXT_CHARS || t.any { Character.isISOControl(it) && it != '\n' }) {
+                        invalid("bad share text")
+                    }
+                }
+            }
             is Command.AskOwner -> {
                 val n = command.message.codePointCount(0, command.message.length)
                 if (n !in 1..Limits.MAX_ASK_OWNER_CHARS || command.message.isBlank()) invalid("message must be 1-${Limits.MAX_ASK_OWNER_CHARS} characters")

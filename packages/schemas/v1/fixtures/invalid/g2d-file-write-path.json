@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0044", "deadline_ms": 20000, "command": { "name": "file.write", "params": { "location": "folder", "name": "../escape.txt", "data_base64": "" } } }

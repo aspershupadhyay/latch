@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::Capability;
+use crate::{Capability, FileLocation};
 
 /// A point in physical screen pixels of the observation it was taken from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -158,6 +158,88 @@ pub enum Command {
     /// answer, never the AI.
     #[serde(rename = "owner.ask")]
     AskOwner { message: String },
+
+    /// Since 1.6: list files in a location, newest first. `folder` is a
+    /// folder id from an earlier answer (location `folder` only); `query`
+    /// filters by name. Answers with a [`crate::FileList`].
+    #[serde(rename = "file.list")]
+    ListFiles {
+        location: FileLocation,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        folder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<String>,
+        #[serde(default = "default_file_limit")]
+        limit: u32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        offset: u32,
+    },
+
+    /// Since 1.6: a look at one file: text, or a downscaled image. Answers
+    /// with a [`crate::FilePreview`].
+    #[serde(rename = "file.preview")]
+    PreviewFile { id: String },
+
+    /// Since 1.6: raw bytes of a file from `offset`, at most `length`.
+    /// Answers with a [`crate::FileChunk`].
+    #[serde(rename = "file.read")]
+    ReadFile {
+        id: String,
+        #[serde(default)]
+        offset: u64,
+        length: u32,
+    },
+
+    /// Since 1.6: save bytes as a new file, or append them to a file this
+    /// session created (`append`). In `folder` the file goes into `folder`
+    /// (a folder id, default the picked folder); in `photos` and
+    /// `downloads` into `subfolder` (default "Latch"). An existing name is
+    /// kept and the new file gets a free name, unless `overwrite`, which the
+    /// owner approves. Answers with a [`crate::FileItem`].
+    #[serde(rename = "file.write")]
+    WriteFile {
+        location: FileLocation,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        folder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subfolder: Option<String>,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime: Option<String>,
+        data_base64: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        append: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        overwrite: bool,
+    },
+
+    /// Since 1.6: create a folder inside the picked folder (or `folder`).
+    /// Answers with a [`crate::FileItem`].
+    #[serde(rename = "file.mkdir")]
+    MakeFolder {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        folder: Option<String>,
+        name: String,
+    },
+
+    /// Since 1.6: rename a file or folder. Answers with a [`crate::FileItem`].
+    #[serde(rename = "file.rename")]
+    RenameFile { id: String, name: String },
+
+    /// Since 1.6: delete a file or folder; the owner approves.
+    #[serde(rename = "file.delete")]
+    DeleteFile { id: String },
+
+    /// Since 1.6: open `package`'s Android share screen with these files
+    /// (and optional text), so the owner or the AI can finish the post or
+    /// message in that app. Answers with an [`crate::ActionResult`].
+    #[serde(rename = "app.share")]
+    Share {
+        package: String,
+        ids: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
 }
 
 fn default_max_nodes() -> u32 {
@@ -176,6 +258,10 @@ fn default_max_swipes() -> u32 {
     10
 }
 
+fn default_file_limit() -> u32 {
+    50
+}
+
 impl Command {
     /// Wire name, e.g. `input.tap`.
     pub fn name(&self) -> &'static str {
@@ -192,6 +278,14 @@ impl Command {
             Command::ScrollTo { .. } => "ui.scroll_to",
             Command::Pinch { .. } => "input.pinch",
             Command::AskOwner { .. } => "owner.ask",
+            Command::ListFiles { .. } => "file.list",
+            Command::PreviewFile { .. } => "file.preview",
+            Command::ReadFile { .. } => "file.read",
+            Command::WriteFile { .. } => "file.write",
+            Command::MakeFolder { .. } => "file.mkdir",
+            Command::RenameFile { .. } => "file.rename",
+            Command::DeleteFile { .. } => "file.delete",
+            Command::Share { .. } => "app.share",
         }
     }
 
@@ -218,6 +312,14 @@ impl Command {
             Command::ScrollTo { .. } => vec![Capability::UiObserve, Capability::InputGesture],
             // Only shows the owner a question; the owner does the rest.
             Command::AskOwner { .. } => vec![],
+            Command::ListFiles { .. } | Command::PreviewFile { .. } | Command::ReadFile { .. } => {
+                vec![Capability::FileRead]
+            }
+            Command::WriteFile { .. }
+            | Command::MakeFolder { .. }
+            | Command::RenameFile { .. }
+            | Command::DeleteFile { .. } => vec![Capability::FileWrite],
+            Command::Share { .. } => vec![Capability::AppShare],
         }
     }
 
@@ -230,13 +332,40 @@ impl Command {
                 | Command::Observe { .. }
                 | Command::ListApps {}
                 | Command::WaitFor { .. }
+                | Command::ListFiles { .. }
+                | Command::PreviewFile { .. }
+                | Command::ReadFile { .. }
+        )
+    }
+
+    /// True for actions that change what is on screen, after which the old
+    /// observation is stale and a new one is worth returning. File changes
+    /// happen off screen.
+    pub fn changes_screen(&self) -> bool {
+        self.is_action() && !self.is_file_change()
+    }
+
+    /// `file.write`, `file.mkdir`, `file.rename`, `file.delete`.
+    pub fn is_file_change(&self) -> bool {
+        matches!(
+            self,
+            Command::WriteFile { .. }
+                | Command::MakeFolder { .. }
+                | Command::RenameFile { .. }
+                | Command::DeleteFile { .. }
         )
     }
 
     /// True for actions the owner approves under "Ask me before every
     /// action". Asking the owner is already a question to the owner.
+    /// Appending the next chunk of a file Latch created moments ago is part
+    /// of that same, already approved save.
     pub fn needs_owner_approval_when_strict(&self) -> bool {
-        self.is_action() && !matches!(self, Command::AskOwner { .. })
+        self.is_action()
+            && !matches!(
+                self,
+                Command::AskOwner { .. } | Command::WriteFile { append: true, .. }
+            )
     }
 
     /// The lowest protocol minor version a phone must speak to understand this
@@ -247,6 +376,14 @@ impl Command {
             Command::TypeText { submit: true, .. } | Command::Tap { double: true, .. } => 3,
             Command::Swipe { hold_ms, .. } if *hold_ms > 0 => 3,
             Command::AskOwner { .. } => 5,
+            Command::ListFiles { .. }
+            | Command::PreviewFile { .. }
+            | Command::ReadFile { .. }
+            | Command::WriteFile { .. }
+            | Command::MakeFolder { .. }
+            | Command::RenameFile { .. }
+            | Command::DeleteFile { .. }
+            | Command::Share { .. } => 6,
             _ => 0,
         }
     }

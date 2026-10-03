@@ -1,8 +1,8 @@
-// Latch device protocol v1.5 for the Vercel gateway. The normative definition
+// Latch device protocol v1.6 for the Vercel gateway. The normative definition
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.5";
+export const PROTOCOL_VERSION = "1.6";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -44,6 +44,7 @@ export class ProtocolError extends Error {
 
 export const CAPABILITIES = [
   "device.info", "ui.observe", "screen.capture", "input.gesture", "input.text", "nav.global", "app.launch",
+  "file.read", "file.write", "app.share",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type CapabilityStatus = "enabled" | "disabled" | "needs_permission" | "unsupported";
@@ -57,6 +58,9 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "input.text": "type into non-sensitive text fields",
   "nav.global": "press back, home, and recents",
   "app.launch": "list and open apps",
+  "file.read": "list and read allowed photos and files",
+  "file.write": "save, rename, and delete files",
+  "app.share": "share files to an app",
 };
 
 export interface SessionInfo {
@@ -114,7 +118,30 @@ export type Command =
   | { name: "app.list"; params: Record<string, never> }
   | { name: "app.launch"; params: { package: string } }
   /** Since 1.5: ask the owner to do something only a person should do; needs no capability. */
-  | { name: "owner.ask"; params: { message: string } };
+  | { name: "owner.ask"; params: { message: string } }
+  // Since 1.6 (ADR-026): files addressed by opaque ids the phone issued.
+  | { name: "file.list"; params: { location: FileLocation; folder?: string; query?: string; limit: number; offset?: number } }
+  | { name: "file.preview"; params: { id: string } }
+  | { name: "file.read"; params: { id: string; offset: number; length: number } }
+  | {
+    name: "file.write";
+    params: {
+      location: FileLocation; folder?: string; subfolder?: string; name: string; mime?: string;
+      data_base64: string; append?: boolean; overwrite?: boolean;
+    };
+  }
+  | { name: "file.mkdir"; params: { folder?: string; name: string } }
+  | { name: "file.rename"; params: { id: string; name: string } }
+  | { name: "file.delete"; params: { id: string } }
+  | { name: "app.share"; params: { package: string; ids: string[]; text?: string } };
+
+export type FileLocation = "photos" | "downloads" | "folder";
+export const FILE_LOCATIONS: readonly FileLocation[] = ["photos", "downloads", "folder"];
+export type FileKind = "folder" | "image" | "video" | "file";
+export interface FileItem { id: string; name: string; kind: FileKind; location: FileLocation; mime?: string; size?: number; modified_ms?: number }
+export interface FileList { location: FileLocation; folder_name?: string; items: FileItem[]; total: number; next_offset?: number }
+export interface FilePreview { item: FileItem; text?: string; text_truncated?: boolean; image?: Screenshot }
+export interface FileChunk { item: FileItem; offset: number; data_base64: string; eof: boolean }
 
 /** The owner's answer to `owner.ask` (since 1.5), in `ActionResult.owner`. */
 export type OwnerReply = "done" | "cant" | "no_answer";
@@ -152,6 +179,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   if (c.name === "owner.ask") return 5;
+  if (c.name.startsWith("file.") || c.name === "app.share") return 6;
   return 0;
 }
 
@@ -170,14 +198,25 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "ui.scroll_to": return ["ui.observe", "input.gesture"];
     // Only shows the owner a question; the owner does the rest.
     case "owner.ask": return [];
+    case "file.list": case "file.preview": case "file.read": return ["file.read"];
+    case "file.write": case "file.mkdir": case "file.rename": case "file.delete": return ["file.write"];
+    case "app.share": return ["app.share"];
   }
 }
 
 /** Asking the owner counts as an action: the owner changes the screen while answering. */
-export const isAction = (c: Command) => !["device.info", "ui.observe", "app.list", "ui.wait"].includes(c.name);
+export const isAction = (c: Command) =>
+  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read"].includes(c.name);
+
+/** `file.write`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
+export const isFileChange = (c: Command) => ["file.write", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
+
+/** Actions after which the old observation is stale and a new one is worth returning. */
+export const changesScreen = (c: Command) => isAction(c) && !isFileChange(c);
 
 /** Actions the owner approves under "Ask me before every action"; asking the owner is already a question. */
-export const needsOwnerApprovalWhenStrict = (c: Command) => isAction(c) && c.name !== "owner.ask";
+export const needsOwnerApprovalWhenStrict = (c: Command) =>
+  isAction(c) && c.name !== "owner.ask" && !(c.name === "file.write" && c.params.append === true);
 
 export function observationIdOf(c: Command): string | undefined {
   return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" || c.name === "ui.scroll_to" || c.name === "input.pinch"
@@ -192,9 +231,23 @@ export const LIMITS = {
   maxPackageChars: 255, maxNodeTextChars: 4_000, maxScreenshotBase64: 6 * 1024 * 1024,
   maxMessageBytes: 8 * 1024 * 1024, minWaitMs: 100, maxWaitMs: 15_000, maxFindTextChars: 200, maxScrollSwipes: 20, maxHoldMs: 3_000, minPinchSpan: 20,
   maxAskOwnerChars: 300,
+  maxFileChunkBytes: 512 * 1024, maxFileNameChars: 120, maxFileList: 200, maxShareFiles: 10, maxMimeChars: 100,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
+
+/** A file or folder name: no path separators, control characters, or leading dot. */
+export function isValidFileName(name: string): boolean {
+  const n = [...name].length;
+  // eslint-disable-next-line no-control-regex
+  return n > 0 && n <= LIMITS.maxFileNameChars && name.trim() === name && !name.startsWith(".") && !/[\u0000-\u001f\u007f-\u009f/\\:*?"<>|]/u.test(name);
+}
+
+export const isValidMime = (mime: string) => mime.length <= LIMITS.maxMimeChars && /^[A-Za-z0-9.+_-]+\/[A-Za-z0-9.+_-]+$/.test(mime);
+
+function fileName(name: string, what: string) {
+  if (!isValidFileName(name)) throw invalid(`${what} must be 1-${LIMITS.maxFileNameChars} characters, without / \\ : * ? " < > | or a leading dot`);
+}
 
 export const isValidId = (id: string) => id.length > 0 && id.length <= LIMITS.maxIdChars && /^[A-Za-z0-9_-]+$/.test(id);
 
@@ -280,6 +333,59 @@ export function validateCommand(c: Command): void {
     case "app.launch":
       if (!isValidPackage(c.params.package)) throw invalid("package must be an application id such as com.example.app");
       return;
+    case "file.list":
+      if (!FILE_LOCATIONS.includes(c.params.location)) throw invalid("location must be photos, downloads, or folder");
+      if (c.params.folder !== undefined) id("folder", c.params.folder);
+      if (c.params.query !== undefined) findText(c.params.query);
+      if (c.params.limit < 1 || c.params.limit > LIMITS.maxFileList) throw invalid(`limit must be between 1 and ${LIMITS.maxFileList}`);
+      if ((c.params.offset ?? 0) < 0) throw invalid("offset must not be negative");
+      return;
+    case "file.preview": case "file.delete":
+      id("id", c.params.id);
+      return;
+    case "file.read":
+      id("id", c.params.id);
+      if (c.params.offset < 0) throw invalid("offset must not be negative");
+      if (c.params.length < 1 || c.params.length > LIMITS.maxFileChunkBytes) throw invalid(`length must be between 1 and ${LIMITS.maxFileChunkBytes}`);
+      return;
+    case "file.write": {
+      const p = c.params;
+      if (!FILE_LOCATIONS.includes(p.location)) throw invalid("location must be photos, downloads, or folder");
+      fileName(p.name, "name");
+      if (p.folder !== undefined) {
+        if (p.location !== "folder") throw invalid("folder is only for location \"folder\"");
+        id("folder", p.folder);
+      }
+      if (p.subfolder !== undefined) {
+        if (p.location === "folder") throw invalid("subfolder is for photos and downloads; use folder");
+        fileName(p.subfolder, "subfolder");
+      }
+      if (p.mime !== undefined && !isValidMime(p.mime)) throw invalid("mime must look like type/subtype");
+      if (p.append && p.overwrite) throw invalid("a write either appends or overwrites, not both");
+      if (p.data_base64.length > Math.ceil(LIMITS.maxFileChunkBytes / 3) * 4 || !/^[A-Za-z0-9+/=]*$/.test(p.data_base64)) {
+        throw invalid(`data_base64 must be base64 of at most ${LIMITS.maxFileChunkBytes} bytes`);
+      }
+      return;
+    }
+    case "file.mkdir":
+      if (c.params.folder !== undefined) id("folder", c.params.folder);
+      fileName(c.params.name, "name");
+      return;
+    case "file.rename":
+      id("id", c.params.id);
+      fileName(c.params.name, "name");
+      return;
+    case "app.share": {
+      if (!isValidPackage(c.params.package)) throw invalid("package must be an application id such as com.example.app");
+      if (c.params.ids.length < 1 || c.params.ids.length > LIMITS.maxShareFiles) throw invalid(`ids must hold 1-${LIMITS.maxShareFiles} file ids`);
+      for (const v of c.params.ids) id("ids", v);
+      const t = c.params.text;
+      // eslint-disable-next-line no-control-regex
+      if (t !== undefined && ([...t].length > LIMITS.maxTextChars || /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(t))) {
+        throw invalid(`text must be at most ${LIMITS.maxTextChars} characters without control characters`);
+      }
+      return;
+    }
     case "owner.ask": {
       const n = [...c.params.message].length;
       if (n === 0 || n > LIMITS.maxAskOwnerChars || c.params.message.trim() === "") {
@@ -356,6 +462,41 @@ export function parseCommand(raw: unknown): Command {
     }
     case "app.launch": return { name, params: { package: str("package") } };
     case "owner.ask": return { name, params: { message: str("message") } };
+    case "file.list": {
+      const location = str("location") as FileLocation;
+      return {
+        name,
+        params: {
+          location,
+          ...(p.folder !== undefined ? { folder: str("folder") } : {}),
+          ...(p.query !== undefined ? { query: str("query") } : {}),
+          limit: p.limit === undefined ? 50 : int(p.limit, "limit"),
+          ...(p.offset !== undefined ? { offset: int(p.offset, "offset") } : {}),
+        },
+      };
+    }
+    case "file.preview": return { name, params: { id: str("id") } };
+    case "file.delete": return { name, params: { id: str("id") } };
+    case "file.read": return { name, params: { id: str("id"), offset: p.offset === undefined ? 0 : int(p.offset, "offset"), length: int(p.length, "length") } };
+    case "file.write": return {
+      name,
+      params: {
+        location: str("location") as FileLocation,
+        ...(p.folder !== undefined ? { folder: str("folder") } : {}),
+        ...(p.subfolder !== undefined ? { subfolder: str("subfolder") } : {}),
+        name: str("name"),
+        ...(p.mime !== undefined ? { mime: str("mime") } : {}),
+        data_base64: str("data_base64"),
+        append: bool("append", false),
+        overwrite: bool("overwrite", false),
+      },
+    };
+    case "file.mkdir": return { name, params: { ...(p.folder !== undefined ? { folder: str("folder") } : {}), name: str("name") } };
+    case "file.rename": return { name, params: { id: str("id"), name: str("name") } };
+    case "app.share": {
+      if (!Array.isArray(p.ids) || p.ids.some((v) => typeof v !== "string")) throw invalid("ids must be a list of strings");
+      return { name, params: { package: str("package"), ids: p.ids as string[], ...(p.text !== undefined ? { text: str("text") } : {}) } };
+    }
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
 }

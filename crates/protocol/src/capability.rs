@@ -30,10 +30,19 @@ pub enum Capability {
     /// List launchable apps and open one.
     #[serde(rename = "app.launch")]
     AppLaunch,
+    /// Since 1.6: list and read allowed photos, Latch's downloads, and the picked folder.
+    #[serde(rename = "file.read")]
+    FileRead,
+    /// Since 1.6: save, rename, and delete files in those places.
+    #[serde(rename = "file.write")]
+    FileWrite,
+    /// Since 1.6: open an app's share screen with files.
+    #[serde(rename = "app.share")]
+    AppShare,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 7] = [
+    pub const ALL: [Capability; 10] = [
         Capability::DeviceInfo,
         Capability::UiObserve,
         Capability::ScreenCapture,
@@ -41,6 +50,9 @@ impl Capability {
         Capability::InputText,
         Capability::NavGlobal,
         Capability::AppLaunch,
+        Capability::FileRead,
+        Capability::FileWrite,
+        Capability::AppShare,
     ];
 
     /// Stable wire identifier, e.g. `input.gesture`.
@@ -53,6 +65,9 @@ impl Capability {
             Capability::InputText => "input.text",
             Capability::NavGlobal => "nav.global",
             Capability::AppLaunch => "app.launch",
+            Capability::FileRead => "file.read",
+            Capability::FileWrite => "file.write",
+            Capability::AppShare => "app.share",
         }
     }
 
@@ -66,6 +81,9 @@ impl Capability {
             Capability::InputText => "type into non-sensitive text fields",
             Capability::NavGlobal => "press back, home, and recents",
             Capability::AppLaunch => "list and open apps",
+            Capability::FileRead => "list and read allowed photos and files",
+            Capability::FileWrite => "save, rename, and delete files",
+            Capability::AppShare => "share files to an app",
         }
     }
 }
@@ -88,4 +106,39 @@ pub enum CapabilityStatus {
 pub struct CapabilityState {
     pub capability: Capability,
     pub status: CapabilityStatus,
+}
+
+/// Reads a phone's capability list, skipping capabilities this side does not
+/// know yet (a newer phone), so adding a capability never breaks pairing.
+pub(crate) fn known_capabilities<'de, D>(deserializer: D) -> Result<Vec<CapabilityState>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    if raw.len() > 64 {
+        return Err(serde::de::Error::custom("too many capabilities"));
+    }
+    Ok(raw
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_capabilities_are_skipped() {
+        #[derive(Deserialize)]
+        struct Wrap {
+            #[serde(deserialize_with = "known_capabilities")]
+            c: Vec<CapabilityState>,
+        }
+        let w: Wrap = serde_json::from_str(
+            r#"{"c":[{"capability":"ui.observe","status":"enabled"},{"capability":"future.thing","status":"enabled"}]}"#,
+        )
+        .expect("parse");
+        assert_eq!(w.c.len(), 1);
+    }
 }

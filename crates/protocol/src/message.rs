@@ -1,6 +1,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::capability::known_capabilities;
+
 use crate::{CapabilityState, Command, ConfirmRequest, Observation, ProtocolError, ScreenInfo};
 
 /// Static facts about the phone, sent once per connection.
@@ -77,6 +79,7 @@ pub struct ApprovalRequest {
 pub struct Hello {
     pub protocol: String,
     pub device: DeviceDescriptor,
+    #[serde(deserialize_with = "known_capabilities")]
     pub capabilities: Vec<CapabilityState>,
     pub session: SessionInfo,
     /// Device clock (Unix ms) when the message was sent, so the gateway can
@@ -104,6 +107,7 @@ pub enum DeviceToGateway {
     },
     /// The owner changed capabilities or session settings.
     State {
+        #[serde(deserialize_with = "known_capabilities")]
         capabilities: Vec<CapabilityState>,
         session: SessionInfo,
         #[serde(default, skip_serializing_if = "Option::is_none")]

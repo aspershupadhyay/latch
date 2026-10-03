@@ -108,8 +108,24 @@ Change single switches any time in the **Access** tab. Want to approve **every s
 
 On the same tab, under **While the AI works**:
 
-- **Show where the AI taps** (on by default): a computer-style pointer glides to each spot the AI uses. It's an arrow, turns into a hand over buttons and links, a text cursor over text boxes, and a grabbing hand while swiping, scrolling, or dragging. Every touch shows a fingertip mark; a long press fills a ring; a pinch shows both fingers. It appears when the AI acts and fades away a few seconds after its last action, so it's gone when the task is done. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
+- **Show where the AI taps** (on by default): an indigo pointer, like a computer's, glides along a gentle curve to each spot the AI uses, with a small label saying what it's doing ("Latch · Tapping", "Typing", "Swiping"…). Every touch shows a fingertip mark and ripple; a long press fills a ring; a pinch shows both fingers. It fades away a few seconds after the AI's last action. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
 - **Keep the screen on** (on by default): during a session the screen stays on, so a task isn't cut off by the lock screen. Turn it off to save battery.
+
+**Files (optional, all off by default):** switch on **See files**, **Save and change files**, and **Share to apps** on the **Access** tab, then under **Files**:
+
+- **Pick a folder for the AI**: Android's folder picker opens; choose one folder (for example *Documents/AI*). The AI may read, save, rename, and delete files **in that folder only**, and make subfolders in it.
+- **Photos**: allow all photos, or only the ones you choose. Saving new pictures to your gallery works without this.
+- The AI can also save files to your phone's **Download** folder (it sees only files Latch saved there).
+- **Replacing or deleting a file asks you on the phone**, unless Auto mode is on. **Ask me before every action** asks for every change.
+- **Share to apps** opens any app's Share screen (Instagram, YouTube, X, LinkedIn, WhatsApp, Gmail…) with the files, only for apps you switched on. Posting or sending is still a tap under your app rules.
+
+Things you can then ask your AI:
+
+- *"Post the 3 photos in my ToPost folder to Instagram with the caption in caption.txt."*
+- *"Copy my latest screenshot from the phone into my Downloads folder."* (an AI on your computer, like Claude Code, saves it with a download link)
+- *"Save report.pdf from my Downloads on the computer into a folder called abc on my phone."*
+
+Files travel between your computer and the phone through private links on **your own** gateway that expire after 15 minutes (up to 4 MB on Vercel, 64 MB on a self-hosted gateway). File contents are never logged.
 
 ### Step 7: Connect your AI 🤖
 
@@ -321,6 +337,11 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `wait_for` | Waits until a text appears (or disappears), in one call |
 | `pinch` | Zooms in or out with two fingers |
 | `list_apps`, `launch_app` | See and open installed apps |
+| `ask_owner` | Asks you to do a step only a person should do (log in, unlock, a code); waits for **Done** |
+| `list_files`, `read_file` | List photos you allowed, Downloads, or your Latch folder; look at a text file or picture |
+| `get_file_link`, `upload_link` | Private 15-minute links to copy whole files between your computer and the phone (curl) |
+| `write_file`, `create_folder`, `rename_file`, `delete_file` | Save and organise files; replacing and deleting ask you unless Auto mode is on |
+| `share_to_app` | Opens any app's Share screen with files, ready to post or send |
 
 ### Other ways to run the gateway
 

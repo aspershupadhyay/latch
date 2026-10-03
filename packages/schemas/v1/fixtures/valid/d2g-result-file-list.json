@@ -1,0 +1,1 @@
+{ "type": "result", "id": "c_0040", "outcome": { "status": "ok", "data": { "location": "folder", "folder_name": "ToPost", "items": [ { "id": "f_0004", "name": "beach.jpg", "kind": "image", "location": "folder", "mime": "image/jpeg", "size": 2048, "modified_ms": 1791000000004 } ], "total": 51, "next_offset": 51 } } }

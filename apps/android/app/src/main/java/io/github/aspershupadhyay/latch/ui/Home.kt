@@ -304,4 +304,7 @@ fun shortName(c: Capability) = when (c) {
     Capability.INPUT_TEXT -> "Type"
     Capability.NAV_GLOBAL -> "Back/Home"
     Capability.APP_LAUNCH -> "Open apps"
+    Capability.FILE_READ -> "See files"
+    Capability.FILE_WRITE -> "Save files"
+    Capability.APP_SHARE -> "Share"
 }

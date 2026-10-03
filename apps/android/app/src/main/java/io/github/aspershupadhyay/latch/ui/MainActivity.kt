@@ -536,12 +536,52 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
     val service by app.bridge.service.collectAsStateWithLifecycle()
     val autonomy by app.autonomy.state.collectAsStateWithLifecycle()
     var appsOpen by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val folderFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    // The one folder the AI may use (ADR-026): Android's own picker, kept across restarts.
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, folderFlags) }
+        prefs.filesFolder?.takeIf { it != uri.toString() }?.let { old ->
+            runCatching { context.contentResolver.releasePersistableUriPermission(old.toUri(), folderFlags) }
+        }
+        val name = runCatching { android.provider.DocumentsContract.getTreeDocumentId(uri).substringAfter(':').ifEmpty { "Phone storage" } }
+            .getOrDefault("Picked folder")
+        app.settings.update { it.copy(filesFolder = uri.toString(), filesFolderName = name) }
+    }
+    var photosAllowed by remember { mutableStateOf(app.files.photosAllowed()) }
+    val askPhotos = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        photosAllowed = app.files.photosAllowed()
+        // Already answered "don't ask again": the owner changes it in Android's settings.
+        if (!photosAllowed && it.values.none { granted -> granted }) {
+            context.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
+        }
+    }
     if (appsOpen) {
         BackHandler { appsOpen = false }
         AppsRoute(app) { appsOpen = false }
         return
     }
     CapabilitiesScreen(
+        folderName = prefs.filesFolderName.takeIf { prefs.filesFolder != null },
+        photosAllowed = photosAllowed,
+        onPickFolder = { runCatching { pickFolder.launch(null) } },
+        onForgetFolder = {
+            prefs.filesFolder?.let { runCatching { context.contentResolver.releasePersistableUriPermission(it.toUri(), folderFlags) } }
+            app.settings.update { it.copy(filesFolder = null, filesFolderName = null) }
+        },
+        onAllowPhotos = {
+            askPhotos.launch(
+                when {
+                    Build.VERSION.SDK_INT >= 34 -> arrayOf(
+                        Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
+                        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                    )
+                    Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+                    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                },
+            )
+        },
         appsOn = autonomy.allowed.size,
         onOpenApps = { appsOpen = true },
         remoteApprovals = prefs.remoteApprovals,

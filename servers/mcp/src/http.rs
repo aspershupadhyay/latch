@@ -6,7 +6,7 @@ use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -39,6 +39,14 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(device_http::messages)
                 .layer(DefaultBodyLimit::max(device_http::MAX_MESSAGE_BYTES)),
         )
+        // File links (protocol 1.6): the 256-bit token in the path is the credential.
+        .route("/v1/files/{token}", get(file_download))
+        .route(
+            "/v1/uploads/{token}",
+            put(file_upload)
+                .post(file_upload)
+                .layer(DefaultBodyLimit::max(crate::transfers::MAX_TRANSFER_BYTES)),
+        )
         .route("/v1/admin/devices", get(admin_devices))
         .route("/v1/admin/devices/{id}", delete(admin_revoke))
         .route("/v1/admin/pairings", post(admin_create_pairing))
@@ -50,6 +58,78 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/admin/clients/{id}", delete(admin_revoke_client))
         .layer(DefaultBodyLimit::max(256 * 1024))
         .with_state(state)
+}
+
+async fn file_download(State(state): State<Arc<AppState>>, Path(token): Path<String>) -> Response {
+    let Some((name, mime, bytes)) = state.transfers.download(&token) else {
+        return error(
+            StatusCode::NOT_FOUND,
+            "this link has expired or never existed",
+        );
+    };
+    // The name came from the phone: keep only safe characters in the header.
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || " ._-()".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mime = if latch_protocol::validate::is_valid_mime(&mime) {
+        mime
+    } else {
+        "application/octet-stream".into()
+    };
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, mime),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{safe}\""),
+            ),
+            (axum::http::header::CACHE_CONTROL, "no-store".into()),
+            // A phone file is never a page of this gateway (the owner console lives here).
+            (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff".into()),
+            (
+                axum::http::header::CONTENT_SECURITY_POLICY,
+                "sandbox; default-src 'none'".into(),
+            ),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+async fn file_upload(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    use crate::transfers::TransferError;
+    match state.transfers.put_upload(&token, body.to_vec()) {
+        Ok(()) => {
+            Json(json!({ "ok": true, "upload_id": token, "size": body.len() })).into_response()
+        }
+        Err(TransferError::TooLarge) => error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "the file is larger than 64 MB",
+        ),
+        Err(TransferError::Full) => error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the gateway holds too many files right now; try again soon",
+        ),
+        Err(TransferError::AlreadyUploaded) => error(
+            StatusCode::CONFLICT,
+            "this upload link was already used; ask for a new one",
+        ),
+        Err(TransferError::Unknown) => error(
+            StatusCode::NOT_FOUND,
+            "this link has expired or never existed",
+        ),
+    }
 }
 
 fn error(status: StatusCode, message: &str) -> Response {

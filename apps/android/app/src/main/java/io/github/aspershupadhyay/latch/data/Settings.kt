@@ -33,6 +33,9 @@ data class Preferences(
     val checkUpdates: Boolean = true,
     /** Approvals may also be answered in the AI app (protocol 1.4, ADR-023). */
     val remoteApprovals: Boolean = false,
+    /** The folder the owner picked for the AI (a Storage Access Framework tree URI) and its name. */
+    val filesFolder: String? = null,
+    val filesFolderName: String? = null,
 )
 
 /**
@@ -73,6 +76,8 @@ class Settings(context: Context) {
             keepAwake = prefs.getBoolean("keep_awake", true),
             checkUpdates = prefs.getBoolean("check_updates", true),
             remoteApprovals = prefs.getBoolean("remote_approvals", false),
+            filesFolder = prefs.getString("files_folder", null),
+            filesFolderName = prefs.getString("files_folder_name", null),
         )
     }
 
@@ -121,6 +126,8 @@ class Settings(context: Context) {
             putBoolean("keep_awake", next.keepAwake)
             putBoolean("check_updates", next.checkUpdates)
             putBoolean("remote_approvals", next.remoteApprovals)
+            putString("files_folder", next.filesFolder)
+            putString("files_folder_name", next.filesFolderName)
         }
         _preferences.value = next
     }

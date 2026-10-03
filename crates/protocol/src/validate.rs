@@ -8,8 +8,8 @@ use crate::{Command, CommandEnvelope, ErrorCode, Hello, Observation, ProtocolErr
 
 /// Largest text frame either side accepts. Screenshots dominate this budget.
 pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
-/// Largest frame a gateway sends to a device.
-pub const MAX_GATEWAY_FRAME_BYTES: usize = 64 * 1024;
+/// Largest frame a gateway sends to a device (since 1.6 room for one file chunk).
+pub const MAX_GATEWAY_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_TEXT_CHARS: usize = 2_000;
 pub const MAX_NODES: u32 = 2_000;
 pub const MAX_SWIPE_MS: u32 = 5_000;
@@ -28,6 +28,51 @@ pub const MAX_ASK_OWNER_CHARS: usize = 300;
 pub const MAX_SCROLL_SWIPES: u32 = 20;
 pub const MAX_HOLD_MS: u32 = 3_000;
 pub const MIN_PINCH_SPAN: u32 = 20;
+/// Since 1.6: most raw bytes in one `file.read` or `file.write` chunk.
+pub const MAX_FILE_CHUNK_BYTES: usize = 512 * 1024;
+/// Since 1.6: most text a `file.preview` returns.
+pub const MAX_PREVIEW_TEXT_BYTES: usize = 64 * 1024;
+pub const MAX_FILE_NAME_CHARS: usize = 120;
+pub const MAX_FILE_LIST: u32 = 200;
+pub const MAX_SHARE_FILES: usize = 10;
+pub const MAX_MIME_CHARS: usize = 100;
+
+/// A file or folder name: no path separators, control characters, or
+/// leading dot (hidden files), and not "." or "..".
+pub fn is_valid_file_name(name: &str) -> bool {
+    let n = name.chars().count();
+    n > 0
+        && n <= MAX_FILE_NAME_CHARS
+        && name.trim() == name
+        && !name.starts_with('.')
+        && !name.chars().any(|c| {
+            c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
+}
+
+/// `type/subtype`, lowercase-insensitive, no parameters.
+pub fn is_valid_mime(mime: &str) -> bool {
+    let mut parts = mime.split('/');
+    let ok = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'+' | b'-' | b'_'))
+    };
+    mime.len() <= MAX_MIME_CHARS
+        && parts.next().is_some_and(ok)
+        && parts.next().is_some_and(ok)
+        && parts.next().is_none()
+}
+
+fn check_file_name(name: &str, what: &str) -> Result<(), ProtocolError> {
+    if is_valid_file_name(name) {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "{what} must be 1-{MAX_FILE_NAME_CHARS} characters, without / \\ : * ? \" < > | or a leading dot"
+        )))
+    }
+}
 
 fn invalid(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(ErrorCode::InvalidRequest, message)
@@ -205,6 +250,111 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             }
             if message.chars().any(|c| c.is_control() && c != '\n') {
                 return Err(invalid("message must not contain control characters"));
+            }
+            Ok(())
+        }
+        Command::ListFiles {
+            folder,
+            query,
+            limit,
+            ..
+        } => {
+            if let Some(folder) = folder {
+                check_id("folder", folder)?;
+            }
+            if let Some(query) = query {
+                check_find_text(query)?;
+            }
+            if *limit == 0 || *limit > MAX_FILE_LIST {
+                return Err(invalid(format!(
+                    "limit must be between 1 and {MAX_FILE_LIST}"
+                )));
+            }
+            Ok(())
+        }
+        Command::PreviewFile { id } | Command::DeleteFile { id } => check_id("id", id),
+        Command::ReadFile { id, length, .. } => {
+            check_id("id", id)?;
+            if *length == 0 || *length as usize > MAX_FILE_CHUNK_BYTES {
+                return Err(invalid(format!(
+                    "length must be between 1 and {MAX_FILE_CHUNK_BYTES}"
+                )));
+            }
+            Ok(())
+        }
+        Command::WriteFile {
+            location,
+            folder,
+            subfolder,
+            name,
+            mime,
+            data_base64,
+            append,
+            overwrite,
+        } => {
+            check_file_name(name, "name")?;
+            if let Some(folder) = folder {
+                if *location != crate::FileLocation::Folder {
+                    return Err(invalid("folder is only for location \"folder\""));
+                }
+                check_id("folder", folder)?;
+            }
+            if let Some(subfolder) = subfolder {
+                if *location == crate::FileLocation::Folder {
+                    return Err(invalid("subfolder is for photos and downloads; use folder"));
+                }
+                check_file_name(subfolder, "subfolder")?;
+            }
+            if let Some(mime) = mime
+                && !is_valid_mime(mime)
+            {
+                return Err(invalid("mime must look like type/subtype"));
+            }
+            if *append && *overwrite {
+                return Err(invalid("a write either appends or overwrites, not both"));
+            }
+            if data_base64.len() > MAX_FILE_CHUNK_BYTES.div_ceil(3) * 4
+                || !data_base64
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+            {
+                return Err(invalid(format!(
+                    "data_base64 must be base64 of at most {MAX_FILE_CHUNK_BYTES} bytes"
+                )));
+            }
+            Ok(())
+        }
+        Command::MakeFolder { folder, name } => {
+            if let Some(folder) = folder {
+                check_id("folder", folder)?;
+            }
+            check_file_name(name, "name")
+        }
+        Command::RenameFile { id, name } => {
+            check_id("id", id)?;
+            check_file_name(name, "name")
+        }
+        Command::Share { package, ids, text } => {
+            if !is_valid_package(package) {
+                return Err(invalid(
+                    "package must be an application id such as com.example.app",
+                ));
+            }
+            if ids.is_empty() || ids.len() > MAX_SHARE_FILES {
+                return Err(invalid(format!(
+                    "ids must hold 1-{MAX_SHARE_FILES} file ids"
+                )));
+            }
+            for id in ids {
+                check_id("ids", id)?;
+            }
+            if let Some(text) = text
+                && (text.chars().count() > MAX_TEXT_CHARS
+                    || text.chars().any(|c| c.is_control() && c != '\n'))
+            {
+                return Err(invalid(format!(
+                    "text must be at most {MAX_TEXT_CHARS} characters without control characters"
+                )));
             }
             Ok(())
         }

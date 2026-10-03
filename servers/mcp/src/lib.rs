@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod pairing;
 pub mod secret;
 pub mod store;
+pub mod transfers;
 
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,6 +33,8 @@ pub struct AppState {
     pub pairings: Mutex<pairing::Pairings>,
     pub devices: devices::Registry,
     pub audit: audit::Audit,
+    /// Download and upload links for whole files (protocol 1.6).
+    pub transfers: transfers::Transfers,
     /// Pause after an action before observing the result.
     pub settle_ms: u64,
 }
@@ -44,7 +47,16 @@ impl AppState {
             pairings: Mutex::new(pairing::Pairings::default()),
             devices: devices::Registry::default(),
             audit: audit::Audit::default(),
+            transfers: transfers::Transfers::default(),
             settle_ms: 600,
+        }
+    }
+
+    /// Where AI apps reach this gateway, for file links.
+    pub fn base_url(&self) -> String {
+        match &self.config.public_url {
+            Some(url) => url.trim_end_matches('/').to_owned(),
+            None => format!("http://{}", self.config.bind),
         }
     }
 

@@ -9,11 +9,30 @@
     <!-- In-app updates of Latch itself from its GitHub releases; Android asks the owner once. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Files (protocol 1.6, ADR-026): photos and videos the owner allows, all or selected ones.
+         Saving to Pictures and Download needs no permission; the picked folder uses
+         Android's folder picker. Never "all files" access. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <!-- Lists launchable apps for app.list without QUERY_ALL_PACKAGES. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- Apps that take shared files (app.share). -->
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND_MULTIPLE" />
+            <data android:mimeType="*/*" />
         </intent>
         <!-- Finds the launcher, which agents may always use (data/Autonomy.kt). -->
         <intent>

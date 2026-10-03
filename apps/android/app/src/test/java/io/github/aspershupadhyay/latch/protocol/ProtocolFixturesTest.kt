@@ -87,6 +87,33 @@ class ProtocolFixturesTest {
         assertEquals(withObservation, again)
     }
 
+    /** Protocol 1.6 (ADR-026): file commands and results in the shared shapes. */
+    @Test
+    fun parsesFileCommandsAndFileResults() {
+        val all = fixtures("valid").toMap()
+        val write = (GatewayParser.parse(all.getValue("g2d-command-file-write.json")) as GatewayMessage.CommandMessage).envelope.command
+        assertEquals(
+            Command.WriteFile(FileLocation.DOWNLOADS, null, "abc", "todo.txt", "text/plain", "bWlsaw==", append = false, overwrite = true),
+            write,
+        )
+        assertEquals(true, write.isFileChange)
+        val share = (GatewayParser.parse(all.getValue("g2d-command-share.json")) as GatewayMessage.CommandMessage).envelope.command
+        assertEquals(Command.Share("com.google.android.youtube", listOf("f_0001", "f_0004"), "Sunset"), share)
+        val data = (Protocol.json.parseToJsonElement(all.getValue("d2g-result-file-list.json")) as kotlinx.serialization.json.JsonObject)["outcome"]!!
+            .let { (it as kotlinx.serialization.json.JsonObject)["data"]!! }
+        val list = Protocol.json.decodeFromJsonElement(FileList.serializer(), data)
+        assertEquals(listOf("beach.jpg"), list.items.map { it.name })
+        assertEquals(51, list.nextOffset)
+    }
+
+    @Test
+    fun fileNamesFollowTheGatewayRules() {
+        for (good in listOf("a.txt", "Photo 2026 (1).jpg", "notes")) assertEquals(good, true, Limits.isValidFileName(good))
+        for (bad in listOf("", ".hidden", "../x", "a/b", "a\\b", "a:b", " lead", "x".repeat(121))) {
+            assertEquals(bad, false, Limits.isValidFileName(bad))
+        }
+    }
+
     @Test
     fun outgoingResultsHaveTheWireShape() {
         val ok = Protocol.json.parseToJsonElement(Outgoing.error("c_1", ErrorCode.STALE_OBSERVATION, "changed")).toString()

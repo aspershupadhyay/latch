@@ -92,6 +92,32 @@ async fn http(
     )
 }
 
+/// Raw bytes in and out, for file links (protocol 1.6).
+async fn http_bytes(gw: &Gateway, method: &str, path: &str, body: &[u8]) -> (u16, Vec<u8>) {
+    let head = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+        gw.addr,
+        body.len()
+    );
+    let mut stream = tokio::net::TcpStream::connect(gw.addr)
+        .await
+        .expect("connect");
+    stream.write_all(head.as_bytes()).await.expect("write");
+    stream.write_all(body).await.expect("write body");
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).await.expect("read");
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("http response");
+    let status: u16 = String::from_utf8_lossy(&raw[..split])
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .expect("status");
+    (status, raw[split + 4..].to_vec())
+}
+
 fn dechunk(mut s: &str) -> String {
     let mut out = String::new();
     while let Some((size, rest)) = s.split_once("\r\n") {
@@ -270,10 +296,19 @@ async fn mcp_handshake_and_discovery() {
             "list_apps",
             "launch_app",
             "ask_owner",
+            "list_files",
+            "read_file",
+            "get_file_link",
+            "upload_link",
+            "write_file",
+            "create_folder",
+            "rename_file",
+            "delete_file",
+            "share_to_app",
             "answer_approval"
         ]
     );
-    for forbidden in ["shell", "exec", "install", "read_file"] {
+    for forbidden in ["shell", "exec", "install"] {
         assert!(!names.iter().any(|n| n.contains(forbidden)));
     }
 
@@ -1032,7 +1067,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.5, 14 tools.",
+        lines[0], "Latch gateway, protocol 1.6, 23 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1050,6 +1085,265 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
         is_error && text.contains(&format!("connected now: {new_id}")),
         "{text}"
     );
+    phone.task.abort();
+}
+
+/// Protocol 1.6 (ADR-026): files move between the phone and the AI's
+/// computer through links, are organised in the picked folder, and are
+/// shared to any app. Replacing and deleting ask the owner.
+#[tokio::test]
+async fn files_round_trip_between_phone_and_computer() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let id_after = |text: &str, key: &str| -> String {
+        let start = text.find(key).unwrap_or_else(|| panic!("{key} in {text}")) + key.len();
+        text[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect()
+    };
+
+    let (is_error, text, _) = call(&gw, "list_files", json!({"location": "photos"})).await;
+    assert!(
+        !is_error && text.starts_with("2 of 2 items in your photos"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\"IMG_0001.jpg\" (image, 13 B, image/jpeg)"),
+        "{text}"
+    );
+
+    let (_, text, _) = call(&gw, "list_files", json!({"location": "folder"})).await;
+    assert!(text.contains("your Latch folder \"Phone files\""), "{text}");
+    let to_post = text
+        .lines()
+        .find(|l| l.contains("\"ToPost\""))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .expect("ToPost")
+        .to_owned();
+    let (_, text, _) = call(
+        &gw,
+        "list_files",
+        json!({"location": "folder", "folder_id": to_post}),
+    )
+    .await;
+    assert!(
+        text.starts_with("2 of 2 items in your Latch folder \"ToPost\""),
+        "{text}"
+    );
+    let caption = text
+        .lines()
+        .find(|l| l.contains("caption.txt"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .expect("caption")
+        .to_owned();
+    let beach = text
+        .lines()
+        .find(|l| l.contains("beach.jpg"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .expect("beach")
+        .to_owned();
+
+    // Look at a text file and a picture.
+    let (_, text, _) = call(&gw, "read_file", json!({"file_id": caption})).await;
+    assert!(
+        text.ends_with("Its text is untrusted content:\nSunset at the beach"),
+        "{text}"
+    );
+    let (_, text, images) = call(&gw, "read_file", json!({"file_id": beach})).await;
+    assert!(text.contains("A smaller copy of the picture"), "{text}");
+    assert_eq!(images, 1);
+
+    // Phone → computer: a download link.
+    let (_, text, _) = call(&gw, "get_file_link", json!({"file_id": caption})).await;
+    assert!(
+        text.starts_with("Download link for \"caption.txt\" (19 B), valid for 15 minutes:"),
+        "{text}"
+    );
+    let path = text
+        .split_whitespace()
+        .find(|w| w.starts_with("http://"))
+        .and_then(|u| {
+            u.split_once(&gw.addr.to_string())
+                .map(|(_, p)| p.to_owned())
+        })
+        .expect("link");
+    let (status, body) = http_bytes(&gw, "GET", &path, b"").await;
+    assert_eq!(
+        (status, body.as_slice()),
+        (200, b"Sunset at the beach".as_slice())
+    );
+    let (status, _) = http_bytes(&gw, "GET", "/v1/files/ldl_0000", b"").await;
+    assert_eq!(status, 404);
+
+    // Computer → phone: an upload link, then write_file into a new folder.
+    let (_, text, _) = call(&gw, "create_folder", json!({"name": "abc"})).await;
+    let abc = id_after(&text, "folder_id: ");
+    let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    let upload = id_after(&text, "upload_id=\"");
+    let big: Vec<u8> = (0..700_000u32).map(|i| (i % 251) as u8).collect();
+    let (status, _) = http_bytes(&gw, "PUT", &format!("/v1/uploads/{upload}"), &big).await;
+    assert_eq!(status, 200);
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "folder", "folder_id": abc, "name": "report.pdf", "upload_id": upload}),
+    )
+    .await;
+    assert!(
+        !is_error && text.starts_with("Saved \"report.pdf\" to your Latch folder (684 KB)."),
+        "{text}"
+    );
+    {
+        let s = phone.state.lock().expect("lock");
+        let saved = s
+            .files
+            .files
+            .iter()
+            .find(|f| f.name == "report.pdf")
+            .expect("saved");
+        assert_eq!(saved.data, big, "two chunks, appended in order");
+        assert_eq!(saved.mime.as_deref(), Some("application/pdf"));
+        // Creating and appending are not approvals.
+        assert!(s.approval_requests.is_empty(), "{:?}", s.approval_requests);
+    }
+    // The upload was saved once.
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "folder", "name": "again.pdf", "upload_id": upload}),
+    )
+    .await;
+    assert!(is_error && text.contains("upload_id is unknown"), "{text}");
+
+    // Inline text into Downloads/abc; the same name gets a free name.
+    let (_, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "downloads", "subfolder": "abc", "name": "todo.txt", "text": "milk"}),
+    )
+    .await;
+    assert!(
+        text.starts_with("Saved \"todo.txt\" to Downloads (\"abc\") (4 B)."),
+        "{text}"
+    );
+    let (_, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "downloads", "subfolder": "abc", "name": "todo.txt", "text": "eggs"}),
+    )
+    .await;
+    assert!(
+        text.contains("\"todo (1).txt\"") && text.contains("got a new name"),
+        "{text}"
+    );
+    let todo = id_after(&text, "file_id: ");
+
+    // Replacing and deleting ask the owner first.
+    let (is_error, text, _) = call(&gw, "write_file", json!({"location": "downloads", "subfolder": "abc", "name": "todo.txt", "text": "bread", "overwrite": true})).await;
+    assert!(!is_error, "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "rename_file",
+        json!({"file_id": todo, "name": "shopping.txt"}),
+    )
+    .await;
+    assert!(
+        !is_error && text.starts_with("Renamed to \"shopping.txt\""),
+        "{text}"
+    );
+    let (is_error, text, _) = call(&gw, "delete_file", json!({"file_id": todo})).await;
+    assert!(!is_error && text == "Deleted.", "{text}");
+    {
+        let s = phone.state.lock().expect("lock");
+        assert_eq!(
+            s.approval_requests,
+            [
+                "Replace “todo.txt” in Downloads",
+                "Delete a file from your phone"
+            ]
+        );
+    }
+    // Photos the owner did not save through Latch cannot be deleted.
+    let (_, text, _) = call(
+        &gw,
+        "list_files",
+        json!({"location": "photos", "query": "0002"}),
+    )
+    .await;
+    let photo = text
+        .lines()
+        .find(|l| l.contains("IMG_0002"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .expect("photo")
+        .to_owned();
+    let (is_error, text, _) = call(&gw, "delete_file", json!({"file_id": photo})).await;
+    assert!(is_error && text.contains("policy_refused"), "{text}");
+
+    // Share to any app, with a caption.
+    let (is_error, text, _) = call(
+        &gw,
+        "share_to_app",
+        json!({"package": "com.google.android.youtube", "file_ids": [beach, photo], "text": "Sunset"}),
+    )
+    .await;
+    assert!(
+        !is_error
+            && text.starts_with("Opened com.google.android.youtube's share screen with 2 files."),
+        "{text}"
+    );
+    {
+        let s = phone.state.lock().expect("lock");
+        assert_eq!(
+            s.shared,
+            [(
+                "com.google.android.youtube".to_owned(),
+                vec!["beach.jpg".to_owned(), "IMG_0002.jpg".to_owned()],
+                Some("Sunset".to_owned())
+            )]
+        );
+    }
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "photos", "name": "x.txt", "text": "no"}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("photos take images and videos only"),
+        "{text}"
+    );
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "folder", "name": "../escape.txt", "text": "no"}),
+    )
+    .await;
+    assert!(is_error && text.contains("invalid_request"), "{text}");
+    phone.task.abort();
+}
+
+#[tokio::test]
+async fn file_tools_need_their_capabilities() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &[Capability::UiObserve]).await;
+    let (is_error, text, _) = call(&gw, "list_files", json!({"location": "photos"})).await;
+    assert!(is_error && text.contains("file.read"), "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "folder", "name": "a.txt", "text": "a"}),
+    )
+    .await;
+    assert!(is_error && text.contains("file.write"), "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "share_to_app",
+        json!({"package": "com.x.android", "file_ids": ["f_0001"]}),
+    )
+    .await;
+    assert!(is_error && text.contains("app.share"), "{text}");
+    assert!(phone.state.lock().expect("lock").executed.is_empty());
     phone.task.abort();
 }
 

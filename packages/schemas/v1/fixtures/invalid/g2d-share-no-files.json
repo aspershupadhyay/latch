@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0047", "deadline_ms": 20000, "command": { "name": "app.share", "params": { "package": "com.instagram.android", "ids": [] } } }
