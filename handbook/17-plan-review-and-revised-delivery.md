@@ -130,6 +130,16 @@ The owner's first audit (realme C55, Android 15, Vercel gateway, one session, no
 
 Not done, deliberately: caching app lists or observations in the gateway (a cached answer would skip the policy and capability check of the moment), and compound actions (`tap → type → submit` under one policy check), which need their own threat review.
 
+**Third run (2026-10-04, realme C55, Android 15, Vercel gateway at protocol 1.4, driven by Claude through MCP, owner watching):** `observe`, `launch_app`, `list_apps`, `scroll_to` (both directions), `wait_for` (found and timed out), pinch, double tap, and swipe worked; lock screen and shade were refused as designed. A WhatsApp send in a switched-on app ran without a question, as ADR-021 intends (to the owner's own "Message yourself" chat). The owner saw the cursor move. Findings and changes:
+
+| Finding | Change | Status |
+|---|---|---|
+| After typing into a search box (Settings, WhatsApp), the returned screen showed the old list: settle stopped as soon as the typed text appeared, before results loaded | Typing settles against the screen with the text already in it and waits up to 900 ms for the app to answer (results, suggestions) | IN_REVIEW: re-run on the phone |
+| `type_text submit` in WhatsApp said "Done." but nothing was sent: WhatsApp takes Enter and ignores it | After Enter the phone checks for an effect (field emptied, or the screen says something new) for up to 1 s; if none, `submitted: false` in the result and both gateways say "Typed, but Enter did nothing visible … tap the app's own button" (e2e on both gateways) | IN_REVIEW |
+| `list_devices` showed 8 entries for 2 phones: every re-pairing left an offline entry | Pairing again replaces offline entries with the same name, model, and platform; a connected identical phone is kept (e2e on both gateways). Old entries: Remove in the owner console | IN_REVIEW |
+| Owner: make the cursor feel native, like desktop agents' cursors | One rounded indigo arrow with a white edge and soft shadow, a "Latch · Tapping / Typing / Swiping …" label, curved distance-based glide, press dip and ripple; never delays the gesture | IN_REVIEW: needs a look on the phone |
+| Repeated elements in Google Maps still listed twice; the Stop pill covers part of the top-right corner | — | TODO |
+
 ## 9. Feature roadmap (owner request, 2026-10-02)
 
 The owner asked for the full feature list, ordered by priority, to be built one wave at a time. Every feature gets its own capability switch (off by default), protocol and fixture changes, tests on both gateways, and README steps. Items that change §3 ("no file or credential tools") or a chapter 08 rule need an ADR in the same change. All items are TODO unless marked otherwise.

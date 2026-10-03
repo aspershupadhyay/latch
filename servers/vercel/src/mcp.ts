@@ -302,8 +302,9 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
   });
   const finding = command.name === "ui.scroll_to" ? command.params.text : undefined;
   const found = (run.data as { found?: unknown }).found === true;
+  const notSubmitted = (run.data as { submitted?: unknown }).submitted === false;
   const doneText = finding === undefined
-    ? "Done."
+    ? notSubmitted ? NOT_SUBMITTED : "Done."
     : found ? `Found ${quote(finding, 60)}.` : `Did not find ${quote(finding, 60)} after scrolling.`;
   const done = (result: ToolResult) => {
     result.content.unshift({ type: "text", text: `${doneText} The screen after the action:` });
@@ -326,6 +327,9 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
 const SETTLE_MAX_MS = 1_500;
 /** The screen counts as settled after this long without changes. */
 const QUIET_MS = 150;
+
+/** Said when the phone pressed Enter and nothing visibly happened. */
+const NOT_SUBMITTED = "Typed, but Enter did nothing visible: the text is still in the field. If the app has its own Send or Search button, tap it.";
 
 function positive(value: number, name: string): number {
   if (value < 0) throw bad(`${name} must be positive`);

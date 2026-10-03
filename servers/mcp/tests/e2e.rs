@@ -173,12 +173,21 @@ async fn connect_phone(gw: &Gateway, enabled: &[Capability]) -> Phone {
 }
 
 async fn connect_phone_with(gw: &Gateway, enabled: &[Capability], transport: Transport) -> Phone {
+    connect_phone_named(gw, enabled, transport, "Test phone").await
+}
+
+async fn connect_phone_named(
+    gw: &Gateway,
+    enabled: &[Capability],
+    transport: Transport,
+    name: &str,
+) -> Phone {
     let (status, body) = http(
         gw,
         "POST",
         "/v1/admin/pairings",
         Some(ADMIN),
-        Some(json!({"name": "Test phone"})),
+        Some(json!({ "name": name })),
         &[],
     )
     .await;
@@ -556,12 +565,24 @@ async fn stale_observations_and_sensitive_fields_are_refused() {
     )
     .await;
     assert!(!is_error);
+    // This form ignores Enter: the agent hears so instead of a plain "Done."
+    let (_, screen3, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    let (is_error, text, _) = call(
+        &gw,
+        "type_text",
+        json!({"observation_id": observation_id(&screen3), "element_id": "n1", "text": "alice", "submit": true}),
+    )
+    .await;
+    assert!(
+        !is_error && text.starts_with("Typed, but Enter did nothing visible"),
+        "{text}"
+    );
     let _ = screen;
 
     let s = phone.state.lock().expect("lock");
     assert_eq!(s.phone.username, "alice");
-    // Policy stopped both sensitive attempts before they reached the phone.
-    assert_eq!(s.executed.iter().filter(|c| *c == "input.type").count(), 1);
+    // Policy stopped both sensitive attempts before they reached the phone; both "alice" ones did.
+    assert_eq!(s.executed.iter().filter(|c| *c == "input.type").count(), 2);
     assert_eq!(s.executed.iter().filter(|c| *c == "input.tap").count(), 0);
     drop(s);
     phone.task.abort();
@@ -940,7 +961,7 @@ async fn one_call_tools_save_round_trips() {
     // type_text + submit sends in one call, and sending asks the owner first.
     let (_, screen, _) = call(&gw, "launch_app", json!({"package": "org.latch.demo.chat"})).await;
     let (is_error, screen, _) = call(&gw, "type_text", json!({"observation_id": observation_id(&screen), "element_id": "n1", "text": "on my way", "submit": true})).await;
-    assert!(!is_error, "{screen}");
+    assert!(!is_error && screen.starts_with("Done."), "{screen}");
     let s = phone.state.lock().expect("lock");
     assert_eq!(s.phone.sent_messages, ["on my way"]);
     assert_eq!(
@@ -987,7 +1008,7 @@ async fn pinch_drag_and_double_tap_reach_the_phone() {
 #[tokio::test]
 async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let gw = start_gateway().await;
-    let old = connect_phone(&gw, &Capability::ALL).await;
+    let old = connect_phone_named(&gw, &Capability::ALL, Transport::WebSocket, "Old phone").await;
     let old_id = old
         .state
         .lock()
@@ -1029,6 +1050,43 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
         "{text}"
     );
     phone.task.abort();
+}
+
+/// Regression from the 2026-10-04 phone run: every re-pairing of the same
+/// phone left an offline entry behind (eight entries for two phones).
+#[tokio::test]
+async fn pairing_again_replaces_the_offline_entry_of_the_same_phone() {
+    let gw = start_gateway().await;
+    let id_of = |p: &Phone| p.state.lock().expect("lock").device_id.clone().expect("id");
+    let first = connect_phone(&gw, &Capability::ALL).await;
+    let first_id = id_of(&first);
+    first.control.send(Control::Stop).await.expect("stop");
+    first.task.await.expect("join").expect("clean stop");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // The same phone pairs again: its offline entry goes.
+    let second = connect_phone(&gw, &Capability::ALL).await;
+    let second_id = id_of(&second);
+    // An identical phone that pairs while the other is connected keeps both.
+    let third = connect_phone(&gw, &Capability::ALL).await;
+    let third_id = id_of(&third);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let (status, body) = http(&gw, "GET", "/v1/admin/devices", Some(ADMIN), None, &[]).await;
+    assert_eq!(status, 200, "{body}");
+    let ids: Vec<&str> = body["devices"]
+        .as_array()
+        .expect("devices")
+        .iter()
+        .map(|d| d["id"].as_str().expect("id"))
+        .collect();
+    assert!(!ids.contains(&first_id.as_str()), "{body}");
+    assert!(
+        ids.contains(&second_id.as_str()) && ids.contains(&third_id.as_str()),
+        "{body}"
+    );
+    second.task.abort();
+    third.task.abort();
 }
 
 /// Regression from the 2026-10-03 phone run: wait_for matched the text the

@@ -359,7 +359,14 @@ export class Gateway {
       id: newId("d"), name, model: body.model.trim(), platform: body.platform.trim(),
       token_sha256: sha256(token), paired_at_ms: Date.now(),
     };
+    // A phone that pairs again (reinstalled app, cleared data) left its old
+    // entry behind: drop offline entries with the same name and model.
+    const replaced = [];
+    for (const d of await this.devices.records()) {
+      if (d.name === record.name && d.model === record.model && d.platform === record.platform && !(await this.devices.live(d.id))) replaced.push(d.id);
+    }
     await this.devices.addRecord(record);
+    for (const id of replaced) await this.devices.revoke(id);
     return json(200, { device_id: record.id, name, token, protocol: PROTOCOL_VERSION, device_path: "/v1/device" });
   }
 

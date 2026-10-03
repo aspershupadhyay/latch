@@ -7,19 +7,24 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * A desktop-style pointer that shows the owner where the AI is acting, with
- * phone touch feedback on top: it glides to each target, turns into a hand
- * over things that can be tapped (links, buttons), a text cursor over text
- * fields, and a grabbing hand while swiping, scrolling, or dragging. Each
- * touch shows a finger mark and ripple; a long press fills a ring; a pinch
- * shows both fingers.
+ * A pointer that shows the owner where the AI is acting, in the style of
+ * desktop agents' cursors: one rounded indigo arrow with a white edge and a
+ * soft shadow, and a small label beside it saying what it is doing ("Latch ·
+ * Tapping"). It moves along a gentle curve, faster for short hops, and dips
+ * when it presses. Each touch shows a finger mark and ripple; a long press
+ * fills a ring; swipes leave a fading trail; a pinch shows both fingers.
+ *
+ * The visuals never delay an action: the gesture runs at once and the
+ * pointer catches up.
  *
  * It appears when the AI acts and fades away a few seconds after its last
  * action, so it is gone once a task is done.
@@ -33,7 +38,7 @@ class CursorOverlay(private val context: Context) {
     private val windows = context.getSystemService(WindowManager::class.java)
     private var view: CursorView? = null
 
-    /** The pointer's shape, as on a computer. */
+    /** What sits under the pointer; it picks the label (the arrow stays the same). */
     enum class Pointer { ARROW, HAND, TEXT, GRAB }
 
     /** How the finger touches down at the pointer's hotspot. */
@@ -86,44 +91,52 @@ class CursorOverlay(private val context: Context) {
 
     private class CursorView(context: Context) : View(context) {
         private val density = resources.displayMetrics.density
-        /** Pointer drawings are in a 16-unit grid; one unit is this many pixels. */
-        private val unit = 1.55f * density
-        private val accent = Color.rgb(240, 168, 58)
+        /** The arrow is drawn in a 24-unit grid; one unit is this many pixels. */
+        private val unit = 1.05f * density
+        /** Latch indigo (the app's accent), bright enough on dark and light screens. */
+        private val accent = Color.rgb(91, 79, 233)
 
-        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-        private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
+        private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeJoin = Paint.Join.ROUND
             strokeCap = Paint.Cap.ROUND
-            color = Color.BLACK
-        }
-        private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeJoin = Paint.Join.ROUND
-            strokeCap = Paint.Cap.ROUND
+            strokeWidth = 2.2f
             color = Color.WHITE
         }
-        private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 0, 0, 0) }
-        private val touch = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(110, 240, 168, 58) }
+        private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
+        private val touch = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
         private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 3 * density
+            strokeWidth = 2.5f * density
             color = accent
         }
         private val trail = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 5 * density
+            strokeWidth = 4 * density
             strokeCap = Paint.Cap.ROUND
             color = accent
         }
+        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(24, 24, 32) }
+        private val pillEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1 * density
+            color = Color.argb(70, 255, 255, 255)
+        }
+        private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 12.5f * density
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(139, 139, 255) }
 
         // ---- State (screen pixels, uptime ms) ----
-        private var pointer = Pointer.ARROW
         private var x = -1f
         private var y = -1f
         private var fromX = -1f
         private var fromY = -1f
         private var glideStart = 0L
+        private var glideMs = GLIDE_MIN_MS
         private var strokes: List<Stroke> = emptyList()
         private var strokeStart = 0L
         private var strokeMs = 0L
@@ -131,6 +144,7 @@ class CursorOverlay(private val context: Context) {
         private var press: Press? = null
         private var pressAt = 0L
         private var typingUntil = 0L
+        private var caption = "Latch"
         /** When the current action's visuals end; the pointer lingers a moment, then fades away. */
         private var busyUntil = 0L
 
@@ -145,11 +159,17 @@ class CursorOverlay(private val context: Context) {
         fun press(tx: Float, ty: Float, kind: Pointer, how: Press, typing: Boolean = false) {
             val t = now()
             glideTo(tx, ty, t)
-            pointer = kind
             strokes = emptyList()
             press = how
-            pressAt = t + GLIDE_MS
-            typingUntil = if (typing) t + GLIDE_MS + TYPING_MS else 0
+            pressAt = t + glideMs
+            typingUntil = if (typing) t + glideMs + TYPING_MS else 0
+            caption = when {
+                typing -> "Typing"
+                kind == Pointer.TEXT -> "Tapping a field"
+                how == Press.LONG_PRESS -> "Holding"
+                how == Press.DOUBLE -> "Double-tapping"
+                else -> "Tapping"
+            }
             val held = when (how) {
                 Press.LONG_PRESS -> LONG_PRESS_MS
                 Press.DOUBLE -> DOUBLE_GAP_MS
@@ -163,13 +183,17 @@ class CursorOverlay(private val context: Context) {
             val first = list.firstOrNull() ?: return
             val t = now()
             glideTo(first.fromX, first.fromY, t)
-            pointer = Pointer.GRAB
             strokes = list
             holdMs = hold
-            strokeStart = t + GLIDE_MS
+            strokeStart = t + glideMs
             strokeMs = max(1, durationMs)
             press = null
             typingUntil = 0
+            caption = when {
+                list.size > 1 -> "Pinching"
+                hold > 0 -> "Dragging"
+                else -> "Swiping"
+            }
             busyUntil = strokeStart + holdMs + strokeMs + TRAIL_FADE_MS
             postInvalidateOnAnimation()
         }
@@ -182,19 +206,27 @@ class CursorOverlay(private val context: Context) {
             fromY = if (shown) cy else ty
             x = tx
             y = ty
+            // Short hops are quick, long moves take a little longer, as a hand would.
+            val distanceDp = hypot(tx - fromX, ty - fromY) / density
+            glideMs = (GLIDE_MIN_MS + distanceDp * GLIDE_MS_PER_DP).toLong().coerceAtMost(GLIDE_MAX_MS)
             glideStart = t
         }
 
-        /** Where the hotspot is drawn at time [t]: gliding, then following the first finger. */
+        /** Where the hotspot is drawn at time [t]: gliding on a slight curve, then following the first finger. */
         private fun position(t: Long): Pair<Float, Float> {
             val first = strokes.firstOrNull()
             if (first != null && t >= strokeStart) {
                 val p = ((t - strokeStart - holdMs).toFloat() / strokeMs).coerceIn(0f, 1f)
                 return (first.fromX + (first.toX - first.fromX) * p) to (first.fromY + (first.toY - first.fromY) * p)
             }
-            val p = if (glideStart == 0L) 1f else min(1f, (t - glideStart).toFloat() / GLIDE_MS)
-            val e = 1f - (1f - p) * (1f - p) * (1f - p)
-            return (fromX + (x - fromX) * e) to (fromY + (y - fromY) * e)
+            val p = if (glideStart == 0L) 1f else min(1f, (t - glideStart).toFloat() / glideMs)
+            // Ease in and out, so it starts and lands softly.
+            val e = if (p < 0.5f) 4 * p * p * p else 1 - (-2 * p + 2).let { it * it * it } / 2
+            // Bend the path a little to one side, like a wrist turning.
+            val dx = x - fromX
+            val dy = y - fromY
+            val bend = CURVE * 4 * e * (1 - e)
+            return (fromX + dx * e - dy * bend) to (fromY + dy * e + dx * bend)
         }
 
         override fun onDraw(canvas: Canvas) {
@@ -213,11 +245,26 @@ class CursorOverlay(private val context: Context) {
             drawStrokes(canvas, t)
             drawPress(canvas, t)
             val (px, py) = position(t)
-            drawPointer(canvas, px, py, alpha, t)
+            drawArrow(canvas, px, py, alpha, pressScale(t))
+            drawLabel(canvas, px, py, alpha, t)
 
             canvas.restore()
             // Keep drawing until the fade has finished; then nothing is redrawn until the next action.
             postInvalidateOnAnimation()
+        }
+
+        /** The arrow dips a little as it presses, and springs back. */
+        private fun pressScale(t: Long): Float {
+            val how = press ?: return 1f
+            val since = t - pressAt
+            val down = if (how == Press.LONG_PRESS) LONG_PRESS_MS else PRESS_DIP_MS
+            return when {
+                since < 0 -> 1f
+                since < PRESS_DIP_MS -> 1f - 0.14f * since / PRESS_DIP_MS
+                since < down -> 0.86f
+                since < down + PRESS_DIP_MS -> 0.86f + 0.14f * (since - down) / PRESS_DIP_MS
+                else -> 1f
+            }
         }
 
         private fun drawStrokes(canvas: Canvas, t: Long) {
@@ -227,8 +274,8 @@ class CursorOverlay(private val context: Context) {
             if (elapsed > total + TRAIL_FADE_MS) return
             val p = ((elapsed - holdMs).toFloat() / strokeMs).coerceIn(0f, 1f)
             val fade = if (elapsed <= total) 1f else 1f - (elapsed - total).toFloat() / TRAIL_FADE_MS
-            trail.alpha = (150 * fade).toInt()
-            touch.alpha = (110 * fade).toInt()
+            trail.alpha = (130 * fade).toInt()
+            touch.alpha = (90 * fade).toInt()
             for (s in strokes) {
                 val tipX = s.fromX + (s.toX - s.fromX) * p
                 val tipY = s.fromY + (s.toY - s.fromY) * p
@@ -241,7 +288,6 @@ class CursorOverlay(private val context: Context) {
                 val first = strokes.first()
                 progressRing(canvas, first.fromX, first.fromY, elapsed.toFloat() / holdMs)
             }
-            touch.alpha = 110
         }
 
         private fun drawPress(canvas: Canvas, t: Long) {
@@ -253,16 +299,19 @@ class CursorOverlay(private val context: Context) {
             for (down in downs) {
                 val s = since - down
                 if (s < 0) continue
-                if (s < holdFor + TOUCH_MS) canvas.drawCircle(x, y, FINGER_DP * density, touch)
+                if (s < holdFor + TOUCH_MS) {
+                    touch.alpha = 90
+                    canvas.drawCircle(x, y, FINGER_DP * density, touch)
+                }
                 val r = s - holdFor
                 if (r in 0 until RIPPLE_MS) {
                     val q = r.toFloat() / RIPPLE_MS
-                    ring.alpha = ((1f - q) * 255).toInt()
-                    canvas.drawCircle(x, y, (FINGER_DP + q * 26) * density, ring)
+                    val eased = 1 - (1 - q) * (1 - q)
+                    ring.alpha = ((1f - q) * 220).toInt()
+                    canvas.drawCircle(x, y, (FINGER_DP + eased * 22) * density, ring)
                 }
             }
             if (how == Press.LONG_PRESS && since < holdFor) progressRing(canvas, x, y, since.toFloat() / holdFor)
-            ring.alpha = 255
         }
 
         private fun progressRing(canvas: Canvas, cx: Float, cy: Float, fraction: Float) {
@@ -271,132 +320,85 @@ class CursorOverlay(private val context: Context) {
             canvas.drawArc(RectF(cx - r, cy - r, cx + r, cy + r), -90f, 360f * fraction.coerceIn(0f, 1f), false, ring)
         }
 
-        private fun drawPointer(canvas: Canvas, px: Float, py: Float, alpha: Float, t: Long) {
-            val shape = shapes.getValue(pointer)
+        private fun drawArrow(canvas: Canvas, px: Float, py: Float, alpha: Float, scale: Float) {
             canvas.save()
             canvas.translate(px, py)
-            canvas.scale(unit, unit)
-            canvas.translate(-shape.hotX, -shape.hotY)
-            val a = (255 * alpha).toInt()
-            outline.strokeWidth = 1.1f
-            outline.alpha = a
-            if (shape.body != null) {
+            canvas.scale(unit * scale, unit * scale)
+            // A soft shadow from three widening, fainter copies: cheap, no blur layer.
+            for ((i, a) in SHADOW_ALPHAS.withIndex()) {
                 canvas.save()
-                canvas.translate(0.5f, 0.8f)
-                shadow.alpha = (60 * alpha).toInt()
-                canvas.drawPath(shape.body, shadow)
+                val grow = 1f + 0.06f * (i + 1)
+                canvas.translate(0.6f, 1.6f + i * 0.5f)
+                canvas.scale(grow, grow)
+                shadow.alpha = (a * alpha).toInt()
+                canvas.drawPath(arrow, shadow)
                 canvas.restore()
-                fill.alpha = a
-                canvas.drawPath(shape.body, fill)
-                canvas.drawPath(shape.body, outline)
             }
-            shape.lines?.let { lines ->
-                // Text cursor: a white halo keeps the black I-beam visible on any background.
-                halo.strokeWidth = 3.2f
-                halo.alpha = a
-                canvas.drawPath(lines, halo)
-                outline.strokeWidth = if (shape.body == null) 1.3f else 0.9f
-                canvas.drawPath(lines, outline)
-            }
-            if (pointer == Pointer.TEXT && t < typingUntil && (t / CARET_BLINK_MS) % 2 == 0L) {
-                outline.strokeWidth = 1.4f
-                canvas.drawLine(shape.hotX + 4f, shape.hotY - 5f, shape.hotX + 4f, shape.hotY + 5f, outline)
-            }
+            val a = (255 * alpha).toInt()
+            edge.alpha = a
+            fill.alpha = a
+            canvas.drawPath(arrow, edge)
+            canvas.drawPath(arrow, fill)
             canvas.restore()
         }
 
-        /** A pointer drawing: filled body, detail lines, and the hotspot that sits on the target. */
-        private class Shape(val body: Path?, val lines: Path?, val hotX: Float, val hotY: Float)
+        /** "Latch · Tapping" in a dark pill beside the arrow, flipped to stay on screen. */
+        private fun drawLabel(canvas: Canvas, px: Float, py: Float, alpha: Float, t: Long) {
+            val text = "Latch · $caption"
+            val padX = 9 * density
+            val h = 24 * density
+            val dotR = 3 * density
+            val w = padX * 2 + dotR * 2 + 6 * density + label.measureText(text)
+            var left = px + 18 * density
+            var top = py + 20 * density
+            val screen = resources.displayMetrics
+            if (left + w > screen.widthPixels - 4 * density) left = px - w - 6 * density
+            if (top + h > screen.heightPixels - 4 * density) top = py - h - 8 * density
+            val box = RectF(left, top, left + w, top + h)
+            val a = alpha.coerceIn(0f, 1f)
+            pill.alpha = (225 * a).toInt()
+            pillEdge.alpha = (70 * a).toInt()
+            label.alpha = (255 * a).toInt()
+            dot.alpha = (255 * a).toInt()
+            canvas.drawRoundRect(box, h / 2, h / 2, pill)
+            canvas.drawRoundRect(box, h / 2, h / 2, pillEdge)
+            // A small live dot that pulses while the AI acts.
+            val pulse = if (t < busyUntil) 0.75f + 0.25f * kotlin.math.sin(t / 140.0).toFloat() else 1f
+            canvas.drawCircle(left + padX + dotR, top + h / 2, dotR * pulse, dot)
+            val baseline = top + h / 2 - (label.descent() + label.ascent()) / 2
+            canvas.drawText(text, left + padX + dotR * 2 + 6 * density, baseline, label)
+        }
 
-        private val shapes: Map<Pointer, Shape> = mapOf(
-            Pointer.ARROW to Shape(
-                Path().apply {
-                    moveTo(0f, 0f)
-                    lineTo(0f, 16f)
-                    lineTo(4f, 12.5f)
-                    lineTo(6.8f, 18.5f)
-                    lineTo(9.2f, 17.4f)
-                    lineTo(6.5f, 11.6f)
-                    lineTo(11.5f, 11.6f)
-                    close()
-                },
-                null, 0f, 0f,
-            ),
-            // A pointing hand, fingertip on the target: links and buttons.
-            Pointer.HAND to Shape(
-                Path().apply {
-                    moveTo(4.2f, 1.3f)
-                    cubicTo(4.2f, -0.4f, 6.8f, -0.4f, 6.8f, 1.3f)
-                    lineTo(6.8f, 7.2f)
-                    cubicTo(6.8f, 5.9f, 9.2f, 5.9f, 9.2f, 7.2f)
-                    lineTo(9.2f, 8f)
-                    cubicTo(9.2f, 6.7f, 11.6f, 6.7f, 11.6f, 8f)
-                    lineTo(11.6f, 8.8f)
-                    cubicTo(11.6f, 7.6f, 14f, 7.6f, 14f, 8.8f)
-                    lineTo(14f, 13.5f)
-                    cubicTo(14f, 17.2f, 12.2f, 19f, 9.2f, 19f)
-                    lineTo(7.6f, 19f)
-                    cubicTo(5.6f, 19f, 4.6f, 18.2f, 3.6f, 16.6f)
-                    lineTo(0.6f, 11.8f)
-                    cubicTo(-0.2f, 10.6f, 1.4f, 9f, 2.8f, 10.2f)
-                    lineTo(4.2f, 11.4f)
-                    close()
-                },
-                Path().apply {
-                    moveTo(6.8f, 7.2f); lineTo(6.8f, 11.2f)
-                    moveTo(9.2f, 8f); lineTo(9.2f, 11.2f)
-                    moveTo(11.6f, 8.8f); lineTo(11.6f, 11.2f)
-                },
-                5.5f, 0f,
-            ),
-            // An I-beam centred on the text field.
-            Pointer.TEXT to Shape(
-                null,
-                Path().apply {
-                    moveTo(1f, 0f); quadTo(3f, 0f, 3f, 1.5f); quadTo(3f, 0f, 5f, 0f)
-                    moveTo(3f, 1.5f); lineTo(3f, 14.5f)
-                    moveTo(1f, 16f); quadTo(3f, 16f, 3f, 14.5f); quadTo(3f, 16f, 5f, 16f)
-                },
-                3f, 8f,
-            ),
-            // A closed, grabbing hand: swipes, scrolls, drags.
-            Pointer.GRAB to Shape(
-                Path().apply {
-                    moveTo(2.5f, 7.5f)
-                    cubicTo(2.5f, 5.8f, 4.9f, 5.8f, 4.9f, 7.5f)
-                    cubicTo(4.9f, 5.6f, 7.3f, 5.6f, 7.3f, 7.5f)
-                    cubicTo(7.3f, 5.6f, 9.7f, 5.6f, 9.7f, 7.5f)
-                    cubicTo(9.7f, 5.8f, 12.1f, 5.8f, 12.1f, 7.5f)
-                    lineTo(12.1f, 8.2f)
-                    cubicTo(12.1f, 7f, 14.2f, 7f, 14.2f, 8.6f)
-                    lineTo(14.2f, 12.5f)
-                    cubicTo(14.2f, 15.8f, 12.4f, 17.6f, 9.2f, 17.6f)
-                    lineTo(7.2f, 17.6f)
-                    cubicTo(4.2f, 17.6f, 2.5f, 15.8f, 2.5f, 12.8f)
-                    close()
-                },
-                Path().apply {
-                    moveTo(4.9f, 7.5f); lineTo(4.9f, 9.6f)
-                    moveTo(7.3f, 7.5f); lineTo(7.3f, 9.6f)
-                    moveTo(9.7f, 7.5f); lineTo(9.7f, 9.6f)
-                },
-                8f, 10f,
-            ),
-        )
+        /** A rounded arrow with its tip (the hotspot) at 0,0. */
+        private val arrow = Path().apply {
+            moveTo(1.2f, 0.6f)
+            cubicTo(0.4f, 0.1f, -0.4f, 0.6f, -0.2f, 1.6f)
+            lineTo(3.6f, 20.4f)
+            cubicTo(3.9f, 21.7f, 5.6f, 21.9f, 6.2f, 20.7f)
+            lineTo(9.4f, 14.2f)
+            lineTo(16.6f, 13.6f)
+            cubicTo(17.9f, 13.5f, 18.4f, 11.8f, 17.3f, 11.0f)
+            close()
+        }
 
         companion object {
-            const val GLIDE_MS = 140L
+            const val GLIDE_MIN_MS = 160L
+            const val GLIDE_MAX_MS = 380L
+            const val GLIDE_MS_PER_DP = 0.45f
+            /** How far the path bends, as a share of the distance. */
+            const val CURVE = 0.08f
+            const val PRESS_DIP_MS = 90L
             const val TOUCH_MS = 110L
-            const val RIPPLE_MS = 380L
+            const val RIPPLE_MS = 420L
             const val LONG_PRESS_MS = 600L
             const val DOUBLE_GAP_MS = 160L
             const val TRAIL_FADE_MS = 350L
             const val TYPING_MS = 1_200L
-            const val CARET_BLINK_MS = 300L
             /** How long the pointer stays after the AI's last action before fading (it is usually thinking). */
             const val LINGER_MS = 4_000L
             const val FADE_MS = 400L
             const val FINGER_DP = 9f
+            val SHADOW_ALPHAS = intArrayOf(46, 26, 12)
         }
     }
 }

@@ -181,6 +181,8 @@ data class ActionResult(
     @SerialName("observation_error") val observationError: ErrorBody? = null,
     /** `ui.scroll_to` only (since 1.3): whether the text is on screen now. */
     val found: Boolean? = null,
+    /** `ui.type_text` with submit only: false when Enter visibly did nothing. Absent from older apps. */
+    val submitted: Boolean? = null,
 )
 
 /** Result of `ui.wait` (since 1.3). */

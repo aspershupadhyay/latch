@@ -87,6 +87,30 @@ test("discovery and setup", async () => {
   unconfigured.close();
 });
 
+// Regression from the 2026-10-04 phone run, matching the Rust gateway: each
+// re-pairing of the same phone left an offline entry behind.
+test("pairing again replaces the offline entry of the same phone", async () => {
+  const own = await startLocal(new Gateway(new MemoryStore(), config()), 0);
+  const url = `http://127.0.0.1:${(own.address() as { port: number }).port}`;
+  const admin = async (path: string, init: RequestInit = {}) => {
+    const res = await fetch(url + path, { ...init, headers: { authorization: `Bearer ${ADMIN}`, "content-type": "application/json" } });
+    return res.json();
+  };
+  const pair = async (name: string, model: string) => {
+    const { code } = await admin("/v1/admin/pairings", { method: "POST", body: JSON.stringify({ name }) });
+    const res = await fetch(`${url}/v1/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, platform: "android", model }) });
+    assert.equal(res.status, 200);
+    return (await res.json()).device_id as string;
+  };
+  const first = await pair("realme RMX3710", "RMX3710");
+  const other = await pair("Redmi", "22041216I");
+  const again = await pair("realme RMX3710", "RMX3710");
+  const ids = ((await admin("/v1/admin/devices")).devices as { id: string }[]).map((d) => d.id);
+  assert.deepEqual(ids.sort(), [other, again].sort());
+  assert.ok(!ids.includes(first));
+  own.close();
+});
+
 test("an MCP client drives a phone through the Vercel gateway", async () => {
   const pairing = await api("/v1/admin/pairings", { method: "POST", body: JSON.stringify({ name: "Fake phone" }) });
   assert.equal(pairing.status, 200);
@@ -150,6 +174,9 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   screen = await client.callTool({ name: "launch_app", arguments: { package: "org.latch.demo.login" } });
   const secret = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n2", text: "hunter2" } });
   assert.match(text(secret), /sensitive_target/);
+  // This form ignores Enter: the agent hears so, with the same text as the Rust gateway.
+  const ignored = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n1", text: "alice", submit: true } });
+  assert.match(text(ignored), /^Typed, but Enter did nothing visible/);
 
   const audit = await api("/v1/admin/audit");
   const auditText = JSON.stringify(audit.body);
