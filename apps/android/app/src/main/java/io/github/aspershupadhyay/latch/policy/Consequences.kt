@@ -97,6 +97,9 @@ class Consequences(private val words: PolicyWords) {
     fun isSensitiveApp(packageName: String, label: String = ""): Boolean =
         words("$packageName $label").any { w -> words.sensitiveAppWords.any { w == it || (it.codePointCount(0, it.length) >= 4 && w.contains(it)) } }
 
+    /** Android's permission and install dialogs, which show up over the app being used. */
+    fun isCriticalPackage(packageName: String): Boolean = packageName in words.criticalPackages
+
     fun isSearchField(node: UiNode): Boolean = listOfNotNull(node.description, node.resourceId).any { field ->
         val ws = words(field)
         val compact = ws.joinToString("")

@@ -5,10 +5,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AutonomyTest {
-    private class MemoryStore(var saved: Set<String> = emptySet()) : Autonomy.Store {
+    private class MemoryStore(var saved: Set<String> = emptySet(), var trust: Boolean = false) : Autonomy.Store {
         override fun load() = saved
         override fun save(allowed: Set<String>) {
             saved = allowed
+        }
+        override fun loadTrustCritical() = trust
+        override fun saveTrustCritical(value: Boolean) {
+            trust = value
         }
     }
 
@@ -53,5 +57,16 @@ class AutonomyTest {
         autonomy.clearAll()
         listOf("a.b", "c.d", "e.f").forEach { assertEquals(AppDecision.ASK, autonomy.decide(it)) }
         assertTrue(store.saved.isEmpty())
+    }
+
+    @Test
+    fun trustingPaymentsIsOffUntilChosenKeptAndClearedBySwitchAllOff() {
+        val store = MemoryStore()
+        val autonomy = Autonomy(store)
+        assertTrue(!autonomy.state.value.trustCritical)
+        autonomy.setTrustCritical(true)
+        assertTrue(Autonomy(store).state.value.trustCritical)
+        autonomy.clearAll()
+        assertTrue(!store.trust && !autonomy.state.value.trustCritical)
     }
 }

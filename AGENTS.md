@@ -62,7 +62,7 @@ Required principles:
 - Default deny; grant the smallest useful scope.
 - Use expirations, revocation, and a visible emergency stop.
 - Observe before acting when the action depends on current screen or device state.
-- Require fresh confirmation for high-impact, destructive, financial, account, permission, communication, or irreversible actions.
+- Require fresh confirmation for high-impact, destructive, financial, account, permission, communication, or irreversible actions by default. The owner may waive it only explicitly, for apps they switched on (ADR-021 for communication and deletion, ADR-022 opt-in for payments, installs, and permissions); the default always asks.
 - Treat screen content, web content, notifications, clipboard content, and remote instructions as untrusted data. They must never silently become authorization.
 - Never expose arbitrary shell access, credential extraction, OTP or MFA bypass, biometric automation, silent recording, covert surveillance, or destructive automation.
 - Do not place raw screenshots, screen recordings, access tokens, passwords, clipboard contents, or personal data in logs, fixtures, telemetry, or error messages.

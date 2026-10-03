@@ -15,6 +15,11 @@ data class AutonomyState(
     val allowed: Set<String> = emptySet(),
     /** Apps allowed until the session ends ("This session" on the app question). */
     val sessionApps: Set<String> = emptySet(),
+    /**
+     * The owner's opt-in (ADR-022): in switched-on apps, payments, installs,
+     * Android permission prompts, and account deletion run without asking too.
+     */
+    val trustCritical: Boolean = false,
 )
 
 /**
@@ -34,9 +39,11 @@ class Autonomy(private val store: Store) {
     interface Store {
         fun load(): Set<String>
         fun save(allowed: Set<String>)
+        fun loadTrustCritical(): Boolean = false
+        fun saveTrustCritical(value: Boolean) = Unit
     }
 
-    private val _state = MutableStateFlow(AutonomyState(allowed = store.load()))
+    private val _state = MutableStateFlow(AutonomyState(allowed = store.load(), trustCritical = store.loadTrustCritical()))
     val state: StateFlow<AutonomyState> = _state.asStateFlow()
 
     fun decide(packageName: String): AppDecision {
@@ -62,8 +69,16 @@ class Autonomy(private val store: Store) {
         _state.value = _state.value.let { it.copy(sessionApps = it.sessionApps + packageName) }
     }
 
+    fun setTrustCritical(value: Boolean) {
+        if (_state.value.trustCritical == value) return
+        store.saveTrustCritical(value)
+        _state.value = _state.value.copy(trustCritical = value)
+    }
+
+    /** Every app off, and payments and the like ask again. */
     fun clearAll() {
         store.save(emptySet())
+        store.saveTrustCritical(false)
         _state.value = AutonomyState()
     }
 
@@ -85,5 +100,11 @@ class PrefsAutonomyStore(context: Context) : Autonomy.Store {
 
     override fun save(allowed: Set<String>) {
         prefs.edit { putStringSet("allowed", allowed) }
+    }
+
+    override fun loadTrustCritical(): Boolean = prefs.getBoolean("trust_critical", false)
+
+    override fun saveTrustCritical(value: Boolean) {
+        prefs.edit { putBoolean("trust_critical", value) }
     }
 }
