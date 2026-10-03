@@ -118,6 +118,8 @@ The owner's first audit (realme C55, Android 15, Vercel gateway, one session, no
 | `wait_for` matched the text just typed into the search box | `ui.wait` and `ui.scroll_to` ignore editable elements (phone and fake phone; e2e regression test) | IN_REVIEW |
 | Chrome pages report many zero-size, off-screen elements | Observations leave them out and reparent their children | IN_REVIEW |
 | Chrome's new-tab search box is a placeholder that does not take Enter | Clearer error: observe and use the field that now has focus | DONE |
+| With Latch open, agents stopped and asked the owner to say "go ahead": every screen command was refused while Latch was in front | When Latch's own app screen is in front, a screen command (after its capability check) first goes to the home screen, logs it, and then runs; nothing of Latch is ever read or tapped. Shade and lock screen are still refused | IN_REVIEW: re-run on the phone |
+| Every test build needed an uninstall and a new pairing | Fixed test-build signing key (`LATCH_DEBUG_KEYSTORE_BASE64`, checked in CI), increasing version codes, and an in-app updater: `latch-update.json` on the release, https-only from this repository, size + SHA-256 + package/version/signer checks, Android `PackageInstaller` (owner taps Update; Android may confirm). Docs: `docs/platform/android.md` § Updates | IN_REVIEW: needs the secret set, then one reinstall and an update on the phone |
 
 Not done, deliberately: caching app lists or observations in the gateway (a cached answer would skip the policy and capability check of the moment), and compound actions (`tap → type → submit` under one policy check), which need their own threat review.
 

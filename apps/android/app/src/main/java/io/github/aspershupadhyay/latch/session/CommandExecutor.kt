@@ -70,6 +70,13 @@ fun describe(command: Command): String = when (command) {
     is Command.LaunchApp -> "Open ${command.packageName}"
 }
 
+/** Commands that read or act on the screen in front, as opposed to opening an app or going home. */
+private fun worksOnScreen(command: Command): Boolean = when (command) {
+    Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp -> false
+    is Command.Global -> command.action != GlobalAction.HOME
+    else -> true
+}
+
 /**
  * Runs one command on this phone after the device-side checks. The gateway
  * has already applied policy; these checks hold even if it did not.
@@ -117,6 +124,11 @@ class CommandExecutor(
                     throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone does not support ${capability.wire}")
                 else -> throw ProtocolException(ErrorCode.PERMISSION_MISSING, "the owner has not allowed ${capability.wire}")
             }
+        }
+
+        // Latch in front would refuse every screen command; step aside to the home screen first.
+        if (worksOnScreen(command) && bridge.service.value?.stepAsideFromLatch() == true) {
+            log.add(ActivityKind.ACTION, "Went to the home screen so the AI can work (Latch is off limits to it)")
         }
 
         if (command.isAction) approve(envelope, session)

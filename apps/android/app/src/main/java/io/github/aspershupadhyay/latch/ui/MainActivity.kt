@@ -75,6 +75,8 @@ import io.github.aspershupadhyay.latch.session.SetupException
 import io.github.aspershupadhyay.latch.session.SignInRequest
 import io.github.aspershupadhyay.latch.session.deviceDescriptor
 import io.github.aspershupadhyay.latch.ui.theme.LatchTheme
+import io.github.aspershupadhyay.latch.update.UpdateInfo
+import io.github.aspershupadhyay.latch.update.Updater
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
@@ -91,6 +93,37 @@ class MainActivity : ComponentActivity() {
             LatchTheme {
                 LatchRoot(app, reducedMotion)
             }
+        }
+        // Only a fresh launch carries a new installer answer; a recreated activity would repeat an old one.
+        if (savedInstanceState == null) handleInstallStatus(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleInstallStatus(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val app = LatchApp.get(this)
+        if (app.settings.preferences.value.checkUpdates) app.updater.checkIfDue()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        LatchApp.get(this).ownScreenShown = true
+    }
+
+    override fun onPause() {
+        LatchApp.get(this).ownScreenShown = false
+        super.onPause()
+    }
+
+    /** The installer's answer to an in-app update; it may need the owner's tap on Android's Update screen. */
+    private fun handleInstallStatus(intent: Intent?) {
+        if (intent?.action != Updater.ACTION_INSTALL_STATUS) return
+        LatchApp.get(this).updater.onInstallStatus(intent)?.let { confirm ->
+            runCatching { startActivity(confirm) }
         }
     }
 }
@@ -292,7 +325,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                         val entries by app.log.entries.collectAsStateWithLifecycle()
                         ActivityScreen(entries, app.log::clear)
                     }
-                    Tab.SETTINGS -> SettingsRoute(app) { setupOpen = true }
+                    Tab.SETTINGS -> SettingsRoute(app, reducedMotion) { setupOpen = true }
                 }
             }
         }
@@ -381,6 +414,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
     val entries by app.log.entries.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     val outdatedGateway by app.session.outdatedGateway.collectAsStateWithLifecycle()
+    val update by app.updater.state.collectAsStateWithLifecycle()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -429,6 +463,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             reducedMotion = reducedMotion,
             signInRequests = signInRequests,
             outdatedGateway = outdatedGateway,
+            update = update,
         ),
         HomeActions(
             start = {
@@ -457,8 +492,23 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             openSetup = openSetup,
             reviewSignIns = { go(Tab.CONNECT) },
             openGatewayUpdateHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, GATEWAY_UPDATE_HELP.toUri())) },
+            installUpdate = { info -> installUpdate(app, context, info) },
         ),
     )
+}
+
+/**
+ * Starts the in-app update. A running session ends first, because installing
+ * restarts Latch. Without the install permission, opens Android's switch for it.
+ */
+private fun installUpdate(app: LatchApp, context: Context, info: UpdateInfo) {
+    if (!context.packageManager.canRequestPackageInstalls()) {
+        context.startActivity(Intent(AndroidSettings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${context.packageName}".toUri()))
+    }
+    if (app.session.state.value.let { it is SessionState.Active || it is SessionState.Reconnecting || it is SessionState.Connecting }) {
+        app.session.stop()
+    }
+    app.updater.install(info)
 }
 
 @Composable
@@ -532,10 +582,12 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
 }
 
 @Composable
-private fun SettingsRoute(app: LatchApp, openSetup: () -> Unit) {
+private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openSetup: () -> Unit) {
     val context = LocalContext.current
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
+    val prefs by app.settings.preferences.collectAsStateWithLifecycle()
+    val update by app.updater.state.collectAsStateWithLifecycle()
     val p = pairing ?: return
     SettingsScreen(
         gatewayUrl = p.gatewayUrl,
@@ -547,6 +599,12 @@ private fun SettingsRoute(app: LatchApp, openSetup: () -> Unit) {
         onOpenAccessibility = { openAccessibilityFor(context) },
         onOpenConsole = { context.startActivity(Intent(Intent.ACTION_VIEW, p.gatewayUrl.toUri())) },
         onOpenSetup = openSetup,
+        update = update,
+        checkUpdates = prefs.checkUpdates,
+        onCheckUpdates = { v -> app.settings.update { it.copy(checkUpdates = v) } },
+        onCheckNow = { app.updater.check(manual = true) },
+        onInstallUpdate = { info -> installUpdate(app, context, info) },
+        reducedMotion = reducedMotion,
     )
 }
 

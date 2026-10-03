@@ -22,6 +22,7 @@ import io.github.aspershupadhyay.latch.session.GatewaySetup
 import io.github.aspershupadhyay.latch.session.SessionController
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.ui.MainActivity
+import io.github.aspershupadhyay.latch.update.Updater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +48,11 @@ class LatchApp : Application() {
     lateinit var setup: GatewaySetup
         private set
     val http = Pairing.client()
+    lateinit var updater: Updater
+        private set
+
+    /** Latch's own screen is in front; agents' screen commands move it aside first. */
+    @Volatile var ownScreenShown = false
 
     override fun onCreate() {
         super.onCreate()
@@ -55,6 +61,7 @@ class LatchApp : Application() {
         val consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
         session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel)
         setup = GatewaySetup(http)
+        updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
         observeIndicators()
     }

@@ -123,6 +123,14 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
         }
 
         AnimatedVisibility(
+            visible = state.update.shownOnHome(),
+            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
+            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
+        ) {
+            UpdateCard(state.update, state.reducedMotion, actions.installUpdate)
+        }
+
+        AnimatedVisibility(
             visible = state.signInRequests.isNotEmpty(),
             enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
             exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
