@@ -1029,3 +1029,22 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     );
     phone.task.abort();
 }
+
+/// Regression from the 2026-10-03 phone run: wait_for matched the text the
+/// agent had just typed into a search box. Input fields never count.
+#[tokio::test]
+async fn wait_for_ignores_text_in_input_fields() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let (_, screen, _) = call(&gw, "launch_app", json!({"package": "org.latch.demo.chat"})).await;
+    let (is_error, _, _) = call(&gw, "type_text", json!({"observation_id": observation_id(&screen), "element_id": "n1", "text": "draft only"})).await;
+    assert!(!is_error);
+    let (_, text, _) = call(
+        &gw,
+        "wait_for",
+        json!({"text": "draft only", "timeout_ms": 100}),
+    )
+    .await;
+    assert!(text.contains("did not appear within 100 ms"), "{text}");
+    phone.task.abort();
+}

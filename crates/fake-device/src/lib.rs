@@ -320,11 +320,13 @@ pub fn handle(
     }
 }
 
-/// Whether a non-sensitive element's text or description contains `text`, ignoring case.
+/// Whether a non-sensitive, non-editable element's text or description contains `text`, ignoring case.
 fn shows_text(nodes: &[screens::Node], text: &str) -> bool {
     let needle = text.to_lowercase();
     nodes.iter().any(|n| {
+        // Input fields hold what the agent typed, not the page answering.
         !n.node.sensitive
+            && !n.node.editable
             && [n.node.text.as_deref(), n.node.description.as_deref()]
                 .into_iter()
                 .flatten()

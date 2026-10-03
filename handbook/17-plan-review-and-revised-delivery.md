@@ -110,6 +110,15 @@ The owner's first audit (realme C55, Android 15, Vercel gateway, one session, no
 | "Restricted setting" on Redmi K50i | Android 13+ restricts accessibility for apps installed from files until allowed in App info | Brand-specific steps in setup, ADB fallback, install guide | IN_REVIEW |
 | WhatsApp send and a SIM 2 call completed without a clearly surfaced approval | Most likely: a tap judged only by the tapped element's own label (an unlabeled button around a labeled "Send" icon, a phone number, a SIM choice). Not reproduced on the phone, so the exact path is still an assumption | Taps are judged by the element, what is drawn inside it, and the nearest labeled ancestor; phone numbers, "SIM", and phone/in-call apps ask; the phone re-checks every tap with the same rules on its live screen (§9) | IN_REVIEW: needs a re-run of the same WhatsApp and call steps on the phone |
 
+**Second run (2026-10-03, realme C55, Android 15, Vercel gateway at protocol 1.3, driven by Claude through MCP):** all 12 tools worked; `scroll_to`, `type_text submit` in a search box, `wait_for`, `pinch` in/out, double-tap, and a Chrome search completed with no unwanted approval and nothing sent or changed. Findings and changes:
+
+| Finding | Change | Status |
+|---|---|---|
+| The screen returned after a navigating tap, `back`, or `launch_app` was often the old page or one caught mid-slide (bounds shifted by 7 px) | Settle waits until a fingerprint of the window (text, positions, checked states) has changed from before the action and holds still; transitions animate without accessibility events | IN_REVIEW: re-run on the phone |
+| `wait_for` matched the text just typed into the search box | `ui.wait` and `ui.scroll_to` ignore editable elements (phone and fake phone; e2e regression test) | IN_REVIEW |
+| Chrome pages report many zero-size, off-screen elements | Observations leave them out and reparent their children | IN_REVIEW |
+| Chrome's new-tab search box is a placeholder that does not take Enter | Clearer error: observe and use the field that now has focus | DONE |
+
 Not done, deliberately: caching app lists or observations in the gateway (a cached answer would skip the policy and capability check of the moment), and compound actions (`tap → type → submit` under one policy check), which need their own threat review.
 
 ## 9. Feature roadmap (owner request, 2026-10-02)

@@ -92,6 +92,57 @@ class LatchAccessibilityService : AccessibilityService() {
         if (event.packageName?.toString() != packageName) lastUiEventAtMs = SystemClock.uptimeMillis()
     }
 
+    /**
+     * A cheap fingerprint of what the active window shows: text, positions,
+     * and checked states of the first visible elements. Page transitions and
+     * slide-ins move elements without sending accessibility events; positions
+     * catch them.
+     */
+    fun screenSignature(): Int {
+        val root = rootInActiveWindow ?: return 0
+        var h = root.packageName?.hashCode() ?: 0
+        val queue = ArrayDeque(listOf(root))
+        val r = android.graphics.Rect()
+        var seen = 0
+        while (queue.isNotEmpty() && seen < SIGNATURE_NODES) {
+            val node = queue.removeFirst()
+            if (!node.isVisibleToUser) continue
+            seen++
+            node.getBoundsInScreen(r)
+            h = 31 * h + (node.text?.hashCode() ?: 0)
+            h = 31 * h + (node.contentDescription?.hashCode() ?: 0)
+            h = 31 * h + r.left
+            h = 31 * h + r.top
+            h = 31 * h + r.right
+            h = 31 * h + r.bottom
+            h = 31 * h + if (node.isCheckable && isChecked(node)) 1 else 0
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return if (h == 0) 1 else h
+    }
+
+    /**
+     * Waits until the screen shows the result of an action: it has changed
+     * from [before] (or [expectChangeMs] passed without a change, so nothing
+     * will) and then holds still, meaning two fingerprints in a row are equal
+     * and no event arrived for [quietMs]. Never longer than [maxMs].
+     */
+    suspend fun awaitSettled(before: Int, quietMs: Long, maxMs: Long, minMs: Long, expectChangeMs: Long) {
+        val start = SystemClock.uptimeMillis()
+        var previous = screenSignature()
+        while (true) {
+            delay(SETTLE_STEP_MS)
+            val now = SystemClock.uptimeMillis()
+            val elapsed = now - start
+            if (elapsed >= maxMs) return
+            val current = screenSignature()
+            val changed = current != before
+            val still = current == previous && current != 0 && now - max(lastUiEventAtMs, start) >= quietMs
+            if (still && elapsed >= minMs && (changed || elapsed >= expectChangeMs)) return
+            previous = current
+        }
+    }
+
     /** Waits until [target] is the app in front, at most [maxMs]. Returns the time spent. */
     suspend fun awaitForeground(target: String, maxMs: Long): Long {
         val start = SystemClock.uptimeMillis()
@@ -100,23 +151,6 @@ class LatchAccessibilityService : AccessibilityService() {
             delay(20)
         }
         return SystemClock.uptimeMillis() - start
-    }
-
-    /**
-     * Returns once the screen has not changed for [quietMs] (counting from now
-     * at the earliest, so an app that has not reacted yet still gets that long),
-     * or after [maxMs] in all, whichever comes first.
-     */
-    suspend fun awaitQuiet(quietMs: Long, maxMs: Long, minMs: Long = 0) {
-        val start = SystemClock.uptimeMillis()
-        while (true) {
-            val now = SystemClock.uptimeMillis()
-            val elapsed = now - start
-            if (elapsed >= maxMs) return
-            val idle = now - max(lastUiEventAtMs, start)
-            if (idle >= quietMs && elapsed >= minMs) return
-            delay((quietMs - idle).coerceIn(10, 25))
-        }
     }
 
     override fun onInterrupt() = Unit
@@ -343,6 +377,8 @@ class LatchAccessibilityService : AccessibilityService() {
 
         val ui = LinkedHashMap<String, UiNode>()
         val refs = HashMap<String, AccessibilityNodeInfo>()
+        val screen = screenInfo()
+        val bounds = android.graphics.Rect()
         var redacted = 0
         var truncated = false
         if (root != null) {
@@ -352,6 +388,13 @@ class LatchAccessibilityService : AccessibilityService() {
             while (queue.isNotEmpty()) {
                 val (node, parentId) = queue.removeFirst()
                 if (!node.isVisibleToUser) continue
+                // Zero-size or fully off-screen elements (common in web pages) cannot be seen or
+                // used; leave them out, and hang what they contain on the nearest kept ancestor.
+                node.getBoundsInScreen(bounds)
+                if (bounds.width() <= 0 || bounds.height() <= 0 || !bounds.intersect(0, 0, screen.width, screen.height)) {
+                    for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it to parentId) }
+                    continue
+                }
                 if (ui.size >= maxNodes) {
                     truncated = true
                     break
@@ -370,7 +413,6 @@ class LatchAccessibilityService : AccessibilityService() {
         observationCounter++
         val observationId = "o_${observationCounter}_${random.nextInt(1 shl 20).toString(36)}"
         latest = Snapshot(observationId, packageName, refs, ui)
-        val screen = screenInfo()
         return Observation(
             observationId = observationId,
             capturedAtMs = System.currentTimeMillis(),
@@ -749,7 +791,10 @@ class LatchAccessibilityService : AccessibilityService() {
             // The keyboard's own action key for this field: Enter, Search, Send, Go, or Done.
             node.refresh()
             if (!node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
-                throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "the text was typed, but the field did not accept Enter")
+                throw ProtocolException(
+                    ErrorCode.TARGET_NOT_FOUND,
+                    "the text was typed, but this field does not take Enter; it may be a placeholder that opens the real search box. Observe and use the field that now has focus",
+                )
             }
         }
     }
@@ -761,8 +806,10 @@ class LatchAccessibilityService : AccessibilityService() {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (true) {
             val observation = observe(false, maxNodes)
+            // Text inside input fields is usually what the agent typed itself, not the page answering.
             val present = observation.nodes.any { n ->
-                !n.sensitive && (n.text?.contains(text, ignoreCase = true) == true || n.description?.contains(text, ignoreCase = true) == true)
+                !n.sensitive && !n.editable &&
+                    (n.text?.contains(text, ignoreCase = true) == true || n.description?.contains(text, ignoreCase = true) == true)
             }
             if (present != gone) return WaitResult(true, observation)
             val now = SystemClock.uptimeMillis()
@@ -786,12 +833,14 @@ class LatchAccessibilityService : AccessibilityService() {
             if (showsText(text)) return true
             if (attempt == maxSwipes) return false
             val before = signature(container)
+            val screenBefore = screenSignature()
             if (container != null && scrollOnce(container, direction)) {
                 showScroll(container, direction)
             } else {
                 scrollByGesture(container, direction, snap)
             }
-            awaitQuiet(SCROLL_QUIET_MS, SCROLL_MAX_SETTLE_MS)
+            // Lists fling on after the gesture: wait until they stop before looking again.
+            awaitSettled(screenBefore, SCROLL_QUIET_MS, SCROLL_MAX_SETTLE_MS, 0, SCROLL_EXPECT_CHANGE_MS)
             if (container?.refresh() == false) container = largestScrollable()
             // Nothing moved: the list is at its end.
             if (signature(container) == before) return showsText(text)
@@ -813,7 +862,7 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     private fun showsText(text: String): Boolean = visibleNodes().any { node ->
-        !Redaction.isSensitive(facts(node)) &&
+        !node.isEditable && !Redaction.isSensitive(facts(node)) &&
             (node.text?.contains(text, ignoreCase = true) == true || node.contentDescription?.contains(text, ignoreCase = true) == true)
     }
 
@@ -959,8 +1008,11 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L
         private const val LIVE_SCOPE_NODES = 64
         private const val CURSOR_HIDE_MS = 50L
+        private const val SIGNATURE_NODES = 300
+        private const val SETTLE_STEP_MS = 60L
         private const val MAX_SEARCH_NODES = 2_000
         private const val SCROLL_QUIET_MS = 120L
         private const val SCROLL_MAX_SETTLE_MS = 800L
+        private const val SCROLL_EXPECT_CHANGE_MS = 300L
     }
 }
