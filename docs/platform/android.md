@@ -59,6 +59,8 @@ Release builds are minified and signed in CI when `LATCH_KEYSTORE_BASE64`, `LATC
 - Apps that set `FLAG_SECURE` (banking, some video apps) cannot be captured; their element tree may still be readable unless they mark data sensitive.
 - `type_text` replaces the field's whole content. With `submit` it then presses the field's IME action (`ACTION_IME_ENTER`); fields that do not handle it report an error after the text was typed.
 - After `launch_app` the phone waits until the opened app is in front (within the settle budget) before observing, so the agent does not get the previous app's screen.
+- After an action the phone waits until the screen has changed and holds still: two fingerprints of the active window (text, positions, checked states) in a row are equal and no accessibility event arrived for `quiet_ms`. Page transitions animate without events; positions catch them. If nothing changes within 450 ms the action had no visible effect and the screen is taken as it is.
+- Observations leave out zero-size and fully off-screen elements (web pages report many); their children keep the nearest kept ancestor as parent.
 - Smart settle relies on accessibility events; an app that animates without pause (video, spinners) uses the whole 1.5 s budget.
 - An agent with gestures can operate Android Settings (outside the shade). Turn on *Ask me before every action* when that matters; a per-app allowlist is planned.
 - Google Play's accessibility policy may not allow this use (**to verify** before any store submission); Android developer verification requirements for sideloaded apps must be checked before each release.

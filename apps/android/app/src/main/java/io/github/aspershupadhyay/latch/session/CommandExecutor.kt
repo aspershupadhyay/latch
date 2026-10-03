@@ -77,6 +77,9 @@ fun describe(command: Command): String = when (command) {
 /** Least time to let an app open or the home screen appear before smart settle may answer. */
 private const val TRANSITION_FLOOR_MS = 300L
 
+/** How long to wait for an action to show any effect before taking the screen as it is. */
+private const val EXPECT_CHANGE_MS = 450L
+
 private const val AGENT_DETAIL = "Requested by an AI agent connected through Latch."
 private const val CONSEQUENTIAL_DETAIL =
     "Requested by an AI agent connected through Latch. This control may send, call, post, delete, or change something that is hard to undo."
@@ -154,6 +157,8 @@ class CommandExecutor(
             }
             else -> {
                 var found: Boolean? = null
+                // What the screen looked like before, so settling can tell when the action took effect.
+                val before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
                 when (command) {
                     is Command.Tap -> service.tap(command.observationId, command.target, command.longPress, command.double)
                     is Command.Swipe -> service.swipe(
@@ -169,7 +174,7 @@ class CommandExecutor(
                 }
                 log.add(ActivityKind.ACTION, describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found)
-                envelope.observeAfter?.let { result = observeAfter(command, service, it, result, current) }
+                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
         }
@@ -261,6 +266,7 @@ class CommandExecutor(
         command: Command,
         service: LatchAccessibilityService,
         after: ObserveAfter,
+        before: Int,
         result: ActionResult,
         current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
     ): ActionResult {
@@ -272,7 +278,15 @@ class CommandExecutor(
             val floor = if (command is Command.LaunchApp || command is Command.Global) TRANSITION_FLOOR_MS else 0L
             // An app that is still starting would be observed as the previous app: wait for it first.
             val waited = if (command is Command.LaunchApp) service.awaitForeground(command.packageName, after.settleMs.toLong()) else 0L
-            service.awaitQuiet(quiet.toLong(), (after.settleMs - waited).coerceAtLeast(quiet.toLong()), (floor - waited).coerceAtLeast(0))
+            // Then wait for the screen to change and hold still: a new page slides in silently,
+            // so the agent would otherwise get the old page or one caught mid-animation.
+            service.awaitSettled(
+                before,
+                quiet.toLong(),
+                (after.settleMs - waited).coerceAtLeast(quiet.toLong()),
+                (floor - waited).coerceAtLeast(0),
+                EXPECT_CHANGE_MS,
+            )
         }
         val (session, capabilities) = current()
         val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
