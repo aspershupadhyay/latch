@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem (privately)
+    url: https://github.com/aspershupadhyay/latch/security/advisories/new
+    about: Never post vulnerabilities, tokens, or screenshots in a public issue.
+  - name: Setup guide and fixes
+    url: https://github.com/aspershupadhyay/latch#help-im-stuck
+    about: Install, Play Protect, restricted settings, and gateway problems.

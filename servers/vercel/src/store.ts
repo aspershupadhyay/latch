@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // The handful of Redis operations the gateway needs. Vercel functions are
 // stateless, so all shared state lives here: paired devices and clients
 // (hashes only, never tokens), live sessions, command queues, and results.

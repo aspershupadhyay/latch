@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! A tiny, deterministic phone UI: a launcher, a settings app, a chat app with
 //! a consequential Send button, and a login screen with a password field.
 

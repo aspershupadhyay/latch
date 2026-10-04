@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 package io.github.aspershupadhyay.latch.ui
 
 import android.Manifest
@@ -675,6 +677,7 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         onInstallUpdate = { info -> installUpdate(app, context, info) },
         reducedMotion = reducedMotion,
         onOpenGuide = openGuide,
+        onOpenSource = { context.startActivity(Intent(Intent.ACTION_VIEW, SOURCE_CODE.toUri())) },
         theme = prefs.theme,
         onTheme = { t -> app.settings.update { it.copy(theme = t) } },
     )
@@ -721,3 +724,4 @@ private const val MAX_FOLDERS = 20
 
 /** README steps for bringing a Vercel gateway up to date. */
 private const val GATEWAY_UPDATE_HELP = "https://github.com/aspershupadhyay/latch#fix-update-your-gateway"
+private const val SOURCE_CODE = "https://github.com/aspershupadhyay/latch"

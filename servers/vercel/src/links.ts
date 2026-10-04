@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Encrypted file links (protocol 1.7, ADR-027). A whole file moves between the
 // AI's computer and the phone without passing through this function or the
 // AI's context: the computer and the phone upload and download it themselves.

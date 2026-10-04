@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SENSITIVE_APP_NOTE, renderObservation, toolError } from "../src/render.js";

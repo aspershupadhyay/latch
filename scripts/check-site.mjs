@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Checks the public website (site/) before GitHub Pages publishes it: search
 // and share tags are present, structured data parses, and every local file a
 // page references exists. No dependencies.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! File tools (protocol 1.6, ADR-026): list, look at, copy to and from the
 //! AI's computer, save, organise, delete, and share to any app.
 //!

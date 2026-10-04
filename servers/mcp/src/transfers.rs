@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Short-lived links that move whole files between the AI's computer and the
 //! phone without passing the bytes through the AI's context (ADR-026).
 //!

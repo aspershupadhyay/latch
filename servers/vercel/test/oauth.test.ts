@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // OAuth for MCP clients: the official MCP TypeScript SDK client connects with
 // only the server URL, the way Claude, ChatGPT, Codex, Cursor, and VS Code do.
 // It discovers the server, registers itself, the owner approves (in the app

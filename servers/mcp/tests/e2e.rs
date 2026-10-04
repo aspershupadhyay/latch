@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! End-to-end: real gateway on a TCP port, the fake phone over WebSocket, and
 //! MCP requests exactly as a client would send them.
 

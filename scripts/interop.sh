@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Interop check: the official MCP TypeScript SDK client drives a fresh gateway
 # and fake phone through observe -> launch -> tap.
 set -euo pipefail

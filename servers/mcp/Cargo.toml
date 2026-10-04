@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 [package]
 name = "latch-gateway"
 description = "Latch gateway: MCP server for AI clients and authenticated channel for phones."

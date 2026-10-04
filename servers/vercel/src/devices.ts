@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Devices, live connections, and the command path, on top of the Store.
 // Mirrors servers/mcp/src/devices.rs: one command at a time per phone, policy
 // before anything leaves the gateway, typed results, redacted audit.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // The Vercel Function only receives the HTTP methods api/gateway.ts exports;
 // any other method gets Vercel's own 405 before the gateway sees it.
 import { test } from "node:test";

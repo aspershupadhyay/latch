@@ -152,3 +152,16 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Why:** typing the master key into a web page is the easiest thing to phish, and a public console invites guessing and scraping. The app already holds the key.
 **Risk:** owners without the app (self-hosted, scripted) lose the browser console; the owner API and `scripts/dev.sh` cover them. noindex and an unlisted address are not access control: `*.vercel.app` names appear in certificate-transparency logs, so security still rests on 256-bit keys stored as hashes, single-use pairing codes with a failure lock, and constant-time comparison. A per-IP lockout on wrong owner keys was rejected: guessing a 256-bit key is impossible, and a lockout would let anyone lock the owner out.
 **Reversal trigger:** an owner task that needs a browser and cannot be done from the app or the owner API.
+
+## ADR-030 — AGPL-3.0 with attribution terms and a name policy
+**Status:** accepted (2026-10-04, owner request: "the current license is too permissive; this code can be misused; anyone who uses it must publish their code and keep our name on it") · **Amends:** chapter 14 license recommendation (Apache-2.0)
+**Decision:**
+- The code is licensed under the **GNU AGPL-3.0-only** (`LICENSE`). Distributing Latch or a modified version requires publishing the complete source under the same license; running a modified version as a network service (a gateway) requires offering its users that source (section 13).
+- `NOTICE` adds terms allowed by AGPL section 7: keep NOTICE, the per-file SPDX and copyright lines, and a visible "Based on Latch by Aspersh Upadhyay" credit (7(b)); mark modified versions (7(c)); no right to the name or logo (7(e)).
+- `TRADEMARKS.md` reserves the name "Latch" and the hook-and-pin logo: forks must rebrand.
+- Every source file carries `SPDX-License-Identifier: AGPL-3.0-only` and a copyright line; `scripts/headers.py --check` runs in CI.
+- Contributions: inbound AGPL plus permission for the owner to relicense (`CONTRIBUTING.md`), so the owner can still change terms or grant exceptions.
+- The app's Settings and the gateway page link to the source and name the license (AGPL section 5(d) and 13).
+**Why:** Latch operates people's phones. A permissive license lets anyone ship a closed, modified build (for example one that hides its data flows) under any name. AGPL keeps every derivative inspectable, and the name policy stops look-alikes from trading on the project's trust.
+**Limits (stated plainly):** no open-source license can forbid others from publishing their own version; AGPL only forces it to stay open, credited, and differently named. A license that forbids forks would not be open source. Notices cannot technically stop a person or an AI tool from removing them; they make removal a clear license violation. Releases before this change stay available under Apache-2.0.
+**Reversal trigger:** the owner chooses a different license, or a dependency's license conflicts with AGPL-3.0.

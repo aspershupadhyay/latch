@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Link transfers for the simulated phone (protocol 1.7, ADR-027): it
 //! downloads or uploads the encrypted bytes itself, over plain HTTP to a
 //! local gateway, exactly as the Android app does over HTTPS. AES-256-CTR

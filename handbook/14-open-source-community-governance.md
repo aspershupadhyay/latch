@@ -10,6 +10,8 @@ last_fetched: "2026-10-01T21:15:26.904Z"
 The project should be easy to inspect, build, fork, and leave. It should not require a private cloud, a paid account, or a founder's personal explanation to understand the core.
 ## License
 Default recommendation: Apache License 2.0 for code, protocol implementation, SDKs, and schemas. Review the final license choice before repository initialization, especially if future contributors or embedded dependencies introduce obligations.
+
+> **Changed 2026-10-04 (ADR-030):** the project is licensed under the GNU AGPL-3.0 (only), with attribution and naming terms under its section 7 in `NOTICE`, and a name and logo policy in `TRADEMARKS.md`. Releases made before the change remain available under Apache-2.0.
 Documentation and design assets need an explicit treatment, such as a compatible documentation license or a clearly separated asset license. Do not mix code and non-code licensing casually.
 ## Required repository documents
 - README with the safe quick start;

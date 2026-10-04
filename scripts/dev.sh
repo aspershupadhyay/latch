@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Starts a local gateway and, optionally, a simulated phone, for trying Latch
 # end to end without hardware (works in a cloud dev container too).
 #

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Drives a running gateway (with a connected phone or fake phone) through the
 // official MCP TypeScript SDK client over Streamable HTTP.
 //

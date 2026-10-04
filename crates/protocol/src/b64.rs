@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Standard base64 (RFC 4648, with padding) for file chunks. Small enough to
 //! audit, so the protocol does not need another dependency.
 

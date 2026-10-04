@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! The Latch device protocol, version 1.
 //!
 //! This crate is the normative definition of what travels between a Latch

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 name: CI
 
 on:
@@ -39,7 +41,7 @@ jobs:
       - run: scripts/interop.sh
 
   site:
-    name: Website (search tags, structured data, links)
+    name: Website and license headers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -47,6 +49,7 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/check-site.mjs
+      - run: python3 scripts/headers.py --check
 
   vercel:
     name: Vercel gateway (contract, typecheck, end-to-end on Redis)
