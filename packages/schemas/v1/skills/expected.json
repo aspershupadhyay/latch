@@ -1,0 +1,359 @@
+{
+  "expand": [
+    {
+      "labels": [
+        "open org.latch.demo.shop",
+        "type \"Brown bread\" into \"Search products\" and submit",
+        "tap \"ADD\" near \"Brown bread\"",
+        "tap \"+\" near \"Brown bread\" ×0",
+        "type \"Paneer\" into \"Search products\" and submit",
+        "tap \"ADD\" near \"Paneer\"",
+        "tap \"+\" near \"Paneer\" ×2",
+        "tap \"Not now\" (if shown)",
+        "wait for \"Cart\"",
+        "type \"leave at door\"",
+        "press back"
+      ],
+      "steps": [
+        {
+          "do": "launch_app",
+          "n": 1,
+          "optional": false,
+          "package": "org.latch.demo.shop"
+        },
+        {
+          "do": "type",
+          "n": 2,
+          "optional": false,
+          "submit": true,
+          "target": "Search products",
+          "text": "Brown bread"
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 3,
+          "near": "Brown bread",
+          "optional": false,
+          "target": "ADD",
+          "times": 1
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 4,
+          "near": "Brown bread",
+          "optional": false,
+          "target": "+",
+          "times": 0
+        },
+        {
+          "do": "type",
+          "n": 5,
+          "optional": false,
+          "submit": true,
+          "target": "Search products",
+          "text": "Paneer"
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 6,
+          "near": "Paneer",
+          "optional": false,
+          "target": "ADD",
+          "times": 1
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 7,
+          "near": "Paneer",
+          "optional": false,
+          "target": "+",
+          "times": 2
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 8,
+          "optional": true,
+          "target": "Not now",
+          "times": 1
+        },
+        {
+          "do": "wait_for",
+          "gone": false,
+          "n": 9,
+          "optional": false,
+          "text": "Cart",
+          "timeout_ms": 5000
+        },
+        {
+          "do": "type",
+          "n": 10,
+          "optional": false,
+          "submit": false,
+          "text": "leave at door"
+        },
+        {
+          "button": "back",
+          "do": "press",
+          "n": 11,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "labels": [
+        "open org.latch.demo.shop",
+        "type \"Tomato\" into \"Search products\" and submit",
+        "tap \"ADD\" near \"Tomato\"",
+        "tap \"+\" near \"Tomato\"",
+        "tap \"Not now\" (if shown)",
+        "wait for \"Cart\"",
+        "type \"ring the bell\"",
+        "press back"
+      ],
+      "steps": [
+        {
+          "do": "launch_app",
+          "n": 1,
+          "optional": false,
+          "package": "org.latch.demo.shop"
+        },
+        {
+          "do": "type",
+          "n": 2,
+          "optional": false,
+          "submit": true,
+          "target": "Search products",
+          "text": "Tomato"
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 3,
+          "near": "Tomato",
+          "optional": false,
+          "target": "ADD",
+          "times": 1
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 4,
+          "near": "Tomato",
+          "optional": false,
+          "target": "+",
+          "times": 1
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 5,
+          "optional": true,
+          "target": "Not now",
+          "times": 1
+        },
+        {
+          "do": "wait_for",
+          "gone": false,
+          "n": 6,
+          "optional": false,
+          "text": "Cart",
+          "timeout_ms": 5000
+        },
+        {
+          "do": "type",
+          "n": 7,
+          "optional": false,
+          "submit": false,
+          "text": "ring the bell"
+        },
+        {
+          "button": "back",
+          "do": "press",
+          "n": 8,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "labels": [
+        "open org.latch.demo.shop",
+        "tap \"Not now\" (if shown)",
+        "wait for \"Cart\"",
+        "type \"leave at door\"",
+        "press back"
+      ],
+      "steps": [
+        {
+          "do": "launch_app",
+          "n": 1,
+          "optional": false,
+          "package": "org.latch.demo.shop"
+        },
+        {
+          "do": "tap",
+          "long_press": false,
+          "n": 2,
+          "optional": true,
+          "target": "Not now",
+          "times": 1
+        },
+        {
+          "do": "wait_for",
+          "gone": false,
+          "n": 3,
+          "optional": false,
+          "text": "Cart",
+          "timeout_ms": 5000
+        },
+        {
+          "do": "type",
+          "n": 4,
+          "optional": false,
+          "submit": false,
+          "text": "leave at door"
+        },
+        {
+          "button": "back",
+          "do": "press",
+          "n": 5,
+          "optional": false
+        }
+      ]
+    },
+    {
+      "error": "param 'items' is required"
+    },
+    {
+      "error": "'items' items have no field 'color'"
+    },
+    {
+      "error": "{item.qty-1}: 'two' is not a whole number"
+    },
+    {
+      "error": "unknown param 'extra'"
+    }
+  ],
+  "find": [
+    "n12",
+    "n15",
+    null,
+    "n10",
+    "n10",
+    "n1",
+    "n1",
+    null,
+    "b",
+    "b",
+    "b",
+    "a",
+    null,
+    "n15",
+    "n12",
+    "n15"
+  ],
+  "validate": [
+    {
+      "ok": {
+        "app": "Shop",
+        "description": "Order items in the shop app",
+        "name": "order_groceries",
+        "params": [
+          {
+            "description": "What to buy",
+            "fields": [
+              "name",
+              "qty"
+            ],
+            "name": "items",
+            "type": "list"
+          },
+          {
+            "default": "leave at door",
+            "name": "note",
+            "type": "text"
+          }
+        ],
+        "steps": [
+          {
+            "do": "launch_app",
+            "package": "org.latch.demo.shop"
+          },
+          {
+            "for_each": "items",
+            "steps": [
+              {
+                "do": "type",
+                "submit": true,
+                "target": "Search products",
+                "text": "{item.name}"
+              },
+              {
+                "do": "tap",
+                "near": "{item.name}",
+                "target": "ADD"
+              },
+              {
+                "do": "tap",
+                "near": "{item.name}",
+                "repeat": "{item.qty-1}",
+                "target": "+"
+              }
+            ]
+          },
+          {
+            "do": "tap",
+            "optional": true,
+            "target": "Not now"
+          },
+          {
+            "do": "wait_for",
+            "text": "Cart"
+          },
+          {
+            "do": "type",
+            "text": "{note}"
+          },
+          {
+            "button": "back",
+            "do": "press"
+          }
+        ]
+      }
+    },
+    {
+      "error": "name must be 1 to 40 characters: lowercase letters, digits, - and _"
+    },
+    {
+      "error": "1 to 50 steps"
+    },
+    {
+      "error": "each step needs do: one of launch_app, tap, type, scroll_to, wait_for, press, ask_owner, or for_each"
+    },
+    {
+      "error": "step tap: 'target' is required"
+    },
+    {
+      "error": "step tap: unknown field 'x'"
+    },
+    {
+      "error": "for_each must name a list param (got 'nope')"
+    },
+    {
+      "error": "for_each cannot be nested"
+    },
+    {
+      "error": "param names are 1 to 24 characters: a lowercase letter, then letters, digits, or _ (not \"item\")"
+    },
+    {
+      "error": "step press: button must be back, home, or recents"
+    },
+    {
+      "error": "step tap: repeat must be 0 to 50"
+    }
+  ]
+}

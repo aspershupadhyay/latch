@@ -18,6 +18,7 @@ use crate::AppState;
 use crate::devices::{self, Output};
 
 pub mod files;
+pub mod skills;
 
 /// Newest first. We answer with the client's version when we support it.
 pub const SUPPORTED_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -450,6 +451,7 @@ pub fn tool_definitions() -> Vec<Value> {
     ]
     .into_iter()
     .chain(files::definitions())
+    .chain(skills::definitions())
     .chain([{
             let mut answer = tool(
                 "answer_approval",
@@ -703,7 +705,13 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             files::upload_link(state)
         });
     }
+    if skills::NAMES.contains(&name) && name != "run_skill" {
+        return skills::run_store(state, name, args);
+    }
     let device_id = devices::resolve_device(state, arg_str(args, "device_id").map_err(bad)?)?;
+    if name == "run_skill" {
+        return skills::run(state, args, &device_id).await;
+    }
     if name == "set_clipboard" {
         let text = req_str(args, "text").map_err(bad)?.to_owned();
         let count = text.chars().count();

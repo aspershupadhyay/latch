@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! A tiny, deterministic phone UI: a launcher, a settings app, a chat app with
-//! a consequential Send button, and a login screen with a password field.
+//! a consequential Send button, a login screen with a password field, and a
+//! shop with a search box, look-alike products, and ADD / + buttons.
 
 use latch_protocol::{AppEntry, Rect, UiNode};
 
@@ -15,7 +16,17 @@ pub enum Screen {
     Network,
     Chat,
     Login,
+    Shop,
 }
+
+/// What the fake shop sells; searches match any part of a name.
+pub const CATALOG: &[&str] = &[
+    "Brown bread",
+    "White bread",
+    "Paneer 200 g",
+    "Tomato 1 kg",
+    "Milk 1 L",
+];
 
 /// Everything the fake apps remember.
 #[derive(Debug, Clone)]
@@ -27,6 +38,9 @@ pub struct Phone {
     pub sent_messages: Vec<String>,
     pub username: String,
     pub settings_scrolled: bool,
+    pub shop_query: String,
+    /// Quantity per catalog product, by index.
+    pub cart: Vec<u32>,
 }
 
 impl Default for Phone {
@@ -39,6 +53,8 @@ impl Default for Phone {
             sent_messages: Vec::new(),
             username: String::new(),
             settings_scrolled: false,
+            shop_query: String::new(),
+            cart: vec![0; CATALOG.len()],
         }
     }
 }
@@ -53,6 +69,8 @@ pub enum Effect {
     EditDraft,
     EditUsername,
     EditPassword,
+    EditSearch,
+    AddToCart(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +112,7 @@ pub const APPS: &[(&str, &str, Screen)] = &[
     ("com.android.settings", "Settings", Screen::Settings),
     ("org.latch.demo.chat", "Chat", Screen::Chat),
     ("org.latch.demo.login", "Bank login", Screen::Login),
+    ("org.latch.demo.shop", "Shop", Screen::Shop),
 ];
 
 pub fn apps() -> Vec<AppEntry> {
@@ -111,6 +130,7 @@ pub fn package_of(screen: &Screen) -> &'static str {
         Screen::Settings | Screen::Network => "com.android.settings",
         Screen::Chat => "org.latch.demo.chat",
         Screen::Login => "org.latch.demo.login",
+        Screen::Shop => "org.latch.demo.shop",
     }
 }
 
@@ -198,6 +218,59 @@ impl Phone {
                 let mut sign_in = base(3, Some(0), "Button", rect(40, 1000, 1040, 1160));
                 sign_in.clickable = true;
                 push(sign_in, Effect::None, Some("Sign in"));
+            }
+            Screen::Shop => {
+                let mut search = base(1, Some(0), "EditText", rect(40, 160, 1040, 300));
+                search.editable = true;
+                search.clickable = true;
+                search.description = Some("Search products".into());
+                let query = (!self.shop_query.is_empty()).then_some(self.shop_query.as_str());
+                push(search, Effect::EditSearch, query);
+                let total: u32 = self.cart.iter().sum();
+                push(
+                    base(2, Some(0), "TextView", rect(40, 320, 1040, 400)),
+                    Effect::None,
+                    Some(&format!("Cart ({total})")),
+                );
+                let q = self.shop_query.to_lowercase();
+                let shown = CATALOG
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, name)| !q.is_empty() && name.to_lowercase().contains(&q));
+                for (row, (i, name)) in shown.enumerate() {
+                    let top = 440 + row as i32 * 200;
+                    push(
+                        base(
+                            10 + i * 3,
+                            Some(0),
+                            "TextView",
+                            rect(40, top, 700, top + 160),
+                        ),
+                        Effect::None,
+                        Some(name),
+                    );
+                    if self.cart[i] > 0 {
+                        push(
+                            base(
+                                11 + i * 3,
+                                Some(0),
+                                "TextView",
+                                rect(720, top, 840, top + 160),
+                            ),
+                            Effect::None,
+                            Some(&self.cart[i].to_string()),
+                        );
+                    }
+                    let mut add = base(
+                        12 + i * 3,
+                        Some(0),
+                        "Button",
+                        rect(860, top, 1040, top + 160),
+                    );
+                    add.clickable = true;
+                    let label = if self.cart[i] > 0 { "+" } else { "ADD" };
+                    push(add, Effect::AddToCart(i), Some(label));
+                }
             }
         }
         nodes

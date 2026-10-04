@@ -259,6 +259,7 @@ pub fn handle(
             match target_effect(target)? {
                 Effect::Open(screen) => state.phone.open(screen),
                 Effect::ToggleWifi => state.phone.wifi_on = !state.phone.wifi_on,
+                Effect::AddToCart(i) => state.phone.cart[i] += 1,
                 Effect::SendMessage if !state.phone.draft.is_empty() => {
                     let draft = std::mem::take(&mut state.phone.draft);
                     state.phone.sent_messages.push(draft);
@@ -285,6 +286,11 @@ pub fn handle(
                 Effect::EditDraft => {
                     state.phone.draft = text.clone();
                     false
+                }
+                // The shop searches as you type; Enter just confirms.
+                Effect::EditSearch => {
+                    state.phone.shop_query = text.clone();
+                    true
                 }
                 // The sign-in form ignores Enter, like apps that only send with their own button.
                 Effect::EditUsername => {

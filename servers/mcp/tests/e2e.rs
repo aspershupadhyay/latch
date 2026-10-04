@@ -340,6 +340,10 @@ async fn mcp_handshake_and_discovery() {
             "delete_file",
             "set_clipboard",
             "share_to_app",
+            "save_skill",
+            "list_skills",
+            "run_skill",
+            "delete_skill",
             "answer_approval"
         ]
     );
@@ -592,7 +596,7 @@ async fn sending_a_message_waits_for_the_owner() {
 
     let (is_error, apps, _) = call(&gw, "list_apps", json!({"query": " CHAT "})).await;
     assert!(!is_error, "{apps}");
-    assert!(apps.starts_with("1 of 3 launchable apps on "), "{apps}");
+    assert!(apps.starts_with("1 of 4 launchable apps on "), "{apps}");
     assert!(
         apps.contains("match \"chat\"") && apps.contains("org.latch.demo.chat"),
         "{apps}"
@@ -1175,7 +1179,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.8, 27 tools.",
+        lines[0], "Latch gateway, protocol 1.8, 31 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1678,4 +1682,138 @@ async fn wait_for_ignores_text_in_input_fields() {
     .await;
     assert!(text.contains("did not appear within 100 ms"), "{text}");
     phone.task.abort();
+}
+
+/// ADR-031: a skill saved once runs again with a different cart in one call,
+/// picks the right product among look-alikes, and hands a missing product back.
+#[tokio::test]
+async fn skills_replay_with_new_inputs_and_hand_back_what_differs() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let skill = json!({
+        "name": "order_groceries",
+        "description": "Add items to the cart in the shop app",
+        "params": [{ "name": "items", "type": "list", "fields": ["name", "qty"] }],
+        "steps": [
+            { "do": "launch_app", "package": "org.latch.demo.shop" },
+            { "for_each": "items", "steps": [
+                { "do": "type", "target": "Search products", "text": "{item.name}", "submit": true },
+                { "do": "tap", "target": "ADD || +", "near": "{item.name}" },
+                { "do": "tap", "target": "+", "near": "{item.name}", "repeat": "{item.qty-1}" }
+            ]},
+            { "do": "tap", "target": "Not now", "optional": true }
+        ]
+    });
+    let (is_error, text, _) = call(&gw, "save_skill", json!({ "skill": skill })).await;
+    assert!(
+        !is_error && text.contains("Saved skill \"order_groceries\""),
+        "{text}"
+    );
+    let (_, list, _) = call(&gw, "list_skills", json!({})).await;
+    assert!(list.contains("items: list of {name, qty}"), "{list}");
+
+    // Today: bread and three paneer. "bread" matches two products; near picks the searched one.
+    let (is_error, text, _) = call(&gw, "run_skill", json!({
+        "name": "order_groceries",
+        "params": { "items": [{ "name": "White bread", "qty": 1 }, { "name": "Paneer", "qty": 3 }] }
+    })).await;
+    assert!(!is_error && text.contains("all 8 steps done"), "{text}");
+    {
+        let state = phone.state.lock().expect("lock");
+        assert_eq!(
+            state.phone.cart,
+            vec![0, 1, 3, 0, 0],
+            "White bread ×1, Paneer ×3"
+        );
+    }
+
+    // Tomorrow: a different, longer cart, same skill.
+    let (is_error, text, _) = call(&gw, "run_skill", json!({
+        "name": "order_groceries",
+        "params": { "items": [{ "name": "Tomato", "qty": 2 }, { "name": "Milk", "qty": 1 }, { "name": "Brown bread", "qty": 2 }] }
+    })).await;
+    assert!(!is_error && text.contains("all 11 steps done"), "{text}");
+    assert_eq!(
+        phone.state.lock().expect("lock").phone.cart,
+        vec![2, 1, 3, 2, 1]
+    );
+
+    // A product the shop does not have: the run stops at that step and returns the screen.
+    let (is_error, text, _) = call(
+        &gw,
+        "run_skill",
+        json!({
+            "name": "order_groceries",
+            "params": { "items": [{ "name": "Mango", "qty": 1 }, { "name": "Milk", "qty": 1 }] }
+        }),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.contains("stopped: could not find \"ADD || +\" near \"Mango\""),
+        "{text}"
+    );
+    assert!(text.contains("from_step 4"), "{text}");
+    assert!(
+        text.contains("observation_id"),
+        "the screen comes back: {text}"
+    );
+    // The AI skips Mango and continues; Milk goes in.
+    let (is_error, text, _) = call(
+        &gw,
+        "run_skill",
+        json!({
+            "name": "order_groceries",
+            "params": { "items": [{ "name": "Mango", "qty": 1 }, { "name": "Milk", "qty": 1 }] },
+            "from_step": 5
+        }),
+    )
+    .await;
+    assert!(!is_error && text.contains("all 8 steps done"), "{text}");
+    assert_eq!(phone.state.lock().expect("lock").phone.cart[4], 2);
+
+    // Bad input is refused before anything runs.
+    let (is_error, text, _) = call(&gw, "run_skill", json!({ "name": "order_groceries", "params": { "items": [{ "name": "Milk", "qty": "two" }] } })).await;
+    assert!(is_error && text.contains("is not a whole number"), "{text}");
+    let (is_error, _, _) = call(
+        &gw,
+        "save_skill",
+        json!({ "skill": { "name": "x", "description": "y", "steps": [{ "do": "fly" }] } }),
+    )
+    .await;
+    assert!(is_error);
+
+    // Skills cannot get around the owner: a send in the chat app still waits for approval.
+    let chat = json!({
+        "name": "say_hi", "description": "Send a message",
+        "params": [{ "name": "message", "type": "text" }],
+        "steps": [
+            { "do": "launch_app", "package": "org.latch.demo.chat" },
+            { "do": "type", "target": "Message", "text": "{message}" },
+            { "do": "tap", "target": "Send" }
+        ]
+    });
+    call(&gw, "save_skill", json!({ "skill": chat })).await;
+    phone.state.lock().expect("lock").approval = Approval::Deny;
+    let (_, text, _) = call(
+        &gw,
+        "run_skill",
+        json!({ "name": "say_hi", "params": { "message": "hi" } }),
+    )
+    .await;
+    assert!(text.contains("stopped: user_denied"), "{text}");
+    assert!(
+        phone
+            .state
+            .lock()
+            .expect("lock")
+            .phone
+            .sent_messages
+            .is_empty()
+    );
+
+    let (is_error, _, _) = call(&gw, "delete_skill", json!({ "name": "say_hi" })).await;
+    assert!(!is_error);
+    let (_, list, _) = call(&gw, "list_skills", json!({})).await;
+    assert!(list.starts_with("1 skills"), "{list}");
 }

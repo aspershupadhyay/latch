@@ -1069,6 +1069,118 @@
     },
     {
       "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Save a skill"
+      },
+      "description": "Save a task you just did as a reusable skill on the owner's gateway, so next time it runs in one call with new inputs. Generalize it: turn what changes (products, quantities, names, messages) into params, use a list param with for_each for things that vary in number (a cart of 2 or 10 items), name elements by the words on them (target), use near to pick the right one among similar rows (\"ADD\" near \"{item.name}\"), and mark pop-ups optional. Never put passwords, PINs, codes, or card numbers in a skill. Saving under an existing name replaces it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "skill": {
+            "description": "The recipe. {\"name\": \"order_groceries\", \"description\": \"Order items on Blinkit\", \"app\": \"Blinkit\", \"params\": [{\"name\": \"items\", \"type\": \"list\", \"fields\": [\"name\", \"qty\"]}], \"steps\": [{\"do\": \"launch_app\", \"package\": \"com.grofers.customerapp\"}, {\"for_each\": \"items\", \"steps\": [{\"do\": \"type\", \"target\": \"Search\", \"text\": \"{item.name}\", \"submit\": true}, {\"do\": \"tap\", \"target\": \"ADD || +\", \"near\": \"{item.name}\"}, {\"do\": \"tap\", \"target\": \"+\", \"near\": \"{item.name}\", \"repeat\": \"{item.qty-1}\"}]}, {\"do\": \"tap\", \"target\": \"View cart\"}]}. Steps: launch_app {package}; tap {target, near?, long_press?, repeat?}; type {target?, text, submit?}; scroll_to {text, direction?}; wait_for {text, gone?, timeout_ms?}; press {button: back|home|recents}; ask_owner {message}; for_each {for_each: <list param>, steps}. A target may list alternatives, \"ADD || +\" (a product already in the cart shows + instead of ADD). Any step may have optional: true (skip when not on screen, e.g. a pop-up) and a note. Params are text, number, or list (with fields); use {param}, {item.field}, and {param+1} / {item.qty-1} in any text.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "type": "object"
+      },
+      "name": "save_skill",
+      "title": "Save a skill"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "List skills"
+      },
+      "description": "List the skills saved on this gateway: name, what it does, and its params. Pass name to see one skill's full recipe (to fix or extend it with save_skill).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Show this skill's full recipe.",
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_skills",
+      "title": "List skills"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Run a skill"
+      },
+      "description": "Run a saved skill on the phone with this run's params, e.g. {\"items\": [{\"name\": \"bread\", \"qty\": 2}, {\"name\": \"paneer\", \"qty\": 1}]}. Each step finds its element by its words on the live screen and goes through the same rules as a single tool call (apps the owner allows, approvals, refused fields). If a step does not match the screen (a product is missing, a different pop-up), the run stops and returns the screen: do that step yourself with the normal tools, then call run_skill again with from_step to continue. Payments and checkouts still wait for the owner.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          },
+          "from_step": {
+            "description": "Continue from this step number (from a stopped run's answer).",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "params": {
+            "description": "Values for the skill's params; lists as arrays of objects.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "run_skill",
+      "title": "Run a skill"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Delete a skill"
+      },
+      "description": "Delete a saved skill from this gateway.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "delete_skill",
+      "title": "Delete a skill"
+    },
+    {
+      "annotations": {
         "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false,

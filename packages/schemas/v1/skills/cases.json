@@ -1,0 +1,1760 @@
+{
+  "skill": {
+    "name": "order_groceries",
+    "description": "Order items in the shop app",
+    "app": "Shop",
+    "params": [
+      {
+        "name": "items",
+        "type": "list",
+        "fields": [
+          "name",
+          "qty"
+        ],
+        "description": "What to buy"
+      },
+      {
+        "name": "note",
+        "type": "text",
+        "default": "leave at door"
+      }
+    ],
+    "steps": [
+      {
+        "do": "launch_app",
+        "package": "org.latch.demo.shop"
+      },
+      {
+        "for_each": "items",
+        "steps": [
+          {
+            "do": "type",
+            "target": "Search products",
+            "text": "{item.name}",
+            "submit": true
+          },
+          {
+            "do": "tap",
+            "target": "ADD",
+            "near": "{item.name}"
+          },
+          {
+            "do": "tap",
+            "target": "+",
+            "near": "{item.name}",
+            "repeat": "{item.qty-1}"
+          }
+        ]
+      },
+      {
+        "do": "tap",
+        "target": "Not now",
+        "optional": true
+      },
+      {
+        "do": "wait_for",
+        "text": "Cart"
+      },
+      {
+        "do": "type",
+        "text": "{note}"
+      },
+      {
+        "do": "press",
+        "button": "back"
+      }
+    ]
+  },
+  "expand": [
+    {
+      "params": {
+        "items": [
+          {
+            "name": "Brown bread",
+            "qty": 1
+          },
+          {
+            "name": "Paneer",
+            "qty": 3
+          }
+        ]
+      }
+    },
+    {
+      "params": {
+        "items": [
+          {
+            "name": "Tomato",
+            "qty": "2"
+          }
+        ],
+        "note": "ring the bell"
+      }
+    },
+    {
+      "params": {
+        "items": []
+      }
+    },
+    {
+      "params": {}
+    },
+    {
+      "params": {
+        "items": [
+          {
+            "name": "Milk",
+            "qty": 1,
+            "color": "red"
+          }
+        ]
+      }
+    },
+    {
+      "params": {
+        "items": [
+          {
+            "name": "Milk",
+            "qty": "two"
+          }
+        ]
+      }
+    },
+    {
+      "params": {
+        "items": [
+          {
+            "name": "Milk",
+            "qty": 1
+          }
+        ],
+        "extra": "x"
+      }
+    }
+  ],
+  "validate": [
+    {
+      "name": "order_groceries",
+      "description": "Order items in the shop app",
+      "app": "Shop",
+      "params": [
+        {
+          "name": "items",
+          "type": "list",
+          "fields": [
+            "name",
+            "qty"
+          ],
+          "description": "What to buy"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "default": "leave at door"
+        }
+      ],
+      "steps": [
+        {
+          "do": "launch_app",
+          "package": "org.latch.demo.shop"
+        },
+        {
+          "for_each": "items",
+          "steps": [
+            {
+              "do": "type",
+              "target": "Search products",
+              "text": "{item.name}",
+              "submit": true
+            },
+            {
+              "do": "tap",
+              "target": "ADD",
+              "near": "{item.name}"
+            },
+            {
+              "do": "tap",
+              "target": "+",
+              "near": "{item.name}",
+              "repeat": "{item.qty-1}"
+            }
+          ]
+        },
+        {
+          "do": "tap",
+          "target": "Not now",
+          "optional": true
+        },
+        {
+          "do": "wait_for",
+          "text": "Cart"
+        },
+        {
+          "do": "type",
+          "text": "{note}"
+        },
+        {
+          "do": "press",
+          "button": "back"
+        }
+      ]
+    },
+    {
+      "name": "Bad Name",
+      "description": "x",
+      "steps": [
+        {
+          "do": "press",
+          "button": "back"
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "steps": []
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "steps": [
+        {
+          "do": "fly"
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "steps": [
+        {
+          "do": "tap"
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "steps": [
+        {
+          "do": "tap",
+          "target": "A",
+          "x": 5
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "steps": [
+        {
+          "for_each": "nope",
+          "steps": [
+            {
+              "do": "press",
+              "button": "back"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "params": [
+        {
+          "name": "items",
+          "type": "list",
+          "fields": [
+            "a"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "for_each": "items",
+          "steps": [
+            {
+              "for_each": "items",
+              "steps": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "params": [
+        {
+          "name": "item",
+          "type": "text"
+        }
+      ],
+      "steps": [
+        {
+          "do": "press",
+          "button": "back"
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "steps": [
+        {
+          "do": "press",
+          "button": "menu"
+        }
+      ]
+    },
+    {
+      "name": "ok",
+      "description": "x",
+      "steps": [
+        {
+          "do": "tap",
+          "target": "A",
+          "repeat": 99
+        }
+      ]
+    }
+  ],
+  "find": [
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "ADD",
+      "near": "Brown bread",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "+",
+      "near": "White bread",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "ADD",
+      "near": "Paneer",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "bread",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "brown BREAD",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "Search products",
+      "want": "type"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "",
+      "want": "type"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "Brown bread",
+      "want": "type"
+    },
+    {
+      "nodes": [
+        {
+          "id": "a",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Send"
+        },
+        {
+          "id": "b",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 100,
+            "right": 100,
+            "bottom": 200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Send now"
+        }
+      ],
+      "target": "Send",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "a",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 100,
+            "bottom": 100
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": true,
+          "text": "Pay"
+        },
+        {
+          "id": "b",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 100,
+            "bottom": 300
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Pay later"
+        }
+      ],
+      "target": "Pay",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "a",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 500,
+            "right": 100,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Continue"
+        },
+        {
+          "id": "b",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 100,
+            "right": 100,
+            "bottom": 200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Continue"
+        }
+      ],
+      "target": "continue",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "a",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 100,
+            "bottom": 100
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Open menu"
+        }
+      ],
+      "target": "menu",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "a",
+          "role": "View",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 100,
+            "bottom": 100
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": false,
+          "focused": false,
+          "sensitive": false,
+          "text": "OK"
+        }
+      ],
+      "target": "OK",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "ADD || +",
+      "near": "White bread",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "Remove || ADD",
+      "near": "Brown bread",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "description": "Search products",
+          "text": "White bread"
+        },
+        {
+          "id": "n10",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Brown bread"
+        },
+        {
+          "id": "n12",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "ADD"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "White bread"
+        },
+        {
+          "id": "n14",
+          "role": "View",
+          "bounds": {
+            "left": 720,
+            "top": 640,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "2"
+        },
+        {
+          "id": "n15",
+          "role": "View",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "+"
+        }
+      ],
+      "target": "ADD || +",
+      "near": "White bread",
+      "want": "tap"
+    }
+  ]
+}
