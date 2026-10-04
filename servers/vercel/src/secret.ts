@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");

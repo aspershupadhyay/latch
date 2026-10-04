@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Every shared fixture in `packages/schemas/v1/fixtures` must behave the same
 //! in every implementation. This is the Rust half of that contract; the
 //! Android unit tests read the same files.

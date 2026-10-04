@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Copies shared, generated inputs into servers/vercel, which Vercel deploys on
 # its own (root directory = servers/vercel). CI runs this and fails on a diff.
 #

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Durable list of paired devices.
 //!
 //! The only state the gateway persists. Tokens are stored as SHA-256 hashes;

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Authorization for device commands.
 //!
 //! [`evaluate`] is a pure function: the same inputs always give the same

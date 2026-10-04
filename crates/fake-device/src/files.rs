@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! A small in-memory file store for the simulated phone (protocol 1.6):
 //! two allowed photos, a picked folder with a subfolder, and an empty
 //! Downloads. Behaves like the Android app: opaque ids, free names instead

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Shared MCP contract files in `packages/schemas/v1/mcp`. Every gateway
 //! implementation (this one and `servers/vercel`) must produce exactly these.
 //! Regenerate after an intentional change with:

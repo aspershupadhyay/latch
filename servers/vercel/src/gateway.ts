@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // HTTP routes of the Vercel gateway. Same paths, status codes, and JSON shapes
 // as the Rust gateway (servers/mcp/src/http.rs and device_http.rs), so the
 // phone app works against either. The page at "/" is static (public/).

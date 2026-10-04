@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 package io.github.aspershupadhyay.latch.ui
 
 import androidx.compose.foundation.background
@@ -276,6 +278,7 @@ fun SettingsScreen(
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     reducedMotion: Boolean = false,
     onOpenGuide: () -> Unit = {},
+    onOpenSource: () -> Unit = {},
     theme: ThemeChoice = ThemeChoice.SYSTEM,
     onTheme: (ThemeChoice) -> Unit = {},
 ) {
@@ -334,6 +337,17 @@ fun SettingsScreen(
                         modifier = Modifier.semantics { contentDescription = "Check for updates when Latch opens" },
                     )
                 },
+            )
+        }
+        Card {
+            // AGPL-3.0 section 5(d): the app shows its license and where its source is.
+            ListRow(
+                LatchIcons.Info,
+                "Open source",
+                "Free software under the GNU AGPL-3.0. Tap for the source code.",
+                tint = signal.text2,
+                onClick = onOpenSource,
+                onClickLabel = "Open the source code",
             )
         }
         Card {

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Vercel runs the compiled function under plain Node ESM, which (unlike tsx)
 // rejects extensionless relative imports. Load the compiled entry point the
 // same way and make one request, so such mistakes fail here instead of in

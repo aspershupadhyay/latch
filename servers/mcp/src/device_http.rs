@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! The phone-facing HTTP long-poll binding (protocol 1.1).
 //!
 //! Same messages as the WebSocket channel, carried over plain HTTPS so phones

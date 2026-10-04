@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // End to end: the Vercel gateway (as a local Node server with an in-memory
 // store), the Rust fake phone over the HTTP long-poll transport, and the
 // official MCP TypeScript SDK client with a console-created token.

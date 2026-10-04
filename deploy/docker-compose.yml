@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Latch gateway behind Caddy with automatic HTTPS, for any VPS or home server
 # with a DNS name pointing at it and ports 80/443 open.
 #

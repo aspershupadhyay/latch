@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // File tools (protocol 1.6, ADR-026; encrypted links since 1.7, ADR-027).
 // Same tools and texts as servers/mcp/src/mcp/files.rs. Whole files travel by
 // link, so their bytes never pass through the AI's context. With protocol 1.7

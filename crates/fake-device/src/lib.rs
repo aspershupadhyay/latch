@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! A simulated phone that speaks the Latch device protocol.
 //!
 //! It enforces the same device-side rules a real phone must: capability

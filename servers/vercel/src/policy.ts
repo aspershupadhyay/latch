@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Port of crates/policy. Must reach the same decision as the Rust engine for
 // every case in packages/schemas/v1/policy/cases.json (see test/policy.test.ts).
 // Screen content is untrusted: it may only raise scrutiny, never lower it.

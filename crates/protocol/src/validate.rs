@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Bounds and shape checks applied at every boundary.
 //!
 //! The gateway validates commands before sending them and observations when

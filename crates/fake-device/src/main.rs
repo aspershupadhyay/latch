@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! `latch-fake-device` — a simulated phone for trying Latch without hardware.
 //!
 //!     latch-fake-device http://127.0.0.1:8787 ABCD-EFGH [--poll]

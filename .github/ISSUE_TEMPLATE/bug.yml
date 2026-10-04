@@ -1,0 +1,43 @@
+name: Bug report
+description: Something on the phone, the gateway, or an AI app does not work.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not paste tokens, owner keys, gateway addresses, screenshots of private apps, or personal data."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Start a session\n2. Ask the AI to …\n3. …"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android version
+      placeholder: "realme C55, Android 15"
+    validations:
+      required: true
+  - type: dropdown
+    id: gateway
+    attributes:
+      label: Gateway
+      options: [Vercel, Docker / self-hosted, Not sure]
+    validations:
+      required: true
+  - type: input
+    id: ai
+    attributes:
+      label: AI app
+      placeholder: "Claude, ChatGPT, Cursor, …"
+  - type: input
+    id: version
+    attributes:
+      label: Latch version (Settings, bottom) and gateway protocol (/healthz)

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Latch gateway for Vercel: MCP for AI clients and an HTTP long-poll channel for phones, backed by Upstash Redis.",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=20"

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Runs every check CI runs. Usage: scripts/check.sh [rust|android|interop|site|all]
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -29,6 +31,8 @@ interop() {
 site() {
   echo "== Website: search tags, structured data, local links"
   node scripts/check-site.mjs
+  echo "== License headers"
+  python3 scripts/headers.py --check
 }
 
 case "$what" in

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // OAuth 2.1 for MCP clients, as the MCP authorization spec describes it, so any
 // MCP client can connect with only the server URL: it discovers this server
 // (RFC 9728, RFC 8414), registers itself (RFC 7591, or a client ID metadata

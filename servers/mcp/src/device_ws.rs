@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! The phone-facing WebSocket channel: `GET /v1/device`.
 //!
 //! Phones always dial out to the gateway, so they work behind NAT, carrier

@@ -56,7 +56,7 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 
 | Slice | Content | Status | Evidence |
 |---|---|---|---|
-| S0 Foundation | Repo layout, license (Apache-2.0), CI, scripts, security policy | DONE | `.github/workflows/ci.yml`, `scripts/check.sh` |
+| S0 Foundation | Repo layout, license (AGPL-3.0 since ADR-030; Apache-2.0 before), CI, scripts, security policy | DONE | `.github/workflows/ci.yml`, `scripts/check.sh` |
 | S1 Protocol | Types, limits, JSON Schema, shared valid/invalid fixtures (Rust + Kotlin) | DONE | `cargo test -p latch-protocol`; Android `ProtocolFixturesTest` |
 | S2 Gateway | Policy, MCP (HTTP + stdio), device channel, pairing, revocation, console, audit | DONE | 12 end-to-end tests (WebSocket and long-poll) with fake device; official TS SDK client; container smoke test |
 | S2b Own-gateway hosting | Long-poll transport (protocol 1.1), per-app MCP keys + secret links, Vercel gateway with shared contracts, one-click deploy | IN_REVIEW | Vercel gateway e2e with official SDK client on in-memory and Redis/Upstash-REST stores; Rust and TS pass the same 34 policy cases and byte-identical rendering. Not yet deployed to a real Vercel account. |
@@ -93,7 +93,7 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 
 ## 7. Decisions recorded
 
-ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays · ADR-028 crash-proof commands, a kept Activity log, several folders, and finish_task (protocol 1.8) · ADR-029 private gateway: no web console, noindex everywhere — see `docs/adr/`.
+ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays · ADR-028 crash-proof commands, a kept Activity log, several folders, and finish_task (protocol 1.8) · ADR-029 private gateway: no web console, noindex everywhere · ADR-030 AGPL-3.0 with attribution terms and a name policy — see `docs/adr/`.
 
 ## 8. Real-device feedback (2026-10-02)
 

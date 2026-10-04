@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Prepares a fresh cloud container (Claude Code on the web, Codespaces, CI) to
 # build and test everything in this repository. Safe to run repeatedly.
 #

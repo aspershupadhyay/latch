@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // A gateway is private: its page asks for nothing, every answer says noindex,
 // and vercel.json gives the static files the same headers the function sends.
 import { after, before, test } from "node:test";

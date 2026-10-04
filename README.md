@@ -2,6 +2,8 @@
 
 **Let your AI use your phone, but only the way you allow.** 📱🔒
 
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-e2643a)](LICENSE) [![CI](https://github.com/aspershupadhyay/latch/actions/workflows/ci.yml/badge.svg)](https://github.com/aspershupadhyay/latch/actions/workflows/ci.yml) [![Android beta](https://img.shields.io/badge/android-beta-3ddc97)](https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk)
+
 🌐 **Website:** [aspershupadhyay.github.io/latch](https://aspershupadhyay.github.io/latch/)
 
 Imagine telling Claude or ChatGPT: *"Open my music app and play something chill."* With Latch, it can see your screen and tap for you. You stay the boss the whole time: you pick what it's allowed to do, you can stop it with one tap, and it has to ask you first before anything big (like sending a message or buying something).
@@ -392,4 +394,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to help out.
 
 ---
 
-Made with care. Licensed under [Apache-2.0](LICENSE). 💛
+## License
+
+Latch is free software under the **[GNU AGPL-3.0](LICENSE)**, with the attribution terms in **[NOTICE](NOTICE)**.
+
+- You may use, study, and change it.
+- If you share a changed version, or run it as a service other people connect to, you must publish your full source code under the same license and keep the credit: *Based on Latch by Aspersh Upadhyay*.
+- The name **Latch** and its logo are not licensed for forks: see [TRADEMARKS.md](TRADEMARKS.md).
+
+Made with care. 💛

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! In-memory, redacted audit trail.
 //!
 //! Events record what was asked, what policy decided, and how it ended. They

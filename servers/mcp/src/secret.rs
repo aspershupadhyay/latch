@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Tokens, hashing, and constant-time comparison.
 
 use sha2::{Digest, Sha256};

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Approvals answered in the AI app (protocol 1.4, MCP elicitation, ADR-023):
 // the official MCP SDK client answers a question the phone is waiting on.
 // The phone is scripted here over the long-poll HTTP endpoints, so the test

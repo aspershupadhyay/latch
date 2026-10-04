@@ -25,3 +25,11 @@ No phone is needed for most work: `crates/fake-device` speaks the real protocol.
 ## Style
 
 Rust: `cargo fmt`, `cargo clippy -D warnings`, typed errors, no `unwrap` outside tests. Kotlin: official style, warnings are errors, explicit state models. Comments explain why, not what.
+
+## License of contributions
+
+Latch is licensed under the [GNU AGPL-3.0](LICENSE) with the additional terms in [NOTICE](NOTICE); the name and logo follow [TRADEMARKS.md](TRADEMARKS.md).
+
+By opening a pull request you confirm that you wrote the change (or have the right to submit it), and you agree that it is licensed under AGPL-3.0 and that the project owner, Aspersh Upadhyay, may also distribute it under other terms. This keeps the project able to change its license or offer exceptions without tracking down every contributor.
+
+Every source file starts with an `SPDX-License-Identifier` and a copyright line; `scripts/headers.py` adds them to new files and CI rejects files without them. Do not remove them.

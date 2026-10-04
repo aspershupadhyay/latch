@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! MCP adapter: JSON-RPC 2.0 over Streamable HTTP (`POST /mcp`) or stdio.
 //!
 //! The adapter is deliberately thin. It maps tool calls to protocol commands

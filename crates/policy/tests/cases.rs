@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 //! Runs the shared policy conformance table (`packages/schemas/v1/policy/cases.json`).
 //! The TypeScript gateway runs the same table; both must agree exactly.
 

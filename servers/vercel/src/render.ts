@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Text the AI client sees. Must match the Rust gateway byte for byte; see
 // packages/schemas/v1/mcp/render-expected.txt and tool-errors.json.
 
