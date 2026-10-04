@@ -101,7 +101,7 @@ class ScreenSnapshotTest {
         CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.SCREEN, onOpenGroup = {})
     }
     @Test fun settings_dark() = snap(true) {
-        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {}, {}, theme = io.github.aspershupadhyay.latch.data.ThemeChoice.DARK)
+        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {}, theme = io.github.aspershupadhyay.latch.data.ThemeChoice.DARK)
     }
 
     @Test fun connect_created_dark() = snap(true) {
@@ -148,7 +148,7 @@ class ScreenSnapshotTest {
     }
 
     @Test fun settings_light() = snap(false) {
-        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {}, {})
+        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {})
     }
 
     @Test fun apps_light() = snap(false) {

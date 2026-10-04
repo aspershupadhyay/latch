@@ -268,7 +268,6 @@ fun SettingsScreen(
     version: String,
     onForget: () -> Unit,
     onOpenAccessibility: () -> Unit,
-    onOpenConsole: () -> Unit,
     onOpenSetup: () -> Unit = {},
     update: UpdateState = UpdateState.Idle,
     checkUpdates: Boolean = true,
@@ -290,8 +289,6 @@ fun SettingsScreen(
                 "Relay",
                 gatewayUrl.removePrefix("https://") + if (isOwner) " \u00b7 yours" else " \u00b7 joined with a code",
                 tint = signal.accent,
-                onClick = if (isOwner) onOpenConsole else null,
-                onClickLabel = "Open your relay's web page",
                 trailing = { InfoButton(HelpTopic.RELAY) },
             )
             RowDivider()

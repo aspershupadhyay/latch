@@ -667,7 +667,6 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         version = BuildConfig.VERSION_NAME,
         onForget = { app.session.forget() },
         onOpenAccessibility = { openAccessibilityFor(context) },
-        onOpenConsole = { context.startActivity(Intent(Intent.ACTION_VIEW, p.gatewayUrl.toUri())) },
         onOpenSetup = openSetup,
         update = update,
         checkUpdates = prefs.checkUpdates,
