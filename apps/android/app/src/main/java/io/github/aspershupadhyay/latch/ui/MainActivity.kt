@@ -38,9 +38,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
-import io.github.aspershupadhyay.latch.data.ThemeChoice
 import io.github.aspershupadhyay.latch.data.FolderGrant
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -98,21 +96,15 @@ class MainActivity : ComponentActivity() {
         val reducedMotion = AndroidSettings.Global.getFloat(contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         val showIntro = savedInstanceState == null
         setContent {
-            val prefs by app.settings.preferences.collectAsStateWithLifecycle()
-            val dark = when (prefs.theme) {
-                ThemeChoice.SYSTEM -> isSystemInDarkTheme()
-                ThemeChoice.LIGHT -> false
-                ThemeChoice.DARK -> true
-            }
-            // Status and navigation bar icons follow the chosen look, not only the phone's.
-            DisposableEffect(dark) {
-                val bars = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark }
+            // Latch is dark only, so the status and navigation bars always carry light icons.
+            DisposableEffect(Unit) {
+                val bars = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
                 onDispose {}
             }
             // The opening animation plays once per launch, over the app that is already loading.
             var intro by rememberSaveable { mutableStateOf(showIntro) }
-            LatchTheme(dark = dark) {
+            LatchTheme {
                 Box {
                     LatchRoot(app, reducedMotion)
                     if (intro) LatchIntro(reducedMotion) { intro = false }
@@ -678,8 +670,6 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         reducedMotion = reducedMotion,
         onOpenGuide = openGuide,
         onOpenSource = { context.startActivity(Intent(Intent.ACTION_VIEW, SOURCE_CODE.toUri())) },
-        theme = prefs.theme,
-        onTheme = { t -> app.settings.update { it.copy(theme = t) } },
     )
 }
 

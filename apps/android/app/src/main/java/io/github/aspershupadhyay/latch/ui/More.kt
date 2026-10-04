@@ -3,6 +3,7 @@
 package io.github.aspershupadhyay.latch.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -39,7 +40,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.data.ActivityKind
-import io.github.aspershupadhyay.latch.data.ThemeChoice
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import io.github.aspershupadhyay.latch.update.UpdateInfo
@@ -190,8 +190,9 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
                 items(ActivityFilter.entries.filter { it == ActivityFilter.ALL || counts[it] != 0 || it == filter }, key = { it.name }) { f ->
                     val selected = f == filter
                     Row(
-                        Modifier.clip(RoundedCornerShape(50))
-                            .background(if (selected) signal.ink else signal.text2.copy(alpha = 0.12f))
+                        Modifier.clip(RoundedCornerShape(6.dp))
+                            .background(if (selected) signal.ink else Color.Transparent)
+                            .border(1.dp, if (selected) signal.ink else signal.border2, RoundedCornerShape(6.dp))
                             .selectable(selected = selected, role = Role.Tab) { filter = f }
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -279,8 +280,6 @@ fun SettingsScreen(
     reducedMotion: Boolean = false,
     onOpenGuide: () -> Unit = {},
     onOpenSource: () -> Unit = {},
-    theme: ThemeChoice = ThemeChoice.SYSTEM,
-    onTheme: (ThemeChoice) -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var confirmForget by remember { mutableStateOf(false) }
@@ -306,8 +305,6 @@ fun SettingsScreen(
             RowDivider()
             ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs; screen content is never saved. Activity (what the AI did, no screen text) stays on this phone for 7 days. No tracking.", tint = signal.text2)
         }
-        SectionCaption("Appearance")
-        ThemePicker(theme, onTheme)
         SectionCaption("Updates")
         if (update.shownOnHome()) UpdateCard(update, reducedMotion, onInstallUpdate)
         Card {
@@ -363,10 +360,10 @@ fun SettingsScreen(
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Latch $version",
-                style = MaterialTheme.typography.bodySmall,
+                "latch v$version",
+                style = MaterialTheme.typography.labelMedium,
                 color = signal.text2,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(signal.surface).padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, signal.border, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
     }
@@ -378,28 +375,5 @@ fun SettingsScreen(
             confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text("Disconnect", color = signal.danger) } },
             dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Cancel") } },
         )
-    }
-}
-
-/** Light, dark, or the phone's own setting, as one segmented control. */
-@Composable
-private fun ThemePicker(theme: ThemeChoice, onTheme: (ThemeChoice) -> Unit) {
-    val signal = LocalSignal.current
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(signal.surface).padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        ThemeChoice.entries.forEach { choice ->
-            val selected = choice == theme
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(50))
-                    .background(if (selected) signal.ink else Color.Transparent)
-                    .selectable(selected = selected, role = Role.RadioButton) { onTheme(choice) }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(choice.label, style = MaterialTheme.typography.labelLarge, color = if (selected) signal.onInk else signal.text2, maxLines = 1)
-            }
-        }
     }
 }

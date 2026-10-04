@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.session.SignInRequest
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
+import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import java.text.DateFormat
 import java.util.Date
 
@@ -91,12 +92,13 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                         InfoButton(HelpTopic.AI_LINK)
                     }
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(signal.surface2).padding(start = 14.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(signal.canvas)
+                            .border(1.dp, signal.border2, RoundedCornerShape(8.dp)).padding(start = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             state.mcpUrl,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = GeistMono,
                             style = MaterialTheme.typography.bodyMedium,
                             color = signal.text,
                             maxLines = 2,
@@ -194,10 +196,11 @@ private fun SignInCard(request: SignInRequest, actions: ConnectActions) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.semantics { contentDescription = "Code ${request.match.toList().joinToString(" ")}" }) {
             request.match.forEach { c ->
                 Box(
-                    Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(signal.surface2).padding(vertical = 12.dp),
+                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(signal.canvas)
+                        .border(1.dp, signal.accent.copy(alpha = 0.45f), RoundedCornerShape(8.dp)).padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("$c", style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Monospace, color = signal.text)
+                    Text("$c", style = MaterialTheme.typography.headlineSmall, fontFamily = GeistMono, color = signal.text)
                 }
             }
         }
@@ -212,8 +215,8 @@ private fun SignInCard(request: SignInRequest, actions: ConnectActions) {
 private fun HowStep(n: Int, text: String) {
     val signal = LocalSignal.current
     Row(verticalAlignment = Alignment.Top) {
-        Box(Modifier.size(24.dp).clip(CircleShape).background(signal.surface2), contentAlignment = Alignment.Center) {
-            Text("$n", style = MaterialTheme.typography.labelLarge, color = signal.text)
+        Box(Modifier.size(24.dp).clip(RoundedCornerShape(5.dp)).background(signal.surface2).border(1.dp, signal.border2, RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
+            Text("$n", style = MaterialTheme.typography.labelMedium, color = signal.text)
         }
         Spacer(Modifier.width(12.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = signal.text2, modifier = Modifier.padding(top = 2.dp))

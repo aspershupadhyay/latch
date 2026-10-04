@@ -4,6 +4,7 @@ package io.github.aspershupadhyay.latch.ui
 
 import android.provider.Settings as AndroidSettings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,7 +46,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
+import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 
 @Composable
 private fun OnboardingPage(content: @Composable () -> Unit) {
@@ -70,10 +73,11 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
             Row(verticalAlignment = Alignment.CenterVertically) {
                 LatchLogo(36.dp)
                 Spacer(Modifier.size(10.dp))
-                Text("latch", style = MaterialTheme.typography.headlineSmall, color = signal.text)
+                Text("latch", style = MaterialTheme.typography.headlineSmall.copy(fontFamily = GeistMono, letterSpacing = (-0.6).sp), color = signal.text)
             }
             Box(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(signal.clay).padding(vertical = 18.dp, horizontal = 8.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(signal.clay)
+                    .border(1.dp, signal.accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(vertical = 18.dp, horizontal = 8.dp),
             ) {
                 ConnectionIllustration(reducedMotion, Modifier.fillMaxWidth().height(190.dp), onPastel = true)
             }
@@ -81,7 +85,7 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
                 Text("Let your AI use this phone.", style = MaterialTheme.typography.displaySmall, color = signal.text)
                 Text(
                     "Only how you allow.",
-                    style = MaterialTheme.typography.displaySmall.copy(fontStyle = FontStyle.Italic),
+                    style = MaterialTheme.typography.displaySmall,
                     color = signal.accent,
                 )
             }
@@ -109,24 +113,22 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
                 Text("How does setup work?", color = signal.accent, style = MaterialTheme.typography.labelLarge)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                Promise(Modifier.weight(1f), LatchIcons.Shield, "Off until you start", signal.sage)
-                Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "Only apps you pick", signal.butter)
-                Promise(Modifier.weight(1f), LatchIcons.Stop, "One tap stops it", signal.pool)
+                Promise(Modifier.weight(1f), LatchIcons.Shield, "Off until you start", signal.sage, signal.mint)
+                Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "Only apps you pick", signal.butter, signal.warning)
+                Promise(Modifier.weight(1f), LatchIcons.Stop, "One tap stops it", signal.pool, signal.accent2)
             }
         }
     }
 }
 
 @Composable
-private fun Promise(modifier: Modifier, icon: ImageVector, text: String, color: Color) {
+private fun Promise(modifier: Modifier, icon: ImageVector, text: String, color: Color, hue: Color) {
     val signal = LocalSignal.current
     Column(
-        modifier.fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(color).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier.fillMaxHeight().clip(RoundedCornerShape(10.dp)).background(color).border(1.dp, hue.copy(alpha = 0.22f), RoundedCornerShape(10.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.size(34.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = signal.onPastel, modifier = Modifier.size(18.dp))
-        }
+        IconBadge(icon, hue, size = 32.dp)
         Text(text, style = MaterialTheme.typography.bodySmall, color = signal.onPastel)
     }
 }
@@ -135,10 +137,10 @@ private fun Promise(modifier: Modifier, icon: ImageVector, text: String, color: 
 private fun StepBadge(number: Int, done: Boolean) {
     val signal = LocalSignal.current
     Box(
-        Modifier.size(32.dp).clip(CircleShape).background(if (done) signal.success else signal.ink),
+        Modifier.size(32.dp).clip(RoundedCornerShape(7.dp)).background(if (done) signal.success else signal.ink),
         contentAlignment = Alignment.Center,
     ) {
-        Text(if (done) "✓" else number.toString(), color = if (done) Color.White else signal.onInk, style = MaterialTheme.typography.labelLarge)
+        Text(if (done) "✓" else "%02d".format(number), color = signal.onInk, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -245,7 +247,7 @@ fun JoinGatewayScreen(state: JoinState, actions: JoinActions) {
                         topic = HelpTopic.JOIN_CODE,
                         placeholder = "ABCD-EFGH",
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                        textStyle = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
+                        textStyle = MaterialTheme.typography.titleMedium.copy(fontFamily = GeistMono),
                     )
                 }
                 state.error?.let { Text(it, color = signal.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
