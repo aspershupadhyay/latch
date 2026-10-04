@@ -174,7 +174,8 @@ class PhoneTransfers(
             t.error = ProtocolException(ErrorCode.TRANSPORT_UNAVAILABLE, "the connection dropped while the file was moving; ask for a new link")
             t.finished = true
         } catch (e: Exception) {
-            t.error = ProtocolException(ErrorCode.INTERNAL, "the file could not be moved")
+            // The kind of failure only, never a path or content.
+            t.error = ProtocolException(ErrorCode.INTERNAL, "the file could not be moved (${e.javaClass.simpleName})")
             t.finished = true
         } finally {
             publish()
