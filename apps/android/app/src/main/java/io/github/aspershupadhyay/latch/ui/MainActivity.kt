@@ -38,7 +38,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.DisposableEffect
+import io.github.aspershupadhyay.latch.data.ThemeChoice
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -97,7 +101,19 @@ class MainActivity : ComponentActivity() {
         val app = LatchApp.get(this)
         val reducedMotion = AndroidSettings.Global.getFloat(contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         setContent {
-            LatchTheme {
+            val prefs by app.settings.preferences.collectAsStateWithLifecycle()
+            val dark = when (prefs.theme) {
+                ThemeChoice.SYSTEM -> isSystemInDarkTheme()
+                ThemeChoice.LIGHT -> false
+                ThemeChoice.DARK -> true
+            }
+            // Status and navigation bar icons follow the chosen look, not only the phone's.
+            DisposableEffect(dark) {
+                val bars = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark }
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+                onDispose {}
+            }
+            LatchTheme(dark = dark) {
                 LatchRoot(app, reducedMotion)
             }
         }
@@ -536,6 +552,7 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
     val service by app.bridge.service.collectAsStateWithLifecycle()
     val autonomy by app.autonomy.state.collectAsStateWithLifecycle()
     var appsOpen by rememberSaveable { mutableStateOf(false) }
+    var group by rememberSaveable { mutableStateOf<AccessGroup?>(null) }
     val context = LocalContext.current
     val folderFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     // The one folder the AI may use (ADR-026): Android's own picker, kept across restarts.
@@ -601,6 +618,8 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         saved = always.map(::SavedApproval).map { SavedApprovalRow(it.key, it.action, app.appLabel(it.packageName) ?: it.packageName) },
         onRemoveSaved = app.grants::remove,
         onRemoveAllSaved = app.grants::clearAll,
+        openGroup = group,
+        onOpenGroup = { group = it },
     )
 }
 
@@ -677,6 +696,8 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         onInstallUpdate = { info -> installUpdate(app, context, info) },
         reducedMotion = reducedMotion,
         onOpenGuide = openGuide,
+        theme = prefs.theme,
+        onTheme = { t -> app.settings.update { it.copy(theme = t) } },
     )
 }
 

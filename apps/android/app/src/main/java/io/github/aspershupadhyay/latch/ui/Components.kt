@@ -48,26 +48,48 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val CardShape = RoundedCornerShape(20.dp)
+val CardShape = RoundedCornerShape(24.dp)
 
 /**
- * A white symbol on a solid rounded square, like the rows of Apple's
- * Settings: the visual anchor of every row. [tint] is the square's colour.
+ * A line symbol in a soft round chip of its own colour: the visual anchor of
+ * every row. [tint] colours the symbol; the chip is a pale wash of it unless
+ * [fill] is given.
  */
 @Composable
-fun IconBadge(icon: ImageVector, tint: Color, size: Dp = 32.dp, fill: Color = tint) {
+fun IconBadge(icon: ImageVector, tint: Color, size: Dp = 36.dp, fill: Color? = null) {
+    val signal = LocalSignal.current
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).background(fill),
+        Modifier.size(size).clip(CircleShape).background(fill ?: tint.copy(alpha = if (signal.dark) 0.20f else 0.13f)),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(size * 0.6f))
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.54f))
     }
 }
 
-/** On/off switch in the Apple style: white knob, accent when on, quiet grey when off. */
+/**
+ * On/off switch: white knob, accent when on, quiet grey when off. On a pastel
+ * card pass [onPastel] so the track stays visible (black when on).
+ */
 @Composable
-fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true, onPastel: Boolean = false) {
     val signal = LocalSignal.current
+    if (onPastel) {
+        androidx.compose.material3.Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = modifier,
+            enabled = enabled,
+            colors = androidx.compose.material3.SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = signal.onPastel,
+                checkedBorderColor = Color.Transparent,
+                uncheckedThumbColor = signal.onPastel.copy(alpha = 0.55f),
+                uncheckedTrackColor = Color.White.copy(alpha = 0.55f),
+                uncheckedBorderColor = signal.onPastel.copy(alpha = 0.25f),
+            ),
+        )
+        return
+    }
     androidx.compose.material3.Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
@@ -78,11 +100,11 @@ fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifie
             checkedTrackColor = signal.accent,
             checkedBorderColor = Color.Transparent,
             uncheckedThumbColor = Color.White,
-            uncheckedTrackColor = if (signal.dark) Color(0xFF39393D) else Color(0xFFE5E5EA),
+            uncheckedTrackColor = if (signal.dark) Color(0xFF34343C) else Color(0xFFE6E6EC),
             uncheckedBorderColor = Color.Transparent,
             disabledCheckedTrackColor = signal.accent.copy(alpha = 0.4f),
             disabledCheckedThumbColor = Color.White,
-            disabledUncheckedTrackColor = if (signal.dark) Color(0xFF2C2C2E) else Color(0xFFEFEFF4),
+            disabledUncheckedTrackColor = if (signal.dark) Color(0xFF23232A) else Color(0xFFF0F0F4),
             disabledUncheckedThumbColor = Color.White.copy(alpha = 0.8f),
             disabledUncheckedBorderColor = Color.Transparent,
         ),
@@ -101,7 +123,7 @@ fun Card(modifier: Modifier = Modifier, color: Color? = null, content: @Composab
 /** Thin line between rows inside a [Card], indented past the icon. */
 @Composable
 fun RowDivider() {
-    HorizontalDivider(Modifier.padding(start = 64.dp), thickness = 0.5.dp, color = LocalSignal.current.border)
+    HorizontalDivider(Modifier.padding(start = 68.dp), thickness = 0.5.dp, color = LocalSignal.current.border)
 }
 
 /**

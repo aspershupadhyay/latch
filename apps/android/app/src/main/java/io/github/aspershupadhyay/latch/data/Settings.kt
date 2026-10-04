@@ -18,6 +18,15 @@ import javax.crypto.spec.GCMParameterSpec
 /** Where this phone is paired. The token itself lives in [TokenVault]. */
 data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String)
 
+/** Light or dark look; SYSTEM follows the phone's own setting. */
+enum class ThemeChoice(val label: String) {
+    SYSTEM("System"), LIGHT("Light"), DARK("Dark");
+
+    companion object {
+        fun fromName(name: String?) = entries.firstOrNull { it.name == name } ?: SYSTEM
+    }
+}
+
 /** The owner's choices. Everything except device information starts switched off. */
 data class Preferences(
     val enabled: Set<Capability> = setOf(Capability.DEVICE_INFO),
@@ -36,6 +45,7 @@ data class Preferences(
     /** The folder the owner picked for the AI (a Storage Access Framework tree URI) and its name. */
     val filesFolder: String? = null,
     val filesFolderName: String? = null,
+    val theme: ThemeChoice = ThemeChoice.SYSTEM,
 )
 
 /**
@@ -78,6 +88,7 @@ class Settings(context: Context) {
             remoteApprovals = prefs.getBoolean("remote_approvals", false),
             filesFolder = prefs.getString("files_folder", null),
             filesFolderName = prefs.getString("files_folder_name", null),
+            theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
     }
 
@@ -128,6 +139,7 @@ class Settings(context: Context) {
             putBoolean("remote_approvals", next.remoteApprovals)
             putString("files_folder", next.filesFolder)
             putString("files_folder_name", next.filesFolderName)
+            putString("theme", next.theme.name)
         }
         _preferences.value = next
     }

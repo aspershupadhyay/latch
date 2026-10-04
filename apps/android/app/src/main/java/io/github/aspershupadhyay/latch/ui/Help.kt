@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -97,22 +98,57 @@ enum class HelpTopic(val title: String, val paragraphs: List<String>) {
 }
 
 /** The ⓘ button: opens a calm sheet that explains [topic]. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InfoButton(topic: HelpTopic, modifier: Modifier = Modifier) {
+    InfoSheetButton(topic.title, modifier) {
+        topic.paragraphs.forEach { Text(it, style = MaterialTheme.typography.bodyLarge, color = LocalSignal.current.text2) }
+    }
+}
+
+/** One thing a setting allows, said in one line. */
+data class Feature(val icon: ImageVector, val title: String, val line: String)
+
+/**
+ * The ⓘ button of an Access group: a sheet listing, one line each, every
+ * thing the group's switch allows. [onPastel] draws it on a pastel card.
+ */
+@Composable
+fun FeatureInfoButton(title: String, intro: String, features: List<Feature>, modifier: Modifier = Modifier, onPastel: Boolean = false) {
+    InfoSheetButton(title, modifier, onPastel) {
+        val signal = LocalSignal.current
+        Text(intro, style = MaterialTheme.typography.bodyLarge, color = signal.text2)
+        features.forEach { f ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(f.icon, signal.accent, size = 32.dp)
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(f.title, style = MaterialTheme.typography.titleMedium, color = signal.text)
+                    Text(f.line, style = MaterialTheme.typography.bodySmall, color = signal.text2)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InfoSheetButton(title: String, modifier: Modifier = Modifier, onPastel: Boolean = false, body: @Composable () -> Unit) {
     val signal = LocalSignal.current
     var open by rememberSaveable { mutableStateOf(false) }
-    IconButton(onClick = { open = true }, modifier = modifier.size(40.dp)) {
-        Icon(LatchIcons.Info, contentDescription = "Explain: ${topic.title}", tint = signal.accent, modifier = Modifier.size(20.dp))
+    IconButton(
+        onClick = { open = true },
+        modifier = modifier.size(40.dp).then(if (onPastel) Modifier.padding(2.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.7f)) else Modifier),
+    ) {
+        Icon(LatchIcons.Info, contentDescription = "Explain: $title", tint = if (onPastel) signal.onPastel else signal.accent, modifier = Modifier.size(20.dp))
     }
     if (open) {
         ModalBottomSheet(onDismissRequest = { open = false }, containerColor = signal.surface) {
             Column(
-                Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+                Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(topic.title, style = MaterialTheme.typography.titleLarge, color = signal.text, modifier = Modifier.semantics { heading() })
-                topic.paragraphs.forEach { Text(it, style = MaterialTheme.typography.bodyLarge, color = signal.text2) }
+                Text(title, style = MaterialTheme.typography.titleLarge, color = signal.text, modifier = Modifier.semantics { heading() })
+                body()
                 PrimaryButton("Got it", { open = false }, Modifier.fillMaxWidth().padding(top = 8.dp))
             }
         }
