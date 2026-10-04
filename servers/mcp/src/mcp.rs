@@ -48,7 +48,7 @@ for them. When you finish, call `finish_task` with a one-line summary (the phone
 cursor at once), then tell the user which actions you took on the phone: apps opened, and what \
 you tapped, typed, sent, or deleted. When the user asks what happened on the phone, \
 `get_activity` reads the phone's own log.
-Files: `list_files` shows photos the owner allowed, Downloads, or the folder they picked in \
+Files: `list_files` shows photos the owner allowed, Downloads, or the folders they share in \
 Latch; `read_file` shows a text file or a picture. To move whole files between the user's \
 computer and the phone, use links instead of pasting content: `get_file_link` gives an \
 encrypted download link and the command that saves and checks it, and `upload_link` gives the \

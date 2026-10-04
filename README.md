@@ -252,7 +252,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
 
 **Why:** the phone app updates when you install a new APK, but your gateway on Vercel only updates when Vercel deploys new code. The Deploy button makes a **copy** of Latch in your own GitHub (usually called `latch-gateway`), and that copy doesn't receive new versions by itself.
 
-1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.3"` or newer. It also shows `commit` and `repository`.
+1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.8"`. It also shows `commit` and `repository`.
 2. **Update the code Vercel deploys.** Pick one:
    - **Follow Latch directly** (simplest; every Latch release reaches you automatically): Vercel → your project → **Settings → Git** → **Disconnect**, then **Connect Git Repository** → `aspershupadhyay/latch`. Then **Settings → Build and Deployment → Root Directory** → `servers/vercel` → **Save**. This means you trust each new Latch release as soon as it's published.
    - **Keep your own copy and review each version first:** when you want an update, download the newest Latch code (GitHub → **Code → Download ZIP** on `aspershupadhyay/latch`), replace the files in your copy with it, commit, and push. Vercel deploys your copy by itself.
@@ -264,7 +264,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Claude Code / Codex / other apps:** restart them.
 
    Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
-6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.3, 12 tools.` If the AI still can't see `scroll_to`, `wait_for`, or `pinch` after that, its app is still holding the old tool list: repeat step 5.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.8, 27 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 
@@ -344,10 +344,12 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `pinch` | Zooms in or out with two fingers |
 | `list_apps`, `launch_app` | See and open installed apps |
 | `ask_owner` | Asks you to do a step only a person should do (log in, unlock, a code); waits for **Done** |
-| `list_files`, `read_file` | List photos you allowed, Downloads, or your Latch folder; look at a text file or picture |
+| `list_files`, `read_file` | List photos you allowed, Downloads, or the folders you share; look at a text file or picture |
 | `get_file_link`, `upload_link` | Private, encrypted 15-minute links to copy whole files (up to 2 GB) between your computer and the phone (openssl + curl) |
 | `transfer_status` | Waits for a big file that is still moving |
 | `set_clipboard` | Puts text on the phone's clipboard to paste (never reads it) |
+| `get_activity` | Reads the phone's Activity log (apps, actions, approvals, refusals, files), if you switch it on |
+| `finish_task` | The AI says it is done: the cursor disappears at once and its summary goes into Activity |
 | `write_file`, `create_folder`, `rename_file`, `delete_file` | Save and organise files; replacing and deleting ask you unless Auto mode is on |
 | `share_to_app` | Opens any app's Share screen with files, ready to post or send |
 

@@ -33,7 +33,9 @@ import kotlinx.coroutines.Dispatchers
 import io.github.aspershupadhyay.latch.files.PhoneFiles
 import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 
 /**
@@ -172,7 +174,9 @@ class LatchApp : Application() {
             }
         }
         scope.launch {
-            combine(transfers.progress, bridge.service) { moving, service -> moving to service }.collect { (moving, service) ->
+            // At most a few updates a second: a fast connection would otherwise post a notification
+            // every 2 MB from the main thread, and Android drops most of them anyway.
+            combine(transfers.progress, bridge.service) { moving, service -> moving to service }.conflate().collect { (moving, service) ->
                 val first = moving.firstOrNull()
                 if (first == null) {
                     service?.cursorTransfer(null, null)
@@ -183,6 +187,7 @@ class LatchApp : Application() {
                     val name = if (first.name.length <= 24) first.name else first.name.take(21) + "…"
                     service?.cursorTransfer("$verb “$name”" + (fraction?.let { " · ${(it * 100).toInt()}%" } ?: ""), fraction)
                     showTransferNotification(first, fraction, moving.size)
+                    delay(TRANSFER_UI_INTERVAL_MS)
                 }
             }
         }
@@ -254,6 +259,8 @@ class LatchApp : Application() {
 
     companion object {
         const val NOTIFICATION_TRANSFER = 3
+        /** Least time between transfer progress updates on screen. */
+        private const val TRANSFER_UI_INTERVAL_MS = 300L
         const val CHANNEL_SESSION = "session"
         const val CHANNEL_UPDATES = "updates"
         const val NOTIFICATION_UPDATED = 2

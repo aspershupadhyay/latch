@@ -304,7 +304,7 @@ fun SettingsScreen(
             RowDivider()
             ListRow(LatchIcons.Person, "Screen access", "Turn it off in Android's settings at any time", tint = signal.accent2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
             RowDivider()
-            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs. Nothing is saved. No tracking.", tint = signal.text2)
+            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs; screen content is never saved. Activity (what the AI did, no screen text) stays on this phone for 7 days. No tracking.", tint = signal.text2)
         }
         SectionCaption("Appearance")
         ThemePicker(theme, onTheme)

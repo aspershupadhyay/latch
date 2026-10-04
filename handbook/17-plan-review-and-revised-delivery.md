@@ -50,7 +50,7 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 
 ## 3. MCP tool surface (stable names)
 
-`list_devices`, `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9). No shell, file, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
+`list_devices`, `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9), `ask_owner`, the file tools of ADR-026/027, `set_clipboard`, `get_activity`, `finish_task` (ADR-028). No shell, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
 
 ## 4. Revised delivery: slices and gates
 
@@ -75,7 +75,7 @@ Every slice still runs the handbook's per-phase cycle (chapter 13): decide, thre
 - *Pair* (when unpaired): one-sentence promise, gateway address + 8-character code, privacy summary, "nothing is paired if you back out".
 - *Home*: dot-field state visual with text equivalent; headline in plain language ("Session active · 23 min left"); large **Stop all activity**; Pause/Resume; session length chips (15/30/60/120 min); accessibility-service setup card with the restricted-settings hint; "Right now the agent can…" summary; connection card (gateway host, encrypted or not).
 - *Capabilities*: one card per capability with "can see / can do", risk badge, switch; "Ask me before every action".
-- *Activity*: redacted, in-memory timeline (observe, action, approval, refusal, connection).
+- *Activity*: redacted timeline in ten kinds with filters (actions, app access, approvals, refused, files, folders, screen reads, tasks, session), kept on the phone for 7 days (ADR-028), readable by the AI with `get_activity` when the owner allows it.
 - *Settings*: gateway, forget gateway, privacy and network destinations, accessibility shortcut, version.
 - *Always on top during a session*: red "● Latch · Stop" pill (tap = emergency stop) and, when needed, the approval card (title is the action, e.g. "Tap “Send” in org.example.chat"; Deny / Approve).
 
@@ -93,7 +93,7 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 
 ## 7. Decisions recorded
 
-ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays — see `docs/adr/`.
+ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays · ADR-028 crash-proof commands, a kept Activity log, several folders, and finish_task (protocol 1.8) — see `docs/adr/`.
 
 ## 8. Real-device feedback (2026-10-02)
 
@@ -153,6 +153,17 @@ Not done, deliberately: caching app lists or observations in the gateway (a cach
 | Owner: the cursor should show that the AI is working | The cursor shows off-screen work and transfer progress and stays, "Thinking…", for 45 s after the last command | IN_REVIEW: needs a look on the phone |
 | Owner: Access tab too cluttered; new look from a reference design, light and dark | Access split into groups (AI access, Screen & control, Files & folders, Share & clipboard, While the AI works): pastel cards with a count ring, one switch per group (on = all on, off = all off), an ⓘ sheet listing what the group allows in one line each, and a page with every switch one by one; no capability, default, or consent dialog changed (`AccessGroupTest`). Palette: periwinkle accent, black pill buttons, pastel cards; Settings → Appearance: System / Light / Dark. Supersedes ADR-025's indigo | IN_REVIEW: needs a look on the phone |
 | Owner: redesign the whole app, warmer and less generic (no purple), new logo, animated opening, creative Home and onboarding, a creative draggable Stop pill | "Paper and ember" tokens (warm paper, espresso ink, terracotta accent, clay / sage / butter / pool pastels, serif headlines) in light and dark; new mark (a hook that has caught a pin) for the launcher, status bar, and in-app logo; a 1.6 s opening animation (tap to skip, static with reduced motion) over a plain Android 12+ splash; floating tab bar; Home with greeting, textured status card, and pastel tiles; welcome screen on a clay card. The Stop pill is now an espresso capsule with a breathing dot and a red Stop button: a tap still stops everything, a drag moves it (snaps to the nearer side, position remembered), and the AI's no-touch zone follows it. Approval card and cursor recoloured. No behaviour, capability, or protocol change. Supersedes the previous row's palette | IN_REVIEW: needs a look on the phone, including dragging the pill during a session |
+
+**Fifth run feedback (2026-10-04, owner, ChatGPT making a post with the Figma plugin and saving it in the shared folder):** Latch closed by itself mid-task and Android switched its accessibility service off. Findings and changes (ADR-028):
+
+| Finding | Cause (from the code; not reproduced on the phone) | Change | Status |
+|---|---|---|---|
+| Latch closed mid-session; accessibility switched off | Every command ran on the main thread (`Dispatchers.Main.immediate`): screen reads, settle polling, screenshot encoding, and folder queries are blocking calls, and a blocked main thread is closed by Android as "not responding". And any failure that was not a `ProtocolException` (a folder provider's `IOException`/`IllegalStateException`, a refused MediaStore insert, a node API throwing) escaped to a scope with no handler and closed the process. Android does not rebind a crashed accessibility service | Commands on `Dispatchers.Default`, views changed only on the main thread; catch-all answer per command; exception handler on the app scope; poll loop survives unexpected errors; overlay `addView` guarded; last fatal failure recorded (kind and code location only) and shown in Activity | IN_REVIEW: re-run the Figma → folder task on the phone |
+| The Stop pill covers app buttons and can block the AI | Fixed position top right; gestures on it were refused | A third of the width, right edge below the middle, hidden from screenshots, moves aside when an AI gesture would start on it | IN_REVIEW: needs a look on the phone |
+| The cursor label ran off the screen; "Thinking…" while the AI did something else; the cursor stayed 45 s after the task | The label flipped left without a clamp and was never shortened; "Thinking" was shown after 2.5 s regardless | Label ellipsized and kept inside the screen; says what the running command does, "Waiting for your answer", then "Waiting for your AI" for 6 s; `finish_task` hides it at once | IN_REVIEW |
+| Owner: every action transparent, categorized, readable over MCP | — | Activity in ten kinds with filters, kept 7 days; `get_activity`, `finish_task` (protocol 1.8) on both gateways | IN_REVIEW |
+| Owner: app categories in Access → Apps, no "Loading" text | — | Category chips (name/package words first for money, shopping, messaging…; Android's declared category otherwise; unknown declared categories become their own group); cached list, placeholder rows | IN_REVIEW |
+| Owner: several folders, and photos off | One folder; photos only behind Android's permission | Up to 20 folders, every id checked against the folders shared now; Latch's own photos switch | IN_REVIEW |
 
 ## 9. Feature roadmap (owner request, 2026-10-02)
 
