@@ -2,13 +2,16 @@
 <!--
   isAccessibilityTool is false on purpose: Latch is not primarily an assistive
   tool, and declaring that honestly lets apps hide sensitive views from it.
+  flagIncludeNotImportantViews: some apps (Instagram's caption box) mark the
+  fields an agent needs as "not important"; observe drops the empty layout
+  containers this adds.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="UnusedAttribute"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"

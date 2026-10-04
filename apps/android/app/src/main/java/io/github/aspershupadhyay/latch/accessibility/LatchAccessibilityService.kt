@@ -459,11 +459,15 @@ class LatchAccessibilityService : AccessibilityService() {
             queue.add(root to null)
             while (queue.isNotEmpty()) {
                 val (node, parentId) = queue.removeFirst()
-                if (!node.isVisibleToUser) continue
-                // Zero-size or fully off-screen elements (common in web pages) cannot be seen or
-                // used; leave them out, and hang what they contain on the nearest kept ancestor.
+                // Hidden, zero-size, or fully off-screen elements (common in web pages) cannot be
+                // seen or used; leave them out, and hang what they contain on the nearest kept
+                // ancestor. Some apps report a container as hidden while what it holds is shown.
+                // Empty layout containers (only listed because of flagIncludeNotImportantViews)
+                // are skipped the same way.
                 node.getBoundsInScreen(bounds)
-                if (bounds.width() <= 0 || bounds.height() <= 0 || !bounds.intersect(0, 0, screen.width, screen.height)) {
+                if (!node.isVisibleToUser || bounds.width() <= 0 || bounds.height() <= 0 ||
+                    !bounds.intersect(0, 0, screen.width, screen.height) || emptyLayout(node)
+                ) {
                     for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it to parentId) }
                     continue
                 }
@@ -509,6 +513,12 @@ class LatchAccessibilityService : AccessibilityService() {
             truncated = truncated,
         )
     }
+
+    /** A layout container that is not important for accessibility and says or does nothing. */
+    private fun emptyLayout(node: AccessibilityNodeInfo): Boolean =
+        !node.isImportantForAccessibility && node.text.isNullOrBlank() && node.contentDescription.isNullOrBlank() &&
+            !node.isClickable && !node.isLongClickable && !node.isEditable && !node.isScrollable &&
+            !node.isCheckable && !node.isFocusable
 
     private fun facts(node: AccessibilityNodeInfo) = NodeFacts(
         className = node.className?.toString(),
@@ -984,8 +994,8 @@ class LatchAccessibilityService : AccessibilityService() {
         while (queue.isNotEmpty() && seen < MAX_SEARCH_NODES) {
             val node = queue.removeFirst()
             seen++
-            if (!node.isVisibleToUser) continue
-            yield(node)
+            // A container reported as hidden may still hold shown elements (see observe).
+            if (node.isVisibleToUser) yield(node)
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
     }
