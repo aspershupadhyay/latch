@@ -178,7 +178,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
 private fun SignInCard(request: SignInRequest, actions: ConnectActions) {
     val signal = LocalSignal.current
     Column(
-        Modifier.fillMaxWidth().clip(CardShape).background(signal.surface).border(2.dp, signal.accent, CardShape).padding(16.dp)
+        Modifier.fillMaxWidth().clip(CardShape).background(signal.surface).border(1.5.dp, signal.accent, CardShape).padding(16.dp)
             .semantics { liveRegion = LiveRegionMode.Polite },
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {

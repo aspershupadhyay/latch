@@ -314,7 +314,11 @@ private fun RowScope.GroupTile(
                     modifier = Modifier.semantics { contentDescription = "${group.title}, all switches" },
                 )
             } else {
-                Box(Modifier.size(34.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, signal.border2, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f))
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(LatchIcons.ChevronRight, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
                 }
             }

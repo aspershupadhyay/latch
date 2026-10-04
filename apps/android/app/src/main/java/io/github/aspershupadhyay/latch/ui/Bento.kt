@@ -78,8 +78,8 @@ fun Tile(
 
 /** Small uppercase label at the top of a tile. */
 @Composable
-fun TileLabel(text: String, color: Color = LocalSignal.current.text2) {
-    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+fun TileLabel(text: String, color: Color = LocalSignal.current.text2, maxLines: Int = 1) {
+    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
 
 /** The big number or word that is the point of a tile. */
@@ -160,7 +160,7 @@ fun CopyRow(label: String, value: String, onCopy: () -> Unit, masked: Boolean = 
         Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(signal.canvas).border(1.dp, signal.border2, RoundedCornerShape(8.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        TileLabel(label)
+        TileLabel(label, maxLines = 3)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (masked) value.take(10) + "•".repeat(14) else value,

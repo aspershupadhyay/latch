@@ -225,9 +225,9 @@ private fun StepCard(
     val signal = LocalSignal.current
     val done = state.done(step)
     val current = state.current == step
-    val ring by animateColorAsState(if (current) signal.accent else Color.Transparent, tween(if (state.reducedMotion) 0 else 300), label = "stepBorder")
+    val ring by animateColorAsState(if (current) signal.accent else signal.border, tween(if (state.reducedMotion) 0 else 300), label = "stepBorder")
     Column(
-        Modifier.fillMaxWidth().clip(CardShape).background(signal.surface).border(2.dp, ring, CardShape).padding(16.dp),
+        Modifier.fillMaxWidth().clip(CardShape).background(signal.surface).border(if (current) 1.5.dp else 1.dp, ring, CardShape).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
