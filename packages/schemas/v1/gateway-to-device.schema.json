@@ -106,6 +106,61 @@
     }
   ],
   "$defs": {
+    "ActivityKind": {
+      "description": "Since 1.8: what an activity log entry is about.",
+      "oneOf": [
+        {
+          "description": "A session started, stopped, paused, or ended.",
+          "type": "string",
+          "const": "session"
+        },
+        {
+          "description": "The phone connected to or lost the gateway.",
+          "type": "string",
+          "const": "connection"
+        },
+        {
+          "description": "The AI read the screen or the app list.",
+          "type": "string",
+          "const": "screen"
+        },
+        {
+          "description": "The AI acted: tapped, typed, swiped, opened an app, copied text.",
+          "type": "string",
+          "const": "action"
+        },
+        {
+          "description": "The owner let the AI use an app, or said not now.",
+          "type": "string",
+          "const": "app"
+        },
+        {
+          "description": "The owner was asked to approve something, and the answer.",
+          "type": "string",
+          "const": "approval"
+        },
+        {
+          "description": "Something was refused: by the owner, by a rule, or because it failed.",
+          "type": "string",
+          "const": "refusal"
+        },
+        {
+          "description": "A file was listed, read, saved, renamed, deleted, or moved by link.",
+          "type": "string",
+          "const": "file"
+        },
+        {
+          "description": "A folder was listed or created.",
+          "type": "string",
+          "const": "folder"
+        },
+        {
+          "description": "The AI said a task was done.",
+          "type": "string",
+          "const": "task"
+        }
+      ]
+    },
     "ApprovalChoice": {
       "description": "An answer to an approval (since 1.4).",
       "type": "string",
@@ -947,6 +1002,70 @@
               "required": [
                 "text"
               ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.8: the newest entries of the phone's activity log, newest\nfirst: apps the AI used, its actions, the owner's approvals and\nrefusals, files and folders it touched. Entries hold no screen\ncontent or typed text. `kinds` keeps only those kinds; `since_ms`\nonly entries at or after that time. Answers with an\n[`crate::ActivityList`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "activity.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "kinds": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ActivityKind"
+                  }
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "default": 50,
+                  "minimum": 0
+                },
+                "since_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.8: the AI finished the owner's task. The phone hides the\ncursor at once and logs `summary` (the AI's own words, at most 500\ncharacters). Changes nothing else. Answers with an\n[`crate::ActionResult`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "task.done"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
             }
           },
           "required": [

@@ -325,6 +325,8 @@ async fn mcp_handshake_and_discovery() {
             "list_apps",
             "launch_app",
             "ask_owner",
+            "get_activity",
+            "finish_task",
             "list_files",
             "read_file",
             "get_file_link",
@@ -1098,7 +1100,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.7, 25 tools.",
+        lines[0], "Latch gateway, protocol 1.8, 27 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1344,6 +1346,32 @@ async fn files_round_trip_between_phone_and_computer() {
     assert_eq!(
         phone.state.lock().expect("lock").clipboard,
         ["Hello from Latch"]
+    );
+
+    // The phone's activity log, filtered by kind, and the end of the task.
+    let (is_error, text, _) =
+        call(&gw, "get_activity", json!({"limit": 3, "kinds": ["file"]})).await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.starts_with("Activity on the phone, newest first (3 of "),
+        "{text}"
+    );
+    assert!(text.contains(" file: Ran file."), "{text}");
+    assert!(!text.contains("clipboard"), "{text}");
+    let (is_error, text, _) = call(&gw, "get_activity", json!({"kinds": ["photos"]})).await;
+    assert!(
+        is_error && text.contains("kinds must be a list of"),
+        "{text}"
+    );
+    let (is_error, text, _) =
+        call(&gw, "finish_task", json!({"summary": "Copied a caption"})).await;
+    assert!(
+        !is_error && text.starts_with("Done. The cursor is gone"),
+        "{text}"
+    );
+    assert_eq!(
+        phone.state.lock().expect("lock").tasks_done,
+        ["Copied a caption"]
     );
 
     // Inline text into Downloads/abc; the same name gets a free name.

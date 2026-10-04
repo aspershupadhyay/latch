@@ -45,7 +45,13 @@ import java.util.Base64
  * paths and content URIs never leave the phone. File contents are never
  * logged. In photos and Downloads only files Latch saved may be changed.
  */
-class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?) : TransferFiles {
+class PhoneFiles(
+    private val context: Context,
+    /** The folders the owner picked for the AI (Storage Access Framework tree URIs), in their order. */
+    private val folderUris: () -> List<Uri>,
+    /** The owner's Latch switch for photos; Android's photo permission is needed as well. */
+    private val photosOn: () -> Boolean = { true },
+) : TransferFiles {
     internal class Entry(
         val uri: Uri,
         val location: FileLocation,
@@ -81,8 +87,34 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
         return id
     }
 
-    private fun entry(id: String): Entry =
-        entries[id] ?: fail(ErrorCode.TARGET_NOT_FOUND, "no file with that id in this session; list files again")
+    /**
+     * The file or folder behind an id, only while the owner still allows its
+     * place: a folder removed or photos switched off mid-session closes every
+     * id issued for it.
+     */
+    private fun entry(id: String): Entry {
+        val e = entries[id] ?: fail(ErrorCode.TARGET_NOT_FOUND, "no file with that id in this session; list files again")
+        when (e.location) {
+            FileLocation.FOLDER -> if (treeOf(e.uri) == null) {
+                fail(ErrorCode.PERMISSION_MISSING, "the owner no longer shares that folder with the AI")
+            }
+            FileLocation.PHOTOS -> requirePhotos()
+            FileLocation.DOWNLOADS -> Unit
+        }
+        return e
+    }
+
+    /** The granted folder a document belongs to, or null when it is outside every one of them. */
+    private fun treeOf(document: Uri): Uri? = try {
+        val treeId = DocumentsContract.getTreeDocumentId(document)
+        folderUris().firstOrNull { it.authority == document.authority && DocumentsContract.getTreeDocumentId(it) == treeId }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun requirePhotos() {
+        if (!photosOn()) fail(ErrorCode.PERMISSION_MISSING, "the owner switched photos off for the AI in Latch → Access → Files")
+    }
 
     private fun kindOf(folder: Boolean, mime: String?) = when {
         folder -> "folder"
@@ -112,8 +144,15 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
         }
     }
 
-    private fun tree(): Uri = folderUri()
-        ?: fail(ErrorCode.PERMISSION_MISSING, "the owner has not picked a folder for the AI; ask them to pick one in Latch → Access → Files")
+    /** The only folder when there is exactly one; with several the AI names one by its id. */
+    private fun soleTree(): Uri {
+        val trees = folderUris()
+        return when (trees.size) {
+            0 -> fail(ErrorCode.PERMISSION_MISSING, "the owner has not picked a folder for the AI; ask them to pick one in Latch → Access → Files")
+            1 -> trees.single()
+            else -> fail(ErrorCode.INVALID_REQUEST, "the owner shares ${trees.size} folders; list_files with location folder shows them, then pass the folder's id")
+        }
+    }
 
     // ---- List ----
 
@@ -121,6 +160,7 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
     fun list(location: FileLocation, folderId: String?, query: String?, limit: Int, offset: Int): FileList = when (location) {
         FileLocation.FOLDER -> listFolder(folderId, query, limit, offset)
         FileLocation.PHOTOS -> {
+            requirePhotos()
             if (!photosAllowed()) fail(ErrorCode.PERMISSION_MISSING, "the owner has not allowed photos; ask them to allow photos in Latch → Access → Files")
             listMedia(location, query, limit, offset)
         }
@@ -182,10 +222,13 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
     }
 
     private fun folderDoc(folderId: String?): Pair<Uri, String> {
-        val tree = tree()
-        if (folderId == null) return tree to DocumentsContract.getTreeDocumentId(tree)
+        if (folderId == null) {
+            val tree = soleTree()
+            return tree to DocumentsContract.getTreeDocumentId(tree)
+        }
         val entry = entry(folderId)
-        if (!entry.folder || entry.location != FileLocation.FOLDER) fail(ErrorCode.INVALID_REQUEST, "that id is not a folder in the picked folder")
+        if (!entry.folder || entry.location != FileLocation.FOLDER) fail(ErrorCode.INVALID_REQUEST, "that id is not a folder in the owner's folders")
+        val tree = treeOf(entry.uri) ?: fail(ErrorCode.PERMISSION_MISSING, "the owner no longer shares that folder with the AI")
         return tree to DocumentsContract.getDocumentId(entry.uri)
     }
 
@@ -209,7 +252,12 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
                 }
             }
         } catch (_: SecurityException) {
-            fail(ErrorCode.PERMISSION_MISSING, "Latch lost access to the picked folder; ask the owner to pick it again in Latch → Access → Files")
+            fail(ErrorCode.PERMISSION_MISSING, "Latch lost access to that folder; ask the owner to pick it again in Latch → Access → Files")
+        } catch (e: ProtocolException) {
+            throw e
+        } catch (_: Exception) {
+            // Deleted, moved, or on a storage that went away (an SD card taken out).
+            fail(ErrorCode.TARGET_NOT_FOUND, "that folder cannot be read now; list files again")
         }
         return out
     }
@@ -223,6 +271,8 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
     )
 
     private fun listFolder(folderId: String?, query: String?, limit: Int, offset: Int): FileList {
+        val trees = folderUris()
+        if (folderId == null && trees.size > 1) return listTrees(trees, query, limit, offset)
         val (tree, parent) = folderDoc(folderId)
         val q = query?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
         val matching = children(tree, parent)
@@ -234,12 +284,24 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
         return FileList(FileLocation.FOLDER.wire, folderName, page, matching.size, if (end < matching.size) end else null)
     }
 
+    /** With several folders shared, the top level lists the folders themselves. */
+    private fun listTrees(trees: List<Uri>, query: String?, limit: Int, offset: Int): FileList {
+        val q = query?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val folders = trees.mapNotNull { tree ->
+            val name = folderName(tree) ?: return@mapNotNull null
+            Entry(DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)), FileLocation.FOLDER, true, name, null)
+        }.filter { q == null || it.name.lowercase().contains(q) }
+        val page = folders.drop(offset).take(limit).map { item(it, null, null) }
+        val end = offset + page.size
+        return FileList(FileLocation.FOLDER.wire, "Your folders for the AI", page, folders.size, if (end < folders.size) end else null)
+    }
+
     private fun folderName(tree: Uri): String? = try {
         resolver.query(
             DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
             arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null,
         )?.use { if (it.moveToFirst()) it.getString(0) else null }
-    } catch (_: SecurityException) {
+    } catch (_: Exception) {
         null
     }
 
@@ -353,6 +415,11 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
             resolver.openOutputStream(uri, mode)?.use { it.write(bytes) } ?: fail(ErrorCode.INTERNAL, "the phone could not open the file")
         } catch (_: SecurityException) {
             fail(ErrorCode.POLICY_REFUSED, "Latch replaces only files it saved there")
+        } catch (_: java.io.FileNotFoundException) {
+            fail(ErrorCode.TARGET_NOT_FOUND, "the file is gone; list files again")
+        } catch (e: java.io.IOException) {
+            // A full phone, or a folder on storage that went away.
+            fail(ErrorCode.INTERNAL, "the phone could not write the file (${e.javaClass.simpleName})")
         }
     }
 
@@ -394,6 +461,7 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
     ): FileItem {
         val bytes = decode(dataBase64)
         val type = mime ?: "application/octet-stream"
+        if (location == FileLocation.PHOTOS) requirePhotos()
         if (location == FileLocation.PHOTOS && !(type.startsWith("image/") || type.startsWith("video/"))) {
             fail(ErrorCode.INVALID_REQUEST, "photos take images and videos only")
         }
@@ -432,7 +500,8 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
                     put(MediaStore.MediaColumns.MIME_TYPE, type)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath(location, subfolder))
                 }
-                val uri = resolver.insert(collection, values) ?: fail(ErrorCode.INTERNAL, "the phone did not accept a new file")
+                val uri = runCatching { resolver.insert(collection, values) }.getOrNull()
+                    ?: fail(ErrorCode.INTERNAL, "the phone did not accept a new file there")
                 Entry(uri, location, false, displayName(uri) ?: name, type, subfolder)
             }
         }
@@ -469,6 +538,7 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
     @Synchronized
     override fun begin(location: FileLocation, folderId: String?, subfolder: String?, name: String, mime: String?, overwrite: Boolean): Pending {
         val type = mime ?: "application/octet-stream"
+        if (location == FileLocation.PHOTOS) requirePhotos()
         if (location == FileLocation.PHOTOS && !(type.startsWith("image/") || type.startsWith("video/"))) {
             fail(ErrorCode.INVALID_REQUEST, "photos take images and videos only")
         }

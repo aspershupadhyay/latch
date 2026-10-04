@@ -10,10 +10,10 @@ use std::time::Duration;
 
 use latch_policy::{Decision, DeviceContext};
 use latch_protocol::{
-    ActionResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
-    DeviceInfo, ErrorCode, FileChunk, FileItem, FileList, FilePreview, FileTransfer,
-    GatewayToDevice, Hello, Observation, ObserveAfter, Outcome, ProtocolError, SessionInfo,
-    WaitResult, validate,
+    ActionResult, ActivityList, AppList, Capability, CapabilityState, CapabilityStatus, Command,
+    CommandEnvelope, DeviceInfo, ErrorCode, FileChunk, FileItem, FileList, FilePreview,
+    FileTransfer, GatewayToDevice, Hello, Observation, ObserveAfter, Outcome, ProtocolError,
+    SessionInfo, WaitResult, validate,
 };
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
@@ -303,6 +303,8 @@ pub enum Output {
     Item(FileItem),
     /// Since 1.7.
     Transfer(FileTransfer),
+    /// Since 1.8.
+    Activity(ActivityList),
 }
 
 /// Chooses the device a tool call addresses.
@@ -624,6 +626,16 @@ async fn execute_inner(
                 ));
             }
             Output::Transfer(transfer)
+        }
+        Command::ListActivity { limit, .. } => {
+            let mut list: ActivityList = serde_json::from_value(data).map_err(malformed)?;
+            // Phone text: bounded before it reaches the AI.
+            list.entries.truncate(*limit as usize);
+            for e in &mut list.entries {
+                e.summary = truncate(&e.summary, 300);
+                e.app = e.app.as_deref().map(|a| truncate(a, 80));
+            }
+            Output::Activity(list)
         }
         _ => {
             let mut result: ActionResult = serde_json::from_value(data).map_err(malformed)?;

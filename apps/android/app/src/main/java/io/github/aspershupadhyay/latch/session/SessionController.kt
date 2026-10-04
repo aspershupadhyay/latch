@@ -20,6 +20,7 @@ import io.github.aspershupadhyay.latch.protocol.Protocol
 import io.github.aspershupadhyay.latch.protocol.ProtocolException
 import io.github.aspershupadhyay.latch.protocol.SessionInfo
 import io.github.aspershupadhyay.latch.protocol.StateMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -80,9 +81,9 @@ class SessionController(
 
     private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers)
     private var link: DeviceLink? = null
-    private var wanted = false
-    private var paused = false
-    private var expiresAtMs = 0L
+    @Volatile private var wanted = false
+    @Volatile private var paused = false
+    @Volatile private var expiresAtMs = 0L
     private var expiryJob: Job? = null
     @Volatile private var runningCommandId: String? = null
 
@@ -289,7 +290,14 @@ class SessionController(
 
     // ---- Commands: strictly one at a time (DeviceLink serialises them) ----
 
-    private suspend fun runCommand(envelope: CommandEnvelope): String = withContext(Dispatchers.Main.immediate) {
+    /**
+     * Runs off the main thread: reading a big screen or a folder blocks on the
+     * system for a while, and a blocked main thread is what makes Android close
+     * an app ("isn't responding") and switch its accessibility service off.
+     * Nothing a command does may crash the app either: every failure becomes an
+     * error answer for the AI and a line in Activity.
+     */
+    private suspend fun runCommand(envelope: CommandEnvelope): String = withContext(Dispatchers.Default) {
         runningCommandId = envelope.id
         try {
             // A 1.4 gateway keeps waiting while the owner is asked, so the command may too.
@@ -304,7 +312,15 @@ class SessionController(
             }
             Outgoing.error(envelope.id, e.code, e.message ?: e.code.wire)
         } catch (e: TimeoutCancellationException) {
+            log.add(ActivityKind.REFUSAL, "Ran out of time: ${envelope.command.name}")
             Outgoing.error(envelope.id, ErrorCode.DEADLINE_EXCEEDED, "the phone ran out of time")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // The kind of failure only, never a path or screen text.
+            Crashes.record(e)
+            log.add(ActivityKind.REFUSAL, "Could not finish ${envelope.command.name}: ${e.javaClass.simpleName}")
+            Outgoing.error(envelope.id, ErrorCode.INTERNAL, "the phone could not finish this (${e.javaClass.simpleName}); observe and try again")
         } finally {
             runningCommandId = null
         }

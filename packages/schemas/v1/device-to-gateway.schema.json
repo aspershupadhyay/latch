@@ -235,6 +235,11 @@
           "description": "Since 1.7: put text on the clipboard (never read it).",
           "type": "string",
           "const": "clipboard.write"
+        },
+        {
+          "description": "Since 1.8: read Latch's own activity log on the phone (what the AI\ndid, what the owner was asked and answered). Never screen content.",
+          "type": "string",
+          "const": "activity.read"
         }
       ]
     },

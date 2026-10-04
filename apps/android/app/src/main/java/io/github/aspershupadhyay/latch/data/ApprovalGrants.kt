@@ -39,7 +39,8 @@ class ApprovalGrants(private val store: Store) {
 
     private val _always = MutableStateFlow(store.load())
     val always: StateFlow<Set<String>> = _always.asStateFlow()
-    private val session = mutableSetOf<String>()
+    // Read and written from the command thread and the UI thread.
+    private val session: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     fun allows(key: String): Boolean = key in session || key in _always.value
 

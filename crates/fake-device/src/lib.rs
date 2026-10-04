@@ -11,10 +11,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
-    ActionResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
-    DeviceDescriptor, DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello,
-    Observation, Outcome, OwnerReply, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot,
-    SessionInfo, Target, WaitResult, validate,
+    ActionResult, ActivityEntry, ActivityKind, ActivityList, AppList, Capability, CapabilityState,
+    CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceToGateway,
+    ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation, Outcome, OwnerReply,
+    PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target, WaitResult,
+    validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -72,6 +73,8 @@ pub struct FakeState {
     pub transfer_delay_ms: u64,
     /// Every `clipboard.set` text.
     pub clipboard: Vec<String>,
+    /// Every `task.done` summary (empty when none was given).
+    pub tasks_done: Vec<String>,
     pub device_id: Option<String>,
     pub revoked: bool,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
@@ -111,6 +114,7 @@ impl FakeState {
             jobs: Vec::new(),
             transfer_delay_ms: 0,
             clipboard: Vec::new(),
+            tasks_done: Vec::new(),
             device_id: None,
             revoked: false,
             latest: None,
@@ -455,6 +459,45 @@ pub fn handle(
                 t.error = Some(err(ErrorCode::Cancelled, "the transfer was stopped"));
             }
             transfer_value(state, transfer)
+        }
+        Command::ListActivity {
+            limit,
+            kinds,
+            since_ms,
+        } => {
+            // The fake phone's log: one line per command it ran, newest first.
+            let entries: Vec<ActivityEntry> = state
+                .executed
+                .iter()
+                .enumerate()
+                .rev()
+                .map(|(i, name)| ActivityEntry {
+                    at_ms: 1_700_000_000_000 + i as u64 * 1_000,
+                    kind: if name == "ui.observe" || name == "app.list" {
+                        ActivityKind::Screen
+                    } else if name.starts_with("file.") {
+                        ActivityKind::File
+                    } else if name == "task.done" {
+                        ActivityKind::Task
+                    } else {
+                        ActivityKind::Action
+                    },
+                    summary: format!("Ran {name}"),
+                    app: None,
+                })
+                .filter(|e| kinds.is_empty() || kinds.contains(&e.kind))
+                .filter(|e| since_ms.is_none_or(|since| e.at_ms >= since))
+                .collect();
+            let total = entries.len() as u32;
+            let entries = entries.into_iter().take(*limit as usize).collect();
+            serde_json::to_value(ActivityList { entries, total })
+                .map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::TaskDone { summary } => {
+            state.tasks_done.push(summary.clone().unwrap_or_default());
+            state.executed.push("task.done".into());
+            serde_json::to_value(ActionResult::default())
+                .map_err(|_| err(ErrorCode::Internal, "encode"))
         }
         Command::SetClipboard { text } => {
             state.clipboard.push(text.clone());

@@ -430,6 +430,8 @@ fn assess(
         } else {
             "Check a file transfer".into()
         })),
+        Command::ListActivity { .. } => Ok(low("Read Latch's activity log".into())),
+        Command::TaskDone { .. } => Ok(low("Say the task is done".into())),
         Command::SetClipboard { text } => Ok(Assessment::medium(format!(
             "Copy {} characters to the clipboard",
             text.chars().count()

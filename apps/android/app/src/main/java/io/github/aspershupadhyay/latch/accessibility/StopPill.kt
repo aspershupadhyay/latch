@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -20,11 +19,12 @@ import kotlin.math.roundToInt
 
 /**
  * The always-visible session indicator and emergency stop, drawn over every
- * app while a session runs: an espresso capsule with a breathing ember dot
- * ("Latch · AI at work") and a red Stop button. A tap anywhere stops
- * everything, as before; dragging moves it (it lifts under the finger, then
- * glides to the nearer side), so it never has to cover what the owner wants
- * to see. A drag never stops.
+ * app while a session runs: a small espresso capsule with a breathing ember
+ * dot and a red Stop button, kept small so it covers as little of the app as
+ * possible. A tap anywhere stops everything; dragging moves it (it lifts
+ * under the finger, then glides to the nearer side). A drag never stops.
+ * Screenshots for the AI never show it, and it steps aside when the AI needs
+ * the spot it sits on (LatchAccessibilityService.movePillAside).
  */
 @SuppressLint("ViewConstructor")
 class StopPill(
@@ -40,28 +40,16 @@ class StopPill(
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = Color.argb(40, 255, 248, 238) }
     private val ember = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
-    private val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(255, 248, 238)
-        textSize = dp(13.5f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-    }
-    private val subtitle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(160, 255, 248, 238)
-        textSize = dp(11f)
-    }
     private val stopFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(217, 58, 43) }
     private val stopGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
 
-    private val titleText = "Latch"
-    private val subtitleText = "AI at work"
-    private val h = dp(52f)
-    private val padL = dp(14f)
-    private val dotArea = dp(16f)
-    private val gap = dp(10f)
-    private val stopD = dp(36f)
-    private val padR = dp(8f)
-    private val textW = maxOf(title.measureText(titleText), subtitle.measureText(subtitleText))
-    private val w = padL + dotArea + gap + textW + gap + stopD + padR
+    private val h = dp(44f)
+    private val padL = dp(11f)
+    private val dotArea = dp(14f)
+    private val gap = dp(7f)
+    private val stopD = dp(34f)
+    private val padR = dp(5f)
+    private val w = padL + dotArea + gap + stopD + padR
 
     private val box = RectF()
     private val inner = RectF()
@@ -112,16 +100,12 @@ class StopPill(
         val cx = padL + dotArea / 2
         val cy = height / 2f
         halo.alpha = (90 * (1f - breath)).roundToInt()
-        canvas.drawCircle(cx, cy, dp(4.5f) + dp(6f) * breath, halo)
-        canvas.drawCircle(cx, cy, dp(4.5f), ember)
-
-        val tx = padL + dotArea + gap
-        canvas.drawText(titleText, tx, cy - dp(2f), title)
-        canvas.drawText(subtitleText, tx, cy + dp(13f), subtitle)
+        canvas.drawCircle(cx, cy, dp(4f) + dp(4f) * breath, halo)
+        canvas.drawCircle(cx, cy, dp(4f), ember)
 
         val sx = width - padR - stopD / 2
         canvas.drawCircle(sx, cy, stopD / 2, stopFill)
-        val g = dp(5.5f)
+        val g = dp(5f)
         glyph.set(sx - g, cy - g, sx + g, cy + g)
         canvas.drawRoundRect(glyph, dp(2.5f), dp(2.5f), stopGlyph)
     }

@@ -42,10 +42,14 @@ pub enum Capability {
     /// Since 1.7: put text on the clipboard (never read it).
     #[serde(rename = "clipboard.write")]
     ClipboardWrite,
+    /// Since 1.8: read Latch's own activity log on the phone (what the AI
+    /// did, what the owner was asked and answered). Never screen content.
+    #[serde(rename = "activity.read")]
+    ActivityRead,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 11] = [
+    pub const ALL: [Capability; 12] = [
         Capability::DeviceInfo,
         Capability::UiObserve,
         Capability::ScreenCapture,
@@ -57,6 +61,7 @@ impl Capability {
         Capability::FileWrite,
         Capability::AppShare,
         Capability::ClipboardWrite,
+        Capability::ActivityRead,
     ];
 
     /// Stable wire identifier, e.g. `input.gesture`.
@@ -73,6 +78,7 @@ impl Capability {
             Capability::FileWrite => "file.write",
             Capability::AppShare => "app.share",
             Capability::ClipboardWrite => "clipboard.write",
+            Capability::ActivityRead => "activity.read",
         }
     }
 
@@ -90,6 +96,7 @@ impl Capability {
             Capability::FileWrite => "save, rename, and delete files",
             Capability::AppShare => "share files to an app",
             Capability::ClipboardWrite => "copy text to the clipboard",
+            Capability::ActivityRead => "read Latch's activity log",
         }
     }
 }

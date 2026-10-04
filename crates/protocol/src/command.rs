@@ -295,6 +295,36 @@ pub enum Command {
     /// clipboard is not offered. Answers with an [`crate::ActionResult`].
     #[serde(rename = "clipboard.set")]
     SetClipboard { text: String },
+
+    /// Since 1.8: the newest entries of the phone's activity log, newest
+    /// first: apps the AI used, its actions, the owner's approvals and
+    /// refusals, files and folders it touched. Entries hold no screen
+    /// content or typed text. `kinds` keeps only those kinds; `since_ms`
+    /// only entries at or after that time. Answers with an
+    /// [`crate::ActivityList`].
+    #[serde(rename = "activity.list")]
+    ListActivity {
+        #[serde(default = "default_activity_limit")]
+        limit: u32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        kinds: Vec<crate::ActivityKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since_ms: Option<u64>,
+    },
+
+    /// Since 1.8: the AI finished the owner's task. The phone hides the
+    /// cursor at once and logs `summary` (the AI's own words, at most 500
+    /// characters). Changes nothing else. Answers with an
+    /// [`crate::ActionResult`].
+    #[serde(rename = "task.done")]
+    TaskDone {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+    },
+}
+
+fn default_activity_limit() -> u32 {
+    50
 }
 
 fn default_max_nodes() -> u32 {
@@ -345,6 +375,8 @@ impl Command {
             Command::PushFile { .. } => "file.push",
             Command::TransferStatus { .. } => "file.transfer",
             Command::SetClipboard { .. } => "clipboard.set",
+            Command::ListActivity { .. } => "activity.list",
+            Command::TaskDone { .. } => "task.done",
         }
     }
 
@@ -385,6 +417,9 @@ impl Command {
             // answers only for transfers of the running session.
             Command::TransferStatus { .. } => vec![],
             Command::SetClipboard { .. } => vec![Capability::ClipboardWrite],
+            Command::ListActivity { .. } => vec![Capability::ActivityRead],
+            // Only hides Latch's own cursor and writes a log line.
+            Command::TaskDone { .. } => vec![],
         }
     }
 
@@ -402,6 +437,8 @@ impl Command {
                 | Command::ReadFile { .. }
                 | Command::PushFile { .. }
                 | Command::TransferStatus { .. }
+                | Command::ListActivity { .. }
+                | Command::TaskDone { .. }
         )
     }
 
@@ -456,6 +493,7 @@ impl Command {
             | Command::PushFile { .. }
             | Command::TransferStatus { .. }
             | Command::SetClipboard { .. } => 7,
+            Command::ListActivity { .. } | Command::TaskDone { .. } => 8,
             _ => 0,
         }
     }

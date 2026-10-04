@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0073", "deadline_ms": 20000, "command": { "name": "activity.list", "params": { "kinds": ["screenshots"] } } }

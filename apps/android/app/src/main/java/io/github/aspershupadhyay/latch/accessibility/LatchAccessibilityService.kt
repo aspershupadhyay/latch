@@ -40,7 +40,10 @@ import io.github.aspershupadhyay.latch.protocol.WaitResult
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.ApprovalKind
 import io.github.aspershupadhyay.latch.session.PendingApproval
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.ByteArrayOutputStream
 import java.security.SecureRandom
@@ -73,7 +76,8 @@ class LatchAccessibilityService : AccessibilityService() {
     @Volatile private var latest: Snapshot? = null
     @Volatile private var foregroundPackage: String? = null
     private var overlay: StopPill? = null
-    private var overlayBounds: Rect? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
+    @Volatile private var overlayBounds: Rect? = null
     private var observationCounter = 0L
     private val random = SecureRandom()
 
@@ -232,9 +236,10 @@ class LatchAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            // Where the owner last left it; first time, top right under the status bar.
-            x = store.getInt("x", -1).takeIf { it >= 0 } ?: (resources.displayMetrics.widthPixels - (180 * density).roundToInt())
-            y = store.getInt("y", -1).takeIf { it >= 0 } ?: (64 * density).roundToInt()
+            // Where the owner last left it; first time, against the right edge below the middle,
+            // away from the toolbars and Send/Next buttons that sit at the top of most apps.
+            x = store.getInt("pill_x", -1).takeIf { it >= 0 } ?: resources.displayMetrics.widthPixels
+            y = store.getInt("pill_y", -1).takeIf { it >= 0 } ?: (resources.displayMetrics.heightPixels * 0.58f).roundToInt()
         }
         val view = StopPill(
             this,
@@ -262,15 +267,17 @@ class LatchAccessibilityService : AccessibilityService() {
                         runCatching { wm.updateViewLayout(pill, params) }
                     }
                     doOnEndCompat {
-                        store.edit { putInt("x", params.x); putInt("y", params.y) }
+                        store.edit { putInt("pill_x", params.x); putInt("pill_y", params.y) }
                         updateOverlayBounds(pill)
                     }
                     start()
                 }
             },
         )
-        wm.addView(view, params)
+        // The service may be going away (switched off, updating): no pill then, but no crash either.
+        if (runCatching { wm.addView(view, params) }.isFailure) return
         overlay = view
+        overlayParams = params
         view.post {
             clampOverlay(params)
             runCatching { wm.updateViewLayout(view, params) }
@@ -295,9 +302,51 @@ class LatchAccessibilityService : AccessibilityService() {
         overlayBounds = Rect(loc[0] - pad, loc[1] - pad, loc[0] + view.width + pad, loc[1] + view.height + pad)
     }
 
+    /**
+     * The AI may never press Stop, but the pill must not block its work either:
+     * when a gesture would start on the pill, the pill steps to the other side
+     * of the screen (or up or down) first. Returns once it has moved.
+     */
+    private suspend fun movePillAside(vararg points: Pair<Int, Int>) {
+        val bounds = overlayBounds ?: return
+        if (points.none { (x, y) -> bounds.contains(x, y) }) return
+        withContext(Dispatchers.Main) {
+            val pill = overlay ?: return@withContext
+            val params = overlayParams ?: return@withContext
+            val m = resources.displayMetrics
+            val margin = (8 * m.density).roundToInt()
+            val pad = (16 * m.density).roundToInt()
+            fun hits(px: Int, py: Int) = points.any { (x, y) ->
+                x >= px - pad && x < px + pill.width + pad && y >= py - pad && y < py + pill.height + pad
+            }
+            val onLeft = params.x + pill.width / 2 < m.widthPixels / 2
+            params.x = if (onLeft) m.widthPixels - pill.width - margin else margin
+            if (hits(params.x, params.y)) {
+                val lowest = points.maxOf { it.second }
+                params.y = if (lowest > m.heightPixels / 2) (m.heightPixels * 0.25f).roundToInt() else (m.heightPixels * 0.7f).roundToInt()
+            }
+            clampOverlay(params)
+            runCatching { getSystemService(WindowManager::class.java).updateViewLayout(pill, params) }
+            // Until the window has moved, judge by where it is going.
+            overlayBounds = Rect(params.x - pad, params.y - pad, params.x + pill.width + pad, params.y + pill.height + pad)
+        }
+        delay(PILL_MOVE_MS)
+        withContext(Dispatchers.Main) { overlay?.let(::updateOverlayBounds) }
+    }
+
     /** Shows on the cursor what the AI is doing off screen (reading, saving, sharing). */
     fun cursorStatus(text: String) {
         if (cursorOn) cursor.status(text)
+    }
+
+    /** The current command finished; the cursor waits briefly for the next one, then fades. */
+    fun cursorIdle() {
+        if (cursorOn) cursor.idle()
+    }
+
+    /** The AI said its task is done: the cursor goes at once. */
+    fun cursorFinish() {
+        if (cursorOn) cursor.finish()
     }
 
     /** Shows a moving file on the cursor; null when nothing moves. */
@@ -332,6 +381,7 @@ class LatchAccessibilityService : AccessibilityService() {
         cursorOn = false
         overlay?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }
         overlay = null
+        overlayParams = null
         overlayBounds = null
     }
 
@@ -456,7 +506,8 @@ class LatchAccessibilityService : AccessibilityService() {
             horizontalMargin = 0.03f
             verticalMargin = if (ownerTask) 0.06f else 0.03f
         }
-        getSystemService(WindowManager::class.java).addView(card, params)
+        // If the card cannot be drawn (the service is going away), the in-app card still asks.
+        if (runCatching { getSystemService(WindowManager::class.java).addView(card, params) }.isFailure) return
         approvalCard = card
         approvalNonce = pending.nonce
     }
@@ -653,15 +704,19 @@ class LatchAccessibilityService : AccessibilityService() {
 
     private class ScreenshotError(val code: Int) : Exception()
 
-    /** The AI must see the app, not Latch's pointer. */
+    /** The AI must see the app, not Latch's pointer or Stop pill. Views change only on the main thread. */
     private suspend fun <T> withoutCursor(block: suspend () -> T): T {
-        if (!cursorOn) return block()
-        val restore = cursor.hideForCapture()
+        val restore = withContext(Dispatchers.Main) {
+            val cursorBack = if (cursorOn) cursor.hideForCapture() else ({})
+            val pill = overlay
+            pill?.visibility = android.view.View.INVISIBLE
+            ({ cursorBack(); pill?.visibility = android.view.View.VISIBLE })
+        }
         try {
             delay(CURSOR_HIDE_MS)
             return block()
         } finally {
-            restore()
+            withContext(NonCancellable + Dispatchers.Main) { restore() }
         }
     }
 
@@ -739,6 +794,7 @@ class LatchAccessibilityService : AccessibilityService() {
         if (x !in 0 until screen.width || y !in 0 until screen.height) {
             throw ProtocolException(ErrorCode.INVALID_REQUEST, "point is outside the screen")
         }
+        // movePillAside() runs first, so this only holds if the pill could not move.
         if (overlayBounds?.contains(x, y) == true) {
             throw ProtocolException(ErrorCode.POLICY_REFUSED, "that point is on the Latch stop button")
         }
@@ -829,6 +885,7 @@ class LatchAccessibilityService : AccessibilityService() {
             }
             is Target.Point -> target.x to target.y
         }
+        movePillAside(x to y)
         checkGesturePoint(x, y, snap)
         if (cursorOn) {
             val under = (target as? Target.Element)?.let { snap.ui[it.element] }
@@ -849,8 +906,11 @@ class LatchAccessibilityService : AccessibilityService() {
     suspend fun pinch(observationId: String, cx: Int, cy: Int, startSpan: Int, endSpan: Int, durationMs: Int) {
         val snap = requireFresh(observationId)
         invalidate()
-        checkGesturePoint(cx, cy, snap)
         val screen = screenInfo()
+        val sides = listOf(-1, 1).map { (cx + it * startSpan / 2).coerceIn(0, screen.width - 1) to cy }
+        movePillAside(cx to cy, *sides.toTypedArray())
+        checkGesturePoint(cx, cy, snap)
+        sides.forEach { (x, y) -> if (overlayBounds?.contains(x, y) == true) throw ProtocolException(ErrorCode.POLICY_REFUSED, "a finger of this pinch would start on the Latch stop button") }
         fun clampX(v: Int) = v.coerceIn(0, screen.width - 1)
         val fingers = listOf(-1, 1).map { side ->
             CursorOverlay.Stroke(
@@ -878,6 +938,7 @@ class LatchAccessibilityService : AccessibilityService() {
     suspend fun swipe(observationId: String, fromX: Int, fromY: Int, toX: Int, toY: Int, durationMs: Int, holdMs: Int = 0) {
         val snap = requireFresh(observationId)
         invalidate()
+        movePillAside(fromX to fromY)
         checkGesturePoint(fromX, fromY, snap)
         val screen = screenInfo()
         if (toX !in 0 until screen.width || toY !in 0 until screen.height) {
@@ -1118,6 +1179,7 @@ class LatchAccessibilityService : AccessibilityService() {
             Direction.RIGHT -> (area.left + area.width() * 4 / 5 to cy) to (area.left + area.width() / 5 to cy)
             Direction.LEFT -> (area.left + area.width() / 5 to cy) to (area.left + area.width() * 4 / 5 to cy)
         }
+        movePillAside(from)
         checkGesturePoint(from.first, from.second, snap)
         if (cursorOn) {
             cursor.stroke(listOf(CursorOverlay.Stroke(from.first.toFloat(), from.second.toFloat(), to.first.toFloat(), to.second.toFloat())), 300)
@@ -1236,6 +1298,8 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L
         private const val LIVE_SCOPE_NODES = 64
         private const val CURSOR_HIDE_MS = 50L
+        /** Time for the Stop pill's window to move before a gesture starts where it was. */
+        private const val PILL_MOVE_MS = 60L
         private const val SIGNATURE_NODES = 300
         private const val SETTLE_STEP_MS = 60L
         /** Longest wait for the keyboard after a tap on a text field. */

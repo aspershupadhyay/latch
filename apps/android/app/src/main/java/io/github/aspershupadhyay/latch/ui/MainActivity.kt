@@ -39,6 +39,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import io.github.aspershupadhyay.latch.data.ThemeChoice
+import io.github.aspershupadhyay.latch.data.FolderGrant
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -528,16 +529,18 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
     var group by rememberSaveable { mutableStateOf<AccessGroup?>(null) }
     val context = LocalContext.current
     val folderFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-    // The one folder the AI may use (ADR-026): Android's own picker, kept across restarts.
+    // Folders the AI may use (ADR-026): Android's own picker, kept across restarts.
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        runCatching { context.contentResolver.takePersistableUriPermission(uri, folderFlags) }
-        prefs.filesFolder?.takeIf { it != uri.toString() }?.let { old ->
-            runCatching { context.contentResolver.releasePersistableUriPermission(old.toUri(), folderFlags) }
+        if (runCatching { context.contentResolver.takePersistableUriPermission(uri, folderFlags) }.isFailure) {
+            Toast.makeText(context, "Android did not let Latch keep that folder. Pick another one.", Toast.LENGTH_LONG).show()
+            return@rememberLauncherForActivityResult
         }
         val name = runCatching { android.provider.DocumentsContract.getTreeDocumentId(uri).substringAfter(':').ifEmpty { "Phone storage" } }
             .getOrDefault("Picked folder")
-        app.settings.update { it.copy(filesFolder = uri.toString(), filesFolderName = name) }
+        app.settings.update { p ->
+            if (p.folders.any { it.uri == uri.toString() }) p else p.copy(folders = (p.folders + FolderGrant(uri.toString(), name)).take(MAX_FOLDERS))
+        }
     }
     var photosAllowed by remember { mutableStateOf(app.files.photosAllowed()) }
     val askPhotos = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -553,13 +556,17 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         return
     }
     CapabilitiesScreen(
-        folderName = prefs.filesFolderName.takeIf { prefs.filesFolder != null },
+        folders = prefs.folders.map { it.name },
         photosAllowed = photosAllowed,
         onPickFolder = { runCatching { pickFolder.launch(null) } },
-        onForgetFolder = {
-            prefs.filesFolder?.let { runCatching { context.contentResolver.releasePersistableUriPermission(it.toUri(), folderFlags) } }
-            app.settings.update { it.copy(filesFolder = null, filesFolderName = null) }
+        onForgetFolder = { index ->
+            prefs.folders.getOrNull(index)?.let { gone ->
+                runCatching { context.contentResolver.releasePersistableUriPermission(gone.uri.toUri(), folderFlags) }
+                app.settings.update { p -> p.copy(folders = p.folders.filterNot { it.uri == gone.uri }) }
+            }
         },
+        photosOn = prefs.photosOn,
+        onPhotosOn = { v -> app.settings.update { it.copy(photosOn = v) } },
         onAllowPhotos = {
             askPhotos.launch(
                 when {
@@ -679,11 +686,14 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
 private fun AppsRoute(app: LatchApp, onBack: () -> Unit) {
     val context = LocalContext.current
     val autonomy by app.autonomy.state.collectAsStateWithLifecycle()
-    val installed by produceState<List<Pair<String, String>>?>(null) {
-        value = withContext(Dispatchers.IO) { app.launchableApps() }
+    // The last list shows at once; a fresh read replaces it when it is ready.
+    val installed by produceState(app.cachedApps()) {
+        value = withContext(Dispatchers.IO) { runCatching { app.launchableApps() }.getOrDefault(value.orEmpty()) }
     }
     val rows = remember(installed, autonomy) {
-        installed.orEmpty().map { (pkg, label) -> AppRow(pkg, label, app.consequences.isSensitiveApp(pkg, label), pkg in autonomy.allowed) }
+        installed.orEmpty().map { a ->
+            AppRow(a.packageName, a.label, app.consequences.isSensitiveApp(a.packageName, a.label), a.packageName in autonomy.allowed, a.category)
+        }
     }
     val icons = remember { mutableStateMapOf<String, ImageBitmap?>() }
     AppsScreen(
@@ -706,6 +716,9 @@ private fun AppsRoute(app: LatchApp, onBack: () -> Unit) {
         },
     )
 }
+
+/** Folders the owner may share with the AI at once. */
+private const val MAX_FOLDERS = 20
 
 /** README steps for bringing a Vercel gateway up to date. */
 private const val GATEWAY_UPDATE_HELP = "https://github.com/aspershupadhyay/latch#fix-update-your-gateway"
