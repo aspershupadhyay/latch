@@ -108,7 +108,7 @@ Change single switches any time in the **Access** tab. Want to approve **every s
 
 On the same tab, under **While the AI works**:
 
-- **Show where the AI taps** (on by default): an indigo pointer, like a computer's, glides along a gentle curve to each spot the AI uses, with a small label saying what it's doing ("Latch · Tapping", "Typing", "Swiping"…). Every touch shows a fingertip mark and ripple; a long press fills a ring; a pinch shows both fingers. It fades away a few seconds after the AI's last action. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
+- **Show where the AI taps** (on by default): an indigo pointer, like a computer's, glides along a gentle curve to each spot the AI uses, with a small label saying what it's doing ("Latch · Tapping", "Typing", "Swiping"…). Every touch shows a fingertip mark and ripple; a long press fills a ring; a pinch shows both fingers. It also shows work that happens off screen ("Looking at the screen", "Saving “clip.mp4”", a progress bar while a file moves) and stays, saying "Thinking…", while the task goes on; it fades away once the AI has been quiet for 45 seconds. It can't press anything, and it's hidden from screenshots, so the AI never sees it.
 - **Keep the screen on** (on by default): during a session the screen stays on, so a task isn't cut off by the lock screen. Turn it off to save battery.
 
 **Files (optional, all off by default):** switch on **See files**, **Save and change files**, and **Share to apps** on the **Access** tab, then under **Files**:
@@ -118,6 +118,7 @@ On the same tab, under **While the AI works**:
 - The AI can also save files to your phone's **Download** folder (it sees only files Latch saved there).
 - **Replacing or deleting a file asks you on the phone**, unless Auto mode is on. **Ask me before every action** asks for every change.
 - **Share to apps** opens any app's Share screen (Instagram, YouTube, X, LinkedIn, WhatsApp, Gmail…) with the files, only for apps you switched on. Posting or sending is still a tap under your app rules.
+- **Copy to clipboard** (off by default) lets the AI put text on your clipboard, for example a caption to paste into an app that ignores shared text. Latch never reads your clipboard.
 
 Things you can then ask your AI:
 
@@ -125,7 +126,12 @@ Things you can then ask your AI:
 - *"Copy my latest screenshot from the phone into my Downloads folder."* (an AI on your computer, like Claude Code, saves it with a download link)
 - *"Save report.pdf from my Downloads on the computer into a folder called abc on my phone."*
 
-Files travel between your computer and the phone through private links on **your own** gateway that expire after 15 minutes (up to 4 MB on Vercel, 64 MB on a self-hosted gateway). File contents are never logged.
+Files travel between your computer and the phone through private links that expire after 15 minutes, at full quality (nothing is re-encoded or compressed):
+
+- **Encrypted end to end between your devices.** Your computer encrypts a file (AES-256) before it leaves, with a key made for that one file; only your phone gets the key and decrypts it. The storage in between only ever holds scrambled bytes, and the phone checks the file's SHA-256 before keeping it, so a file changed on the way is never saved. The same in the other direction.
+- **Size:** up to **2 GB** per file on a self-hosted gateway, and on Vercel once you connect a free **Vercel Blob** store ([how](docs/operations/vercel.md#big-files-vercel-blob)); without Blob, Vercel carries files up to 4 MB.
+- **Speed:** the phone and your computer move the bytes themselves, straight to and from the storage, at your connection's speed. A big file keeps moving in the background, with a progress bar on the phone.
+- File contents are never logged.
 
 ### Step 7: Connect your AI 🤖
 
@@ -339,7 +345,9 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `list_apps`, `launch_app` | See and open installed apps |
 | `ask_owner` | Asks you to do a step only a person should do (log in, unlock, a code); waits for **Done** |
 | `list_files`, `read_file` | List photos you allowed, Downloads, or your Latch folder; look at a text file or picture |
-| `get_file_link`, `upload_link` | Private 15-minute links to copy whole files between your computer and the phone (curl) |
+| `get_file_link`, `upload_link` | Private, encrypted 15-minute links to copy whole files (up to 2 GB) between your computer and the phone (openssl + curl) |
+| `transfer_status` | Waits for a big file that is still moving |
+| `set_clipboard` | Puts text on the phone's clipboard to paste (never reads it) |
 | `write_file`, `create_folder`, `rename_file`, `delete_file` | Save and organise files; replacing and deleting ask you unless Auto mode is on |
 | `share_to_app` | Opens any app's Share screen with files, ready to post or send |
 

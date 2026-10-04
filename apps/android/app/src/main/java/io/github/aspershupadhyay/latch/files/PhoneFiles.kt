@@ -45,8 +45,8 @@ import java.util.Base64
  * paths and content URIs never leave the phone. File contents are never
  * logged. In photos and Downloads only files Latch saved may be changed.
  */
-class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?) {
-    private class Entry(
+class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?) : TransferFiles {
+    internal class Entry(
         val uri: Uri,
         val location: FileLocation,
         val folder: Boolean,
@@ -445,6 +445,130 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
         resolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null }
     } catch (_: Exception) {
         null
+    }
+
+    // ---- Whole-file transfers (protocol 1.7) ----
+
+    /** A file a transfer is writing: hidden until [commit], gone after [abort]. */
+    inner class Pending internal constructor(
+        internal val entry: Entry,
+        /** The file this one replaces once it checks out. */
+        internal val replaces: Entry?,
+        internal val name: String,
+        /** Photos and Downloads: a MediaStore item marked pending. */
+        internal val media: Boolean,
+    ) : TransferFiles.Target
+
+    /**
+     * Starts a file for a download, under the same rules as [write]: an existing
+     * name gets a free name unless [overwrite], and in photos and Downloads only
+     * files Latch saved may be replaced.
+     */
+    @Synchronized
+    override fun begin(location: FileLocation, folderId: String?, subfolder: String?, name: String, mime: String?, overwrite: Boolean): Pending {
+        val type = mime ?: "application/octet-stream"
+        if (location == FileLocation.PHOTOS && !(type.startsWith("image/") || type.startsWith("video/"))) {
+            fail(ErrorCode.INVALID_REQUEST, "photos take images and videos only")
+        }
+        val current = existing(location, folderId, subfolder, name)?.let(::entry)
+        val replaces = current?.takeIf { overwrite }
+        if (replaces != null && location != FileLocation.FOLDER && replaces.uri.toString() !in written && !ownedByLatch(replaces.uri)) {
+            fail(ErrorCode.POLICY_REFUSED, "Latch replaces only files it saved there")
+        }
+        return when (location) {
+            FileLocation.FOLDER -> {
+                val (tree, parent) = folderDoc(folderId)
+                // A replacement is written beside the old file and renamed over it at the end.
+                val uri = try {
+                    DocumentsContract.createDocument(
+                        resolver, DocumentsContract.buildDocumentUriUsingTree(tree, parent), type,
+                        if (replaces != null) "$name.latch-part" else name,
+                    )
+                } catch (_: Exception) {
+                    null
+                } ?: fail(ErrorCode.INTERNAL, "the picked folder did not accept a new file")
+                Pending(Entry(uri, location, false, displayName(uri) ?: name, type), replaces, name, media = false)
+            }
+            else -> {
+                val collection = when {
+                    location == FileLocation.DOWNLOADS -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                    type.startsWith("video/") -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    else -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                }
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, type)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath(location, subfolder))
+                    // Hidden from the gallery and other apps until the file is complete and checked.
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val uri = resolver.insert(collection, values) ?: fail(ErrorCode.INTERNAL, "the phone did not accept a new file")
+                Pending(Entry(uri, location, false, displayName(uri) ?: name, type, subfolder), replaces, name, media = true)
+            }
+        }
+    }
+
+    /** Where a transfer writes the file's bytes. */
+    override fun output(target: TransferFiles.Target): java.io.OutputStream = try {
+        resolver.openOutputStream((target as Pending).entry.uri, "w") ?: fail(ErrorCode.INTERNAL, "the phone could not open the file")
+    } catch (_: SecurityException) {
+        fail(ErrorCode.POLICY_REFUSED, "Latch may not write there")
+    }
+
+    /** Makes a checked file visible, replacing the old one if asked. */
+    @Synchronized
+    override fun commit(target: TransferFiles.Target, size: Long): FileItem {
+        val pending = target as Pending
+        pending.replaces?.let { old ->
+            runCatching {
+                if (old.location == FileLocation.FOLDER) DocumentsContract.deleteDocument(resolver, old.uri) else resolver.delete(old.uri, null, null)
+            }
+            idsByUri[old.uri.toString()]?.let(entries::remove)
+            idsByUri.remove(old.uri.toString())
+            written -= old.uri.toString()
+        }
+        var entry = pending.entry
+        if (pending.media) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+                // With the old file gone, the replacement takes its name.
+                if (pending.replaces != null) put(MediaStore.MediaColumns.DISPLAY_NAME, pending.name)
+            }
+            resolver.update(entry.uri, values, null, null)
+            entry = Entry(entry.uri, entry.location, false, displayName(entry.uri) ?: pending.name, entry.mime, entry.subfolder)
+        } else if (pending.replaces != null) {
+            val uri = try {
+                DocumentsContract.renameDocument(resolver, entry.uri, pending.name)
+            } catch (_: Exception) {
+                null
+            } ?: entry.uri
+            entry = Entry(uri, entry.location, false, displayName(uri) ?: pending.name, entry.mime)
+        }
+        written += entry.uri.toString()
+        return item(entry, size, System.currentTimeMillis())
+    }
+
+    /** Removes a file whose transfer failed or was stopped. */
+    override fun abort(target: TransferFiles.Target) {
+        val pending = target as Pending
+        runCatching {
+            if (pending.media) resolver.delete(pending.entry.uri, null, null) else DocumentsContract.deleteDocument(resolver, pending.entry.uri)
+        }
+    }
+
+    /** A file's item, size, and a stream of its bytes, for an upload. */
+    @Synchronized
+    override fun openRead(id: String): Triple<FileItem, Long?, java.io.InputStream> {
+        val entry = fileEntry(id)
+        val size = sizeOf(entry.uri)
+        val input = try {
+            resolver.openInputStream(entry.uri)
+        } catch (_: SecurityException) {
+            fail(ErrorCode.PERMISSION_MISSING, "Latch may no longer read that file")
+        } catch (_: java.io.FileNotFoundException) {
+            fail(ErrorCode.TARGET_NOT_FOUND, "the file is gone; list files again")
+        } ?: fail(ErrorCode.TARGET_NOT_FOUND, "the file could not be opened")
+        return Triple(item(entry, size, null), size, input)
     }
 
     @Synchronized

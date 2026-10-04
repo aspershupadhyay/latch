@@ -93,7 +93,7 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 
 ## 7. Decisions recorded
 
-ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look — see `docs/adr/`.
+ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays — see `docs/adr/`.
 
 ## 8. Real-device feedback (2026-10-02)
 
@@ -140,6 +140,18 @@ Not done, deliberately: caching app lists or observations in the gateway (a cach
 | Owner: make the cursor feel native, like desktop agents' cursors | One rounded indigo arrow with a white edge and soft shadow, a "Latch · Tapping / Typing / Swiping …" label, curved distance-based glide, press dip and ripple; never delays the gesture | IN_REVIEW: needs a look on the phone |
 | Repeated elements in Google Maps still listed twice; the Stop pill covers part of the top-right corner | — | TODO |
 
+**Fourth run (2026-10-04, realme C55, Android 15, Vercel gateway at protocol 1.6, driven by Claude through MCP; Wave 2 files):** a design made in Figma was uploaded from the cloud session, saved to the gallery (577 KB, a few seconds), and opened in Instagram's share screen. Nothing was posted. Findings and changes:
+
+| Finding | Change | Status |
+|---|---|---|
+| `curl -T` to an upload link answered 405 on Vercel (POST worked) | The Vercel entry point exports `PUT`; a test checks every routed method is exported | DONE (#33) |
+| Instagram's caption box was missing from `observe` (11 elements, none the focused field) | `flagIncludeNotImportantViews`; observe and text search look inside containers that report themselves hidden; empty layout containers stay out | IN_REVIEW (#33): re-run on the phone |
+| After a tap in Android's "Open with" chooser the elements were the closing chooser's while the screenshot showed Instagram | Taps in system choosers wait up to 2.5 s for the chosen app | IN_REVIEW (#33): re-run on the phone |
+| Instagram drops the caption passed with a share | `set_clipboard` (capability `clipboard.write`, off by default; never reads) so the AI pastes it (ADR-027) | IN_REVIEW: needs a phone run |
+| Leaving a shared, unchanged post discards it without a "Save draft" prompt | Instagram's own behaviour; documented for agents: change something (crop, caption) before leaving | — |
+| Owner: files of 1 GB and more, full quality, nobody in the middle able to read them | Protocol 1.7 links: the phone and the computer move AES-256-CTR ciphertext themselves (Vercel Blob or the gateway), keys never stored, SHA-256 checked before a file is kept, background transfers with a progress bar, `transfer_status` (ADR-027) | IN_REVIEW: tested on both gateways with the fake phone and the real openssl/curl commands, Android transfer code on the JVM against a local server; Vercel Blob itself and the phone still need a run |
+| Owner: the cursor should show that the AI is working | The cursor shows off-screen work and transfer progress and stays, "Thinking…", for 45 s after the last command | IN_REVIEW: needs a look on the phone |
+
 ## 9. Feature roadmap (owner request, 2026-10-02)
 
 The owner asked for the full feature list, ordered by priority, to be built one wave at a time. Every feature gets its own capability switch (off by default), protocol and fixture changes, tests on both gateways, and README steps. Items that change §3 ("no file or credential tools") or a chapter 08 rule need an ADR in the same change. All items are TODO unless marked otherwise.
@@ -160,7 +172,7 @@ The owner asked for the full feature list, ordered by priority, to be built one 
 | Wake and keep-awake | Turn the screen on and keep it on during a session so a task is not cut off by the lock. |
 | More gestures | Double tap, long-press-drag, drag and drop, pinch, fling, pull to refresh. |
 
-**Wave 2 — files and posting** (ADR-026) · IN_REVIEW (built 2026-10-04 in one change, protocol 1.6, not yet run on a phone): gallery read, Download, picked folder with full create/read/update/delete and subfolders, computer ⇄ phone links (`get_file_link`, `upload_link`), `share_to_app` to any app. Replacing and deleting ask unless Auto mode is on.
+**Wave 2 — files and posting** (ADR-026, ADR-027) · IN_REVIEW (built 2026-10-04, protocol 1.6; first phone run 2026-10-04, §8; encrypted links of any size and the clipboard in protocol 1.7): gallery read, Download, picked folder with full create/read/update/delete and subfolders, computer ⇄ phone links (`get_file_link`, `upload_link`), `share_to_app` to any app. Replacing and deleting ask unless Auto mode is on.
 
 | Feature | Outcome |
 |---|---|

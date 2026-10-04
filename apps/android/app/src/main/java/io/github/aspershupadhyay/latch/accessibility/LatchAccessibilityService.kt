@@ -257,6 +257,16 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** Shows on the cursor what the AI is doing off screen (reading, saving, sharing). */
+    fun cursorStatus(text: String) {
+        if (cursorOn) cursor.status(text)
+    }
+
+    /** Shows a moving file on the cursor; null when nothing moves. */
+    fun cursorTransfer(text: String?, fraction: Float?) {
+        if (cursorOn) cursor.transfer(text, fraction)
+    }
+
     /** Applies the owner's cursor and keep-awake switches to a running session at once. */
     fun applyOverlayPreferences(showCursor: Boolean, keepAwake: Boolean) {
         if (showCursor && !cursorOn) {
@@ -1110,6 +1120,13 @@ class LatchAccessibilityService : AccessibilityService() {
         invalidate()
         // Accessibility services are exempt from background activity start limits.
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
+    }
+
+    /** Puts text on the clipboard (protocol 1.7). Latch never reads the clipboard. */
+    suspend fun setClipboard(text: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+        val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+            ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone has no clipboard")
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Latch", text))
     }
 
     fun currentPackage(): String? = (rootInActiveWindow ?: topAppWindowRoot())?.packageName?.toString() ?: foregroundPackage

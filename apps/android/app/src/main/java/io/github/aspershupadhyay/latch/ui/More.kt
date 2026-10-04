@@ -94,6 +94,12 @@ val catalog = mapOf(
         "Open an app's share screen with files, ready to post or send. Only apps you switched on. Posting and sending follow your app rules.",
         "medium", LatchIcons.Share,
     ),
+    Capability.CLIPBOARD_WRITE to CapabilityCopy(
+        "Copy to clipboard", "Puts text there to paste. Never reads it.",
+        "Nothing: Latch never reads your clipboard.",
+        "Put text on the clipboard, for example a caption to paste into Instagram. It replaces what you copied before.",
+        "low", LatchIcons.Clipboard,
+    ),
 )
 
 @Composable

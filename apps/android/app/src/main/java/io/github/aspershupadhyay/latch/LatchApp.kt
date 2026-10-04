@@ -28,6 +28,7 @@ import io.github.aspershupadhyay.latch.update.Updater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import io.github.aspershupadhyay.latch.files.PhoneFiles
+import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -62,6 +63,9 @@ class LatchApp : Application() {
         private set
     lateinit var updater: Updater
         private set
+    /** Whole files moving by encrypted link (protocol 1.7). */
+    lateinit var transfers: PhoneTransfers
+        private set
 
     /** Latch's own screen is in front; agents' screen commands move it aside first. */
     @Volatile var ownScreenShown = false
@@ -73,7 +77,8 @@ class LatchApp : Application() {
         consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
         autonomy = Autonomy(PrefsAutonomyStore(this))
         files = PhoneFiles(this) { settings.preferences.value.filesFolder?.let(android.net.Uri::parse) }
-        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files)
+        transfers = PhoneTransfers(files, http) { settings.pairing.value?.gatewayUrl }
+        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers)
         setup = GatewaySetup(http)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
@@ -125,6 +130,21 @@ class LatchApp : Application() {
             }
         }
         scope.launch {
+            combine(transfers.progress, bridge.service) { moving, service -> moving to service }.collect { (moving, service) ->
+                val first = moving.firstOrNull()
+                if (first == null) {
+                    service?.cursorTransfer(null, null)
+                    NotificationManagerCompat.from(this@LatchApp).cancel(NOTIFICATION_TRANSFER)
+                } else {
+                    val fraction = first.totalBytes?.takeIf { it > 0 }?.let { first.doneBytes.toFloat() / it }
+                    val verb = if (first.download) "Saving" else "Sending"
+                    val name = if (first.name.length <= 24) first.name else first.name.take(21) + "…"
+                    service?.cursorTransfer("$verb “$name”" + (fraction?.let { " · ${(it * 100).toInt()}%" } ?: ""), fraction)
+                    showTransferNotification(first, fraction, moving.size)
+                }
+            }
+        }
+        scope.launch {
             combine(approvals.pending, bridge.service) { pending, service -> pending to service }.collect { (pending, service) ->
                 if (pending != null) {
                     service?.showApproval(pending) { choice -> approvals.answer(pending.nonce, choice) }
@@ -165,7 +185,33 @@ class LatchApp : Application() {
         }
     }
 
+    /** A file moving by link: name, progress bar, and how much has moved. Never its contents. */
+    private fun showTransferNotification(first: PhoneTransfers.Progress, fraction: Float?, count: Int) {
+        val manager = NotificationManagerCompat.from(this)
+        if (!manager.areNotificationsEnabled()) return
+        val mb = { bytes: Long -> "%.1f MB".format(bytes / (1024.0 * 1024.0)) }
+        val title = (if (first.download) "Saving “${first.name}” on this phone" else "Sending “${first.name}” to your AI") +
+            if (count > 1) " (+${count - 1})" else ""
+        val text = first.totalBytes?.let { "${mb(first.doneBytes)} of ${mb(it)} · encrypted" } ?: "${mb(first.doneBytes)} · encrypted"
+        val notification = NotificationCompat.Builder(this, CHANNEL_SESSION)
+            .setSmallIcon(R.drawable.ic_stat_latch)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setProgress(100, ((fraction ?: 0f) * 100).toInt(), fraction == null)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .build()
+        try {
+            manager.notify(NOTIFICATION_TRANSFER, notification)
+        } catch (e: SecurityException) {
+            // Notification permission withdrawn; the cursor still shows the progress.
+        }
+    }
+
     companion object {
+        const val NOTIFICATION_TRANSFER = 3
         const val CHANNEL_SESSION = "session"
         const val CHANNEL_UPDATES = "updates"
         const val NOTIFICATION_UPDATED = 2

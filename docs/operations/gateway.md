@@ -13,6 +13,7 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 | `LATCH_PUBLIC_URL` | recommended | Public `https://` base URL, shown to phones during pairing. |
 | `LATCH_BIND` | no | Listen address. Default `127.0.0.1:8787`; with `PORT` set (Cloud Run, Render, Railway, Fly) it is `0.0.0.0:$PORT`; the container image uses `0.0.0.0:8787`. |
 | `LATCH_DATA_DIR` | no | Holds `devices.json` (device ids, names, token hashes). Default `./latch-data`; `/data` in the image. Back it up; losing it means re-pairing phones. |
+| `LATCH_MAX_TRANSFER_MB` | no | Largest file one link carries, in MB (default 2048, at most 4096). Links are streamed to a private temporary folder (mode 700) as AES-256 ciphertext; keys live only in memory; files are deleted when the phone has them or the link expires (15 minutes). All links together hold at most four times this size. |
 | `LATCH_ALLOWED_ORIGINS` | no | Comma-separated browser origins allowed to call `/mcp`. Requests carrying any other `Origin` header are rejected (DNS-rebinding defence). Server-side clients send no `Origin` and are unaffected. |
 | `RUST_LOG` | no | Log filter, default `info`. Logs never contain screen text, typed text, or tokens. |
 

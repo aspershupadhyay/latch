@@ -326,11 +326,11 @@ export class Gateway {
     // Clients that can show questions get the tool call as an event stream, so an
     // approval the phone waits on can be asked in the AI app as well.
     if (m.method === "tools/call" && (request.headers.get("accept") ?? "").includes("text/event-stream") && (await this.canElicit(client))) {
-      return this.streamToolCall(client, message, new URL(request.url).origin);
+      return this.streamToolCall(client, message, this.baseUrl(request));
     }
     // Without elicitation, a question the phone asks pauses the call so the AI can ask in the chat.
     const reply = await handleMcp(
-      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links, baseUrl: new URL(request.url).origin },
+      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links, baseUrl: this.baseUrl(request) },
       message,
     );
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);

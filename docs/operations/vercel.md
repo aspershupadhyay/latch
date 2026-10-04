@@ -54,6 +54,26 @@ The container gateway (`servers/mcp`) supports keys and secret links; OAuth ther
 | `LATCH_HOT_POLL_INTERVAL_MS` | no | The same while an agent is actively using the phone (the phone sends `hot=1` for 60 s after each command; default 100). |
 | `LATCH_RESULT_INTERVAL_MS` | no | How often a waiting tool call checks for the phone's answer (default 100). |
 | `LATCH_SETTLE_MS` | no | How long the phone lets the screen settle after an action before observing it (default 500, at most 3000). |
+| `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` | no | Set automatically when you connect a Vercel Blob store: file links then carry files up to 2 GB (see below). |
+| `LATCH_MAX_TRANSFER_MB` | no | Largest file through Vercel Blob, in MB (default 2048, at most 4096). |
+
+## Big files: Vercel Blob
+
+Vercel functions take at most 4.5 MB per request, so without help the gateway carries files of up to 4 MB. Connect a **private** Vercel Blob store and files of up to 2 GB move directly between your computer, the store, and your phone, never through a function:
+
+1. Vercel → your gateway project → **Storage** → **Create** → **Blob**.
+2. Set the access to **Private** (required: the gateway signs one-file links that work for 15 minutes; a public store would make files readable by URL).
+3. Connect it to the project for all environments, then redeploy (Deployments → ⋯ → Redeploy).
+
+How it works (protocol 1.7, ADR-027):
+
+- For each file the gateway makes a random link name and signs a 15-minute upload or download URL for that one name. Your computer and phone use those URLs directly.
+- Everything stored is **AES-256-CTR ciphertext**. The key is derived from your owner key for that one transfer and is never stored, not in Blob and not in Redis. Vercel Blob only ever holds scrambled bytes.
+- The phone checks the file's SHA-256 before keeping it; your computer's command checks it after downloading.
+- The phone follows a link only to Vercel Blob or to the address it was paired with. If you use a custom domain, set `LATCH_PUBLIC_URL` to it so small-file links (without Blob) use the same address.
+- A file sent to the phone is deleted from Blob as soon as the phone has it. A file copied off the phone stays until its link expires; the gateway deletes expired copies on later file tool calls.
+
+**Costs (check Vercel's current pricing).** Blob is free on the Hobby plan within its monthly allowance: about 1 GB of storage averaged over the month (a file kept for minutes barely counts), 10 GB of downloads (uploads are free), and 2,000 uploads. That is roughly ten 1 GB transfers a month. When a Hobby allowance runs out, Vercel turns Blob off for the rest of the 30 days instead of charging; the gateway then falls back to 4 MB links once you disconnect the store.
 
 ## Speed
 
@@ -75,6 +95,8 @@ Since protocol 1.2 the phone returns the screen after an action in the same answ
 - Phone commands arrive within about one poll interval (≤ 0.5 s idle, ≤ 0.1 s while an agent is working); a self-hosted container (`deploy/docker-compose.yml`) delivers them instantly.
 
 ## Privacy
+
+Files moved by link never pass through your functions or Redis in readable form: Vercel Blob (or Redis, for small files without Blob) holds only ciphertext whose key it never sees.
 
 Screen content passes through your Vercel functions and, briefly, your Redis (the latest element list for 2 minutes, command results for 1 minute; screenshots are never cached). Vercel and Upstash are therefore processors of that data under your accounts. If that is not acceptable, run the Docker gateway on hardware you control instead.
 
