@@ -139,12 +139,12 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const tools = (await client.listTools()).tools.map((t) => t.name);
   assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
-    "set_clipboard", "share_to_app",
+    "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "delete_skill",
     "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
   const apps = await client.callTool({ name: "list_apps", arguments: { query: " CHAT " } });
-  assert.match(text(apps), /^1 of 3 launchable apps on \S+ match "chat" /);
+  assert.match(text(apps), /^1 of 4 launchable apps on \S+ match "chat" /);
   assert.match(text(apps), /org\.latch\.demo\.chat/);
   assert.doesNotMatch(text(apps), /com\.android\.settings/);
 
@@ -271,6 +271,42 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   // so only the explicit observe call above sent ui.observe (waits are ui.wait).
   assert.equal((audit.body.events as { command: string }[]).filter((e) => e.command === "ui.observe").length, 1, auditText);
   assert.doesNotMatch(auditText, /hello from vercel|Wi-Fi|hunter2|milk|todo|clip\.mp4/, "audit must not contain content");
+
+  // ADR-031, same flow as the Rust gateway: save once, run with different carts, hand back what differs.
+  const skill = {
+    name: "order_groceries",
+    description: "Add items to the cart in the shop app",
+    params: [{ name: "items", type: "list", fields: ["name", "qty"] }],
+    steps: [
+      { do: "launch_app", package: "org.latch.demo.shop" },
+      { for_each: "items", steps: [
+        { do: "type", target: "Search products", text: "{item.name}", submit: true },
+        { do: "tap", target: "ADD || +", near: "{item.name}" },
+        { do: "tap", target: "+", near: "{item.name}", repeat: "{item.qty-1}" },
+      ] },
+      { do: "tap", target: "Not now", optional: true },
+    ],
+  };
+  assert.match(text(await client.callTool({ name: "save_skill", arguments: { skill } })), /^Saved skill "order_groceries" \(5 steps\)/);
+  assert.match(text(await client.callTool({ name: "list_skills", arguments: {} })), /items: list of \{name, qty\}/);
+  let ran = text(await client.callTool({ name: "run_skill", arguments: { name: "order_groceries", params: { items: [{ name: "White bread", qty: 1 }, { name: "Paneer", qty: 3 }] } } }));
+  assert.match(ran, /all 8 steps done/);
+  assert.match(ran, /"Cart \(4\)"/);
+  assert.match(ran, /\[n\d+\] TextView "3"/, "three paneer");
+  ran = text(await client.callTool({ name: "run_skill", arguments: { name: "order_groceries", params: { items: [{ name: "Tomato", qty: 2 }, { name: "Milk", qty: 1 }] } } }));
+  assert.match(ran, /all 8 steps done/);
+  assert.match(ran, /"Cart \(7\)"/);
+  ran = text(await client.callTool({ name: "run_skill", arguments: { name: "order_groceries", params: { items: [{ name: "Mango", qty: 1 }, { name: "Milk", qty: 1 }] } } }));
+  assert.match(ran, /stopped: could not find "ADD \|\| \+" near "Mango"/);
+  assert.match(ran, /from_step 4/);
+  assert.match(ran, /observation_id/);
+  ran = text(await client.callTool({ name: "run_skill", arguments: { name: "order_groceries", params: { items: [{ name: "Mango", qty: 1 }, { name: "Milk", qty: 1 }] }, from_step: 5 } }));
+  assert.match(ran, /all 8 steps done/);
+  assert.match(ran, /"Cart \(8\)"/);
+  const badRun = await client.callTool({ name: "run_skill", arguments: { name: "order_groceries", params: { items: [{ name: "Milk", qty: "two" }] } } });
+  assert.equal(badRun.isError, true);
+  assert.match(text(badRun), /is not a whole number/);
+  assert.equal(text(await client.callTool({ name: "delete_skill", arguments: { name: "order_groceries" } })), 'Deleted the skill "order_groceries".');
 
   // Revoke: the phone learns on its next poll and exits; tools report it gone.
   const deviceId = (await api("/v1/admin/devices")).body.devices[0].id;

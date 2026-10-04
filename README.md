@@ -156,6 +156,15 @@ In the Latch app, **Connect** → **Create key**, then give your app either:
 
 </details>
 
+### Skills: do it once, repeat it in one go ⚡
+
+After your AI does a task (say, filling a grocery cart), ask it to **save it as a skill**. Next time it runs in one call with whatever you need *this* time:
+
+- *"Order bread and 2 paneer"* today, *"order milk, 3 tomatoes, eggs, and rice"* tomorrow: same skill, different list.
+- It finds buttons by their words, picks the **ADD** next to the right product even when similar items are listed, and skips pop-ups.
+- If something is different (an item is out of stock, a new screen), it stops and your AI handles that step, then carries on.
+- Payments, sends, and anything that needs your OK still ask you, exactly as before. Skills live on **your** gateway.
+
 ### Step 8: Start a session and try it 🚀
 
 1. On the app's **Home** tab, pick how long (15, 30, 60, or 120 minutes) and tap **Start session**.

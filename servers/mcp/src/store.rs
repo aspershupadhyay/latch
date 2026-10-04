@@ -42,12 +42,16 @@ struct StoreFile {
     devices: Vec<DeviceRecord>,
     #[serde(default)]
     clients: Vec<ClientRecord>,
+    /// Saved skills (ADR-031), by name.
+    #[serde(default)]
+    skills: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 pub struct Store {
     path: PathBuf,
     devices: Vec<DeviceRecord>,
     clients: Vec<ClientRecord>,
+    skills: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl Store {
@@ -68,6 +72,7 @@ impl Store {
             path,
             devices: file.devices,
             clients: file.clients,
+            skills: file.skills,
         })
     }
 
@@ -77,6 +82,7 @@ impl Store {
             path: PathBuf::new(),
             devices: Vec::new(),
             clients: Vec::new(),
+            skills: std::collections::BTreeMap::new(),
         }
     }
 
@@ -88,6 +94,7 @@ impl Store {
             version: 2,
             devices: self.devices.clone(),
             clients: self.clients.clone(),
+            skills: self.skills.clone(),
         })
         .map_err(io::Error::other)?;
         let tmp = self.path.with_extension("json.tmp");
@@ -98,6 +105,30 @@ impl Store {
             std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
         }
         std::fs::rename(&tmp, &self.path)
+    }
+
+    /// Saved skills, sorted by name.
+    pub fn skills(&self) -> Vec<serde_json::Value> {
+        self.skills.values().cloned().collect()
+    }
+
+    pub fn skill(&self, name: &str) -> Option<serde_json::Value> {
+        self.skills.get(name).cloned()
+    }
+
+    /// Saves (or replaces) a validated skill under its name.
+    pub fn put_skill(&mut self, skill: serde_json::Value) -> io::Result<()> {
+        let name = skill["name"].as_str().unwrap_or_default().to_owned();
+        self.skills.insert(name, skill);
+        self.save()
+    }
+
+    pub fn delete_skill(&mut self, name: &str) -> io::Result<bool> {
+        let removed = self.skills.remove(name).is_some();
+        if removed {
+            self.save()?;
+        }
+        Ok(removed)
     }
 
     pub fn devices(&self) -> &[DeviceRecord] {

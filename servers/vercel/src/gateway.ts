@@ -355,7 +355,7 @@ export class Gateway {
     }
     // Without elicitation, a question the phone asks pauses the call so the AI can ask in the chat.
     const reply = await handleMcp(
-      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links, baseUrl: this.baseUrl(request) },
+      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links, baseUrl: this.baseUrl(request), skills: this.store },
       message,
     );
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);
@@ -392,7 +392,7 @@ export class Gateway {
   private streamToolCall(client: string, message: unknown, baseUrl: string): Response {
     const encoder = new TextEncoder();
     const store = this.store;
-    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl };
+    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl, skills: this.store };
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         let open = true;

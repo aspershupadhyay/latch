@@ -72,3 +72,70 @@ fn tool_errors_match() {
         serde_json::to_string_pretty(&cases).expect("json") + "\n",
     );
 }
+
+/// Skills (ADR-031): validation, expansion, and matching must agree word for
+/// word between this gateway and servers/vercel.
+#[test]
+fn skills_engine_matches() {
+    use latch_gateway::mcp::skills::{self, Want};
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/schemas/v1/skills");
+    let cases: Value =
+        serde_json::from_str(&std::fs::read_to_string(path.join("cases.json")).expect("cases"))
+            .expect("json");
+    let skill = skills::validate(&cases["skill"]).expect("the case skill is valid");
+    let expand: Vec<Value> = cases["expand"]
+        .as_array()
+        .expect("expand")
+        .iter()
+        .map(|c| match skills::expand(&skill, &c["params"]) {
+            Ok(steps) => {
+                let labels: Vec<String> = steps.iter().map(skills::label).collect();
+                json!({ "steps": steps, "labels": labels })
+            }
+            Err(e) => json!({ "error": e }),
+        })
+        .collect();
+    let validate: Vec<Value> = cases["validate"]
+        .as_array()
+        .expect("validate")
+        .iter()
+        .map(|s| match skills::validate(s) {
+            Ok(v) => json!({ "ok": v }),
+            Err(e) => json!({ "error": e }),
+        })
+        .collect();
+    let find: Vec<Value> = cases["find"]
+        .as_array()
+        .expect("find")
+        .iter()
+        .map(|c| {
+            let nodes: Vec<latch_protocol::UiNode> =
+                serde_json::from_value(c["nodes"].clone()).expect("nodes");
+            let want = if c["want"] == "type" {
+                Want::Type
+            } else {
+                Want::Tap
+            };
+            json!(skills::find(
+                &nodes,
+                c["target"].as_str().unwrap_or_default(),
+                c["near"].as_str(),
+                want
+            ))
+        })
+        .collect();
+    let generated = serde_json::to_string_pretty(
+        &json!({ "expand": expand, "validate": validate, "find": find }),
+    )
+    .expect("json")
+        + "\n";
+    let file = path.join("expected.json");
+    if std::env::var_os("LATCH_UPDATE_SCHEMAS").is_some() {
+        std::fs::write(&file, &generated).expect("write");
+        return;
+    }
+    assert!(
+        std::fs::read_to_string(&file).unwrap_or_default() == generated,
+        "skills/expected.json is out of date; regenerate with LATCH_UPDATE_SCHEMAS=1"
+    );
+}
