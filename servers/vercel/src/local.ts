@@ -3,14 +3,16 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { Gateway, configFromEnv } from "./gateway.js";
+import { Gateway, PRIVATE_HEADERS, configFromEnv } from "./gateway.js";
 import { MemoryStore, storeFromEnv } from "./store.js";
 
 const STATIC: Record<string, [string, string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],
-  "/admin.js": ["admin.js", "text/javascript; charset=utf-8"],
-  "/admin.css": ["admin.css", "text/css; charset=utf-8"],
+  "/gateway.css": ["gateway.css", "text/css; charset=utf-8"],
+  "/robots.txt": ["robots.txt", "text/plain; charset=utf-8"],
 };
+
+export const PAGE_CSP = "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 async function toRequest(req: IncomingMessage, origin: string): Promise<Request> {
   const chunks: Buffer[] = [];
@@ -45,6 +47,9 @@ export function startLocal(gateway: Gateway, port: number) {
     const asset = STATIC[path];
     if (asset && req.method === "GET") {
       const file = fileURLToPath(new URL(`../public/${asset[0]}`, import.meta.url));
+      // What vercel.json sets for public/ in production.
+      for (const [k, v] of Object.entries(PRIVATE_HEADERS)) res.setHeader(k, v);
+      res.setHeader("content-security-policy", PAGE_CSP);
       res.setHeader("content-type", asset[1]);
       res.end(await readFile(file));
       return;

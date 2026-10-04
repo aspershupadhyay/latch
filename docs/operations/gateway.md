@@ -8,7 +8,7 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `LATCH_ADMIN_TOKEN` | yes | Opens the owner console and the pairing/revocation API. ≥ 32 characters. Never give it to an AI client. |
+| `LATCH_ADMIN_TOKEN` | yes | The owner key: the pairing, revocation, and AI-key API, used by the Latch app. ≥ 32 characters. Never give it to an AI client, and never type it into a web page. |
 | `LATCH_MCP_TOKEN` | yes (`serve`) | Bearer token MCP clients send. ≥ 32 characters, different from the admin token. |
 | `LATCH_PUBLIC_URL` | recommended | Public `https://` base URL, shown to phones during pairing. |
 | `LATCH_BIND` | no | Listen address. Default `127.0.0.1:8787`; with `PORT` set (Cloud Run, Render, Railway, Fly) it is `0.0.0.0:$PORT`; the container image uses `0.0.0.0:8787`. |
@@ -26,8 +26,11 @@ Generate tokens with `latch-gateway gen-token` (or `openssl rand -hex 32`).
 | `POST /mcp` | MCP clients (Streamable HTTP, JSON responses) | `Authorization: Bearer $LATCH_MCP_TOKEN` |
 | `GET /v1/device` | Phones (WebSocket) | per-phone token issued at pairing |
 | `POST /v1/pair` | Phones, once | single-use pairing code |
-| `/` and `/v1/admin/*` | You, in a browser | `LATCH_ADMIN_TOKEN` |
-| `GET /healthz` | Load balancers | none; returns version and connected-device count only |
+| `/v1/admin/*` | You, from the Latch app (or curl) | `LATCH_ADMIN_TOKEN` |
+| `GET /` | Anyone | none; a static "private gateway" page with no scripts, forms, or data |
+| `GET /healthz` | Load balancers | none; returns status, version, and protocol only |
+
+**Private by default.** Every answer carries `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex`, `X-Frame-Options: DENY`, HSTS, and a locked-down `Permissions-Policy`; `/robots.txt` disallows everything. Search engines and browsers get nothing to index, frame, or sign in to. Access still rests on the keys, not on the address staying secret: hosting addresses appear in public certificate logs. See ADR-029.
 
 ## Deploy
 
@@ -53,12 +56,12 @@ claude mcp add --transport http latch https://latch.example.com/mcp \
   --header "Authorization: Bearer $LATCH_MCP_TOKEN"
 ```
 
-Other clients: Streamable HTTP URL `https://latch.example.com/mcp` with header `Authorization: Bearer <LATCH_MCP_TOKEN>`. The console's "Connect an AI client" card shows ready-to-paste snippets.
+Other clients: Streamable HTTP URL `https://latch.example.com/mcp` with header `Authorization: Bearer <LATCH_MCP_TOKEN>`. The app's **Connect** tab creates one key per AI app with ready-to-paste snippets.
 
 ## Day-2 operations
 
-- **Pair a phone:** console → *Pair a phone* → enter the address and code in the app within 10 minutes. Codes are single use; 20 wrong guesses a minute lock pairing for a minute.
-- **Revoke a phone:** console → *Revoke*. The phone is disconnected immediately and its token stops working.
+- **Pair a phone:** in the Latch app, enter the gateway address and the owner key; the app creates its own single-use code and pairs. Without the app: `curl -X POST https://latch.example.com/v1/admin/pairings -H "Authorization: Bearer $LATCH_ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"name":"Pixel"}'` and enter the code within 10 minutes. 20 wrong guesses a minute lock pairing for a minute.
+- **Revoke a phone:** in the app, or `curl -X DELETE https://latch.example.com/v1/admin/devices/<id> -H "Authorization: Bearer $LATCH_ADMIN_TOKEN"`. The phone is disconnected immediately and its token stops working.
 - **Rotate the MCP token:** change `LATCH_MCP_TOKEN` and restart; update clients. Phones are unaffected.
 - **Rotate the admin token:** change `LATCH_ADMIN_TOKEN` and restart.
 - **Suspected leak of a phone token:** revoke that phone and pair again.

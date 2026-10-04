@@ -453,7 +453,80 @@ async fn http_boundary_rejects_bad_credentials_and_origins() {
     assert!(tokio_tungstenite::connect_async(request).await.is_err());
     let (status, health) = http(&gw, "GET", "/healthz", None, None, &[]).await;
     assert_eq!(status, 200);
-    assert_eq!(health["devices_connected"], 0);
+    assert_eq!(health["status"], "ok");
+}
+
+/// Raw GET: status line and headers (lower-cased) plus the body as text.
+async fn get_raw(gw: &Gateway, path: &str) -> (u16, String, String) {
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        gw.addr
+    );
+    let mut stream = tokio::net::TcpStream::connect(gw.addr)
+        .await
+        .expect("connect");
+    stream.write_all(request.as_bytes()).await.expect("write");
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).await.expect("read");
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    let (head, body) = text.split_once("\r\n\r\n").expect("http response");
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .expect("status");
+    (status, head.to_ascii_lowercase(), body.to_string())
+}
+
+#[tokio::test]
+async fn the_gateway_is_private_to_browsers_and_search_engines() {
+    let gw = start_gateway().await;
+    // The page at "/" asks for nothing and runs nothing.
+    let (status, head, body) = get_raw(&gw, "/").await;
+    assert_eq!(status, 200);
+    assert!(head.contains("content-security-policy: default-src 'none'"));
+    assert!(head.contains("script-src 'none'"));
+    for absent in [
+        "<form",
+        "<input",
+        "<script",
+        "password",
+        "LATCH_ADMIN_TOKEN",
+    ] {
+        assert!(!body.contains(absent), "the page must not contain {absent}");
+    }
+    // The old console with its owner-key box is gone.
+    assert_eq!(get_raw(&gw, "/admin.js").await.0, 404);
+    let (status, _, robots) = get_raw(&gw, "/robots.txt").await;
+    assert_eq!(status, 200);
+    assert!(robots.contains("Disallow: /"));
+    // Every answer, page or API, found or not, says noindex and cannot be framed.
+    for path in [
+        "/",
+        "/gateway.css",
+        "/healthz",
+        "/v1/info",
+        "/v1/admin/devices",
+        "/mcp",
+        "/nope",
+    ] {
+        let (_, head, _) = get_raw(&gw, path).await;
+        assert!(
+            head.contains("x-robots-tag: noindex"),
+            "{path} lacks noindex"
+        );
+        assert!(
+            head.contains("x-frame-options: deny"),
+            "{path} can be framed"
+        );
+        assert!(
+            head.contains("strict-transport-security"),
+            "{path} lacks HSTS"
+        );
+    }
+    // Public health tells nothing about the owner's phones.
+    let (_, _, health) = get_raw(&gw, "/healthz").await;
+    assert!(!health.contains("devices"));
 }
 
 #[tokio::test]

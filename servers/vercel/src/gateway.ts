@@ -1,6 +1,6 @@
 // HTTP routes of the Vercel gateway. Same paths, status codes, and JSON shapes
 // as the Rust gateway (servers/mcp/src/http.rs and device_http.rs), so the
-// phone app and the owner console work against either.
+// phone app works against either. The page at "/" is static (public/).
 
 import { type DeviceRecord, Devices, type Timing } from "./devices.js";
 import { MAX_TRANSFER_BYTES, Transfers, sizeText } from "./files.js";
@@ -55,6 +55,25 @@ const MAX_PAIR_FAILURES_PER_MINUTE = 20;
 /** How long an approval question stays open in the AI app (the phone's own deadline). */
 const ELICIT_MS = 120_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * On every answer, pages and APIs alike (vercel.json repeats them for public/):
+ * a gateway is private, so search engines must not index it, browsers must not
+ * frame it, and HTTPS sticks. Same set as the Rust gateway's `private_headers`.
+ */
+export const PRIVATE_HEADERS: Readonly<Record<string, string>> = {
+  "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+  "x-frame-options": "DENY",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "strict-transport-security": "max-age=63072000; includeSubDomains",
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+};
+
+function withPrivateHeaders(response: Response): Response {
+  for (const [k, v] of Object.entries(PRIVATE_HEADERS)) response.headers.set(k, v);
+  return response;
+}
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });
@@ -121,6 +140,10 @@ export class Gateway {
 
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
+    return withPrivateHeaders(await this.routeSafely(request, path));
+  }
+
+  private async routeSafely(request: Request, path: string): Promise<Response> {
     try {
       return await this.route(request, path);
     } catch (e) {
@@ -178,7 +201,7 @@ export class Gateway {
         "content-type": isValidMime(file.mime) ? file.mime : "application/octet-stream",
         "content-disposition": `attachment; filename="${safe}"`,
         "cache-control": "no-store",
-        // A phone file is never a page of this gateway (the owner console lives here).
+        // A phone file is never a page of this gateway.
         "x-content-type-options": "nosniff",
         "content-security-policy": "sandbox; default-src 'none'",
       },
@@ -223,13 +246,13 @@ export class Gateway {
 
   // ---- Public ----
 
-  private async health() {
+  /** Public, so it tells nothing about the owner: not even whether a phone is online. */
+  private health() {
     return json(200, {
       status: this.setupMode ? "setup_required" : "ok",
       version: "0.1.0",
       protocol: PROTOCOL_VERSION,
       ...BUILD,
-      devices_connected: this.setupMode ? 0 : (await this.devices.online()).length,
     });
   }
 
@@ -525,7 +548,7 @@ export class Gateway {
     return noContent();
   }
 
-  // ---- Owner console API ----
+  // ---- Owner API (the phone app, with the owner key) ----
 
   private async admin(request: Request, path: string, method: string): Promise<Response> {
     if (path === "devices" && method === "GET") {

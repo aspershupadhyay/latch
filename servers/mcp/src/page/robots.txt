@@ -1,0 +1,6 @@
+# A private Latch gateway. Nothing here is for search engines.
+# "/" stays crawlable only so crawlers can read its noindex; every response
+# also carries X-Robots-Tag: noindex.
+User-agent: *
+Allow: /$
+Disallow: /

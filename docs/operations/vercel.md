@@ -24,13 +24,13 @@ Without the app, use the button: [![Deploy with Vercel](https://vercel.com/butto
 
 ## Connecting an AI app
 
-**Just the URL (recommended).** Add `https://<you>.vercel.app/mcp` as a remote MCP server in any MCP client: Claude, ChatGPT, Codex, Cursor, VS Code, Windsurf, or your own agent. The client finds the sign-in on its own (MCP authorization: OAuth 2.1 with PKCE, discovered through `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`), registers itself, and opens a Latch page in your browser. Approve it in the Latch app (**Connect** tab; check the 4-character code matches) or on that page with your owner key. The app then appears in your list of AI apps; revoke it there and its access stops at once.
+**Just the URL (recommended).** Add `https://<you>.vercel.app/mcp` as a remote MCP server in any MCP client: Claude, ChatGPT, Codex, Cursor, VS Code, Windsurf, or your own agent. The client finds the sign-in on its own (MCP authorization: OAuth 2.1 with PKCE, discovered through `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`), registers itself, and opens a Latch page in your browser. Approve it in the Latch app (**Connect** tab; check the 4-character code matches). The page can only deny: it never asks for your owner key, so a page that does is not yours. The app then appears in your list of AI apps; revoke it there and its access stops at once.
 
 - Clients register with dynamic client registration (RFC 7591) or a client ID metadata document (an `https://` client_id).
 - Public clients only, authorization code + PKCE S256. Redirects must be https, loopback http (any port), or an app scheme such as `cursor://`.
 - Access tokens last 1 hour; refresh tokens 90 days and rotate on every use. Tokens are stored as SHA-256 hashes.
 
-**Keys, for clients without OAuth.** Create one key per app in the **Connect** tab or the web console. Each key comes in two forms:
+**Keys, for clients without OAuth.** Create one key per app in the app's **Connect** tab. Each key comes in two forms:
 
 | Your AI app asks for | Use |
 |---|---|
@@ -84,7 +84,7 @@ One phone action costs about a dozen Redis round trips (authentication, lock, qu
 
 If your phone and AI are far from the US, move both: create the Upstash database in the region nearest to you and set Vercel → **Settings → Functions → Function Region** to the matching region, then redeploy.
 
-**Diagnose:** every tool result carries `_meta["latch/timing"]` with `lock_wait_ms` (waiting for an earlier command), `phone_ms` (from queueing until the phone's answer: transport, phone work, and approval), and `total_ms` (everything the gateway spent). A large `total_ms - phone_ms` points at slow storage round trips; a large `phone_ms` at the phone's network or work. The owner console's activity table shows the same total as latency.
+**Diagnose:** every tool result carries `_meta["latch/timing"]` with `lock_wait_ms` (waiting for an earlier command), `phone_ms` (from queueing until the phone's answer: transport, phone work, and approval), and `total_ms` (everything the gateway spent). A large `total_ms - phone_ms` points at slow storage round trips; a large `phone_ms` at the phone's network or work. The owner API's audit (`GET /v1/admin/audit`) records the same total as `latency_ms`.
 
 Since protocol 1.2 the phone returns the screen after an action in the same answer, so an action costs one phone round trip, not two. Agents should not call `observe` again after an action.
 
@@ -100,9 +100,15 @@ Files moved by link never pass through your functions or Redis in readable form:
 
 Screen content passes through your Vercel functions and, briefly, your Redis (the latest element list for 2 minutes, command results for 1 minute; screenshots are never cached). Vercel and Upstash are therefore processors of that data under your accounts. If that is not acceptable, run the Docker gateway on hardware you control instead.
 
+## Private by default
+
+The gateway is not a website. `/` shows a static "private gateway" page with no scripts, forms, or data; the owner key is only ever used by the Latch app. Every answer carries `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex`, `X-Frame-Options: DENY`, HSTS, and a locked-down `Permissions-Policy` (set by the function and, for `public/`, by `vercel.json`), and `/robots.txt` disallows crawling. `/healthz` shows only status, version, and protocol, never whether a phone is online.
+
+Everything else needs a credential: an MCP key or OAuth token for `/mcp`, the phone's own token for `/v1/device/*`, the owner key for `/v1/admin/*`, a single-use code for `/v1/pair` (20 wrong guesses a minute lock it), and a 256-bit, 15-minute token for file links. Keys are 256-bit random, stored as SHA-256 hashes, and compared in constant time, so guessing is not a practical attack. Do not rely on the address staying secret: `*.vercel.app` names appear in public certificate logs. Optional extra layers: Vercel's firewall (Attack Challenge Mode, IP rules) and a custom domain.
+
 ## Operate
 
-- **Revoke a phone or an AI key:** phone app or web console. Effective immediately.
+- **Revoke a phone or an AI key:** in the phone app. Effective immediately.
 - **Rotate the owner key:** change `LATCH_ADMIN_TOKEN` in Vercel → redeploy → on the phone, Settings → Forget this gateway → Connect again with the new key.
 - **Stop everything:** pause or delete the Vercel project. Phones show "Reconnecting" and run nothing.
 - **Update:** Vercel redeploys when you sync your fork or press Redeploy.
