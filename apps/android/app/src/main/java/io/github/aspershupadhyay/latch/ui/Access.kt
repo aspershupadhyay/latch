@@ -81,8 +81,8 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
         "With this on, the AI can read, save, rename, replace, and delete files, only in the places you allow. Replacing and deleting ask you unless Auto mode is on.",
     ),
     SHARING(
-        "Share & clipboard", LatchIcons.Share, listOf(Capability.APP_SHARE, Capability.CLIPBOARD_WRITE),
-        "With this on, the AI can hand files to an app's share screen and put text on the clipboard. It never reads the clipboard.",
+        "Share, clipboard & log", LatchIcons.Share, listOf(Capability.APP_SHARE, Capability.CLIPBOARD_WRITE, Capability.ACTIVITY_READ),
+        "With this on, the AI can hand files to an app's share screen, put text on the clipboard, and read Latch's activity log when you ask what happened. It never reads the clipboard.",
     ),
     WORKING(
         "While the AI works", LatchIcons.Phone, emptyList(),

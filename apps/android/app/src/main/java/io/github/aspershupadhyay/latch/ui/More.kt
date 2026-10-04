@@ -1,6 +1,11 @@
 package io.github.aspershupadhyay.latch.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -94,6 +99,12 @@ val catalog = mapOf(
         "Put text on the clipboard, for example a caption to paste into Instagram. It replaces what you copied before.",
         "low", LatchIcons.Clipboard,
     ),
+    Capability.ACTIVITY_READ to CapabilityCopy(
+        "Read the activity log", "What happened, when you ask in the chat.",
+        "Latch's own log: apps used, actions, your answers, files. Never screen or typed text.",
+        "Let the AI read Latch's activity log, so it can tell you what it did and what you approved or refused.",
+        "low", LatchIcons.Pulse,
+    ),
 )
 
 @Composable
@@ -113,45 +124,140 @@ internal fun ScreenColumn(content: @Composable () -> Unit) {
 
 private fun iconFor(kind: ActivityKind) = when (kind) {
     ActivityKind.SESSION -> LatchIcons.Clock
-    ActivityKind.OBSERVE -> LatchIcons.Eye
+    ActivityKind.CONNECTION -> LatchIcons.Cloud
+    ActivityKind.SCREEN -> LatchIcons.Eye
     ActivityKind.ACTION -> LatchIcons.Tap
+    ActivityKind.APP -> LatchIcons.Apps
     ActivityKind.APPROVAL -> LatchIcons.ShieldCheck
     ActivityKind.REFUSAL -> LatchIcons.Warning
-    ActivityKind.CONNECTION -> LatchIcons.Cloud
+    ActivityKind.FILE -> LatchIcons.Copy
+    ActivityKind.FOLDER -> LatchIcons.Folder
+    ActivityKind.TASK -> LatchIcons.Check
 }
 
+/** The Activity filters, in the order the owner looks for things. Session also covers the connection. */
+internal enum class ActivityFilter(val label: String, val kinds: Set<ActivityKind>?) {
+    ALL("All", null),
+    ACTIONS("Actions", setOf(ActivityKind.ACTION)),
+    APPS("App access", setOf(ActivityKind.APP)),
+    APPROVALS("Approvals", setOf(ActivityKind.APPROVAL)),
+    REFUSED("Refused", setOf(ActivityKind.REFUSAL)),
+    FILES("Files", setOf(ActivityKind.FILE)),
+    FOLDERS("Folders", setOf(ActivityKind.FOLDER)),
+    SCREEN("Screen reads", setOf(ActivityKind.SCREEN)),
+    TASKS("Tasks", setOf(ActivityKind.TASK)),
+    SESSION("Session", setOf(ActivityKind.SESSION, ActivityKind.CONNECTION)),
+    ;
+
+    fun matches(e: ActivityEntry) = kinds == null || e.kind in kinds
+}
+
+/** "Today", "Yesterday", or the date, for the day headers. */
+private fun dayLabel(atMs: Long, nowMs: Long): String {
+    val zone = java.util.TimeZone.getDefault()
+    fun day(ms: Long) = (ms + zone.getOffset(ms)) / 86_400_000L
+    return when (day(nowMs) - day(atMs)) {
+        0L -> "Today"
+        1L -> "Yesterday"
+        else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(atMs))
+    }
+}
+
+/**
+ * Everything the AI did, asked, and was refused, newest first, filterable by
+ * kind. Kept on this phone for a week; never screen or typed text.
+ */
 @Composable
 fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
     val signal = LocalSignal.current
     val format = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
-    ScreenColumn {
-        ScreenTitle("Activity", "Only on this phone. Never screen or typed text.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Pill("${entries.count { it.kind == ActivityKind.ACTION }} actions", signal.accent, LatchIcons.Tap)
-            Pill("${entries.count { it.kind == ActivityKind.APPROVAL }} approvals", signal.warning, LatchIcons.ShieldCheck)
-            Pill("${entries.count { it.kind == ActivityKind.REFUSAL }} refused", signal.danger, LatchIcons.Warning)
-        }
-        if (entries.isEmpty()) {
-            Card {
-                ListRow(LatchIcons.Pulse, "Nothing yet", "Start a session and connect an AI app.", tint = signal.text2)
-            }
-        } else {
-            Card {
-                entries.take(100).forEachIndexed { index, e ->
-                    if (index > 0) RowDivider()
-                    val tint = when (e.kind) {
-                        ActivityKind.REFUSAL -> signal.danger
-                        ActivityKind.APPROVAL -> signal.warning
-                        ActivityKind.ACTION -> signal.accent
-                        else -> signal.text2
+    var filter by rememberSaveable { mutableStateOf(ActivityFilter.ALL) }
+    var confirmClear by remember { mutableStateOf(false) }
+    val counts = remember(entries) { ActivityFilter.entries.associateWith { f -> entries.count(f::matches) } }
+    val shown = remember(entries, filter) { entries.filter(filter::matches) }
+    val now = remember(entries) { System.currentTimeMillis() }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item { ScreenTitle("Activity", "Every app, action, approval, refusal, and file. Kept on this phone for 7 days; never screen or typed text.") }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(ActivityFilter.entries.filter { it == ActivityFilter.ALL || counts[it] != 0 || it == filter }, key = { it.name }) { f ->
+                    val selected = f == filter
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50))
+                            .background(if (selected) signal.ink else signal.text2.copy(alpha = 0.12f))
+                            .selectable(selected = selected, role = Role.Tab) { filter = f }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${f.label} ${counts[f] ?: 0}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (selected) signal.canvas else signal.text,
+                            maxLines = 1,
+                        )
                     }
-                    ListRow(iconFor(e.kind), e.summary, format.format(Date(e.atMs)), tint = tint)
                 }
             }
-            TextButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) { Text("Clear activity") }
+        }
+        if (shown.isEmpty()) {
+            item {
+                Card {
+                    ListRow(
+                        LatchIcons.Pulse,
+                        if (entries.isEmpty()) "Nothing yet" else "Nothing in ${filter.label}",
+                        if (entries.isEmpty()) "Start a session and connect an AI app." else "Pick another filter above.",
+                        tint = signal.text2,
+                    )
+                }
+            }
+        }
+        var lastDay: String? = null
+        shown.take(SHOWN_ENTRIES).forEachIndexed { i, e ->
+            val day = dayLabel(e.atMs, now)
+            if (day != lastDay) {
+                lastDay = day
+                item(key = "day-$day-$i") { SectionCaption(day) }
+            }
+            item(key = "e-${e.atMs}-$i") {
+                val tint = when (e.kind) {
+                    ActivityKind.REFUSAL -> signal.danger
+                    ActivityKind.APPROVAL, ActivityKind.APP -> signal.warning
+                    ActivityKind.ACTION, ActivityKind.TASK -> signal.accent
+                    ActivityKind.FILE, ActivityKind.FOLDER -> signal.accent2
+                    else -> signal.text2
+                }
+                Card {
+                    ListRow(
+                        iconFor(e.kind),
+                        e.summary,
+                        listOfNotNull(format.format(Date(e.atMs)), e.kind.label, e.app).joinToString(" · "),
+                        tint = tint,
+                    )
+                }
+            }
+        }
+        if (entries.isNotEmpty()) {
+            item { TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth()) { Text("Clear activity", color = signal.danger) } }
         }
     }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Clear all activity?") },
+            text = { Text("Every line is deleted from this phone. The AI's past actions cannot be listed again afterwards.") },
+            confirmButton = { TextButton(onClick = { onClear(); confirmClear = false }) { Text("Clear", color = signal.danger) } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+        )
+    }
 }
+
+/** Lines drawn at once; the log keeps more, and the AI can read all of them. */
+private const val SHOWN_ENTRIES = 500
 
 @Composable
 fun SettingsScreen(

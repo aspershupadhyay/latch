@@ -54,7 +54,8 @@ class LatchApp : Application() {
     )
     lateinit var settings: Settings
         private set
-    val log = ActivityLog()
+    /** Kept on the phone for a week (ADR-028); created on first use, once the app has its files folder. */
+    val log by lazy { ActivityLog(java.io.File(filesDir, "activity.jsonl")) }
     val bridge = DeviceBridge()
     val approvals = ApprovalBroker()
     lateinit var session: SessionController
@@ -86,6 +87,8 @@ class LatchApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Crashes.install(this)
+        // A failure that closed Latch last time is shown in Activity, without content.
+        Crashes.takeLastFatal()?.let { (what, _) -> log.add(ActivityKind.REFUSAL, "Latch closed unexpectedly last time: $what") }
         settings = Settings(this)
         grants = ApprovalGrants(PrefsGrantStore(this))
         consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))

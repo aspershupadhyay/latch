@@ -15,6 +15,7 @@ import io.github.aspershupadhyay.latch.policy.Consequence
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.Judgement
 import io.github.aspershupadhyay.latch.protocol.ActionResult
+import io.github.aspershupadhyay.latch.protocol.ActivityList
 import io.github.aspershupadhyay.latch.protocol.AppList
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
@@ -94,6 +95,8 @@ fun describe(command: Command): String = when (command) {
     is Command.PushFile -> "Copy a file from your phone"
     is Command.TransferStatus -> if (command.cancel) "Stop a file transfer" else "Check a file transfer"
     is Command.SetClipboard -> "Copy ${command.text.codePointCount(0, command.text.length)} characters to the clipboard"
+    is Command.ListActivity -> "Read Latch's activity log"
+    is Command.TaskDone -> "Say the task is done"
 }
 
 private fun where(location: FileLocation) = when (location) {
@@ -143,7 +146,8 @@ private fun worksOnScreen(command: Command): Boolean = when (command) {
     Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.AskOwner,
     is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
     is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share,
-    is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard -> false
+    is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
+    is Command.ListActivity, is Command.TaskDone -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
 }
@@ -162,6 +166,9 @@ private const val EXPECT_CHANGE_MS = 450L
 private const val TYPE_EXPECT_CHANGE_MS = 900L
 
 private const val SYSTEM_UI = "com.android.systemui"
+
+/** Activity lines that happen inside an app and so name it. */
+private val IN_APP_KINDS = setOf(ActivityKind.SCREEN, ActivityKind.ACTION, ActivityKind.APPROVAL, ActivityKind.REFUSAL)
 
 /** Android's app choosers ("Open with", "Share"): a tap there opens another app. */
 private val CHOOSER_PACKAGES = setOf("android", "com.android.intentresolver", "com.google.android.intentresolver")
@@ -245,7 +252,7 @@ class CommandExecutor(
 
         // Latch in front would refuse every screen command; step aside to the home screen first.
         if (worksOnScreen(command) && bridge.service.value?.stepAsideFromLatch() == true) {
-            log.add(ActivityKind.ACTION, "Went to the home screen so the AI can work (Latch is off limits to it)")
+            note(ActivityKind.ACTION, "Went to the home screen so the AI can work (Latch is off limits to it)")
         }
 
         // Only apps the owner allowed; the first use of an app asks once.
@@ -255,6 +262,15 @@ class CommandExecutor(
         val judged = if (command.isAction && command !is Command.AskOwner) approve(envelope, session) else null
         // After a question to the owner, the cursor says what happens next again.
         cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
+
+        if (command is Command.ListActivity) {
+            return Protocol.json.encodeToJsonElement(ActivityList.serializer(), log.query(command.limit, command.kinds, command.sinceMs))
+        }
+        if (command is Command.TaskDone) {
+            bridge.service.value?.cursorFinish()
+            log.add(ActivityKind.TASK, command.summary?.let { "The AI finished: $it" } ?: "The AI said the task is done")
+            return Protocol.json.encodeToJsonElement(ActionResult.serializer(), ActionResult())
+        }
 
         if (command == Command.DeviceInfoCommand) {
             val service = bridge.service.value
@@ -279,18 +295,18 @@ class CommandExecutor(
         return when (command) {
             is Command.ListFiles -> {
                 val list = files().list(command.location, command.folder, command.query, command.limit, command.offset)
-                log.add(ActivityKind.OBSERVE, "${describe(command)} · ${list.items.size} shown")
+                note(ActivityKind.FOLDER, "${describe(command)} · ${list.items.size} shown")
                 Protocol.json.encodeToJsonElement(FileList.serializer(), list)
             }
             is Command.PreviewFile -> {
                 val preview = files().preview(command.id)
-                log.add(ActivityKind.OBSERVE, "Looked at “${preview.item.name}”")
+                note(ActivityKind.FILE, "Looked at “${preview.item.name}”")
                 Protocol.json.encodeToJsonElement(FilePreview.serializer(), preview)
             }
             is Command.ReadFile -> {
                 val chunk = files().read(command.id, command.offset, command.length)
                 // One line per file, not per chunk.
-                if (command.offset == 0L) log.add(ActivityKind.OBSERVE, "Copied “${chunk.item.name}” off the phone")
+                if (command.offset == 0L) note(ActivityKind.FILE, "Copied “${chunk.item.name}” off the phone")
                 Protocol.json.encodeToJsonElement(FileChunk.serializer(), chunk)
             }
             is Command.WriteFile -> {
@@ -298,60 +314,60 @@ class CommandExecutor(
                     command.location, command.folder, command.subfolder, command.fileName, command.mime,
                     command.dataBase64, command.append, command.overwrite,
                 )
-                if (!command.append) log.add(ActivityKind.ACTION, judged ?: describe(command))
+                if (!command.append) note(ActivityKind.FILE, judged ?: describe(command))
                 Protocol.json.encodeToJsonElement(FileItem.serializer(), item)
             }
             is Command.FetchFile -> {
                 val result = transfers().fetch(command)
-                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                note(ActivityKind.FILE, judged ?: describe(command))
                 Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
             }
             is Command.PushFile -> {
                 val result = transfers().push(command)
-                log.add(ActivityKind.OBSERVE, "Copied a file off the phone")
+                note(ActivityKind.FILE, "Copied a file off the phone")
                 Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
             }
             is Command.TransferStatus -> {
                 // Never longer than the command's own deadline allows.
                 val wait = command.waitMs.toLong().coerceAtMost((envelope.deadlineMs - 2_000).coerceAtLeast(0))
                 val result = transfers().status(command.transfer, wait, command.cancel)
-                if (command.cancel) log.add(ActivityKind.ACTION, describe(command))
+                if (command.cancel) note(ActivityKind.FILE, describe(command))
                 Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
             }
             is Command.SetClipboard -> {
                 service.setClipboard(command.text)
                 // The text itself never goes into the log.
-                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                note(ActivityKind.ACTION, judged ?: describe(command))
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), action)
             }
             is Command.MakeFolder -> {
                 val item = files().mkdir(command.folder, command.folderName)
-                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                note(ActivityKind.FOLDER, judged ?: describe(command))
                 Protocol.json.encodeToJsonElement(FileItem.serializer(), item)
             }
             is Command.RenameFile -> {
                 val item = files().rename(command.id, command.newName)
-                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                note(ActivityKind.FILE, judged ?: describe(command))
                 Protocol.json.encodeToJsonElement(FileItem.serializer(), item)
             }
             is Command.DeleteFile -> {
                 files().delete(command.id)
-                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                note(ActivityKind.FILE, judged ?: describe(command))
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), action)
             }
             is Command.Observe -> {
                 val observation = service.observe(command.includeScreenshot, command.maxNodes)
-                log.add(ActivityKind.OBSERVE, "${describe(command)} · ${observation.`package` ?: "unknown app"}")
+                note(ActivityKind.SCREEN, "${describe(command)} · ${observation.`package` ?: "unknown app"}")
                 Protocol.json.encodeToJsonElement(Observation.serializer(), observation)
             }
             Command.ListApps -> {
-                log.add(ActivityKind.OBSERVE, describe(command))
+                note(ActivityKind.SCREEN, describe(command))
                 Protocol.json.encodeToJsonElement(AppList.serializer(), AppList(service.listApps()))
             }
             is Command.WaitFor -> {
                 // The searched-for text is the agent's, not screen content, but the log stays content-free anyway.
                 val waited = service.waitFor(command.text, command.gone, command.timeoutMs, command.maxNodes)
-                log.add(ActivityKind.OBSERVE, "${describe(command)} · ${if (waited.matched) "done" else "timed out"}")
+                note(ActivityKind.SCREEN, "${describe(command)} · ${if (waited.matched) "done" else "timed out"}")
                 Protocol.json.encodeToJsonElement(WaitResult.serializer(), waited)
             }
             else -> {
@@ -388,7 +404,7 @@ class CommandExecutor(
                     is Command.ScrollTo ->
                         found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
                 }
-                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                note(ActivityKind.ACTION, judged ?: describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted, owner = owner)
                 envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
@@ -435,7 +451,7 @@ class CommandExecutor(
         val appOn = inApp != null && !exempt(inApp) && autonomy?.decide(inApp) == AppDecision.ALLOWED
         val systemDialog = inApp != null && consequences.isCriticalPackage(inApp)
         if (!session.approveEveryAction && ((appOn && (!critical || trustCritical)) || (systemDialog && trustCritical))) {
-            log.add(
+            note(
                 ActivityKind.APPROVAL,
                 when {
                     autonomy.state.value.autoOn -> "Done without asking (Auto mode): $title"
@@ -446,30 +462,30 @@ class CommandExecutor(
             return title
         }
         if (key != null && grants.allows(key)) {
-            log.add(ActivityKind.APPROVAL, "Allowed by your saved choice: $title")
+            note(ActivityKind.APPROVAL, "Allowed by your saved choice: $title")
             return title
         }
-        log.add(ActivityKind.APPROVAL, "Asked you: $title")
+        note(ActivityKind.APPROVAL, "Asked you: $title")
         // Leave the gateway a little time to receive the answer before its deadline.
         val timeout = approvalTimeout(envelope.deadlineMs)
         val app = bridge.service.value?.currentPackage()?.let(appName)
         waitingForOwner()
         when (approvals.request(title, detail, risk, timeout, rememberable = key != null, appName = app, commandId = envelope.id)) {
-            ApprovalOutcome.APPROVED_ONCE -> log.add(ActivityKind.APPROVAL, "You approved: $title")
+            ApprovalOutcome.APPROVED_ONCE -> note(ActivityKind.APPROVAL, "You approved: $title")
             ApprovalOutcome.APPROVED_SESSION -> {
                 grants.allowForSession(key!!)
-                log.add(ActivityKind.APPROVAL, "You approved for this session: $title")
+                note(ActivityKind.APPROVAL, "You approved for this session: $title")
             }
             ApprovalOutcome.APPROVED_ALWAYS -> {
                 grants.allowAlways(key!!)
-                log.add(ActivityKind.APPROVAL, "You always allow: $title")
+                note(ActivityKind.APPROVAL, "You always allow: $title")
             }
             ApprovalOutcome.DENIED -> {
-                log.add(ActivityKind.APPROVAL, "You denied: $title")
+                note(ActivityKind.REFUSAL, "You denied: $title")
                 throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
             }
             ApprovalOutcome.EXPIRED -> {
-                log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
+                note(ActivityKind.REFUSAL, "Expired without an answer: $title")
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
             }
         }
@@ -498,10 +514,10 @@ class CommandExecutor(
         val strict = session.approveEveryAction && !(command is Command.WriteFile && command.append)
         if (!risky && !strict) return title
         if (!strict && autonomy?.state?.value?.autoOn == true) {
-            log.add(ActivityKind.APPROVAL, "Done without asking (Auto mode): $title")
+            note(ActivityKind.APPROVAL, "Done without asking (Auto mode): $title")
             return title
         }
-        log.add(ActivityKind.APPROVAL, "Asked you: $title")
+        note(ActivityKind.APPROVAL, "Asked you: $title")
         waitingForOwner()
         val outcome = approvals.request(
             title, if (risky) FILE_DETAIL else AGENT_DETAIL, if (risky) "high" else "medium",
@@ -509,14 +525,14 @@ class CommandExecutor(
         )
         when (outcome) {
             ApprovalOutcome.DENIED -> {
-                log.add(ActivityKind.APPROVAL, "You denied: $title")
+                note(ActivityKind.REFUSAL, "You denied: $title")
                 throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
             }
             ApprovalOutcome.EXPIRED -> {
-                log.add(ActivityKind.APPROVAL, "Expired without an answer: $title")
+                note(ActivityKind.REFUSAL, "Expired without an answer: $title")
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
             }
-            else -> log.add(ActivityKind.APPROVAL, "You approved: $title")
+            else -> note(ActivityKind.APPROVAL, "You approved: $title")
         }
         return title
     }
@@ -526,7 +542,7 @@ class CommandExecutor(
      * "I can't". The AI app can never answer this (it is not offered there).
      */
     private suspend fun askOwner(command: Command.AskOwner, envelope: CommandEnvelope): String {
-        log.add(ActivityKind.APPROVAL, "The AI asked you: ${command.message}")
+        note(ActivityKind.APPROVAL, "The AI asked you: ${command.message}")
         waitingForOwner()
         val outcome = approvals.request(
             title = command.message,
@@ -538,18 +554,24 @@ class CommandExecutor(
         )
         return when (outcome) {
             ApprovalOutcome.EXPIRED -> {
-                log.add(ActivityKind.APPROVAL, "No answer to the AI's request")
+                note(ActivityKind.APPROVAL, "No answer to the AI's request")
                 "no_answer"
             }
             ApprovalOutcome.DENIED -> {
-                log.add(ActivityKind.APPROVAL, "You said you can't do it now")
+                note(ActivityKind.APPROVAL, "You said you can't do it now")
                 "cant"
             }
             else -> {
-                log.add(ActivityKind.APPROVAL, "You said it's done")
+                note(ActivityKind.APPROVAL, "You said it's done")
                 "done"
             }
         }
+    }
+
+    /** A line in Activity; screen, action, and approval lines name the app they happened in. */
+    private fun note(kind: ActivityKind, summary: String) {
+        val app = if (kind in IN_APP_KINDS) bridge.service.value?.currentPackage()?.let { appName(it) ?: it } else null
+        log.add(kind, summary, app)
     }
 
     /** The cursor says the phone is waiting for the owner, not for the AI. */
@@ -570,7 +592,8 @@ class CommandExecutor(
         Command.DeviceInfoCommand, Command.ListApps, is Command.AskOwner,
         is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
         is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile,
-        is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard -> null
+        is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
+        is Command.ListActivity, is Command.TaskDone -> null
         is Command.LaunchApp -> command.packageName
         // Sharing opens that app: only apps the owner allowed (or Auto mode).
         is Command.Share -> command.packageName
@@ -589,7 +612,7 @@ class CommandExecutor(
         if (exempt(target) || access.decide(target) == AppDecision.ALLOWED) return
         val name = appName(target) ?: target
         val sensitive = consequences.isSensitiveApp(target, name)
-        log.add(ActivityKind.APPROVAL, "Asked you: let the AI use $name")
+        note(ActivityKind.APP, "Asked you: let the AI use $name")
         val timeout = approvalTimeout(envelope.deadlineMs)
         waitingForOwner()
         val outcome = approvals.request(
@@ -607,18 +630,18 @@ class CommandExecutor(
         when (outcome) {
             ApprovalOutcome.APPROVED_ALWAYS -> {
                 access.setAllowed(target, true)
-                log.add(ActivityKind.APPROVAL, "You switched on $name for the AI")
+                note(ActivityKind.APP, "You switched on $name for the AI")
             }
             ApprovalOutcome.APPROVED_SESSION, ApprovalOutcome.APPROVED_ONCE -> {
                 access.allowForSession(target)
-                log.add(ActivityKind.APPROVAL, "You let the AI use $name for this session")
+                note(ActivityKind.APP, "You let the AI use $name for this session")
             }
             ApprovalOutcome.DENIED -> {
-                log.add(ActivityKind.APPROVAL, "You did not let the AI use $name")
+                note(ActivityKind.REFUSAL, "You did not let the AI use $name")
                 throw ProtocolException(ErrorCode.USER_DENIED, "the owner did not let AI use $name; do not open it again unless they ask")
             }
             ApprovalOutcome.EXPIRED -> {
-                log.add(ActivityKind.APPROVAL, "Expired without an answer: let the AI use $name")
+                note(ActivityKind.REFUSAL, "Expired without an answer: let the AI use $name")
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer whether AI may use $name")
             }
         }
@@ -701,7 +724,7 @@ class CommandExecutor(
                 }
             }
             val observation = service.observe(after.includeScreenshot, after.maxNodes)
-            log.add(ActivityKind.OBSERVE, "Read the screen after the action · ${observation.`package` ?: "unknown app"}")
+            note(ActivityKind.SCREEN, "Read the screen after the action · ${observation.`package` ?: "unknown app"}")
             result.copy(`package` = observation.`package` ?: result.`package`, observation = observation)
         } catch (e: ProtocolException) {
             result.copy(observationError = ErrorBody(e.code.wire, e.message ?: e.code.wire))

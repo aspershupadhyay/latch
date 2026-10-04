@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.7"
+    const val VERSION = "1.8"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -81,6 +81,8 @@ enum class Capability(val wire: String) {
     APP_SHARE("app.share"),
     /** Since 1.7: put text on the clipboard (never read it). */
     CLIPBOARD_WRITE("clipboard.write"),
+    /** Since 1.8: read Latch's own activity log (never screen content). */
+    ACTIVITY_READ("activity.read"),
     ;
 
     companion object {
@@ -264,6 +266,19 @@ data class FileTransfer(
     val item: FileItem? = null,
     val sha256: String? = null,
 )
+
+/** Since 1.8: one activity log line; never screen content or typed text. */
+@Serializable
+data class ActivityItem(
+    @SerialName("at_ms") val atMs: Long,
+    val kind: String,
+    val summary: String,
+    val app: String? = null,
+)
+
+/** Since 1.8: answer to `activity.list`, newest first. */
+@Serializable
+data class ActivityList(val entries: List<ActivityItem>, val total: Int)
 
 /** Result of `ui.wait` (since 1.3). */
 @Serializable
@@ -558,6 +573,20 @@ sealed interface Command {
         override val name = "clipboard.set"
         override val requiredCapabilities = listOf(Capability.CLIPBOARD_WRITE)
     }
+
+    /** Since 1.8: the newest activity log entries, optionally only some [kinds] and since [sinceMs]. */
+    data class ListActivity(val limit: Int, val kinds: List<String>, val sinceMs: Long?) : Command {
+        override val name = "activity.list"
+        override val requiredCapabilities = listOf(Capability.ACTIVITY_READ)
+        override val isAction = false
+    }
+
+    /** Since 1.8: the AI finished its task; the cursor goes and [summary] is logged. */
+    data class TaskDone(val summary: String?) : Command {
+        override val name = "task.done"
+        override val requiredCapabilities = emptyList<Capability>()
+        override val isAction = false
+    }
 }
 
 /** Saving, renaming, and deleting files: changes made off screen. */
@@ -790,6 +819,14 @@ object GatewayParser {
                 params.bool("cancel", false),
             )
             "clipboard.set" -> Command.SetClipboard(params.str("text"))
+            "activity.list" -> Command.ListActivity(
+                if (params.containsKey("limit")) params.int("limit") else 50,
+                (params["kinds"] as? kotlinx.serialization.json.JsonArray)?.map {
+                    (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: invalid("kinds must be strings")
+                } ?: if (params["kinds"] == null) emptyList() else invalid("kinds must be a list"),
+                if (params.containsKey("since_ms")) params.long("since_ms") else null,
+            )
+            "task.done" -> Command.TaskDone(params.optStr("summary"))
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
         }
     }
@@ -840,6 +877,10 @@ object Limits {
     const val MAX_LINK_URL_CHARS = 4_096
     const val MAX_LINK_HEADERS = 8
     const val MAX_CLIPBOARD_CHARS = 10_000
+    const val MAX_ACTIVITY_ENTRIES = 500
+    const val MAX_TASK_SUMMARY_CHARS = 500
+    /** Since 1.8: the activity kinds `activity.list` may ask for. */
+    val ACTIVITY_KINDS = setOf("session", "connection", "screen", "action", "app", "approval", "refusal", "file", "folder", "task")
 
     fun isHex(value: String, length: Int) = value.length == length && value.all { it in '0'..'9' || it in 'a'..'f' }
 
@@ -1003,6 +1044,15 @@ object Validation {
             is Command.TransferStatus -> {
                 id(command.transfer)
                 if (command.waitMs !in 0..Limits.MAX_WAIT_MS) invalid("wait_ms out of range")
+            }
+            is Command.ListActivity -> {
+                if (command.limit !in 1..Limits.MAX_ACTIVITY_ENTRIES) invalid("limit out of range")
+                if (command.kinds.size > 10 || command.kinds.any { it !in Limits.ACTIVITY_KINDS }) invalid("unknown activity kind")
+                if (command.sinceMs != null && command.sinceMs < 0) invalid("since_ms out of range")
+            }
+            is Command.TaskDone -> command.summary?.let { s ->
+                if (s.codePointCount(0, s.length) > Limits.MAX_TASK_SUMMARY_CHARS) invalid("summary too long")
+                if (s.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
             is Command.SetClipboard -> {
                 val n = command.text.codePointCount(0, command.text.length)

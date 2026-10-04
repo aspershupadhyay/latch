@@ -141,7 +141,7 @@ class ScreenSnapshotTest {
                 ActivityEntry(now, ActivityKind.ACTION, "Tap an element"),
                 ActivityEntry(now, ActivityKind.APPROVAL, "You approved: Tap “Send” in WhatsApp"),
                 ActivityEntry(now, ActivityKind.REFUSAL, "Refused input.type: sensitive_target"),
-                ActivityEntry(now, ActivityKind.OBSERVE, "Read the screen and take a screenshot · com.whatsapp"),
+                ActivityEntry(now, ActivityKind.SCREEN, "Read the screen and take a screenshot · com.whatsapp"),
             ),
             onClear = {},
         )
