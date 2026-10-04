@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.selection.selectable
@@ -44,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.contentDescription
@@ -143,8 +145,9 @@ fun AppsScreen(
                     items(chips, key = { it.first }) { (name, count) ->
                         val selected = name == category
                         Row(
-                            Modifier.clip(RoundedCornerShape(50))
-                                .background(if (selected) signal.ink else signal.text2.copy(alpha = 0.12f))
+                            Modifier.clip(RoundedCornerShape(6.dp))
+                                .background(if (selected) signal.ink else Color.Transparent)
+                                .border(1.dp, if (selected) signal.ink else signal.border2, RoundedCornerShape(6.dp))
                                 .selectable(selected = selected, role = Role.Tab) { category = name }
                                 .padding(horizontal = 14.dp, vertical = 8.dp),
                         ) {

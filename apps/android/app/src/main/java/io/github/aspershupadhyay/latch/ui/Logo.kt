@@ -39,10 +39,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aspershupadhyay.latch.ui.theme.Cream
 import io.github.aspershupadhyay.latch.ui.theme.Display
+import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import io.github.aspershupadhyay.latch.ui.theme.Ember
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import kotlinx.coroutines.delay
@@ -190,7 +192,7 @@ fun LatchIntro(reducedMotion: Boolean, onDone: () -> Unit) {
                     translationY = 14.dp.toPx() * (1f - word.value)
                 },
             ) {
-                Text("latch", style = MaterialTheme.typography.displayMedium.copy(fontFamily = Display, letterSpacing = (-0.5).sp), color = signal.text)
+                Text("latch", style = MaterialTheme.typography.displayMedium.copy(fontFamily = GeistMono, fontWeight = FontWeight.SemiBold, letterSpacing = (-1.5).sp), color = signal.text)
                 Text("Your phone. Your rules.", style = MaterialTheme.typography.bodyMedium, color = signal.text2)
             }
         }

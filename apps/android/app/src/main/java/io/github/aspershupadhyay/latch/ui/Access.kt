@@ -13,6 +13,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -90,6 +92,15 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
         "While the AI works", LatchIcons.Phone, emptyList(),
         "What you see on the phone while a session runs. None of this gives the AI anything.",
     ),
+}
+
+/** The bright hue that marks a group's glyph, count, and edge on its dark tinted panel. */
+private fun Signal.hueOf(group: AccessGroup) = when (group) {
+    AccessGroup.AI -> accent
+    AccessGroup.SCREEN -> mint
+    AccessGroup.FILES -> warning
+    AccessGroup.SHARING -> accent2
+    AccessGroup.WORKING -> text2
 }
 
 private fun Signal.colorOf(group: AccessGroup) = when (group) {
@@ -284,11 +295,9 @@ private fun RowScope.GroupTile(
         minHeight = 184.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-                Icon(group.icon, contentDescription = null, tint = ink, modifier = Modifier.size(22.dp))
-            }
+            IconBadge(group.icon, signal.hueOf(group), size = 40.dp)
             Spacer(Modifier.weight(1f))
-            if (group.capabilities.isNotEmpty()) CountRing(on, group.capabilities.size, ink)
+            if (group.capabilities.isNotEmpty()) CountRing(on, group.capabilities.size, signal.hueOf(group))
         }
         Spacer(Modifier.height(6.dp))
         Text(group.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -305,8 +314,12 @@ private fun RowScope.GroupTile(
                     modifier = Modifier.semantics { contentDescription = "${group.title}, all switches" },
                 )
             } else {
-                Box(Modifier.size(36.dp).clip(CircleShape).background(ink), contentAlignment = Alignment.Center) {
-                    Icon(LatchIcons.ChevronRight, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Box(
+                    Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f))
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(LatchIcons.ChevronRight, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -322,7 +335,7 @@ private fun CountRing(on: Int, total: Int, color: Color) {
             val inset = stroke / 2
             val arcSize = Size(size.width - stroke, size.height - stroke)
             drawArc(color.copy(alpha = 0.16f), 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
-            if (on > 0) drawArc(color, -90f, 360f * on / total, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+            if (on > 0) drawArc(color, -90f, 360f * on / total, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Butt))
         }
         Text("$on/$total", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.bodySmall.letterSpacing), color = color)
     }
@@ -333,7 +346,7 @@ private fun CountRing(on: Int, total: Int, color: Color) {
 private fun GroupHeader(group: AccessGroup, enabled: Set<Capability>, onBack: () -> Unit, onToggleGroup: (Boolean) -> Unit) {
     val signal = LocalSignal.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-        IconButton(onClick = onBack, modifier = Modifier.size(44.dp).clip(CircleShape).background(signal.surface)) {
+        IconButton(onClick = onBack, modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(signal.surface).border(1.dp, signal.border, RoundedCornerShape(8.dp))) {
             Icon(LatchIcons.Back, contentDescription = "Back to Access", tint = signal.text, modifier = Modifier.size(20.dp))
         }
         Text(
@@ -349,17 +362,16 @@ private fun GroupHeader(group: AccessGroup, enabled: Set<Capability>, onBack: ()
     val ink = if (pastel) signal.onPastel else signal.text
     Card(color = color) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).clip(CircleShape).background(if (pastel) Color.White else signal.surface2), contentAlignment = Alignment.Center) {
-                Icon(group.icon, contentDescription = null, tint = ink, modifier = Modifier.size(24.dp))
-            }
+            IconBadge(group.icon, signal.hueOf(group), size = 44.dp)
             Spacer(Modifier.width(14.dp))
             Text(group.intro, style = MaterialTheme.typography.bodyMedium, color = ink.copy(alpha = 0.82f), modifier = Modifier.weight(1f))
         }
         if (group.capabilities.isNotEmpty()) {
             val on = group.capabilities.count { it in enabled }
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 10.dp).clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.55f)).padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp).clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.3f)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                    .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {

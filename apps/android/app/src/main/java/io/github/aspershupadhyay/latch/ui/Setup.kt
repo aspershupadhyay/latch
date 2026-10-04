@@ -195,7 +195,7 @@ fun SetupScreen(state: SetupState, actions: SetupActions) {
 
             Spacer(Modifier.size(4.dp))
             AnimatedVisibility(state.complete, enter = if (state.reducedMotion) EnterTransition.None else fadeIn() + expandVertically()) {
-                PrimaryButton("Done, take me home", actions.finish, Modifier.fillMaxWidth(), color = signal.success, contentColor = if (signal.dark) Color.Black else Color.White)
+                PrimaryButton("Done, take me home", actions.finish, Modifier.fillMaxWidth(), color = signal.success, contentColor = signal.onInk)
             }
             if (!state.complete) {
                 TextButton(onClick = actions.later, modifier = Modifier.fillMaxWidth()) {
@@ -225,9 +225,9 @@ private fun StepCard(
     val signal = LocalSignal.current
     val done = state.done(step)
     val current = state.current == step
-    val ring by animateColorAsState(if (current) signal.accent else Color.Transparent, tween(if (state.reducedMotion) 0 else 300), label = "stepBorder")
+    val ring by animateColorAsState(if (current) signal.accent else signal.border, tween(if (state.reducedMotion) 0 else 300), label = "stepBorder")
     Column(
-        Modifier.fillMaxWidth().clip(CardShape).background(signal.surface).border(2.dp, ring, CardShape).padding(16.dp),
+        Modifier.fillMaxWidth().clip(CardShape).background(signal.surface).border(if (current) 1.5.dp else 1.dp, ring, CardShape).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -262,10 +262,11 @@ private fun StepCard(
 private fun StepNumber(n: Int, current: Boolean) {
     val signal = LocalSignal.current
     Box(
-        Modifier.size(28.dp).clip(CircleShape).background(if (current) signal.accent else signal.surface2),
+        Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(if (current) signal.accent else signal.surface2)
+            .border(1.dp, if (current) signal.accent else signal.border2, RoundedCornerShape(6.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        Text("$n", style = MaterialTheme.typography.labelLarge, color = if (current) (if (signal.dark) Color.Black else Color.White) else signal.text2)
+        Text("%02d".format(n), style = MaterialTheme.typography.labelMedium, color = if (current) signal.onInk else signal.text2)
     }
 }
 
@@ -286,7 +287,8 @@ private fun StepButtons(primary: Pair<String, () -> Unit>, secondary: Pair<Strin
 private fun Hint(title: String, text: String) {
     val signal = LocalSignal.current
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)).padding(12.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(signal.warning.copy(alpha = 0.08f))
+            .border(1.dp, signal.warning.copy(alpha = 0.3f), RoundedCornerShape(8.dp)).padding(12.dp),
     ) {
         Icon(LatchIcons.Info, contentDescription = null, tint = signal.warning, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
@@ -302,8 +304,8 @@ private fun PresetOption(preset: AccessPreset, selected: Boolean, onClick: () ->
     val signal = LocalSignal.current
     val ring by animateColorAsState(if (selected) signal.accent else signal.border, label = "presetBorder")
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .border(if (selected) 2.dp else 1.dp, ring, RoundedCornerShape(18.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .border(if (selected) 1.5.dp else 1.dp, ring, RoundedCornerShape(10.dp))
             .background(if (selected) signal.accent.copy(alpha = 0.08f) else Color.Transparent)
             .clickable(role = Role.RadioButton, onClickLabel = preset.title, onClick = onClick)
             .padding(12.dp),

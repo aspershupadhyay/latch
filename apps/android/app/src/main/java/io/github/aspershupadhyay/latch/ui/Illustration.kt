@@ -42,8 +42,8 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 @Composable
 fun ConnectionIllustration(reducedMotion: Boolean, modifier: Modifier = Modifier, onPastel: Boolean = false) {
     val base = LocalSignal.current
-    // On a pastel card the drawing uses dark ink and white shapes, the same in both themes.
-    val signal = if (onPastel) base.copy(surface2 = Color.White, border = base.onPastel.copy(alpha = 0.18f), text = base.onPastel, text2 = base.onPastel.copy(alpha = 0.7f), accent = Ember, canvas = Cream) else base
+    // On a tinted panel the drawing sinks its shapes a little darker so they still read against the wash.
+    val signal = if (onPastel) base.copy(surface2 = Color.Black.copy(alpha = 0.4f), border = Color.White.copy(alpha = 0.14f), accent = Ember) else base
     val sparkle = rememberVectorPainter(LatchIcons.Sparkle)
     val shield = rememberVectorPainter(LatchIcons.Mark)
     val transition = rememberInfiniteTransition(label = "illustration")

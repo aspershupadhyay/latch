@@ -38,11 +38,11 @@ class StopPill(
     private val d = resources.displayMetrics.density
     private fun dp(v: Float) = v * d
 
-    private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(242, 31, 26, 22) }
-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = Color.argb(40, 255, 248, 238) }
-    private val ember = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
-    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
-    private val stopFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(217, 58, 43) }
+    private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(242, 17, 17, 20) }
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = Color.argb(46, 237, 237, 239) }
+    private val ember = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
+    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
+    private val stopFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(229, 72, 77) }
     private val stopGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
 
     private val h = dp(44f)

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.Latch" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/canvas</item>
-        <item name="android:windowSplashScreenBackground">@color/canvas</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>
-    </style>
-</resources>

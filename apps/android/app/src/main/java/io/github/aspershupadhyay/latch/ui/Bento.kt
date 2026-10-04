@@ -32,16 +32,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val TileShape = RoundedCornerShape(26.dp)
+val TileShape = RoundedCornerShape(10.dp)
+val ButtonShape = RoundedCornerShape(6.dp)
 val Gap = 12.dp
 
 /** A row of bento tiles that share the tallest tile's height. */
@@ -67,15 +69,17 @@ fun Tile(
         brush != null -> m.background(brush)
         else -> m.background(color ?: signal.surface)
     }
-    if (brush == null && color == null && !signal.dark) m = m.border(BorderStroke(1.dp, signal.border), TileShape)
+    // Every tile has a hairline edge; a tinted tile's edge carries its hue.
+    val edge = if (color != null && color != signal.surface) lerp(color, signal.text, 0.12f) else signal.border
+    m = m.border(BorderStroke(1.dp, if (brush != null) Color.White.copy(alpha = 0.08f) else edge), TileShape)
     if (onClick != null) m = m.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
     Column(m.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
 }
 
 /** Small uppercase label at the top of a tile. */
 @Composable
-fun TileLabel(text: String, color: Color = LocalSignal.current.text2) {
-    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+fun TileLabel(text: String, color: Color = LocalSignal.current.text2, maxLines: Int = 1) {
+    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
 
 /** The big number or word that is the point of a tile. */
@@ -94,9 +98,10 @@ fun ColumnScope.Push() = Spacer(Modifier.weight(1f))
 
 @Composable
 fun ScreenTitle(title: String, subtitle: String? = null) {
-    Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
-        Text(title, style = MaterialTheme.typography.displaySmall, color = LocalSignal.current.text, modifier = Modifier.semantics { heading() })
-        subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = LocalSignal.current.text2) }
+    val signal = LocalSignal.current
+    Column(Modifier.padding(top = 8.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.displaySmall, color = signal.text, modifier = Modifier.semantics { heading() })
+        subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = signal.text2) }
     }
 }
 
@@ -116,7 +121,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = CircleShape,
+        shape = ButtonShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = color ?: signal.ink,
             contentColor = contentColor ?: if (color == null) signal.onInk else Color.White,
@@ -129,14 +134,18 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
 @Composable
 fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, contentColor: Color? = null) {
     val signal = LocalSignal.current
-    // A soft filled button, quieter than the primary one (Apple's "gray" button style).
+    // A hairline outline button, quieter than the primary one.
+    val ink = contentColor ?: signal.text
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = CircleShape,
+        shape = ButtonShape,
+        border = BorderStroke(1.dp, if (enabled) ink.copy(alpha = if (contentColor != null) 0.45f else 0.22f) else signal.border),
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (contentColor != null) contentColor.copy(alpha = 0.16f) else signal.accent.copy(alpha = if (signal.dark) 0.18f else 0.10f),
-            contentColor = contentColor ?: signal.accent,
+            containerColor = ink.copy(alpha = 0.05f),
+            contentColor = ink,
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = signal.disabled,
         ),
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
         modifier = modifier.heightIn(min = 52.dp),
@@ -148,14 +157,14 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
 fun CopyRow(label: String, value: String, onCopy: () -> Unit, masked: Boolean = false) {
     val signal = LocalSignal.current
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(signal.surface2).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(signal.canvas).border(1.dp, signal.border2, RoundedCornerShape(8.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        TileLabel(label)
+        TileLabel(label, maxLines = 3)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (masked) value.take(10) + "•".repeat(14) else value,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = GeistMono,
                 style = MaterialTheme.typography.bodyMedium,
                 color = signal.text,
                 maxLines = 2,

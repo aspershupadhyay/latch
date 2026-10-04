@@ -3,6 +3,7 @@
 package io.github.aspershupadhyay.latch.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -139,7 +141,7 @@ private fun InfoSheetButton(title: String, modifier: Modifier = Modifier, onPast
     var open by rememberSaveable { mutableStateOf(false) }
     IconButton(
         onClick = { open = true },
-        modifier = modifier.size(40.dp).then(if (onPastel) Modifier.padding(2.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.7f)) else Modifier),
+        modifier = modifier.size(40.dp).then(if (onPastel) Modifier.padding(4.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp)) else Modifier),
     ) {
         Icon(LatchIcons.Info, contentDescription = "Explain: $title", tint = if (onPastel) signal.onPastel else signal.accent, modifier = Modifier.size(20.dp))
     }
@@ -188,7 +190,7 @@ fun LabeledField(
             keyboardOptions = keyboardOptions,
             visualTransformation = visualTransformation,
             textStyle = textStyle ?: MaterialTheme.typography.bodyLarge,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(8.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = signal.accent,
                 unfocusedBorderColor = signal.border,
@@ -256,10 +258,11 @@ fun GuideScreen(onBack: () -> Unit, onStart: (() -> Unit)? = null) {
                 Card {
                     Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         Box(
-                            Modifier.size(30.dp).clip(CircleShape).background(signal.accent),
+                            Modifier.size(30.dp).clip(RoundedCornerShape(6.dp)).background(signal.accent.copy(alpha = 0.1f))
+                                .border(1.dp, signal.accent.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("${index + 1}", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            Text("%02d".format(index + 1), style = MaterialTheme.typography.labelMedium, color = signal.accent)
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(step.title, style = MaterialTheme.typography.titleMedium, color = signal.text)

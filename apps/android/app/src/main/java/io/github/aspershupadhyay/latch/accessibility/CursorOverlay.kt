@@ -13,6 +13,7 @@ import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
+import io.github.aspershupadhyay.latch.R
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -126,8 +127,8 @@ class CursorOverlay(private val context: Context) {
         private val density = resources.displayMetrics.density
         /** The arrow is drawn in a 24-unit grid; one unit is this many pixels. */
         private val unit = 1.05f * density
-        /** Latch terracotta (the brand colour), bright enough on dark and light screens. */
-        private val accent = Color.rgb(194, 83, 45)
+        /** Latch ember (the brand colour, as on the website), bright enough on dark and light screens. */
+        private val accent = Color.rgb(255, 106, 61)
 
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
         private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -150,7 +151,7 @@ class CursorOverlay(private val context: Context) {
             strokeCap = Paint.Cap.ROUND
             color = accent
         }
-        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(31, 26, 22) }
+        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(17, 17, 20) }
         private val pillEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 1 * density
@@ -158,12 +159,13 @@ class CursorOverlay(private val context: Context) {
         }
         private val label = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 12.5f * density
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textSize = 12f * density
+            // Geist Mono, as in the app; the system bold face if the font cannot load.
+            typeface = runCatching { resources.getFont(R.font.geist_mono_medium) }.getOrElse { Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
         }
-        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
+        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) }
-        private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
+        private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
 
         // ---- State (screen pixels, uptime ms) ----
         private var x = -1f

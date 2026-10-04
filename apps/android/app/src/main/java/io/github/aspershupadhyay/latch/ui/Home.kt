@@ -13,7 +13,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +60,7 @@ import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.ApprovalKind
 import io.github.aspershupadhyay.latch.ui.theme.Cream
+import io.github.aspershupadhyay.latch.ui.theme.Ember
 import io.github.aspershupadhyay.latch.ui.theme.HeroActive
 import io.github.aspershupadhyay.latch.ui.theme.HeroAttention
 import io.github.aspershupadhyay.latch.ui.theme.HeroIdle
@@ -79,7 +82,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(greeting(), style = MaterialTheme.typography.headlineSmall, color = signal.text)
-                Text(state.phoneName, style = MaterialTheme.typography.bodyMedium, color = signal.text2)
+                Text(state.phoneName, style = MaterialTheme.typography.labelMedium, color = signal.text2)
             }
             Pill(
                 if (state.encrypted) "Private" else "Not private",
@@ -167,7 +170,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 onClickLabel = "Change what the AI can do",
                 minHeight = 168.dp,
             ) {
-                TileHead(LatchIcons.ShieldCheck, "Access")
+                TileHead(LatchIcons.ShieldCheck, "Access", signal.accent)
                 Spacer(Modifier.height(10.dp))
                 BigNumber("${state.enabled.size}")
                 Push()
@@ -184,7 +187,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 onClickLabel = "Open activity",
                 minHeight = 168.dp,
             ) {
-                TileHead(LatchIcons.Pulse, "Activity")
+                TileHead(LatchIcons.Pulse, "Activity", signal.accent2)
                 Spacer(Modifier.height(10.dp))
                 BigNumber("${state.activityCount}")
                 Push()
@@ -197,9 +200,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
         }
         Tile(color = signal.butter, onClick = actions.goConnect, onClickLabel = "Connect an AI app", minHeight = 0.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-                    Icon(LatchIcons.Plug, contentDescription = null, tint = signal.onPastel, modifier = Modifier.size(22.dp))
-                }
+                IconBadge(LatchIcons.Plug, signal.warning, size = 42.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Connect your AI", style = MaterialTheme.typography.titleMedium, color = signal.onPastel)
@@ -209,8 +210,8 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                         color = signal.onPastel.copy(alpha = 0.72f),
                     )
                 }
-                Box(Modifier.size(36.dp).clip(CircleShape).background(signal.onPastel), contentAlignment = Alignment.Center) {
-                    Icon(LatchIcons.ChevronRight, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Box(Modifier.size(34.dp).clip(RoundedCornerShape(6.dp)).background(signal.accent), contentAlignment = Alignment.Center) {
+                    Icon(LatchIcons.ChevronRight, contentDescription = null, tint = signal.onInk, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -225,14 +226,12 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
     }
 }
 
-/** A white icon chip and an uppercase label at the top of a pastel tile. */
+/** A square glyph chip in the tile's hue and a mono uppercase label at the top of a tinted tile. */
 @Composable
-private fun TileHead(icon: ImageVector, label: String) {
+private fun TileHead(icon: ImageVector, label: String, tint: Color) {
     val signal = LocalSignal.current
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = signal.onPastel, modifier = Modifier.size(20.dp))
-        }
+        IconBadge(icon, tint, size = 34.dp)
         Spacer(Modifier.width(10.dp))
         TileLabel(label, color = signal.onPastel.copy(alpha = 0.8f))
     }
@@ -272,8 +271,9 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
     val live = state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED || state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(Brush.linearGradient(listOf(from, to)))
+        Modifier.fillMaxWidth().clip(HeroShape).background(Brush.linearGradient(listOf(from, to)))
             .drawBehind { heroDecoration(live) }
+            .border(1.dp, Color.White.copy(alpha = if (live) 0.14f else 0.09f), HeroShape)
             .padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -298,7 +298,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
         }
         if (live) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                IconButtonLarge("Stop", LatchIcons.Stop, actions.stop, Modifier.weight(1.3f), container = Cream, content = HeroStopped.second)
+                IconButtonLarge("Stop", LatchIcons.Stop, actions.stop, Modifier.weight(1.3f), container = LocalSignal.current.danger, content = LocalSignal.current.onInk)
                 if (state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED) {
                     val paused = state.phase == Phase.PAUSED
                     IconButtonLarge(
@@ -306,22 +306,24 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                         if (paused) LatchIcons.Play else LatchIcons.Pause,
                         { actions.setPaused(!paused) },
                         Modifier.weight(1f),
-                        container = Color.White.copy(alpha = 0.16f),
+                        container = Color.White.copy(alpha = 0.08f),
                         content = Color.White,
+                        outline = Color.White.copy(alpha = 0.22f),
                     )
                 }
             }
         } else {
-            Text("How long can the AI work?", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
+            Text("SESSION LENGTH", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.6f))
             // A segmented control: equal widths, so no label ever wraps.
             Row(
-                Modifier.fillMaxWidth().clip(CircleShape).background(Color.White.copy(alpha = 0.12f)).padding(4.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.35f))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 listOf(15 to "15 min", 30 to "30 min", 60 to "1 hour", 120 to "2 hours").forEach { (m, label) ->
                     val selected = state.sessionMinutes == m
                     Box(
-                        Modifier.weight(1f).clip(CircleShape)
+                        Modifier.weight(1f).clip(RoundedCornerShape(5.dp))
                             .background(if (selected) Cream else Color.Transparent)
                             .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length $label") { actions.setMinutes(m) }
                             .padding(vertical = 9.dp),
@@ -329,8 +331,8 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                     ) {
                         Text(
                             label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (selected) HeroIdle.first else Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (selected) Color(0xFF0A0A0A) else Color.White.copy(alpha = 0.75f),
                             maxLines = 1,
                         )
                     }
@@ -341,27 +343,45 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                 if (state.accessibilityOn) LatchIcons.Play else LatchIcons.ShieldCheck,
                 if (state.accessibilityOn) actions.start else actions.openSetup,
                 Modifier.fillMaxWidth(),
-                container = Cream,
-                content = HeroActive.first,
+                container = LocalSignal.current.accent,
+                content = LocalSignal.current.onInk,
             )
         }
     }
 }
 
-/** Soft rings in the corner and the mark as a watermark: the hero's texture. */
+private val HeroShape = RoundedCornerShape(12.dp)
+
+/** A faint engineering grid that fades down the card, and ember corner ticks: the hero's texture, as on the website. */
 private fun DrawScope.heroDecoration(live: Boolean) {
-    val c = Offset(size.width * 0.92f, size.height * 0.08f)
-    for (i in 1..4) {
-        drawCircle(Color.White.copy(alpha = if (live) 0.07f else 0.05f), radius = size.minDimension * 0.18f * i, center = c, style = Stroke(1.dp.toPx()))
+    val step = 22.dp.toPx()
+    val line = 1.dp.toPx()
+    var x = step
+    while (x < size.width) {
+        drawLine(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent), endY = size.height * 0.8f), Offset(x, 0f), Offset(x, size.height), line)
+        x += step
     }
+    var y = step
+    while (y < size.height * 0.8f) {
+        drawLine(Color.White.copy(alpha = 0.05f * (1f - y / (size.height * 0.8f))), Offset(0f, y), Offset(size.width, y), line)
+        y += step
+    }
+    val tick = 12.dp.toPx()
+    val inset = 10.dp.toPx()
+    val ember = Ember.copy(alpha = if (live) 0.9f else 0.55f)
+    drawLine(ember, Offset(inset, inset), Offset(inset + tick, inset), line)
+    drawLine(ember, Offset(inset, inset), Offset(inset, inset + tick), line)
+    drawLine(ember, Offset(size.width - inset, size.height - inset), Offset(size.width - inset - tick, size.height - inset), line)
+    drawLine(ember, Offset(size.width - inset, size.height - inset), Offset(size.width - inset, size.height - inset - tick), line)
 }
 
-/** A tall pill button with an icon in front of its label. */
+/** A tall square-shouldered button with an icon in front of its label. */
 @Composable
-fun IconButtonLarge(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, container: Color, content: Color) {
+fun IconButtonLarge(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, container: Color, content: Color, outline: Color? = null) {
     Button(
         onClick = onClick,
-        shape = CircleShape,
+        shape = ButtonShape,
+        border = outline?.let { BorderStroke(1.dp, it) },
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
         modifier = modifier.heightIn(min = 52.dp),

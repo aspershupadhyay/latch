@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Latch" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Latch" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/canvas</item>
     </style>
-    <color name="canvas">#F5EFE6</color>
+    <color name="canvas">#09090B</color>
     <color name="accent">#C2532D</color>
 </resources>
