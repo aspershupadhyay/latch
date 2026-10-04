@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 name: Feature request
 description: Something Latch should be able to do.
 labels: [enhancement]
