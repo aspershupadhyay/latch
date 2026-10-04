@@ -18,5 +18,7 @@ async function handle(request: Request): Promise<Response> {
 
 export const GET = handle;
 export const POST = handle;
+// `curl -T` uploads to /v1/uploads/<id> with PUT.
+export const PUT = handle;
 export const DELETE = handle;
 export const OPTIONS = handle;

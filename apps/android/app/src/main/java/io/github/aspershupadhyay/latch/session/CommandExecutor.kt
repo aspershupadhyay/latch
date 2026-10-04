@@ -119,6 +119,12 @@ private const val TYPE_EXPECT_CHANGE_MS = 900L
 
 private const val SYSTEM_UI = "com.android.systemui"
 
+/** Android's app choosers ("Open with", "Share"): a tap there opens another app. */
+private val CHOOSER_PACKAGES = setOf("android", "com.android.intentresolver", "com.google.android.intentresolver")
+
+/** After a tap in a chooser, how long to wait for the chosen app to take over. */
+private const val CHOOSER_EXPECT_CHANGE_MS = 2_500L
+
 /** Longest a question stays open when the gateway waits for it (protocol 1.4); under the gateway's 120 s. */
 private const val APPROVAL_WAIT_MS = 110_000L
 
@@ -267,7 +273,12 @@ class CommandExecutor(
                 var before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
                 var expectChangeMs = EXPECT_CHANGE_MS
                 when (command) {
-                    is Command.Tap -> service.tap(command.observationId, command.target, command.longPress, command.double)
+                    is Command.Tap -> {
+                        // Android's "Open with" and share choosers start another app, which takes longer
+                        // than an in-app change: wait for it, or the agent gets the closing chooser.
+                        if (service.currentPackage() in CHOOSER_PACKAGES) expectChangeMs = CHOOSER_EXPECT_CHANGE_MS
+                        service.tap(command.observationId, command.target, command.longPress, command.double)
+                    }
                     is Command.Swipe -> service.swipe(
                         command.observationId, command.fromX, command.fromY, command.toX, command.toY, command.durationMs, command.holdMs,
                     )
@@ -561,7 +572,7 @@ class CommandExecutor(
             service.awaitSettled(
                 before,
                 quiet.toLong(),
-                (after.settleMs - waited).coerceAtLeast(quiet.toLong()),
+                (after.settleMs - waited).coerceAtLeast(maxOf(quiet.toLong(), expectChangeMs + quiet)),
                 (floor - waited).coerceAtLeast(0),
                 expectChangeMs,
                 expectKeyboard = command is Command.Tap && !command.longPress,
