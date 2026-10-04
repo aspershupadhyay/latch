@@ -2,7 +2,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.7";
+export const PROTOCOL_VERSION = "1.8";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -44,7 +44,7 @@ export class ProtocolError extends Error {
 
 export const CAPABILITIES = [
   "device.info", "ui.observe", "screen.capture", "input.gesture", "input.text", "nav.global", "app.launch",
-  "file.read", "file.write", "app.share", "clipboard.write",
+  "file.read", "file.write", "app.share", "clipboard.write", "activity.read",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type CapabilityStatus = "enabled" | "disabled" | "needs_permission" | "unsupported";
@@ -62,6 +62,7 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "file.write": "save, rename, and delete files",
   "app.share": "share files to an app",
   "clipboard.write": "copy text to the clipboard",
+  "activity.read": "read Latch's activity log",
 };
 
 export interface SessionInfo {
@@ -145,7 +146,17 @@ export type Command =
   }
   | { name: "file.push"; params: { id: string; link: FileLink; max_bytes: number } }
   | { name: "file.transfer"; params: { transfer: string; wait_ms?: number; cancel?: boolean } }
-  | { name: "clipboard.set"; params: { text: string } };
+  | { name: "clipboard.set"; params: { text: string } }
+  // Since 1.8: the phone's activity log, and the end of a task.
+  | { name: "activity.list"; params: { limit: number; kinds?: ActivityKind[]; since_ms?: number } }
+  | { name: "task.done"; params: { summary?: string } };
+
+/** Since 1.8: what an activity log entry is about. */
+export const ACTIVITY_KINDS = ["session", "connection", "screen", "action", "app", "approval", "refusal", "file", "folder", "task"] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+/** Since 1.8: one line of the phone's log; never screen content or typed text. */
+export interface ActivityEntry { at_ms: number; kind: ActivityKind; summary: string; app?: string }
+export interface ActivityList { entries: ActivityEntry[]; total: number }
 
 /**
  * Since 1.7: where a whole file travels. The stored copy is AES-256-CTR
@@ -201,6 +212,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   if (c.name === "owner.ask") return 5;
+  if (c.name === "activity.list" || c.name === "task.done") return 8;
   if (c.name === "file.fetch" || c.name === "file.push" || c.name === "file.transfer" || c.name === "clipboard.set") return 7;
   if (c.name.startsWith("file.") || c.name === "app.share") return 6;
   return 0;
@@ -229,12 +241,15 @@ export function requiredCapabilities(c: Command): Capability[] {
     // Follows a transfer that already passed its own checks.
     case "file.transfer": return [];
     case "clipboard.set": return ["clipboard.write"];
+    case "activity.list": return ["activity.read"];
+    // Only hides Latch's own cursor and writes a log line.
+    case "task.done": return [];
   }
 }
 
 /** Asking the owner counts as an action: the owner changes the screen while answering. */
 export const isAction = (c: Command) =>
-  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read", "file.push", "file.transfer"].includes(c.name);
+  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read", "file.push", "file.transfer", "activity.list", "task.done"].includes(c.name);
 
 /** `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
 export const isFileChange = (c: Command) => ["file.write", "file.fetch", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
@@ -261,6 +276,7 @@ export const LIMITS = {
   maxAskOwnerChars: 300,
   maxFileChunkBytes: 512 * 1024, maxFileNameChars: 120, maxFileList: 200, maxShareFiles: 10, maxMimeChars: 100,
   maxLinkFileBytes: 4 * 1024 * 1024 * 1024, maxLinkUrlChars: 4_096, maxLinkHeaders: 8, maxClipboardChars: 10_000,
+  maxActivityEntries: 500, maxTaskSummaryChars: 500,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
@@ -459,6 +475,22 @@ export function validateCommand(c: Command): void {
       id("transfer", c.params.transfer);
       if ((c.params.wait_ms ?? 0) > LIMITS.maxWaitMs) throw invalid(`wait_ms must be at most ${LIMITS.maxWaitMs}`);
       return;
+    case "activity.list":
+      if (!isInt(c.params.limit) || c.params.limit < 1 || c.params.limit > LIMITS.maxActivityEntries) {
+        throw invalid(`limit must be between 1 and ${LIMITS.maxActivityEntries}`);
+      }
+      if ((c.params.kinds ?? []).length > 10) throw invalid("kinds lists at most 10 kinds");
+      if ((c.params.kinds ?? []).some((k) => !(ACTIVITY_KINDS as readonly string[]).includes(k))) throw invalid("unknown activity kind");
+      if (c.params.since_ms !== undefined && (!isInt(c.params.since_ms) || c.params.since_ms < 0)) throw invalid("since_ms must be a non-negative integer");
+      return;
+    case "task.done": {
+      const s = c.params.summary;
+      if (s === undefined) return;
+      if ([...s].length > LIMITS.maxTaskSummaryChars) throw invalid(`summary must be at most ${LIMITS.maxTaskSummaryChars} characters`);
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(s)) throw invalid("summary must not contain control characters");
+      return;
+    }
     case "clipboard.set": {
       const n = [...c.params.text].length;
       if (n === 0 || n > LIMITS.maxClipboardChars) throw invalid(`text must be 1-${LIMITS.maxClipboardChars} characters`);
@@ -597,6 +629,18 @@ export function parseCommand(raw: unknown): Command {
       params: { transfer: str("transfer"), wait_ms: p.wait_ms === undefined ? 0 : int(p.wait_ms, "wait_ms"), cancel: bool("cancel", false) },
     };
     case "clipboard.set": return { name, params: { text: str("text") } };
+    case "activity.list": {
+      if (p.kinds !== undefined && (!Array.isArray(p.kinds) || p.kinds.some((k) => typeof k !== "string"))) throw invalid("kinds must be a list of strings");
+      return {
+        name,
+        params: {
+          limit: p.limit === undefined ? 50 : int(p.limit, "limit"),
+          ...(p.kinds !== undefined && (p.kinds as unknown[]).length > 0 ? { kinds: p.kinds as ActivityKind[] } : {}),
+          ...(p.since_ms !== undefined ? { since_ms: int(p.since_ms, "since_ms") } : {}),
+        },
+      };
+    }
+    case "task.done": return { name, params: p.summary !== undefined ? { summary: str("summary") } : {} };
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
 }

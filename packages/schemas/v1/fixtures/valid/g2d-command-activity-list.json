@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0070", "deadline_ms": 20000, "command": { "name": "activity.list", "params": { "limit": 20, "kinds": ["approval", "refusal"], "since_ms": 1759500000000 } } }

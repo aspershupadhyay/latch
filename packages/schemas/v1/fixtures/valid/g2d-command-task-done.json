@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0071", "deadline_ms": 20000, "command": { "name": "task.done", "params": { "summary": "Saved post.png to the Latch folder and opened Instagram's share screen." } } }

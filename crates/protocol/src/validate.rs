@@ -43,6 +43,10 @@ pub const MAX_LINK_URL_CHARS: usize = 4_096;
 pub const MAX_LINK_HEADERS: usize = 8;
 /// Since 1.7: most characters `clipboard.set` takes.
 pub const MAX_CLIPBOARD_CHARS: usize = 10_000;
+/// Since 1.8: most entries one `activity.list` returns.
+pub const MAX_ACTIVITY_ENTRIES: u32 = 500;
+/// Since 1.8: longest `task.done` summary.
+pub const MAX_TASK_SUMMARY_CHARS: usize = 500;
 
 /// A file or folder name: no path separators, control characters, or
 /// leading dot (hidden files), and not "." or "..".
@@ -405,6 +409,33 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
                 .any(|c| c.is_control() && c != '\n' && c != '\t')
             {
                 return Err(invalid("text must not contain control characters"));
+            }
+            Ok(())
+        }
+        Command::ListActivity { limit, kinds, .. } => {
+            if *limit == 0 || *limit > MAX_ACTIVITY_ENTRIES {
+                return Err(invalid(format!(
+                    "limit must be between 1 and {MAX_ACTIVITY_ENTRIES}"
+                )));
+            }
+            if kinds.len() > 10 {
+                return Err(invalid("kinds lists at most 10 kinds"));
+            }
+            Ok(())
+        }
+        Command::TaskDone { summary } => {
+            if let Some(summary) = summary {
+                if summary.chars().count() > MAX_TASK_SUMMARY_CHARS {
+                    return Err(invalid(format!(
+                        "summary must be at most {MAX_TASK_SUMMARY_CHARS} characters"
+                    )));
+                }
+                if summary
+                    .chars()
+                    .any(|c| c.is_control() && c != '\n' && c != '\t')
+                {
+                    return Err(invalid("summary must not contain control characters"));
+                }
             }
             Ok(())
         }

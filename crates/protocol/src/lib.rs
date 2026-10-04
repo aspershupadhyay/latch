@@ -10,6 +10,7 @@
 //! Schema in `packages/schemas/v1` and the fixtures beside it are generated
 //! from, and tested against, these types.
 
+mod activity;
 pub mod b64;
 mod capability;
 mod command;
@@ -19,6 +20,7 @@ mod message;
 mod observation;
 pub mod validate;
 
+pub use activity::{ActivityEntry, ActivityKind, ActivityList};
 pub use capability::{Capability, CapabilityState, CapabilityStatus};
 pub use command::{
     Command, ConfirmRequest, Direction, GlobalAction, MAX_REMEMBER_CHARS, Point, RiskLevel, Target,
@@ -39,7 +41,7 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.7";
+pub const PROTOCOL_VERSION: &str = "1.8";
 
 /// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
 pub fn minor_version(version: &str) -> Option<u32> {
@@ -65,7 +67,7 @@ mod tests {
     #[test]
     fn version_compatibility_requires_matching_major() {
         assert!(is_compatible("1.0"));
-        assert!(is_compatible("1.7"));
+        assert!(is_compatible("1.8"));
         assert!(!is_compatible("2.0"));
         assert!(!is_compatible("1"));
         assert!(!is_compatible("1.x"));

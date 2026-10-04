@@ -179,6 +179,8 @@ function assess(command: Command, observation: Observation | undefined): Assessm
     }
     case "file.push": return low("Copy a file from your phone");
     case "file.transfer": return low(command.params.cancel === true ? "Stop a file transfer" : "Check a file transfer");
+    case "activity.list": return low("Read Latch's activity log");
+    case "task.done": return low("Say the task is done");
     case "clipboard.set": return medium(`Copy ${[...command.params.text].length} characters to the clipboard`);
     case "file.mkdir": return medium(`Create the folder “${shorten(command.params.name)}”`);
     case "file.rename": return medium(`Rename a file to “${shorten(command.params.name)}”`);

@@ -135,7 +135,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner",
+  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
     "set_clipboard", "share_to_app",
     "answer_approval"]);
@@ -248,6 +248,14 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   // The clipboard takes a caption to paste.
   const copied = await client.callTool({ name: "set_clipboard", arguments: { text: "Hello from Latch" } });
   assert.match(text(copied), /^Copied 16 characters to the phone's clipboard\./);
+  // Protocol 1.8: the phone's activity log, filtered by kind, and the end of a task.
+  const activity = text(await client.callTool({ name: "get_activity", arguments: { limit: 2, kinds: ["file"] } }));
+  assert.match(activity, /^Activity on the phone, newest first \(2 of \d+\)\./);
+  assert.match(activity, / file: Ran file\./);
+  assert.doesNotMatch(activity, /clipboard/);
+  const wrongKind = await client.callTool({ name: "get_activity", arguments: { kinds: ["photos"] } });
+  assert.equal(wrongKind.isError, true);
+  assert.match(text(await client.callTool({ name: "finish_task", arguments: { summary: "Copied a caption" } })), /^Done\. The cursor is gone/);
   const note = text(await client.callTool({ name: "write_file", arguments: { location: "downloads", subfolder: "abc", name: "todo.txt", text: "milk" } }));
   assert.match(note, /^Saved "todo\.txt" to Downloads \("abc"\) \(4 B\)\./);
   const shared = await client.callTool({ name: "share_to_app", arguments: { package: "com.linkedin.android", file_ids: [clip], text: "New video" } });
