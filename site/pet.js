@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
-// Latchy, the website mascot: a little padlock who wanders along the bottom of the
-// page, follows the pointer with its eyes, and every few seconds picks a random
-// action (hop, wave, walk, unlatch, hold up Stop, tap, dance, nap, tell a tip).
+// Mochi, the website mascot: a little black-and-white critter who wanders along the
+// bottom of the page, follows the pointer with its eyes, and every few seconds picks a
+// random action (hop, wave, walk, wag, hold up Stop, tap, dance, nap, tell a tip).
 // Nothing is sent anywhere; the only stored value is "hidden" in localStorage.
 (() => {
   "use strict";
-  if (window.__latchy) return;
-  window.__latchy = true;
+  if (window.__mochi) return;
+  window.__mochi = true;
 
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const finePointer = matchMedia("(pointer: fine)").matches;
@@ -15,11 +15,11 @@
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const store = {
-    get() { try { return localStorage.getItem("latchy"); } catch { return null; } },
-    set(v) { try { v ? localStorage.setItem("latchy", v) : localStorage.removeItem("latchy"); } catch { /* private mode */ } },
+    get() { try { return localStorage.getItem("mochi"); } catch { return null; } },
+    set(v) { try { v ? localStorage.setItem("mochi", v) : localStorage.removeItem("mochi"); } catch { /* private mode */ } },
   };
 
-  // Everything Latchy says is true about Latch (see README and SECURITY.md).
+  // Everything Mochi says is true about Latch (see README and SECURITY.md).
   const TIPS = [
     "Every switch starts off. Default deny!",
     "Stop is always one tap. Big red button.",
@@ -48,88 +48,123 @@
   const YAWN = ["*yaaawn*", "Mmm, cosy here.", "Is it nap o'clock?"];
   const POKES = ["Hehe, that tickles!", "Boop!", "Hi!", "Need a tip? Tap me again."];
 
-  const SVG = `
-<svg class="pet-svg" viewBox="0 0 120 132" aria-hidden="true" focusable="false">
+  const SVG = `<svg class="pet-svg" viewBox="0 0 120 132" aria-hidden="true" focusable="false">
   <defs>
-    <radialGradient id="lb-body" cx="0.34" cy="0.28" r="0.9">
-      <stop offset="0" stop-color="#ffd7bf"/><stop offset="0.2" stop-color="#ff9f72"/>
-      <stop offset="0.52" stop-color="#ff6a3d"/><stop offset="0.82" stop-color="#d84d27"/><stop offset="1" stop-color="#97361a"/>
+    <radialGradient id="mo-fur" gradientUnits="userSpaceOnUse" cx="48" cy="72" r="64">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.45" stop-color="#f3f3f6"/>
+      <stop offset="0.8" stop-color="#d6d6de"/><stop offset="1" stop-color="#a4a4b0"/>
     </radialGradient>
-    <radialGradient id="lb-limb" cx="0.35" cy="0.3" r="0.9">
-      <stop offset="0" stop-color="#ff9a6c"/><stop offset="0.6" stop-color="#e2582f"/><stop offset="1" stop-color="#8f3318"/>
+    <radialGradient id="mo-limb" cx="0.4" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.6" stop-color="#e4e4ea"/><stop offset="1" stop-color="#a9a9b4"/>
     </radialGradient>
-    <linearGradient id="lb-shade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0.5" stop-color="#5a1500" stop-opacity="0"/><stop offset="1" stop-color="#5a1500" stop-opacity="0.45"/>
+    <linearGradient id="mo-shade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0.55" stop-color="#3a3a48" stop-opacity="0"/><stop offset="1" stop-color="#3a3a48" stop-opacity="0.38"/>
     </linearGradient>
-    <linearGradient id="lb-metal" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#55555f"/><stop offset="0.22" stop-color="#f3f3f9"/><stop offset="0.45" stop-color="#9b9bab"/>
-      <stop offset="0.72" stop-color="#ffffff"/><stop offset="1" stop-color="#62626e"/>
+    <linearGradient id="mo-ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#55555f"/><stop offset="1" stop-color="#202027"/>
     </linearGradient>
-    <radialGradient id="lb-sclera" cx="0.42" cy="0.36" r="0.72">
-      <stop offset="0" stop-color="#ffffff"/><stop offset="0.75" stop-color="#f3f0f6"/><stop offset="1" stop-color="#cfc8d8"/>
+    <radialGradient id="mo-sclera" cx="0.45" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.7" stop-color="#f1f0f4"/><stop offset="1" stop-color="#cfcdd8"/>
     </radialGradient>
-    <radialGradient id="lb-iris" cx="0.5" cy="0.62" r="0.62">
-      <stop offset="0" stop-color="#c26a35"/><stop offset="0.45" stop-color="#6e3216"/><stop offset="1" stop-color="#1a0904"/>
+    <radialGradient id="mo-iris" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#a6c3dc"/><stop offset="0.5" stop-color="#5b7fa2"/>
+      <stop offset="0.85" stop-color="#2f4a66"/><stop offset="1" stop-color="#16222f"/>
     </radialGradient>
-    <radialGradient id="lb-cheek"><stop offset="0" stop-color="#ff7f9c" stop-opacity="0.8"/><stop offset="1" stop-color="#ff7f9c" stop-opacity="0"/></radialGradient>
-    <filter id="lb-soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.3"/></filter>
-    <filter id="lb-blur" x="-50%" y="-200%" width="200%" height="500%"><feGaussianBlur stdDeviation="2.4"/></filter>
-    <clipPath id="lb-cl"><ellipse cx="46" cy="84" rx="11" ry="12.5"/></clipPath>
-    <clipPath id="lb-cr"><ellipse cx="74" cy="84" rx="11" ry="12.5"/></clipPath>
+    <radialGradient id="mo-cheek"><stop offset="0" stop-color="#ffb3c4" stop-opacity="0.7"/><stop offset="1" stop-color="#ffb3c4" stop-opacity="0"/></radialGradient>
+    <filter id="mo-soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.3"/></filter>
+    <filter id="mo-blur" x="-50%" y="-200%" width="200%" height="500%"><feGaussianBlur stdDeviation="2.4"/></filter>
+    <clipPath id="mo-cl"><path d="M33 80 C36 72 41.5 70 46 70 C52 70 56 73 58 79 C54 85 50 87 45.5 87 C40 87 35.5 85 33 80 Z"/></clipPath>
+    <clipPath id="mo-cr"><path d="M87 80 C84 72 78.5 70 74 70 C68 70 64 73 62 79 C66 85 70 87 74.5 87 C80 87 84.5 85 87 80 Z"/></clipPath>
   </defs>
-  <ellipse class="p-shadow" cx="60" cy="125" rx="28" ry="4.5" fill="#000" opacity="0.55" filter="url(#lb-blur)"/>
+  <ellipse class="p-shadow" cx="60" cy="126" rx="30" ry="4.5" fill="#000" opacity="0.6" filter="url(#mo-blur)"/>
   <g class="p-rig"><g class="p-inner">
-    <g class="p-shackle">
-      <path d="M40 58 V40 a20 20 0 0 1 40 0 V58" fill="none" stroke="url(#lb-metal)" stroke-width="9" stroke-linecap="round"/>
-      <path d="M43.5 44 a16.5 16.5 0 0 1 12 -18" fill="none" stroke="#fff" stroke-opacity="0.7" stroke-width="1.6" stroke-linecap="round"/>
+    <g class="p-tail">
+      <path d="M88 112 C104 112 110 98 104 84" fill="none" stroke="url(#mo-limb)" stroke-width="9" stroke-linecap="round"/>
+      <path d="M106.6 92 C106.4 89 105.6 86.4 104 84" fill="none" stroke="#18181d" stroke-width="9" stroke-linecap="round"/>
     </g>
-    <g class="p-foot p-foot-l"><ellipse cx="47" cy="119.5" rx="10" ry="5.5" fill="url(#lb-limb)"/></g>
-    <g class="p-foot p-foot-r"><ellipse cx="73" cy="119.5" rx="10" ry="5.5" fill="url(#lb-limb)"/></g>
-    <g class="p-arm p-arm-l"><ellipse cx="22.5" cy="87" rx="6.5" ry="11" fill="url(#lb-limb)"/></g>
+    <g class="p-ear p-ear-l">
+      <path d="M30 70 L31 40 Q32 34 37 37 L56 56 Z" fill="url(#mo-ink)" stroke="#8a8a97" stroke-width="5.6" stroke-linejoin="round"/>
+      <path d="M30 70 L31 40 Q32 34 37 37 L56 56 Z" fill="url(#mo-ink)" stroke="url(#mo-ink)" stroke-width="3.6" stroke-linejoin="round"/>
+      <path d="M35 62 L35.5 46 L48 57 Z" fill="#e8b9c4" opacity="0.75" stroke="#e8b9c4" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+    <g class="p-ear p-ear-r">
+      <path d="M90 70 L89 40 Q88 34 83 37 L64 56 Z" fill="url(#mo-ink)" stroke="#8a8a97" stroke-width="5.6" stroke-linejoin="round"/>
+      <path d="M90 70 L89 40 Q88 34 83 37 L64 56 Z" fill="url(#mo-ink)" stroke="url(#mo-ink)" stroke-width="3.6" stroke-linejoin="round"/>
+      <path d="M85 62 L84.5 46 L72 57 Z" fill="#e8b9c4" opacity="0.75" stroke="#e8b9c4" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+    <g class="p-foot p-foot-l"><ellipse cx="46" cy="121" rx="10" ry="5.5" fill="url(#mo-limb)"/><path d="M43 118.5 v3.5 M48.5 118.5 v3.5" stroke="#9a9aa6" stroke-width="0.9" stroke-linecap="round"/></g>
+    <g class="p-foot p-foot-r"><ellipse cx="74" cy="121" rx="10" ry="5.5" fill="url(#mo-limb)"/><path d="M71.5 118.5 v3.5 M77 118.5 v3.5" stroke="#9a9aa6" stroke-width="0.9" stroke-linecap="round"/></g>
+    <g class="p-arm p-arm-l"><ellipse cx="22.5" cy="99" rx="6.5" ry="10.5" fill="url(#mo-limb)"/></g>
     <g class="p-sign">
-      <rect x="103" y="34" width="3" height="40" rx="1.5" fill="#9a9aa6"/>
-      <polygon points="99,18 108,18 114.5,24.5 114.5,33.5 108,40 99,40 92.5,33.5 92.5,24.5" fill="#ff5a5a" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>
-      <text x="103.5" y="31.6" text-anchor="middle" font-family="Geist Mono, monospace" font-size="6.4" font-weight="700" fill="#fff">STOP</text>
+      <rect x="103" y="44" width="2.6" height="34" rx="1.3" fill="#8e8e9a"/>
+      <polygon points="99,26 108,26 114.5,32.5 114.5,41.5 108,48 99,48 92.5,41.5 92.5,32.5" fill="#f2f2f5" stroke="#16161b" stroke-width="1.8" stroke-linejoin="round"/>
+      <text x="103.5" y="39.6" text-anchor="middle" font-family="Geist Mono, monospace" font-size="6.2" font-weight="700" fill="#e5484d">STOP</text>
     </g>
-    <g class="p-arm p-arm-r"><ellipse cx="97.5" cy="87" rx="6.5" ry="11" fill="url(#lb-limb)"/></g>
+    <g class="p-arm p-arm-r"><ellipse cx="97.5" cy="99" rx="6.5" ry="10.5" fill="url(#mo-limb)"/></g>
     <g class="p-body">
-      <rect x="22" y="50" width="76" height="74" rx="32" fill="url(#lb-body)"/>
-      <rect x="22" y="50" width="76" height="74" rx="32" fill="url(#lb-shade)"/>
-      <path d="M93 80 a32 32 0 0 1 -17 41" fill="none" stroke="#ffe0d0" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round"/>
-      <ellipse cx="40" cy="63" rx="10" ry="5" fill="#fff" opacity="0.55" transform="rotate(-30 40 63)" filter="url(#lb-soft)"/>
-      <circle cx="51" cy="57.5" r="1.7" fill="#fff" opacity="0.85"/>
-      <g class="p-keyhole" fill="#6b230c" opacity="0.5"><circle cx="60" cy="113" r="2.6"/><path d="M58.6 114 h2.8 l0.9 5 h-4.6z"/></g>
+      <ellipse cx="60" cy="90" rx="38" ry="34" fill="url(#mo-fur)"/>
+      <ellipse cx="60" cy="90" rx="38" ry="34" fill="url(#mo-shade)"/>
+      <path d="M94 96 a36 32 0 0 1 -22 26" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.6" stroke-linecap="round"/>
+      <ellipse cx="40" cy="66" rx="10" ry="4.5" fill="#fff" opacity="0.9" transform="rotate(-28 40 66)" filter="url(#mo-soft)"/>
+      <path d="M50 57.5 q3 -3.5 6 -1 M57 56 q3 -4 6.5 -0.5 M63.5 56.5 q3 -3 6 0" fill="none" stroke="#d2d2da" stroke-width="1.2" stroke-linecap="round"/>
     </g>
     <g class="p-face">
-      <ellipse cx="34.5" cy="98" rx="8" ry="4.6" fill="url(#lb-cheek)" class="p-cheek"/>
-      <ellipse cx="85.5" cy="98" rx="8" ry="4.6" fill="url(#lb-cheek)" class="p-cheek"/>
-      <g class="p-eye">
-        <ellipse cx="46" cy="84" rx="11" ry="12.5" fill="url(#lb-sclera)"/>
-        <g clip-path="url(#lb-cl)">
-          <g class="p-look"><circle cx="46" cy="85.5" r="7.6" fill="url(#lb-iris)"/><circle class="p-pupil" cx="46" cy="85.5" r="3.9" fill="#080303"/>
-            <circle cx="48.9" cy="82" r="2.5" fill="#fff"/><circle cx="43.4" cy="88.6" r="1.1" fill="#fff" opacity="0.85"/></g>
-        </g>
-        <ellipse cx="46" cy="84" rx="11" ry="12.5" fill="none" stroke="#5a1500" stroke-opacity="0.35"/>
+      <ellipse cx="35" cy="93" rx="7.5" ry="4.2" fill="url(#mo-cheek)" class="p-cheek"/>
+      <ellipse cx="85" cy="93" rx="7.5" ry="4.2" fill="url(#mo-cheek)" class="p-cheek"/>
+      <g class="p-whisk" stroke="#b4b4c0" stroke-width="0.8" stroke-linecap="round" fill="none">
+        <path d="M29 92 L15 89.5"/><path d="M29 95 L14.5 96"/><path d="M91 92 L105 89.5"/><path d="M91 95 L105.5 96"/>
       </g>
-      <g class="p-eye">
-        <ellipse cx="74" cy="84" rx="11" ry="12.5" fill="url(#lb-sclera)"/>
-        <g clip-path="url(#lb-cr)">
-          <g class="p-look"><circle cx="74" cy="85.5" r="7.6" fill="url(#lb-iris)"/><circle class="p-pupil" cx="74" cy="85.5" r="3.9" fill="#080303"/>
-            <circle cx="76.9" cy="82" r="2.5" fill="#fff"/><circle cx="71.4" cy="88.6" r="1.1" fill="#fff" opacity="0.85"/></g>
+      <g class="p-brow p-brow-l"><path d="M35 66.5 Q43 61.5 52.5 64" fill="none" stroke="#24242b" stroke-width="2.6" stroke-linecap="round"/></g>
+      <g class="p-brow p-brow-r"><path d="M85 66.5 Q77 61.5 67.5 64" fill="none" stroke="#24242b" stroke-width="2.6" stroke-linecap="round"/></g>
+      <g class="p-eye p-eye-l">
+        <path d="M35 72.5 C39 67 44 66 47 66 C52 66 55.5 68.5 57.5 72.5" fill="none" stroke="#bdbdc8" stroke-width="1" stroke-linecap="round"/>
+        <path d="M33 80 C36 72 41.5 70 46 70 C52 70 56 73 58 79 C54 85 50 87 45.5 87 C40 87 35.5 85 33 80 Z" fill="url(#mo-sclera)"/>
+        <g clip-path="url(#mo-cl)">
+          <ellipse cx="57.5" cy="79.5" rx="2.6" ry="3" fill="#eeaab6" opacity="0.7"/>
+          <g class="p-look">
+            <circle cx="45.5" cy="78.5" r="7.2" fill="url(#mo-iris)"/>
+            <circle cx="45.5" cy="78.5" r="4.9" fill="none" stroke="#d6e6f4" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="0.5 1.1"/>
+            <circle class="p-pupil" cx="45.5" cy="78.5" r="3.1" fill="#050608"/>
+            <circle cx="48.4" cy="75.6" r="2" fill="#fff"/><circle cx="43" cy="81.6" r="0.9" fill="#fff" opacity="0.8"/>
+          </g>
+          <g class="p-lid">
+            <path d="M28 52 H62 V74 C56 69.5 50.5 68.3 46 68.3 C41 68.3 36 70.5 31 76.5 Z" fill="url(#mo-fur)"/>
+            <path d="M31 76.5 C36 70.5 41 68.3 46 68.3 C50.5 68.3 56 69.5 62 74" fill="none" stroke="#121216" stroke-width="2.6"/>
+          </g>
         </g>
-        <ellipse cx="74" cy="84" rx="11" ry="12.5" fill="none" stroke="#5a1500" stroke-opacity="0.35"/>
+        <path d="M33 80 C35.5 85 40 87 45.5 87 C50 87 54 85 58 79" fill="none" stroke="#8c8c98" stroke-width="0.9"/>
+        <path d="M33.5 79 L29.8 76.4" stroke="#121216" stroke-width="1.6" stroke-linecap="round"/>
       </g>
-      <g class="p-shut" fill="none" stroke="#4a1406" stroke-width="2.4" stroke-linecap="round"><path d="M37 85 Q46 91.5 55 85"/><path d="M65 85 Q74 91.5 83 85"/></g>
-      <path class="m m-smile" d="M54.5 101.5 Q60 106.5 65.5 101.5" fill="none" stroke="#4a1406" stroke-width="2.3" stroke-linecap="round"/>
-      <g class="m m-open"><path d="M53 100 Q60 111 67 100 Z" fill="#3d1004" stroke="#3d1004" stroke-width="1.2" stroke-linejoin="round"/>
-        <path d="M56.4 105.4 Q60 103 63.6 105.4 Q60 108.6 56.4 105.4 Z" fill="#ff7f8f"/></g>
-      <ellipse class="m m-o" cx="60" cy="103.5" rx="3.3" ry="4.3" fill="#3d1004"/>
-      <path class="m m-flat" d="M56 103.5 Q60 105 64 103.5" fill="none" stroke="#4a1406" stroke-width="2" stroke-linecap="round"/>
+      <g class="p-eye p-eye-r">
+        <path d="M85 72.5 C81 67 76 66 73 66 C68 66 64.5 68.5 62.5 72.5" fill="none" stroke="#bdbdc8" stroke-width="1" stroke-linecap="round"/>
+        <path d="M87 80 C84 72 78.5 70 74 70 C68 70 64 73 62 79 C66 85 70 87 74.5 87 C80 87 84.5 85 87 80 Z" fill="url(#mo-sclera)"/>
+        <g clip-path="url(#mo-cr)">
+          <ellipse cx="62.5" cy="79.5" rx="2.6" ry="3" fill="#eeaab6" opacity="0.7"/>
+          <g class="p-look">
+            <circle cx="74.5" cy="78.5" r="7.2" fill="url(#mo-iris)"/>
+            <circle cx="74.5" cy="78.5" r="4.9" fill="none" stroke="#d6e6f4" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="0.5 1.1"/>
+            <circle class="p-pupil" cx="74.5" cy="78.5" r="3.1" fill="#050608"/>
+            <circle cx="77.4" cy="75.6" r="2" fill="#fff"/><circle cx="72" cy="81.6" r="0.9" fill="#fff" opacity="0.8"/>
+          </g>
+          <g class="p-lid">
+            <path d="M92 52 H58 V74 C64 69.5 69.5 68.3 74 68.3 C79 68.3 84 70.5 89 76.5 Z" fill="url(#mo-fur)"/>
+            <path d="M89 76.5 C84 70.5 79 68.3 74 68.3 C69.5 68.3 64 69.5 58 74" fill="none" stroke="#121216" stroke-width="2.6"/>
+          </g>
+        </g>
+        <path d="M87 80 C84.5 85 80 87 74.5 87 C70 87 66 85 62 79" fill="none" stroke="#8c8c98" stroke-width="0.9"/>
+        <path d="M86.5 79 L90.2 76.4" stroke="#121216" stroke-width="1.6" stroke-linecap="round"/>
+      </g>
+      <path d="M57.4 90.4 Q60 89.2 62.6 90.4 Q61.4 93 60 93.4 Q58.6 93 57.4 90.4 Z" fill="#2a2a31"/>
+      <path class="m m-smile" d="M55 96 Q57.6 98.6 60 96.2 Q62.4 98.6 65 96" fill="none" stroke="#2a2a31" stroke-width="1.6" stroke-linecap="round"/>
+      <g class="m m-open"><path d="M55 95.6 Q60 104.5 65 95.6 Q60 97.2 55 95.6 Z" fill="#26161b" stroke="#26161b" stroke-width="1" stroke-linejoin="round"/>
+        <path d="M57.4 100 Q60 98.4 62.6 100 Q60 102.6 57.4 100 Z" fill="#f08ea0"/></g>
+      <ellipse class="m m-o" cx="60" cy="98" rx="2.6" ry="3.3" fill="#26161b"/>
+      <path class="m m-flat" d="M56.5 97.4 Q60 98.6 63.5 97.4" fill="none" stroke="#2a2a31" stroke-width="1.6" stroke-linecap="round"/>
     </g>
   </g></g>
-  <circle class="p-ripple" cx="112" cy="58" r="5" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-  <g class="p-zzz" font-family="Geist Mono, monospace" font-weight="600" fill="#cfcfe0">
-    <text x="90" y="50" font-size="9">z</text><text x="99" y="38" font-size="11">z</text><text x="109" y="24" font-size="14">Z</text>
+  <circle class="p-ripple" cx="116" cy="92" r="5" fill="none" stroke="#ffffff" stroke-width="1.6"/>
+  <g class="p-zzz" font-family="Geist Mono, monospace" font-weight="600" fill="#d8d8e4">
+    <text x="92" y="56" font-size="9">z</text><text x="101" y="44" font-size="11">z</text><text x="110" y="30" font-size="14">Z</text>
   </g>
 </svg>`;
 
@@ -138,13 +173,13 @@
   root.className = "pet";
   root.innerHTML = `
     <div class="pet-say" aria-hidden="true"><span></span></div>
-    <button class="pet-btn" type="button" aria-label="Latchy, the Latch mascot. Press for a tip.">${SVG}</button>
-    <button class="pet-x" type="button" aria-label="Hide Latchy" title="Hide Latchy">×</button>
+    <button class="pet-btn" type="button" aria-label="Mochi, the Latch mascot. Press for a tip.">${SVG}</button>
+    <button class="pet-x" type="button" aria-label="Hide Mochi" title="Hide Mochi">×</button>
     <p class="pet-sr" aria-live="polite"></p>`;
   const home = document.createElement("button");
   home.className = "pet-home";
   home.type = "button";
-  home.textContent = "bring back latchy";
+  home.textContent = "bring back mochi";
   document.body.append(root, home);
 
   const btn = root.querySelector(".pet-btn");
@@ -242,7 +277,7 @@
     },
     async spin() { await flash("is-spin", 950); say(pick(["Ta-da!", "Wheee!", "Did you see that?"])); },
     async dance() { say(pick(["♪ beep boop ♪", "♪ tap tap swipe ♪", "♪ latch latch ♪"])); await flash("is-dance", 2000); },
-    async unlatch() { await flash("is-unlatch", 1300); say(pick(["Unlatched… and latched. Safe again.", "Click! Still locked tight."])); },
+    async wag() { if (Math.random() < 0.5) say(pick(["Wag wag!", "*ear twitch*", "Hehe."])); await flash("is-wag", 1500); },
     async stop() { say("Stop is always one tap. Big red button."); await flash("is-stop", 2600); },
     async tap() { say(pick(["tap ✓", "type_text ✓", "scroll ✓"])); await flash("is-tap", 1400); },
     async tip() { say(nextTip()); await flash("is-happy", 1600); },
@@ -251,7 +286,7 @@
         .map((el) => el.getBoundingClientRect()).filter((r) => r.bottom > 0 && r.top < innerHeight);
       if (targets.length) { const r = pick(targets); lookAt(r.left + r.width / 2, r.top + r.height / 2); }
       else gaze(rand(-3, 3), -2.6);
-      await wait(rand(1100, 2000));
+      await flash("is-look", rand(1100, 2000));
       if (Math.random() < 0.4) say(pick(["Ooh, what's that?", "Hmm…", "Nice page, right?", "Just looking."]));
     },
     async yawn() { say(pick(YAWN)); await flash("is-yawn", 1700); },
@@ -264,7 +299,7 @@
       if (sleeping) wake(pick(YAWN));
     },
   };
-  const WEIGHTS = { hop: 3, wave: 3, walk: 6, spin: 1.5, dance: 1.5, unlatch: 2, stop: 1.5, tap: 2, tip: 4, look: 3, yawn: 1 };
+  const WEIGHTS = { hop: 3, wave: 3, walk: 6, spin: 1.5, dance: 1.5, wag: 2.5, stop: 1.5, tap: 2, tip: 4, look: 3, yawn: 1 };
 
   function choose() {
     const idle = Date.now() - lastSeenUser;
@@ -404,6 +439,6 @@
     home.classList.add("on");
   } else {
     root.classList.add("is-away");
-    setTimeout(() => show(document.querySelector('meta[name="robots"][content="noindex"]') ? "This page ran away. I'll wait here." : "Hi! I'm Latchy. I guard your phone."), 1200);
+    setTimeout(() => show(document.querySelector('meta[name="robots"][content="noindex"]') ? "This page ran away. I'll wait here." : "Hi! I'm Mochi. Tap me for Latch tips."), 1200);
   }
 })();
