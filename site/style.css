@@ -195,3 +195,7 @@ h3 { margin: 0 0 8px; font-size: 1.12rem; }
   .nav .btn { width: auto; }
 }
 .logos-note { margin: 14px 0 0 !important; text-transform: none !important; letter-spacing: 0 !important; font: 0.85rem var(--mono) !important; }
+.t-full { grid-column: 1 / -1; }
+.t-skill { border-color: rgba(232, 99, 58, 0.45); box-shadow: 0 0 60px -30px rgba(232, 99, 58, 0.5); }
+.t-skill h3 { font-size: 1.35rem; max-width: 40ch; }
+.t-skill .kicker { margin-bottom: 6px; }

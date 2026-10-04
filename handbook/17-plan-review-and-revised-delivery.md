@@ -50,7 +50,7 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 
 ## 3. MCP tool surface (stable names)
 
-`list_devices`, `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9), `ask_owner`, the file tools of ADR-026/027, `set_clipboard`, `get_activity`, `finish_task` (ADR-028). No shell, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
+`list_devices`, `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9), `ask_owner`, the file tools of ADR-026/027, `set_clipboard`, `get_activity`, `finish_task` (ADR-028), and the skill tools `save_skill`, `list_skills`, `run_skill`, `delete_skill` (ADR-031). No shell, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
 
 ## 4. Revised delivery: slices and gates
 
@@ -93,7 +93,7 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 
 ## 7. Decisions recorded
 
-ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays · ADR-028 crash-proof commands, a kept Activity log, several folders, and finish_task (protocol 1.8) · ADR-029 private gateway: no web console, noindex everywhere · ADR-030 AGPL-3.0 with attribution terms and a name policy — see `docs/adr/`.
+ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays · ADR-028 crash-proof commands, a kept Activity log, several folders, and finish_task (protocol 1.8) · ADR-029 private gateway: no web console, noindex everywhere · ADR-030 AGPL-3.0 with attribution terms and a name policy · ADR-031 skills: do a task once, run it again with new inputs — see `docs/adr/`.
 
 ## 8. Real-device feedback (2026-10-02)
 

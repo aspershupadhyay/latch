@@ -10,6 +10,8 @@ import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoi
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
+import { type RunContext, SKILL_TOOLS, runSkill, runStore } from "./skills.js";
+import type { Store } from "./store.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
 type Tool = (typeof SERVER.tools)[number];
@@ -29,6 +31,8 @@ export interface McpContext {
   /** Encrypted file links (protocol 1.7). */
   links?: Links;
   baseUrl?: string;
+  /** Where skills are saved (ADR-031). */
+  skills?: Store;
 }
 
 /** What an MCP client answered to `elicitation/create`, or undefined when it never did. */
@@ -215,7 +219,26 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     return minor >= 7 ? encryptedUploadLink(ctx.links, ctx.baseUrl) : uploadLink(ctx.transfers, ctx.baseUrl);
   }
 
+  if ((SKILL_TOOLS as readonly string[]).includes(name) && name !== "run_skill") {
+    if (!ctx.skills) throw new ProtocolError("internal", "skills are not available here");
+    return runStore(ctx.skills, name, args);
+  }
   const { id: deviceId, live } = await ctx.devices.resolveDevice(argStr(args, "device_id"));
+  if (name === "run_skill") {
+    if (!ctx.skills) throw new ProtocolError("internal", "skills are not available here");
+    return runSkill({
+      store: ctx.skills,
+      deviceId,
+      act: async (tool, toolArgs) => (await runTool(ctx, tool, toolArgs)) as Awaited<ReturnType<RunContext["act"]>>,
+      latest: () => ctx.devices.latestObservation(deviceId),
+      deferred: async (e, tool, toolArgs) => {
+        await ctx.devices.saveDeferred(e.request.command_id, {
+          tool, args: toolArgs, device: e.deviceId, conn: e.conn, nonce: e.request.nonce, choices: e.request.choices, title: e.request.title,
+        });
+        return waitingResult(e.request);
+      },
+    }, args);
+  }
   if (name === "set_clipboard") {
     const text = reqStr(args, "text");
     const run = await execute(ctx, deviceId, { name: "clipboard.set", params: { text } });
