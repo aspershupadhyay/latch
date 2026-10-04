@@ -80,13 +80,9 @@ jobs:
             --argjson size "$(stat -c %s latch-android.apk)" \
             --arg commit "${GITHUB_SHA::7}" \
             '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit}' > latch-update.json
-          notes="Latch $LATCH_VERSION_NAME (${GITHUB_SHA::7}), the newest beta for testing on your own phone. Android 11+. Signed release build; updates from inside the app. Not a stable release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
+          notes="Download: https://github.com/$GITHUB_REPOSITORY/releases/download/beta/latch-android.apk · Website: https://aspershupadhyay.github.io/latch/ · Latch $LATCH_VERSION_NAME (${GITHUB_SHA::7}), the newest beta for testing on your own phone. Android 11+. Signed release build; updates from inside the app. Not a stable release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
           gh release delete beta --cleanup-tag --yes || true
           gh release create beta latch-android.apk latch-android.apk.sha256 latch-update.json \
             --prerelease --target "$GITHUB_SHA" --title "Latch beta" --notes "$notes"
-          # Builds up to 0.1.0-test.12 look for updates under test-build; keep it as a copy
-          # (same manifest, which points at the beta download) so they still find this one.
+          # The old test-build copy is retired (owner request): only the beta release stays.
           gh release delete test-build --cleanup-tag --yes || true
-          gh release create test-build latch-android.apk latch-android.apk.sha256 latch-update.json \
-            --prerelease --target "$GITHUB_SHA" --title "Latch beta (old link)" \
-            --notes "Moved: download the beta from the beta release. This copy keeps older test builds updating."
