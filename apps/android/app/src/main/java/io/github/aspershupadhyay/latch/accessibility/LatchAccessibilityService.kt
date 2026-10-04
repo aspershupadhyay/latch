@@ -878,7 +878,10 @@ class LatchAccessibilityService : AccessibilityService() {
                     val canAct = if (longPress) node.isLongClickable else node.isClickable
                     if (canAct) {
                         if (cursorOn) cursor.press(r.centerX(), r.centerY(), pointerFor(snap.ui[target.element]), press)
-                        if (node.performAction(action)) return
+                        val before = screenSignature()
+                        // Some apps (Instagram's caption "OK") accept the accessibility click and
+                        // ignore it. If the screen shows no change, press with a real finger instead.
+                        if (node.performAction(action) && (longPress || clickTookEffect(node, before))) return
                     }
                 }
                 r.centerX() to r.centerY()
@@ -900,6 +903,20 @@ class LatchAccessibilityService : AccessibilityService() {
         } else {
             gesture(x, y, x, y, if (longPress) 650 else 60)
         }
+    }
+
+    /**
+     * Whether an accessibility click visibly did something within
+     * [CLICK_EFFECT_MS]: the screen changed, or the element went away.
+     */
+    private suspend fun clickTookEffect(node: AccessibilityNodeInfo, before: Int): Boolean {
+        val start = SystemClock.uptimeMillis()
+        while (SystemClock.uptimeMillis() - start < CLICK_EFFECT_MS) {
+            delay(SETTLE_STEP_MS)
+            if (screenSignature() != before) return true
+            if (!node.refresh() || !node.isVisibleToUser) return true
+        }
+        return false
     }
 
     /** Two fingers moving apart or together, horizontally around a point. */
@@ -1298,6 +1315,8 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L
         private const val LIVE_SCOPE_NODES = 64
         private const val CURSOR_HIDE_MS = 50L
+        /** How long an accessibility click has to show an effect before a real tap follows. */
+        private const val CLICK_EFFECT_MS = 450L
         /** Time for the Stop pill's window to move before a gesture starts where it was. */
         private const val PILL_MOVE_MS = 60L
         private const val SIGNATURE_NODES = 300
