@@ -87,6 +87,7 @@ Expected high-level structure, subject to the repository handbook:
 - packages/schemas: source schemas and reproducible generated artifacts.
 - adapters/typescript: optional client, setup, and integration adapters.
 - docs: contributor, operator, security, capability, and release documentation.
+- site: the public website, published to GitHub Pages by `.github/workflows/pages.yml` (checked by `scripts/check-site.mjs`). Never put a personal gateway address in it or in the repository description.
 - tests: cross-platform, contract, security, and end-to-end test plans.
 - .github: CI, security checks, issue templates, and release automation.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs every check CI runs. Usage: scripts/check.sh [rust|android|interop|all]
+# Runs every check CI runs. Usage: scripts/check.sh [rust|android|interop|site|all]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 what="${1:-all}"
@@ -26,11 +26,17 @@ interop() {
   scripts/interop.sh
 }
 
+site() {
+  echo "== Website: search tags, structured data, local links"
+  node scripts/check-site.mjs
+}
+
 case "$what" in
   rust) rust ;;
   android) android ;;
   interop) interop ;;
-  all) rust; android; interop ;;
-  *) echo "usage: $0 [rust|android|interop|all]" >&2; exit 2 ;;
+  site) site ;;
+  all) rust; android; interop; site ;;
+  *) echo "usage: $0 [rust|android|interop|site|all]" >&2; exit 2 ;;
 esac
 echo "All requested checks passed."
