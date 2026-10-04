@@ -95,7 +95,7 @@ class ScreenSnapshotTest {
         CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE, Capability.FILE_READ, Capability.FILE_WRITE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, appsOn = 3)
     }
     @Test fun capabilities_files_light() = snap(false) {
-        CapabilitiesScreen(setOf(Capability.FILE_READ), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.FILES, onOpenGroup = {}, folderName = "Documents/AI")
+        CapabilitiesScreen(setOf(Capability.FILE_READ), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.FILES, onOpenGroup = {}, folders = listOf("Documents/AI", "Pictures/Posts"))
     }
     @Test fun capabilities_screen_dark() = snap(true) {
         CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.SCREEN, onOpenGroup = {})

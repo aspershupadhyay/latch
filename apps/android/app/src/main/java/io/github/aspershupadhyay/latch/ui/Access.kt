@@ -107,8 +107,8 @@ private fun featuresOf(group: AccessGroup): List<Feature> = when (group) {
         Feature(LatchIcons.Check, "Always allowed", "Buttons you told Latch to stop asking about, per app."),
     )
     AccessGroup.FILES -> group.capabilities.map { catalog.getValue(it).let { c -> Feature(c.icon, c.title, c.short) } } + listOf(
-        Feature(LatchIcons.Folder, "Your Latch folder", "The one folder it may use. It never sees other folders."),
-        Feature(LatchIcons.Photo, "Photos", "Only the photos and videos you allow."),
+        Feature(LatchIcons.Folder, "Your folders", "Only the folders you add. It never sees other folders."),
+        Feature(LatchIcons.Photo, "Photos", "Only when switched on, and only the photos and videos you allow."),
     )
     AccessGroup.WORKING -> listOf(
         Feature(LatchIcons.Tap, "Show where the AI taps", "A dot follows each tap. The AI never sees it."),
@@ -138,11 +138,13 @@ fun CapabilitiesScreen(
     onRemoteApprovals: (Boolean) -> Unit = {},
     auto: AutoMode = AutoMode.OFF,
     onAuto: (AutoMode) -> Unit = {},
-    folderName: String? = null,
+    folders: List<String> = emptyList(),
     photosAllowed: Boolean = false,
     onPickFolder: () -> Unit = {},
-    onForgetFolder: () -> Unit = {},
+    onForgetFolder: (Int) -> Unit = {},
     onAllowPhotos: () -> Unit = {},
+    photosOn: Boolean = true,
+    onPhotosOn: (Boolean) -> Unit = {},
     /** The open group page, hoisted so it survives a trip to the Apps list. */
     openGroup: AccessGroup? = null,
     onOpenGroup: ((AccessGroup?) -> Unit)? = null,
@@ -176,7 +178,7 @@ fun CapabilitiesScreen(
                     AccessGroup.SCREEN -> CapabilityList(current, enabled, onToggle, includeDeviceInfo = true)
                     AccessGroup.FILES -> {
                         CapabilityList(current, enabled, onToggle)
-                        FilePlaces(folderName, photosAllowed, onPickFolder, onForgetFolder, onAllowPhotos)
+                        FilePlaces(folders, photosAllowed, onPickFolder, onForgetFolder, onAllowPhotos, photosOn, onPhotosOn)
                     }
                     AccessGroup.SHARING -> CapabilityList(current, enabled, onToggle)
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
@@ -417,45 +419,76 @@ private fun CapabilityList(group: AccessGroup, enabled: Set<Capability>, onToggl
     }
 }
 
-/** The folder and photos the file switches reach (ADR-026). */
+/**
+ * The folders and photos the file switches reach (ADR-026): any number of
+ * folders the owner picks with Android's folder picker, and photos behind
+ * Latch's own switch as well as Android's permission. The AI never sees
+ * anything else.
+ */
 @Composable
-private fun FilePlaces(folderName: String?, photosAllowed: Boolean, onPickFolder: () -> Unit, onForgetFolder: () -> Unit, onAllowPhotos: () -> Unit) {
+private fun FilePlaces(
+    folders: List<String>,
+    photosAllowed: Boolean,
+    onPickFolder: () -> Unit,
+    onForgetFolder: (Int) -> Unit,
+    onAllowPhotos: () -> Unit,
+    photosOn: Boolean,
+    onPhotosOn: (Boolean) -> Unit,
+) {
     val signal = LocalSignal.current
-    SectionCaption("Where")
+    SectionCaption("Folders")
+    Card {
+        folders.forEachIndexed { index, name ->
+            if (index > 0) RowDivider()
+            ListRow(
+                LatchIcons.Folder,
+                name,
+                "The AI may read, save, rename, and delete files in this folder and its subfolders.",
+                tint = signal.accent,
+                trailing = {
+                    TextButton(
+                        onClick = { onForgetFolder(index) },
+                        modifier = Modifier.semantics { contentDescription = "Stop sharing the folder $name with the AI" },
+                    ) { Text("Remove") }
+                },
+            )
+        }
+        if (folders.isNotEmpty()) RowDivider()
+        ListRow(
+            LatchIcons.Plus,
+            if (folders.isEmpty()) "Add a folder for the AI" else "Add another folder",
+            if (folders.isEmpty()) "For example Documents/AI. The AI never sees folders you don't add." else "The AI never sees folders you don't add.",
+            tint = signal.accent,
+            onClick = onPickFolder,
+            onClickLabel = "Add a folder",
+        )
+    }
+    SectionCaption("Photos")
     Card {
         ListRow(
-            LatchIcons.Folder,
-            if (folderName != null) "Your Latch folder: $folderName" else "Pick a folder for the AI",
-            if (folderName != null) {
-                "The AI may read, save, rename, and delete files in this folder only."
-            } else {
-                "One folder the AI may use, for example Documents/AI. It never sees other folders."
-            },
-            tint = if (folderName != null) signal.accent else signal.text2,
-            onClick = onPickFolder,
-            onClickLabel = if (folderName != null) "Pick a different folder" else "Pick a folder",
-            trailing = {
-                if (folderName != null) {
-                    TextButton(
-                        onClick = onForgetFolder,
-                        modifier = Modifier.semantics { contentDescription = "Stop sharing the folder $folderName with the AI" },
-                    ) { Text("Remove") }
-                }
-            },
-        )
-        RowDivider()
-        ListRow(
             LatchIcons.Photo,
-            if (photosAllowed) "Photos: allowed" else "Photos: not allowed",
-            if (photosAllowed) {
-                "The AI can see the photos and videos you allowed. Tap to change which."
-            } else {
-                "Allow all photos, or only the ones you choose. Saving new pictures works without this."
+            "Let the AI see photos",
+            if (photosOn) "On: the AI can see and save the photos and videos Android allows below." else "Off: the AI can't list, open, or save photos.",
+            tint = if (photosOn) signal.accent else signal.text2,
+            trailing = {
+                LatchSwitch(
+                    checked = photosOn,
+                    onCheckedChange = onPhotosOn,
+                    modifier = Modifier.semantics { contentDescription = "Let the AI see photos" },
+                )
             },
-            tint = if (photosAllowed) signal.accent else signal.text2,
-            onClick = onAllowPhotos,
-            onClickLabel = "Choose which photos the AI can see",
         )
+        if (photosOn) {
+            RowDivider()
+            ListRow(
+                LatchIcons.ShieldCheck,
+                if (photosAllowed) "Android: photos allowed" else "Android: photos not allowed",
+                if (photosAllowed) "Tap to change which photos and videos." else "Allow all photos, or only the ones you choose. Saving new pictures works without this.",
+                tint = if (photosAllowed) signal.success else signal.text2,
+                onClick = onAllowPhotos,
+                onClickLabel = "Choose which photos the AI can see",
+            )
+        }
     }
 }
 

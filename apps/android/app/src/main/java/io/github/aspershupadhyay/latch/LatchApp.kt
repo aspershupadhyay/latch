@@ -93,7 +93,11 @@ class LatchApp : Application() {
         grants = ApprovalGrants(PrefsGrantStore(this))
         consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
         autonomy = Autonomy(PrefsAutonomyStore(this))
-        files = PhoneFiles(this) { settings.preferences.value.filesFolder?.let(android.net.Uri::parse) }
+        files = PhoneFiles(
+            this,
+            folderUris = { settings.preferences.value.folders.map { android.net.Uri.parse(it.uri) } },
+            photosOn = { settings.preferences.value.photosOn },
+        )
         transfers = PhoneTransfers(files, http) { settings.pairing.value?.gatewayUrl }
         session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers)
         setup = GatewaySetup(http)
@@ -107,14 +111,35 @@ class LatchApp : Application() {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString().take(40)
     }.getOrNull()
 
-    /** Every app with a launcher icon except Latch, as (package, label). Call off the main thread. */
-    fun launchableApps(): List<Pair<String, String>> {
+    /** An app with a launcher icon, and the group the Apps screen files it under. */
+    data class InstalledApp(val packageName: String, val label: String, val category: String)
+
+    @Volatile private var installedCache: List<InstalledApp>? = null
+
+    /** The last list read, for an instant Apps screen; null before the first read. */
+    fun cachedApps(): List<InstalledApp>? = installedCache
+
+    /** Every app with a launcher icon except Latch. Call off the main thread. */
+    fun launchableApps(): List<InstalledApp> {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         @Suppress("DEPRECATION")
         val found = packageManager.queryIntentActivities(intent, 0)
-        return found.map { it.activityInfo.packageName to it.loadLabel(packageManager).toString().take(60) }
-            .filter { it.first != packageName }
-            .distinctBy { it.first }
+        return found.asSequence()
+            .filter { it.activityInfo.packageName != packageName }
+            .distinctBy { it.activityInfo.packageName }
+            .map { info ->
+                val app = info.activityInfo.applicationInfo
+                val label = info.loadLabel(packageManager).toString().take(60)
+                // Older games set only this flag, not the category.
+                @Suppress("DEPRECATION")
+                val isGame = app.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME != 0
+                val category = io.github.aspershupadhyay.latch.data.AppCategories.of(app.packageName, label, app.category, isGame) { c ->
+                    android.content.pm.ApplicationInfo.getCategoryTitle(this, c)?.toString()
+                }
+                InstalledApp(app.packageName, label, category)
+            }
+            .toList()
+            .also { installedCache = it }
     }
 
     private fun createChannels() {

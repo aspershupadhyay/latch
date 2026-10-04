@@ -1,6 +1,19 @@
 package io.github.aspershupadhyay.latch.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.Role
+import io.github.aspershupadhyay.latch.data.AppCategories
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
 /** One installed app on the Apps screen. [label] is the app's own (untrusted) name. */
-data class AppRow(val packageName: String, val label: String, val sensitive: Boolean, val on: Boolean)
+data class AppRow(val packageName: String, val label: String, val sensitive: Boolean, val on: Boolean, val category: String = AppCategories.OTHER)
 
 /**
  * Every launchable app with a switch (ADR-021). On: the AI uses the app
@@ -58,12 +71,15 @@ fun AppsScreen(
 ) {
     val signal = LocalSignal.current
     var query by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf(AppCategories.ALL) }
+    val chips = remember(apps) { AppCategories.chips(apps.map { it.category }) }
     var confirm by remember { mutableStateOf<AppRow?>(null) }
     var confirmAllOff by remember { mutableStateOf(false) }
     var confirmTrust by remember { mutableStateOf(false) }
-    val shown = remember(apps, query) {
+    val shown = remember(apps, query, category) {
         val q = query.trim().lowercase()
-        apps.filter { q.isEmpty() || it.label.lowercase().contains(q) || it.packageName.contains(q) }
+        apps.filter { category == AppCategories.ALL || it.category == category }
+            .filter { q.isEmpty() || it.label.lowercase().contains(q) || it.packageName.contains(q) }
             .sortedWith(compareBy({ !it.on }, { it.label.lowercase() }))
     }
     val onCount = apps.count { it.on }
@@ -119,8 +135,33 @@ fun AppsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        if (!loading && chips.size > 2) {
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(chips, key = { it.first }) { (name, count) ->
+                        val selected = name == category
+                        Row(
+                            Modifier.clip(RoundedCornerShape(50))
+                                .background(if (selected) signal.ink else signal.text2.copy(alpha = 0.12f))
+                                .selectable(selected = selected, role = Role.Tab) { category = name }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("$name $count", style = MaterialTheme.typography.labelLarge, color = if (selected) signal.canvas else signal.text, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
         if (loading) {
-            item { Text("Loading apps…", style = MaterialTheme.typography.bodyMedium, color = signal.text2) }
+            // Placeholder rows in the shape of the list, instead of a "loading" line.
+            items(PLACEHOLDER_ROWS) { AppRowPlaceholder() }
+        } else if (shown.isEmpty()) {
+            item {
+                Text(
+                    if (query.isNotBlank()) "No app matches “${query.trim()}”." else "No apps in $category.",
+                    style = MaterialTheme.typography.bodyMedium, color = signal.text2, modifier = Modifier.padding(8.dp),
+                )
+            }
         }
         items(shown, key = { it.packageName }) { app ->
             Row(
@@ -136,10 +177,12 @@ fun AppsScreen(
                     }
                 }
                 Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(app.label, style = MaterialTheme.typography.titleMedium, color = signal.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (app.sensitive) {
                         Pill("Money or accounts", signal.warning, LatchIcons.Warning)
+                    } else {
+                        Text(app.category, style = MaterialTheme.typography.bodySmall, color = signal.text2, maxLines = 1)
                     }
                 }
                 Spacer(Modifier.width(12.dp))
@@ -197,5 +240,32 @@ fun AppsScreen(
             confirmButton = { TextButton(onClick = { onAllOff(); confirmAllOff = false }) { Text("Switch all off", color = signal.danger) } },
             dismissButton = { TextButton(onClick = { confirmAllOff = false }) { Text("Cancel") } },
         )
+    }
+}
+
+private const val PLACEHOLDER_ROWS = 8
+
+/** A grey row in the shape of an app row, gently pulsing while the list loads. */
+@Composable
+private fun AppRowPlaceholder() {
+    val signal = LocalSignal.current
+    val pulse by rememberInfiniteTransition(label = "placeholder").animateFloat(
+        initialValue = 0.45f, targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse",
+    )
+    val shade = signal.text2.copy(alpha = 0.16f)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp).alpha(pulse)
+            .semantics { contentDescription = "Loading apps" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(shade))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.fillMaxWidth(0.55f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(shade))
+            Box(Modifier.fillMaxWidth(0.3f).height(10.dp).clip(RoundedCornerShape(5.dp)).background(shade))
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(Modifier.size(width = 48.dp, height = 28.dp).clip(CircleShape).background(shade))
     }
 }

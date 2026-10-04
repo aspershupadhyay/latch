@@ -18,6 +18,9 @@ import javax.crypto.spec.GCMParameterSpec
 /** Where this phone is paired. The token itself lives in [TokenVault]. */
 data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String)
 
+/** A folder the owner shares with the AI: its Storage Access Framework tree URI and its name. */
+data class FolderGrant(val uri: String, val name: String)
+
 /** Light or dark look; SYSTEM follows the phone's own setting. */
 enum class ThemeChoice(val label: String) {
     SYSTEM("System"), LIGHT("Light"), DARK("Dark");
@@ -42,9 +45,10 @@ data class Preferences(
     val checkUpdates: Boolean = true,
     /** Approvals may also be answered in the AI app (protocol 1.4, ADR-023). */
     val remoteApprovals: Boolean = false,
-    /** The folder the owner picked for the AI (a Storage Access Framework tree URI) and its name. */
-    val filesFolder: String? = null,
-    val filesFolderName: String? = null,
+    /** The folders the owner shares with the AI, in the order they were added. */
+    val folders: List<FolderGrant> = emptyList(),
+    /** Latch's own switch for photos; Android's photo permission is needed too. */
+    val photosOn: Boolean = true,
     val theme: ThemeChoice = ThemeChoice.SYSTEM,
 )
 
@@ -86,10 +90,22 @@ class Settings(context: Context) {
             keepAwake = prefs.getBoolean("keep_awake", true),
             checkUpdates = prefs.getBoolean("check_updates", true),
             remoteApprovals = prefs.getBoolean("remote_approvals", false),
-            filesFolder = prefs.getString("files_folder", null),
-            filesFolderName = prefs.getString("files_folder_name", null),
+            folders = readFolders(),
+            photosOn = prefs.getBoolean("photos_on", true),
             theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
+    }
+
+    /** One "uri<TAB>name" line per folder; the single folder of older versions becomes the first. */
+    private fun readFolders(): List<FolderGrant> {
+        prefs.getString("files_folders", null)?.let { saved ->
+            return saved.lines().mapNotNull { line ->
+                val uri = line.substringBefore('\t').takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                FolderGrant(uri, line.substringAfter('\t', "Folder").ifBlank { "Folder" })
+            }
+        }
+        val legacy = prefs.getString("files_folder", null) ?: return emptyList()
+        return listOf(FolderGrant(legacy, prefs.getString("files_folder_name", null) ?: "Folder"))
     }
 
     fun savePairing(pairing: Pairing, token: String) {
@@ -137,8 +153,10 @@ class Settings(context: Context) {
             putBoolean("keep_awake", next.keepAwake)
             putBoolean("check_updates", next.checkUpdates)
             putBoolean("remote_approvals", next.remoteApprovals)
-            putString("files_folder", next.filesFolder)
-            putString("files_folder_name", next.filesFolderName)
+            putString("files_folders", next.folders.joinToString("\n") { "${it.uri}\t${it.name.replace('\t', ' ').replace('\n', ' ')}" })
+            remove("files_folder")
+            remove("files_folder_name")
+            putBoolean("photos_on", next.photosOn)
             putString("theme", next.theme.name)
         }
         _preferences.value = next
