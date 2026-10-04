@@ -14,15 +14,15 @@ use serde_json::{Value, json};
 use crate::store::{ClientRecord, DeviceRecord};
 use crate::{AppState, device_http, device_ws, mcp, now_ms, secret};
 
-const ADMIN_HTML: &str = include_str!("admin/index.html");
-const ADMIN_JS: &str = include_str!("admin/admin.js");
-const ADMIN_CSS: &str = include_str!("admin/admin.css");
+const PAGE_HTML: &str = include_str!("page/index.html");
+const PAGE_CSS: &str = include_str!("page/gateway.css");
+const ROBOTS_TXT: &str = include_str!("page/robots.txt");
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(admin_page))
-        .route("/admin.js", get(admin_js))
-        .route("/admin.css", get(admin_css))
+        .route("/", get(page))
+        .route("/gateway.css", get(page_css))
+        .route("/robots.txt", get(robots_txt))
         .route("/healthz", get(health))
         .route("/mcp", post(mcp_post).get(mcp_other).delete(mcp_other))
         .route(
@@ -64,7 +64,38 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/v1/admin/clients/{id}", delete(admin_revoke_client))
         .layer(DefaultBodyLimit::max(256 * 1024))
+        .layer(axum::middleware::map_response(private_headers))
         .with_state(state)
+}
+
+/// Every answer, pages and APIs alike: a gateway is private, so search engines
+/// must not index it, browsers must not frame it, and HTTPS sticks.
+async fn private_headers(mut response: Response) -> Response {
+    let h = response.headers_mut();
+    h.insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow, noarchive, nosnippet, noimageindex"),
+    );
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    h.insert(
+        header::STRICT_TRANSPORT_SECURITY,
+        HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+    );
+    h.insert(
+        "permissions-policy",
+        HeaderValue::from_static(
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+        ),
+    );
+    response
 }
 
 async fn file_download(State(state): State<Arc<AppState>>, Path(token): Path<String>) -> Response {
@@ -301,47 +332,40 @@ fn is_mcp_client(state: &AppState, token: Option<&str>) -> bool {
     by_env || by_client
 }
 
-// ---- Static owner console ----
+// ---- The public page: static, no scripts, no forms ----
 
-fn with_security_headers(mut response: Response, content_type: &'static str) -> Response {
+fn static_file(body: &'static str, content_type: &'static str) -> Response {
+    let mut response = body.into_response();
     let h = response.headers_mut();
     h.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     h.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
         ),
-    );
-    h.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
-    h.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
     );
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
-async fn admin_page() -> Response {
-    with_security_headers(ADMIN_HTML.into_response(), "text/html; charset=utf-8")
+async fn page() -> Response {
+    static_file(PAGE_HTML, "text/html; charset=utf-8")
 }
 
-async fn admin_js() -> Response {
-    with_security_headers(ADMIN_JS.into_response(), "text/javascript; charset=utf-8")
+async fn page_css() -> Response {
+    static_file(PAGE_CSS, "text/css; charset=utf-8")
 }
 
-async fn admin_css() -> Response {
-    with_security_headers(ADMIN_CSS.into_response(), "text/css; charset=utf-8")
+async fn robots_txt() -> Response {
+    static_file(ROBOTS_TXT, "text/plain; charset=utf-8")
 }
 
-async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
+/// Public, so it tells nothing about the owner: not even whether a phone is online.
+async fn health() -> Json<Value> {
     Json(json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": latch_protocol::PROTOCOL_VERSION,
-        "devices_connected": state.devices.online().len(),
     }))
 }
 

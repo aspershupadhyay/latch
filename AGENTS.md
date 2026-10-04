@@ -83,10 +83,11 @@ Expected high-level structure, subject to the repository handbook:
 - crates/crypto: key handling, secure channels, and cryptographic boundaries.
 - crates/fake-device: deterministic simulated phone used by end-to-end tests (fixtures live in packages/schemas/v1/fixtures).
 - crates/fixtures, crates/test-harness: not created yet; add them only when a second consumer needs them.
-- servers/mcp: the `latch-gateway` binary — MCP adapter, phone channel, pairing, owner console.
+- servers/mcp: the `latch-gateway` binary — MCP adapter, phone channel, pairing, owner API, and the private static page at `/`.
 - packages/schemas: source schemas and reproducible generated artifacts.
 - adapters/typescript: optional client, setup, and integration adapters.
 - docs: contributor, operator, security, capability, and release documentation.
+- site: the public website, published to GitHub Pages by `.github/workflows/pages.yml` (checked by `scripts/check-site.mjs`). Never put a personal gateway address in it or in the repository description.
 - tests: cross-platform, contract, security, and end-to-end test plans.
 - .github: CI, security checks, issue templates, and release automation.
 

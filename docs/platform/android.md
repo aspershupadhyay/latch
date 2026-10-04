@@ -61,7 +61,7 @@ Moving from the old debug test builds (package `…latch.debug`) to release buil
 ## Owner setup on the phone
 
 1. Install the APK (allow installs from your browser or file manager when Android asks).
-2. Open Latch, enter the gateway address and the pairing code from the console.
+2. Open Latch, enter the gateway address and the owner key (or a pairing code made with the owner API).
 3. The app opens **Set up your phone** right after pairing and asks for each permission in turn, saying why:
    1. Notifications (Android 13+): the session notification with its Stop button. Skippable.
    2. Screen access: Android Settings → Accessibility → Latch remote control → on. Required; the step stays open until the service is on.
@@ -109,7 +109,7 @@ Run on at least two phones (for example a Pixel-class device on Android 16 and a
 6. In a messaging app, type a draft (`input.text`), tap Send → the approval card appears over the app; Deny → `user_denied`, nothing sent; repeat and Approve → sent once.
 7. Open the notification shade by hand; `observe` → `policy_refused`.
 8. During a long `scroll` sequence, tap the Stop pill → the next tool call returns `device_unavailable` within one second; measure the time.
-9. Revoke the phone in the console → the app shows "revoked"; reconnect attempts fail.
+9. Revoke the phone from the owner API (`DELETE /v1/admin/devices/<id>`) → the app shows "revoked"; reconnect attempts fail.
 10. Switch off the accessibility service mid-session → actions return `permission_missing`; the Stop pill disappears.
 11. TalkBack on: the Home screen, capability switches, and approval card are announced with their text; large font (200%) does not clip the Stop button.
 12. Regression for the 2026-10-02 run: in WhatsApp, `type_text` then `tap` Send, and separately `type_text` with `submit` → each shows an approval card; tapping a contact's phone number or a SIM choice in the dialer → approval card.

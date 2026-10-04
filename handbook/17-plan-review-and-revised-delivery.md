@@ -36,7 +36,7 @@ AI client (Claude, ChatGPT, Cursor, any MCP client)
 latch-gateway (Rust, one process, any cloud container or LAN host)
   ├─ policy (pure): capability grants · session pause/expiry · freshness ·
   │                 sensitive fields · approval for consequential controls
-  ├─ owner console  GET /  (Bearer LATCH_ADMIN_TOKEN): pair · revoke · activity
+  ├─ owner API      /v1/admin/* (Bearer LATCH_ADMIN_TOKEN, used by the app) · GET / is a static private page (ADR-029)
   └─ device channel GET /v1/device (WebSocket, per-phone token; phone dials out)
         ▲
         │  Latch device protocol v1 (JSON, packages/schemas/v1)
@@ -79,7 +79,7 @@ Every slice still runs the handbook's per-phase cycle (chapter 13): decide, thre
 - *Settings*: gateway, forget gateway, privacy and network destinations, accessibility shortcut, version.
 - *Always on top during a session*: red "● Latch · Stop" pill (tap = emergency stop) and, when needed, the approval card (title is the action, e.g. "Tap “Send” in org.example.chat"; Deny / Approve).
 
-**Gateway owner console** (served at `/`): phones with live state and enabled capabilities, Revoke; pair-a-phone with code and countdown; "Connect an AI client" with ready-to-paste Claude Code and JSON snippets; redacted activity table. Works at phone width and in dark mode.
+**Gateway page** (served at `/`, ADR-029): a static "private gateway" page with no scripts, forms, or data, telling a freshly deployed owner to paste the address into the app. The former owner console is removed; every owner task lives in the app. Every gateway answer carries `X-Robots-Tag: noindex`.
 
 UX gate (chapter 09) still applies and needs a small study with real users once S4 passes.
 
@@ -93,7 +93,7 @@ UX gate (chapter 09) still applies and needs a small study with real users once 
 
 ## 7. Decisions recorded
 
-ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays · ADR-028 crash-proof commands, a kept Activity log, several folders, and finish_task (protocol 1.8) — see `docs/adr/`.
+ADR-011 vertical slices · ADR-012 phone dials out / cloud-hostable gateway · ADR-013 accessibility screenshots, minSdk 30 · ADR-014 tokens over custom crypto · ADR-015 hand-written MCP layer · ADR-016 overlay approvals and one-command-at-a-time · ADR-017 own gateway per owner, long-poll transport · ADR-018 Vercel gateway with shared contracts · ADR-019 per-app MCP keys and secret links · ADR-020 bento layout · ADR-021 owner-chosen apps instead of per-action approvals · ADR-022 owner opt-in for critical actions · ADR-023 answering questions in the AI app (protocol 1.4) · ADR-024 Auto mode · ADR-025 plain words and an Apple-style look · ADR-026 files, photos, sharing, and asking the owner · ADR-027 encrypted file links of any size, the clipboard, and a cursor that stays · ADR-028 crash-proof commands, a kept Activity log, several folders, and finish_task (protocol 1.8) · ADR-029 private gateway: no web console, noindex everywhere — see `docs/adr/`.
 
 ## 8. Real-device feedback (2026-10-02)
 

@@ -150,7 +150,7 @@ test("an MCP client signs in with only the URL, approved in the app", async () =
   await client.close();
 });
 
-test("the owner can approve in the browser with the owner key, or deny", async () => {
+test("a browser can only deny; approving takes the app, never the owner key in a page", async () => {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const reg = await (await fetch(`${base}/oauth/register`, {
@@ -163,16 +163,18 @@ test("the owner can approve in the browser with the owner key, or deny", async (
 
   const html = await (await fetch(authorize("s1"))).text();
   assert.doesNotMatch(html, /<b>Browser app<\/b>/, "names are escaped");
+  assert.doesNotMatch(html, /owner_key|type="password"/, "the page never asks for the owner key");
   const action = html.match(/action="(\/oauth\/requests\/lar_[0-9a-f]+)"/)![1]!;
   const form = (fields: Record<string, string>) => fetch(base + action, {
     method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields),
   });
-  const wrong = await form({ decision: "approve", owner_key: "nope" });
-  assert.equal(wrong.status, 200);
-  assert.match(await wrong.text(), /That owner key is not right/);
-  const ok = await form({ decision: "approve", owner_key: ADMIN });
-  assert.equal(ok.status, 303);
-  const back = new URL(ok.headers.get("location")!);
+  // Even the right owner key posted from a page approves nothing.
+  const posted = await form({ decision: "approve", owner_key: ADMIN });
+  assert.equal(posted.status, 200);
+  assert.equal((await (await fetch(base + action)).json()).status, "pending");
+  const id = action.slice("/oauth/requests/".length);
+  assert.equal((await admin(`/v1/admin/oauth/requests/${id}`, { method: "POST", body: JSON.stringify({ approve: true }) })).status, 204);
+  const back = new URL((await (await fetch(base + action)).json()).redirect);
   assert.equal(back.origin + back.pathname, "https://app.example/cb");
   assert.equal(back.searchParams.get("state"), "s1");
 

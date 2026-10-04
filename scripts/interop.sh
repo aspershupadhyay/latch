@@ -17,5 +17,5 @@ code=$(curl -fs -X POST "$base/v1/admin/pairings" -H "Authorization: Bearer $LAT
   -H 'Content-Type: application/json' -d '{"name":"Interop"}' | sed -E 's/.*"code":"([^"]+)".*/\1/')
 $bin/latch-fake-device "$base" "$code" 2>/dev/null &
 fake=$!
-for _ in $(seq 1 50); do curl -fs "$base/healthz" | grep -q '"devices_connected":1' && break; sleep 0.1; done
+for _ in $(seq 1 50); do curl -fs "$base/v1/admin/devices" -H "Authorization: Bearer $LATCH_ADMIN_TOKEN" | grep -q '"connected":true' && break; sleep 0.1; done
 (cd tests/interop && npm ci --silent --no-audit --no-fund && LATCH_URL="$base" node mcp-sdk-client.mjs)

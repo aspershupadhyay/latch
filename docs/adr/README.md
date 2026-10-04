@@ -140,3 +140,15 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Why:** the owner's report (crash, accessibility off, cursor label off screen, "Thinking…" while nothing happened, the pill in the way) and requests (every action transparent and readable from the AI app, more than one folder, a way to turn photos off).
 **Risk:** a kept log is readable by anyone who unlocks the phone and opens Latch; it holds app and file names. Mitigations: app-private, not backed up, 7 days, Clear. `activity.read` gives the AI app those names, so it is off by default.
 **Reversal trigger:** screen or typed content found in the kept log, or the pill moving away from a touch by the owner.
+
+## ADR-029 — The gateway is private: no web console, noindex everywhere
+**Status:** accepted (2026-10-04, owner request: "only MCP and the app may use the gateway; nobody else can browse it or index it, and why is there a key box on the page?") · **Amends:** chapter 17 §2 and §5 (owner console at `/`), ADR-020 (console layout), S5 (OAuth approval "in the app or with the owner key")
+**Decision:**
+- Both gateways serve one static page at `/` (`servers/mcp/src/page/`, copied to `servers/vercel/public/` by `scripts/sync-vercel.sh`): it says the address is private, tells a freshly deployed owner to paste the address into the app, and has no scripts (`script-src 'none'`), forms, inputs, or data. The owner console is removed; phones, pairing codes, AI keys, and OAuth approvals are managed in the Latch app, which already does all of it through `/v1/admin/*` with the owner key (curl works too).
+- The OAuth consent page can only deny; approval happens only in the Latch app. A posted owner key approves nothing.
+- Every answer from both gateways, found or not, carries `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, HSTS (2 years), and a `Permissions-Policy` that turns off camera, microphone, location, payment, and USB. `vercel.json` repeats them for `public/`. `/robots.txt` disallows everything except `/` (so crawlers can read its noindex).
+- `/healthz` no longer reports `devices_connected`: an anonymous visitor should not learn when the owner's phone is online.
+**Never:** a page that asks for the owner key; gateway data on an unauthenticated page.
+**Why:** typing the master key into a web page is the easiest thing to phish, and a public console invites guessing and scraping. The app already holds the key.
+**Risk:** owners without the app (self-hosted, scripted) lose the browser console; the owner API and `scripts/dev.sh` cover them. noindex and an unlisted address are not access control: `*.vercel.app` names appear in certificate-transparency logs, so security still rests on 256-bit keys stored as hashes, single-use pairing codes with a failure lock, and constant-time comparison. A per-IP lockout on wrong owner keys was rejected: guessing a 256-bit key is impossible, and a lockout would let anyone lock the owner out.
+**Reversal trigger:** an owner task that needs a browser and cannot be done from the app or the owner API.

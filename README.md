@@ -2,6 +2,8 @@
 
 **Let your AI use your phone, but only the way you allow.** 📱🔒
 
+🌐 **Website:** [aspershupadhyay.github.io/latch](https://aspershupadhyay.github.io/latch/)
+
 Imagine telling Claude or ChatGPT: *"Open my music app and play something chill."* With Latch, it can see your screen and tap for you. You stay the boss the whole time: you pick what it's allowed to do, you can stop it with one tap, and it has to ask you first before anything big (like sending a message or buying something).
 
 It's free, it's open source, and **you own every piece of it.** There's no Latch company server in the middle. Your phone talks to *your* gateway, which lives in *your* free Vercel account.
@@ -139,7 +141,7 @@ Works the same in every MCP app (Claude, ChatGPT, Codex, Cursor, VS Code…):
 
 1. In your AI app, add a remote MCP server with this URL: `https://<your-address>/mcp`
 2. Your browser opens a Latch page showing a 4-letter code.
-3. In the Latch app, open **Connect** → tap **Approve** on the request with the same code. (Or paste your owner key on the page.)
+3. In the Latch app, open **Connect** → tap **Approve** on the request with the same code. The page never asks for your owner key; if a page does, it isn't yours, so close it.
 
 Done. The AI app shows up in **Connect**, where you can remove it any time.
 

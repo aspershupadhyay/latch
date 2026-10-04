@@ -1,13 +1,14 @@
 // OAuth 2.1 for MCP clients, as the MCP authorization spec describes it, so any
 // MCP client can connect with only the server URL: it discovers this server
 // (RFC 9728, RFC 8414), registers itself (RFC 7591, or a client ID metadata
-// document), and the owner approves it, on the phone in the Latch app or with
-// the owner key. Authorization code + PKCE (S256) only; public clients only.
+// document), and the owner approves it on the phone in the Latch app. The owner
+// key is never typed into a browser: a page that asks for it is a phishing page.
+// Authorization code + PKCE (S256) only; public clients only.
 //
 // Every approval becomes an entry in the owner's list of AI apps, so revoking
 // it there cuts its tokens at once. Tokens are random and stored as hashes.
 
-import { newId, newToken, pairingCode, secretsEqual, sha256 } from "./secret.js";
+import { newId, newToken, pairingCode, sha256 } from "./secret.js";
 import type { Store } from "./store.js";
 import { createHash } from "node:crypto";
 
@@ -18,7 +19,6 @@ const ACCESS_TTL_S = 3600;
 const REFRESH_TTL_MS = 90 * 24 * 3600 * 1000;
 const MAX_REGISTERED = 200;
 const MAX_PENDING = 10;
-const MAX_KEY_FAILURES_PER_MINUTE = 10;
 
 const K = {
   clients: "latch:oauth:clients",
@@ -28,7 +28,6 @@ const K = {
   code: (code: string) => `latch:oauth:code:${sha256(code)}`,
   access: (token: string) => `latch:oauth:access:${sha256(token)}`,
   refresh: (token: string) => `latch:oauth:refresh:${sha256(token)}`,
-  keyFailures: () => `latch:oauth:keyfail:${Math.floor(Date.now() / 60_000)}`,
 };
 
 interface RegisteredClient {
@@ -220,25 +219,13 @@ export class OAuth {
     return json(200, { status: req.status, redirect: req.redirect ?? null });
   }
 
-  /** POST /oauth/requests/<id>: approve with the owner key (form), or deny. */
+  /** POST /oauth/requests/<id>: deny from the browser. Approving happens only in the Latch app. */
   async decideInBrowser(request: Request, id: string): Promise<Response> {
     const req = await this.loadRequest(id);
     if (!req || req.status !== "pending") return page(410, "Request expired", "Start connecting again from your AI app.");
     const form = new URLSearchParams(await request.text());
-    if (form.get("decision") === "deny") {
-      const decided = await this.decide(req, false);
-      return seeOther(decided.redirect!);
-    }
-    const failures = K.keyFailures();
-    if (Number((await this.store.get(failures)) ?? "0") >= MAX_KEY_FAILURES_PER_MINUTE) {
-      return consentPage(req, hostOf(req.redirect_uri), "Too many wrong keys. Wait a minute.");
-    }
-    const key = (form.get("owner_key") ?? "").trim();
-    if (this.host.adminToken === undefined || key === "" || !secretsEqual(key, this.host.adminToken)) {
-      await this.store.incr(failures, 120_000);
-      return consentPage(req, hostOf(req.redirect_uri), "That owner key is not right.");
-    }
-    const decided = await this.decide(req, true);
+    if (form.get("decision") !== "deny") return consentPage(req, hostOf(req.redirect_uri));
+    const decided = await this.decide(req, false);
     return seeOther(decided.redirect!);
   }
 
@@ -459,21 +446,19 @@ h1{font-size:22px;line-height:1.3;margin:0 0 6px}p{margin:0 0 14px;color:var(--m
 .code{display:flex;gap:8px;margin:18px 0}.code span{flex:1;text-align:center;font:600 26px/1 ui-monospace,Menlo,monospace;padding:14px 0;border-radius:14px;background:var(--bg);border:1px solid var(--line)}
 .wait{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin:6px 0 18px}.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:p 1.4s infinite}@keyframes p{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.dot{animation:none}}
-details{border-top:1px solid var(--line);padding-top:14px}summary{cursor:pointer;color:var(--muted);font-size:14px}
-input{width:100%;margin:12px 0 10px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}
-button{width:100%;padding:13px;border-radius:14px;border:0;font:600 15px/1 inherit;cursor:pointer}.primary{background:var(--ink);color:var(--on-ink)}.ghost{background:transparent;color:var(--danger);margin-top:8px}
-.err{color:var(--danger);font-size:14px;margin:0 0 8px}.foot{font-size:12px;margin:16px 0 0}`;
+button{width:100%;padding:13px;border-radius:14px;border:0;font:600 15px/1 inherit;cursor:pointer}.ghost{background:transparent;color:var(--danger);margin-top:8px}
+.foot{font-size:12px;margin:16px 0 0}`;
 
 const SHIELD = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>`;
 
 function html(status: number, body: string, nonce?: string): Response {
   const script = nonce ? `'nonce-${nonce}'` : "'none'";
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Latch</title><style>${STYLE}</style></head><body><main>${body}</main></body></html>`, {
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta name="robots" content="noindex, nofollow"><title>Latch</title><style>${STYLE}</style></head><body><main>${body}</main></body></html>`, {
     status,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; script-src ${script}; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'`,
+      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; script-src ${script}; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'`,
       "x-frame-options": "DENY",
     },
   });
@@ -483,7 +468,7 @@ function page(status: number, title: string, text: string): Response {
   return html(status, `<div class="mark">${SHIELD}</div><h1>${esc(title)}</h1><p>${esc(text)}</p>`);
 }
 
-function consentPage(req: AuthRequest, returnHost: string, error?: string): Response {
+function consentPage(req: AuthRequest, returnHost: string): Response {
   const nonce = newToken("n").slice(2, 34);
   const code = [...req.match].map((c) => `<span>${esc(c)}</span>`).join("");
   const action = `/oauth/requests/${req.id}`;
@@ -495,12 +480,8 @@ function consentPage(req: AuthRequest, returnHost: string, error?: string): Resp
 <p style="margin:0">Open Latch → Connect. Check the code matches:</p>
 <div class="code" aria-label="Match code">${code}</div>
 <div class="wait" role="status"><span class="dot"></span><span id="s">Waiting for your approval…</span></div>
-${error ? `<p class="err">${esc(error)}</p>` : ""}
-<details${error ? " open" : ""}><summary>Approve with your owner key instead</summary>
-<form method="post" action="${action}"><input type="password" name="owner_key" autocomplete="off" placeholder="Owner key (LATCH_ADMIN_TOKEN)" aria-label="Owner key"><button class="primary" name="decision" value="approve">Approve</button></form>
-</details>
 <form method="post" action="${action}"><button class="ghost" name="decision" value="deny">Deny</button></form>
-<p class="foot">Not you? Deny. Nothing is shared until you approve.</p>
+<p class="foot">Not you? Deny. Nothing is shared until you approve in the app. Latch never asks for your owner key in a browser.</p>
 <script nonce="${nonce}">
 (async function poll(){try{const r=await fetch(${JSON.stringify(action)},{cache:"no-store"});const j=await r.json();
 if(j.redirect){document.getElementById("s").textContent=j.status==="approved"?"Approved. Returning to the app…":"Declined.";location.replace(j.redirect);return}

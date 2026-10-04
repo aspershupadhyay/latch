@@ -38,6 +38,16 @@ jobs:
           node-version: 22
       - run: scripts/interop.sh
 
+  site:
+    name: Website (search tags, structured data, links)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node scripts/check-site.mjs
+
   vercel:
     name: Vercel gateway (contract, typecheck, end-to-end on Redis)
     runs-on: ubuntu-latest

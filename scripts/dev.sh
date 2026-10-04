@@ -3,7 +3,7 @@
 # end to end without hardware (works in a cloud dev container too).
 #
 #   scripts/dev.sh            gateway + fake phone
-#   scripts/dev.sh --no-fake  gateway only (pair a real phone from the console)
+#   scripts/dev.sh --no-fake  gateway only (pair a real phone from the app with the owner key)
 #
 # Tokens are generated per run and printed once. State lives in ./latch-data.
 set -euo pipefail
@@ -32,7 +32,7 @@ fi
 cat <<INFO
 
   Latch gateway running at $base
-  Owner console:   $base/          (admin token below)
+  Owner key:       pair and manage from the Latch app (admin token below)
   MCP endpoint:    $base/mcp       (MCP token below)
 
   LATCH_ADMIN_TOKEN=$LATCH_ADMIN_TOKEN
