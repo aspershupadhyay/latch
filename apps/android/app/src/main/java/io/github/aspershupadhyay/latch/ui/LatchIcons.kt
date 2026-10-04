@@ -36,6 +36,16 @@ object LatchIcons {
         lineTo(x + 0.01f, y)
     }
 
+    /** The Latch mark (see Logo.kt): a hook that has caught a pin. */
+    val Mark: ImageVector = ImageVector.Builder("mark", 24.dp, 24.dp, 24f, 24f)
+        .path(stroke = SolidColor(Color.Black), strokeLineWidth = 2.6f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(6.4f, 18.4f); lineTo(6.4f, 10.4f)
+            arcTo(5f, 5f, 0f, false, true, 16.4f, 10.4f)
+            lineTo(16.4f, 12.6f)
+        }
+        .path(fill = SolidColor(Color.Black)) { circle(16.4f, 17.2f, 2.5f) }
+        .build()
+
     val Clipboard = icon("clipboard") {
         moveTo(9f, 4f); lineTo(6.5f, 4f); arcToRelative(1.5f, 1.5f, 0f, false, false, -1.5f, 1.5f); lineTo(5f, 19.5f)
         arcToRelative(1.5f, 1.5f, 0f, false, false, 1.5f, 1.5f); lineTo(17.5f, 21f); arcToRelative(1.5f, 1.5f, 0f, false, false, 1.5f, -1.5f)

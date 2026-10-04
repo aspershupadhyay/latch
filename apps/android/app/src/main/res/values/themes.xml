@@ -3,6 +3,6 @@
     <style name="Theme.Latch" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/canvas</item>
     </style>
-    <color name="canvas">#F6F7F9</color>
-    <color name="accent">#2F5BEA</color>
+    <color name="canvas">#F5EFE6</color>
+    <color name="accent">#C2532D</color>
 </resources>

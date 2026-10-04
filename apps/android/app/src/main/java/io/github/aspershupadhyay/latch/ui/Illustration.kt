@@ -26,6 +26,9 @@ import androidx.compose.ui.graphics.vector.VectorPainter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
+import io.github.aspershupadhyay.latch.ui.theme.Cream
+import io.github.aspershupadhyay.latch.ui.theme.Ember
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
 /**
@@ -35,10 +38,12 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
  * guarded connection rather than an open one. Static when motion is reduced.
  */
 @Composable
-fun ConnectionIllustration(reducedMotion: Boolean, modifier: Modifier = Modifier) {
-    val signal = LocalSignal.current
+fun ConnectionIllustration(reducedMotion: Boolean, modifier: Modifier = Modifier, onPastel: Boolean = false) {
+    val base = LocalSignal.current
+    // On a pastel card the drawing uses dark ink and white shapes, the same in both themes.
+    val signal = if (onPastel) base.copy(surface2 = Color.White, border = base.onPastel.copy(alpha = 0.18f), text = base.onPastel, text2 = base.onPastel.copy(alpha = 0.7f), accent = Ember, canvas = Cream) else base
     val sparkle = rememberVectorPainter(LatchIcons.Sparkle)
-    val shield = rememberVectorPainter(LatchIcons.ShieldCheck)
+    val shield = rememberVectorPainter(LatchIcons.Mark)
     val transition = rememberInfiniteTransition(label = "illustration")
     val t by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(2_800, easing = LinearEasing), RepeatMode.Restart), label = "flow")
     val progress = if (reducedMotion) 0.35f else t
@@ -115,7 +120,7 @@ fun ConnectionIllustration(reducedMotion: Boolean, modifier: Modifier = Modifier
     }
 }
 
-private fun DrawScope.drawIcon(painter: VectorPainter, center: Offset, size: Float, tint: androidx.compose.ui.graphics.Color) {
+private fun DrawScope.drawIcon(painter: VectorPainter, center: Offset, size: Float, tint: Color) {
     translate(center.x - size / 2, center.y - size / 2) {
         with(painter) { draw(Size(size, size), colorFilter = ColorFilter.tint(tint)) }
     }

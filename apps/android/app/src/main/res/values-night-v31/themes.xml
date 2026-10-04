@@ -2,6 +2,7 @@
 <resources>
     <style name="Theme.Latch" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/canvas</item>
+        <item name="android:windowSplashScreenBackground">@color/canvas</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>
     </style>
-    <color name="canvas">#14100D</color>
 </resources>

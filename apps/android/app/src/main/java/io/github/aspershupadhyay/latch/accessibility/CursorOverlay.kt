@@ -17,7 +17,7 @@ import kotlin.math.min
 
 /**
  * A pointer that shows the owner where the AI is acting, in the style of
- * desktop agents' cursors: one rounded indigo arrow with a white edge and a
+ * desktop agents' cursors: one rounded terracotta arrow with a white edge and a
  * soft shadow, and a small label beside it saying what it is doing ("Latch ·
  * Tapping"). It moves along a gentle curve, faster for short hops, and dips
  * when it presses. Each touch shows a finger mark and ripple; a long press
@@ -106,8 +106,8 @@ class CursorOverlay(private val context: Context) {
         private val density = resources.displayMetrics.density
         /** The arrow is drawn in a 24-unit grid; one unit is this many pixels. */
         private val unit = 1.05f * density
-        /** Latch indigo (the app's accent), bright enough on dark and light screens. */
-        private val accent = Color.rgb(91, 79, 233)
+        /** Latch terracotta (the brand colour), bright enough on dark and light screens. */
+        private val accent = Color.rgb(194, 83, 45)
 
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
         private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -130,7 +130,7 @@ class CursorOverlay(private val context: Context) {
             strokeCap = Paint.Cap.ROUND
             color = accent
         }
-        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(24, 24, 32) }
+        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(31, 26, 22) }
         private val pillEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 1 * density
@@ -141,9 +141,9 @@ class CursorOverlay(private val context: Context) {
             textSize = 12.5f * density
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(139, 139, 255) }
+        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) }
-        private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(139, 139, 255) }
+        private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(240, 138, 93) }
 
         // ---- State (screen pixels, uptime ms) ----
         private var x = -1f

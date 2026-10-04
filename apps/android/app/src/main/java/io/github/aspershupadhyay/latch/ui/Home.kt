@@ -20,11 +20,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -39,6 +41,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,6 +55,11 @@ import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.ApprovalKind
+import io.github.aspershupadhyay.latch.ui.theme.Cream
+import io.github.aspershupadhyay.latch.ui.theme.HeroActive
+import io.github.aspershupadhyay.latch.ui.theme.HeroAttention
+import io.github.aspershupadhyay.latch.ui.theme.HeroIdle
+import io.github.aspershupadhyay.latch.ui.theme.HeroStopped
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import java.text.DateFormat
 import java.util.Date
@@ -61,13 +72,15 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
+            LatchLogo(42.dp)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Latch", style = MaterialTheme.typography.headlineSmall, color = signal.text)
+                Text(greeting(), style = MaterialTheme.typography.headlineSmall, color = signal.text)
                 Text(state.phoneName, style = MaterialTheme.typography.bodyMedium, color = signal.text2)
             }
             Pill(
-                if (state.encrypted) "Private connection" else "Not private",
+                if (state.encrypted) "Private" else "Not private",
                 if (state.encrypted) signal.success else signal.warning,
                 if (state.encrypted) LatchIcons.Lock else LatchIcons.Warning,
             )
@@ -144,54 +157,105 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             }
         }
 
-        SectionCaption("Your Latch")
-        Card {
-            ListRow(
-                icon = LatchIcons.ShieldCheck,
-                title = "What the AI can do",
-                subtitle = if (state.enabled.isEmpty()) "Nothing yet. Tap to choose." else state.enabled.joinToString(" \u00b7 ") { shortName(it) },
-                tint = signal.accent,
+        BentoRow {
+            Tile(
+                Modifier.weight(1f),
+                color = signal.clay,
                 onClick = actions.goCapabilities,
                 onClickLabel = "Change what the AI can do",
-            )
-            RowDivider()
-            ListRow(
-                icon = LatchIcons.Plug,
-                title = "Connect your AI",
-                subtitle = if (state.isOwner) "Claude, ChatGPT, or another AI app" else "Ask the relay's owner to connect your AI",
-                tint = signal.accent2,
-                onClick = actions.goConnect,
-                onClickLabel = "Connect an AI app",
-            )
-            RowDivider()
-            val last = state.lastActivity
-            ListRow(
-                icon = LatchIcons.Pulse,
-                title = "Activity",
-                subtitle = last?.let { "${it.summary} · ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it.atMs))}" } ?: "Nothing yet",
-                tint = Color(0xFF5E5CE6),
+                minHeight = 168.dp,
+            ) {
+                TileHead(LatchIcons.ShieldCheck, "Access")
+                Spacer(Modifier.height(10.dp))
+                BigNumber("${state.enabled.size}")
+                Push()
+                TileNote(
+                    if (state.enabled.isEmpty()) "Nothing allowed yet. Tap to choose." else state.enabled.joinToString(" \u00b7 ") { shortName(it) },
+                    color = signal.onPastel.copy(alpha = 0.72f),
+                    maxLines = 2,
+                )
+            }
+            Tile(
+                Modifier.weight(1f),
+                color = signal.pool,
                 onClick = actions.goActivity,
                 onClickLabel = "Open activity",
-            )
-            RowDivider()
+                minHeight = 168.dp,
+            ) {
+                TileHead(LatchIcons.Pulse, "Activity")
+                Spacer(Modifier.height(10.dp))
+                BigNumber("${state.activityCount}")
+                Push()
+                TileNote(
+                    state.lastActivity?.let { "${it.summary} \u00b7 ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it.atMs))}" } ?: "Nothing yet",
+                    color = signal.onPastel.copy(alpha = 0.72f),
+                    maxLines = 2,
+                )
+            }
+        }
+        Tile(color = signal.butter, onClick = actions.goConnect, onClickLabel = "Connect an AI app", minHeight = 0.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+                    Icon(LatchIcons.Plug, contentDescription = null, tint = signal.onPastel, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Connect your AI", style = MaterialTheme.typography.titleMedium, color = signal.onPastel)
+                    Text(
+                        if (state.isOwner) "Claude, ChatGPT, or another AI app" else "Ask the relay's owner to connect your AI",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = signal.onPastel.copy(alpha = 0.72f),
+                    )
+                }
+                Box(Modifier.size(36.dp).clip(CircleShape).background(signal.onPastel), contentAlignment = Alignment.Center) {
+                    Icon(LatchIcons.ChevronRight, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        Card {
             ListRow(
                 icon = LatchIcons.Cloud,
                 title = "Relay",
                 subtitle = state.gatewayHost + if (state.isOwner) " \u00b7 yours" else "",
-                tint = Color(0xFF8E8E93),
+                tint = signal.accent2,
             )
         }
     }
+}
+
+/** A white icon chip and an uppercase label at the top of a pastel tile. */
+@Composable
+private fun TileHead(icon: ImageVector, label: String) {
+    val signal = LocalSignal.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = signal.onPastel, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        TileLabel(label, color = signal.onPastel.copy(alpha = 0.8f))
+    }
+}
+
+@Composable
+private fun BigNumber(text: String) {
+    Text(text, style = MaterialTheme.typography.displayLarge, color = LocalSignal.current.onPastel, maxLines = 1)
+}
+
+private fun greeting(): String = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+    in 5..11 -> "Good morning"
+    in 12..16 -> "Good afternoon"
+    in 17..21 -> "Good evening"
+    else -> "Up late"
 }
 
 @Composable
 private fun HeroCard(state: HomeState, actions: HomeActions) {
     val motion = !state.reducedMotion
     val (start, end) = when {
-        state.pending != null -> Color(0xFFC2410C) to Color(0xFFEA580C)
-        state.phase == Phase.ACTIVE -> Color(0xFF2B2F8F) to Color(0xFF5048E5)
-        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> Color(0xFF7F1D1D) to Color(0xFF9F1239)
-        else -> Color(0xFF0F1222) to Color(0xFF232A52)
+        state.pending != null -> HeroAttention
+        state.phase == Phase.ACTIVE -> HeroActive
+        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> HeroStopped
+        else -> HeroIdle
     }
     val spec = tween<Color>(if (motion) 600 else 0)
     val from by animateColorAsState(start, spec, label = "heroStart")
@@ -206,7 +270,9 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
     val live = state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED || state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING
 
     Column(
-        Modifier.fillMaxWidth().clip(CardShape).background(Brush.linearGradient(listOf(from, to))).padding(20.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(Brush.linearGradient(listOf(from, to)))
+            .drawBehind { heroDecoration(live) }
+            .padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,7 +296,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
         }
         if (live) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                IconButtonLarge("Stop", LatchIcons.Stop, actions.stop, Modifier.weight(1.3f), container = Color.White, content = Color(0xFFB91C1C))
+                IconButtonLarge("Stop", LatchIcons.Stop, actions.stop, Modifier.weight(1.3f), container = Cream, content = HeroStopped.second)
                 if (state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED) {
                     val paused = state.phase == Phase.PAUSED
                     IconButtonLarge(
@@ -247,14 +313,14 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
             Text("How long can the AI work?", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
             // A segmented control: equal widths, so no label ever wraps.
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.12f)).padding(3.dp),
+                Modifier.fillMaxWidth().clip(CircleShape).background(Color.White.copy(alpha = 0.12f)).padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 listOf(15 to "15 min", 30 to "30 min", 60 to "1 hour", 120 to "2 hours").forEach { (m, label) ->
                     val selected = state.sessionMinutes == m
                     Box(
-                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                            .background(if (selected) Color.White else Color.Transparent)
+                        Modifier.weight(1f).clip(CircleShape)
+                            .background(if (selected) Cream else Color.Transparent)
                             .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length $label") { actions.setMinutes(m) }
                             .padding(vertical = 9.dp),
                         contentAlignment = Alignment.Center,
@@ -262,7 +328,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                         Text(
                             label,
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (selected) Color(0xFF1C2140) else Color.White,
+                            color = if (selected) HeroIdle.first else Color.White,
                             maxLines = 1,
                         )
                     }
@@ -273,10 +339,18 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                 if (state.accessibilityOn) LatchIcons.Play else LatchIcons.ShieldCheck,
                 if (state.accessibilityOn) actions.start else actions.openSetup,
                 Modifier.fillMaxWidth(),
-                container = Color.White,
-                content = Color(0xFF2B2F8F),
+                container = Cream,
+                content = HeroActive.first,
             )
         }
+    }
+}
+
+/** Soft rings in the corner and the mark as a watermark: the hero's texture. */
+private fun DrawScope.heroDecoration(live: Boolean) {
+    val c = Offset(size.width * 0.92f, size.height * 0.08f)
+    for (i in 1..4) {
+        drawCircle(Color.White.copy(alpha = if (live) 0.07f else 0.05f), radius = size.minDimension * 0.18f * i, center = c, style = Stroke(1.dp.toPx()))
     }
 }
 
@@ -285,7 +359,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
 fun IconButtonLarge(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, container: Color, content: Color) {
     Button(
         onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
         modifier = modifier.heightIn(min = 52.dp),

@@ -1,6 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Latch mark (a hook that has caught a pin), from ui/Logo.kt's 24-unit grid scaled by 2.2 and moved by 27.6. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M40,54m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M68,54m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
-    <path android:strokeColor="#99FFFFFF" android:strokeWidth="2" android:pathData="M54,54m-20,0a20,20 0,1 1,40 0a20,20 0,1 1,-40 0" />
+    <path
+        android:strokeColor="#FFFFF8EE"
+        android:strokeWidth="5.72"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M41.68,68.08 L41.68,50.48 A11,11 0 0 1 63.68,50.48 L63.68,55.32" />
+    <path
+        android:fillColor="#FFFFF8EE"
+        android:pathData="M63.68,65.44 m-5.5,0 a5.5,5.5 0 1 1 11,0 a5.5,5.5 0 1 1 -11,0" />
 </vector>
