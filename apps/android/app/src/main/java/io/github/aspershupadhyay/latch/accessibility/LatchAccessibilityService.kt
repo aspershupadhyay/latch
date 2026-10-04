@@ -22,6 +22,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.edit
 import androidx.core.graphics.scale
 import io.github.aspershupadhyay.latch.LatchApp
 import io.github.aspershupadhyay.latch.protocol.AppEntry
@@ -71,7 +72,7 @@ class LatchAccessibilityService : AccessibilityService() {
 
     @Volatile private var latest: Snapshot? = null
     @Volatile private var foregroundPackage: String? = null
-    private var overlay: TextView? = null
+    private var overlay: StopPill? = null
     private var overlayBounds: Rect? = null
     private var observationCounter = 0L
     private val random = SecureRandom()
@@ -221,40 +222,77 @@ class LatchAccessibilityService : AccessibilityService() {
         if (overlay != null) return
         val wm = getSystemService(WindowManager::class.java)
         val density = resources.displayMetrics.density
-        val view = TextView(this).apply {
-            text = "● Latch · Stop"
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            val padH = (12 * density).roundToInt()
-            val padV = (8 * density).roundToInt()
-            setPadding(padH, padV, padH, padV)
-            background = GradientDrawable().apply {
-                cornerRadius = 999f
-                setColor(Color.argb(230, 195, 54, 43))
-            }
-            contentDescription = "Latch remote control is active. Double-tap to stop all activity."
-            setOnClickListener { onStop() }
-        }
+        val store = getSharedPreferences("latch_overlay", MODE_PRIVATE)
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or (if (preferences().keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                (if (preferences().keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0),
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = (8 * density).roundToInt()
-            y = (64 * density).roundToInt()
+            gravity = Gravity.TOP or Gravity.START
+            // Where the owner last left it; first time, top right under the status bar.
+            x = store.getInt("x", -1).takeIf { it >= 0 } ?: (resources.displayMetrics.widthPixels - (180 * density).roundToInt())
+            y = store.getInt("y", -1).takeIf { it >= 0 } ?: (64 * density).roundToInt()
         }
+        val view = StopPill(
+            this,
+            onStop = onStop,
+            onMove = { dx, dy ->
+                params.x += dx
+                params.y += dy
+                clampOverlay(params)
+                overlay?.let { pill ->
+                    runCatching { wm.updateViewLayout(pill, params) }
+                    updateOverlayBounds(pill)
+                }
+            },
+            onRelease = {
+                // Glide to the nearer side so it never sits over the middle of an app.
+                val pill = overlay ?: return@StopPill
+                val screen = resources.displayMetrics.widthPixels
+                val margin = (8 * density).roundToInt()
+                val target = if (params.x + pill.width / 2 < screen / 2) margin else screen - pill.width - margin
+                android.animation.ValueAnimator.ofInt(params.x, target).apply {
+                    duration = 260
+                    interpolator = android.view.animation.OvershootInterpolator(1.1f)
+                    addUpdateListener {
+                        params.x = it.animatedValue as Int
+                        runCatching { wm.updateViewLayout(pill, params) }
+                    }
+                    doOnEndCompat {
+                        store.edit { putInt("x", params.x); putInt("y", params.y) }
+                        updateOverlayBounds(pill)
+                    }
+                    start()
+                }
+            },
+        )
         wm.addView(view, params)
         overlay = view
         view.post {
-            val loc = IntArray(2)
-            view.getLocationOnScreen(loc)
-            // Pad the no-touch zone so near misses cannot press Stop or slip past it.
-            val pad = (16 * density).roundToInt()
-            overlayBounds = Rect(loc[0] - pad, loc[1] - pad, loc[0] + view.width + pad, loc[1] + view.height + pad)
+            clampOverlay(params)
+            runCatching { wm.updateViewLayout(view, params) }
+            view.post { updateOverlayBounds(view) }
         }
+    }
+
+    /** Keeps the pill on screen and below the status bar. */
+    private fun clampOverlay(params: WindowManager.LayoutParams) {
+        val pill = overlay ?: return
+        val m = resources.displayMetrics
+        val top = (28 * m.density).roundToInt()
+        params.x = params.x.coerceIn(0, (m.widthPixels - pill.width).coerceAtLeast(0))
+        params.y = params.y.coerceIn(top, (m.heightPixels - pill.height - top).coerceAtLeast(top))
+    }
+
+    /** The AI may not touch the pill: its bounds, padded so near misses cannot press Stop or slip past it. */
+    private fun updateOverlayBounds(view: android.view.View) {
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        val pad = (16 * resources.displayMetrics.density).roundToInt()
+        overlayBounds = Rect(loc[0] - pad, loc[1] - pad, loc[0] + view.width + pad, loc[1] + view.height + pad)
     }
 
     /** Shows on the cursor what the AI is doing off screen (reading, saving, sharing). */
@@ -310,11 +348,11 @@ class LatchAccessibilityService : AccessibilityService() {
         // Same look and words as the in-app card (ui/Approval.kt), in light and dark.
         val dark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val surface = if (dark) Color.rgb(28, 28, 30) else Color.WHITE
-        val text = if (dark) Color.WHITE else Color.rgb(17, 17, 19)
-        val text2 = if (dark) Color.rgb(174, 174, 178) else Color.rgb(99, 99, 102)
-        val accent = if (dark) Color.rgb(139, 139, 255) else Color.rgb(79, 70, 229)
-        val warning = if (dark) Color.rgb(255, 159, 10) else Color.rgb(194, 98, 10)
+        val surface = if (dark) Color.rgb(32, 26, 22) else Color.rgb(255, 251, 245)
+        val text = if (dark) Color.rgb(245, 236, 225) else Color.rgb(31, 26, 22)
+        val text2 = if (dark) Color.rgb(170, 156, 142) else Color.rgb(116, 104, 93)
+        val accent = if (dark) Color.rgb(240, 138, 93) else Color.rgb(181, 74, 38)
+        val warning = if (dark) Color.rgb(242, 177, 76) else Color.rgb(168, 92, 10)
         val tint = if (pending.risk == "high") warning else accent
         val appRequest = pending.kind == ApprovalKind.APP
         val ownerTask = pending.kind == ApprovalKind.OWNER_TASK
@@ -324,7 +362,7 @@ class LatchAccessibilityService : AccessibilityService() {
             background = GradientDrawable().apply {
                 cornerRadius = dp(28).toFloat()
                 setColor(surface)
-                if (dark) setStroke(dp(1), Color.rgb(56, 56, 58))
+                if (dark) setStroke(dp(1), Color.rgb(58, 49, 42))
             }
             elevation = dp(12).toFloat()
             accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE
@@ -352,7 +390,7 @@ class LatchAccessibilityService : AccessibilityService() {
             setTextColor(text2)
             textSize = 15f
         })
-        // Filled pill buttons: indigo for the main answer, tinted for the rest.
+        // Filled pill buttons: terracotta for the main answer, tinted for the rest.
         fun pill(label: String, primary: Boolean, muted: Boolean = false) = TextView(this).apply {
             this.text = label
             gravity = Gravity.CENTER
@@ -364,9 +402,9 @@ class LatchAccessibilityService : AccessibilityService() {
             minHeight = dp(48)
             isClickable = true
             isFocusable = true
-            setTextColor(if (primary) Color.WHITE else if (muted) text2 else accent)
+            setTextColor(if (primary) (if (dark) Color.rgb(31, 26, 22) else Color.WHITE) else if (muted) text2 else accent)
             background = GradientDrawable().apply {
-                cornerRadius = dp(14).toFloat()
+                cornerRadius = dp(24).toFloat()
                 setColor(if (primary) accent else Color.argb(if (dark) 46 else 26, Color.red(accent), Color.green(accent), Color.blue(accent)))
             }
         }
@@ -1209,4 +1247,10 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val SCROLL_MAX_SETTLE_MS = 800L
         private const val SCROLL_EXPECT_CHANGE_MS = 300L
     }
+}
+
+private inline fun android.animation.Animator.doOnEndCompat(crossinline action: () -> Unit) {
+    addListener(object : android.animation.AnimatorListenerAdapter() {
+        override fun onAnimationEnd(animation: android.animation.Animator) = action()
+    })
 }

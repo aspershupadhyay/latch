@@ -189,16 +189,16 @@ fun SettingsScreen(
                 trailing = { InfoButton(HelpTopic.RELAY) },
             )
             RowDivider()
-            ListRow(LatchIcons.Phone, "This phone", phoneName, tint = Color(0xFF8E8E93))
+            ListRow(LatchIcons.Phone, "This phone", phoneName, tint = signal.text2)
         }
         Card {
             ListRow(LatchIcons.Info, "How to set up Latch", "Every step in plain words", tint = signal.accent, onClick = onOpenGuide, onClickLabel = "Open the setup guide")
             RowDivider()
-            ListRow(LatchIcons.ShieldCheck, "Permissions", "Notifications, screen access, battery", tint = Color(0xFF34C759), onClick = onOpenSetup, onClickLabel = "Open permissions")
+            ListRow(LatchIcons.ShieldCheck, "Permissions", "Notifications, screen access, battery", tint = signal.success, onClick = onOpenSetup, onClickLabel = "Open permissions")
             RowDivider()
             ListRow(LatchIcons.Person, "Screen access", "Turn it off in Android's settings at any time", tint = signal.accent2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
             RowDivider()
-            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs. Nothing is saved. No tracking.", tint = Color(0xFF8E8E93))
+            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs. Nothing is saved. No tracking.", tint = signal.text2)
         }
         SectionCaption("Appearance")
         ThemePicker(theme, onTheme)

@@ -20,10 +20,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.produceState
@@ -47,10 +43,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,6 +93,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val app = LatchApp.get(this)
         val reducedMotion = AndroidSettings.Global.getFloat(contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+        val showIntro = savedInstanceState == null
         setContent {
             val prefs by app.settings.preferences.collectAsStateWithLifecycle()
             val dark = when (prefs.theme) {
@@ -113,8 +107,13 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
                 onDispose {}
             }
+            // The opening animation plays once per launch, over the app that is already loading.
+            var intro by rememberSaveable { mutableStateOf(showIntro) }
             LatchTheme(dark = dark) {
-                LatchRoot(app, reducedMotion)
+                Box {
+                    LatchRoot(app, reducedMotion)
+                    if (intro) LatchIntro(reducedMotion) { intro = false }
+                }
             }
         }
         // Only a fresh launch carries a new installer answer; a recreated activity would repeat an old one.
@@ -311,33 +310,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
 
     Scaffold(
         containerColor = signal.canvas,
-        bottomBar = {
-            NavigationBar(containerColor = signal.surface) {
-                Tab.entries.forEach { t ->
-                    NavigationBarItem(
-                        selected = tab == t,
-                        onClick = { tab = t },
-                        icon = {
-                            if (t == Tab.CONNECT && signInRequests.isNotEmpty()) {
-                                BadgedBox(badge = { Badge { Text("${signInRequests.size}") } }) {
-                                    Icon(t.icon, contentDescription = "${signInRequests.size} waiting", modifier = Modifier.size(24.dp))
-                                }
-                            } else {
-                                Icon(t.icon, contentDescription = null, modifier = Modifier.size(24.dp))
-                            }
-                        },
-                        label = { Text(t.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = signal.accent,
-                            selectedTextColor = signal.accent,
-                            indicatorColor = signal.accent.copy(alpha = 0.14f),
-                            unselectedIconColor = signal.text2,
-                            unselectedTextColor = signal.text2,
-                        ),
-                    )
-                }
-            }
-        },
+        bottomBar = { LatchTabBar(tab, { tab = it }, signInRequests.size) },
     ) { padding ->
         Box(Modifier.padding(padding)) {
             AnimatedContent(

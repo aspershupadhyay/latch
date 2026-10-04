@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
@@ -34,6 +37,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -62,14 +66,22 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(LatchIcons.ShieldCheck, signal.accent, size = 30.dp)
+                LatchLogo(36.dp)
                 Spacer(Modifier.size(10.dp))
-                Text("Latch", style = MaterialTheme.typography.titleLarge, color = signal.text)
+                Text("latch", style = MaterialTheme.typography.headlineSmall, color = signal.text)
             }
-            ConnectionIllustration(reducedMotion, Modifier.fillMaxWidth().height(200.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(signal.clay).padding(vertical = 18.dp, horizontal = 8.dp),
+            ) {
+                ConnectionIllustration(reducedMotion, Modifier.fillMaxWidth().height(190.dp), onPastel = true)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 Text("Let your AI use this phone.", style = MaterialTheme.typography.displaySmall, color = signal.text)
-                Text("Only how you allow.", style = MaterialTheme.typography.displaySmall, color = signal.text2)
+                Text(
+                    "Only how you allow.",
+                    style = MaterialTheme.typography.displaySmall.copy(fontStyle = FontStyle.Italic),
+                    color = signal.accent,
+                )
             }
             Text(
                 "Ask Claude, ChatGPT, or another AI to do things on your phone for you. You choose which apps it can use, and one tap stops it.",
@@ -94,21 +106,26 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
                 Spacer(Modifier.size(6.dp))
                 Text("How does setup work?", color = signal.accent, style = MaterialTheme.typography.labelLarge)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Promise(Modifier.weight(1f), LatchIcons.Shield, "Off until you start")
-                Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "Only apps you pick")
-                Promise(Modifier.weight(1f), LatchIcons.Stop, "One tap stops it")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                Promise(Modifier.weight(1f), LatchIcons.Shield, "Off until you start", signal.sage)
+                Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "Only apps you pick", signal.butter)
+                Promise(Modifier.weight(1f), LatchIcons.Stop, "One tap stops it", signal.pool)
             }
         }
     }
 }
 
 @Composable
-private fun Promise(modifier: Modifier, icon: ImageVector, text: String) {
+private fun Promise(modifier: Modifier, icon: ImageVector, text: String, color: Color) {
     val signal = LocalSignal.current
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Icon(icon, contentDescription = null, tint = signal.accent, modifier = Modifier.size(20.dp))
-        Text(text, style = MaterialTheme.typography.bodySmall, color = signal.text2, textAlign = TextAlign.Center)
+    Column(
+        modifier.fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(color).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.size(34.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = signal.onPastel, modifier = Modifier.size(18.dp))
+        }
+        Text(text, style = MaterialTheme.typography.bodySmall, color = signal.onPastel)
     }
 }
 
@@ -116,10 +133,10 @@ private fun Promise(modifier: Modifier, icon: ImageVector, text: String) {
 private fun StepBadge(number: Int, done: Boolean) {
     val signal = LocalSignal.current
     Box(
-        Modifier.size(30.dp).clip(CircleShape).background(if (done) signal.success else signal.accent),
+        Modifier.size(32.dp).clip(CircleShape).background(if (done) signal.success else signal.ink),
         contentAlignment = Alignment.Center,
     ) {
-        Text(if (done) "✓" else number.toString(), color = Color.White, style = MaterialTheme.typography.labelLarge)
+        Text(if (done) "✓" else number.toString(), color = if (done) Color.White else signal.onInk, style = MaterialTheme.typography.labelLarge)
     }
 }
 

@@ -114,7 +114,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = color ?: signal.ink,
             contentColor = contentColor ?: if (color == null) signal.onInk else Color.White,
@@ -131,7 +131,7 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (contentColor != null) contentColor.copy(alpha = 0.16f) else signal.accent.copy(alpha = if (signal.dark) 0.18f else 0.10f),
             contentColor = contentColor ?: signal.accent,

@@ -100,11 +100,11 @@ fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifie
             checkedTrackColor = signal.accent,
             checkedBorderColor = Color.Transparent,
             uncheckedThumbColor = Color.White,
-            uncheckedTrackColor = if (signal.dark) Color(0xFF34343C) else Color(0xFFE6E6EC),
+            uncheckedTrackColor = if (signal.dark) Color(0xFF3A312A) else Color(0xFFE6DACB),
             uncheckedBorderColor = Color.Transparent,
             disabledCheckedTrackColor = signal.accent.copy(alpha = 0.4f),
             disabledCheckedThumbColor = Color.White,
-            disabledUncheckedTrackColor = if (signal.dark) Color(0xFF23232A) else Color(0xFFF0F0F4),
+            disabledUncheckedTrackColor = if (signal.dark) Color(0xFF2B241F) else Color(0xFFEFE6DA),
             disabledUncheckedThumbColor = Color.White.copy(alpha = 0.8f),
             disabledUncheckedBorderColor = Color.Transparent,
         ),
@@ -233,9 +233,9 @@ fun StatusOrb(state: OrbState, description: String, reducedMotion: Boolean, size
         label = "wave",
     )
     val icon = when (state) {
-        OrbState.IDLE -> LatchIcons.Shield
+        OrbState.IDLE -> LatchIcons.Mark
         OrbState.CONNECTING -> LatchIcons.Cloud
-        OrbState.ACTIVE -> LatchIcons.ShieldCheck
+        OrbState.ACTIVE -> LatchIcons.Mark
         OrbState.PAUSED -> LatchIcons.Pause
         OrbState.ATTENTION -> LatchIcons.Warning
         OrbState.STOPPED -> LatchIcons.Stop

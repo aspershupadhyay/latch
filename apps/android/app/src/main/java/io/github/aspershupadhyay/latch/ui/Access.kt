@@ -91,10 +91,10 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
 }
 
 private fun Signal.colorOf(group: AccessGroup) = when (group) {
-    AccessGroup.AI -> periwinkle
-    AccessGroup.SCREEN -> orchid
-    AccessGroup.FILES -> apricot
-    AccessGroup.SHARING -> mintCard
+    AccessGroup.AI -> clay
+    AccessGroup.SCREEN -> sage
+    AccessGroup.FILES -> butter
+    AccessGroup.SHARING -> pool
     AccessGroup.WORKING -> surface
 }
 
