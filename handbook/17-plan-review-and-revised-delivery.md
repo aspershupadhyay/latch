@@ -165,6 +165,12 @@ Not done, deliberately: caching app lists or observations in the gateway (a cach
 | Owner: app categories in Access → Apps, no "Loading" text | — | Category chips (name/package words first for money, shopping, messaging…; Android's declared category otherwise; unknown declared categories become their own group); cached list, placeholder rows | IN_REVIEW |
 | Owner: several folders, and photos off | One folder; photos only behind Android's permission | Up to 20 folders, every id checked against the folders shared now; Latch's own photos switch | IN_REVIEW |
 
+**Sixth run (2026-10-04, realme C55, Android 15, Vercel gateway at protocol 1.8, driven by Claude through MCP, owner request):** a two-slide 4:5 carousel made in Figma was uploaded by encrypted link, saved to the shared folder, shared to Instagram (Portrait ratio, caption typed), posted publicly, checked on the profile, and deleted everywhere. About 65 commands with no restart of the accessibility service; a refused `launch_app` of Latch did not disturb the session; the Stop pill never appeared in screenshots. `get_activity` and `finish_task` were not callable from that chat (its connector kept the 25-tool list).
+
+| Finding | Change | Status |
+|---|---|---|
+| Instagram's caption "OK" accepted the accessibility click and did nothing; Latch answered "Done" | An element tap whose screen does not change within 450 ms is repeated as a real finger tap on the element | IN_REVIEW: re-run on the phone |
+
 ## 9. Feature roadmap (owner request, 2026-10-02)
 
 The owner asked for the full feature list, ordered by priority, to be built one wave at a time. Every feature gets its own capability switch (off by default), protocol and fixture changes, tests on both gateways, and README steps. Items that change §3 ("no file or credential tools") or a chapter 08 rule need an ADR in the same change. All items are TODO unless marked otherwise.
