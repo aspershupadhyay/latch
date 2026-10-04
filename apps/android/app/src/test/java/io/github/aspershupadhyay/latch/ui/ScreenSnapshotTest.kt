@@ -91,6 +91,18 @@ class ScreenSnapshotTest {
     @Test fun capabilities_light() = snap(false) {
         CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {})
     }
+    @Test fun capabilities_dark() = snap(true) {
+        CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE, Capability.FILE_READ, Capability.FILE_WRITE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, appsOn = 3)
+    }
+    @Test fun capabilities_files_light() = snap(false) {
+        CapabilitiesScreen(setOf(Capability.FILE_READ), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.FILES, onOpenGroup = {}, folderName = "Documents/AI")
+    }
+    @Test fun capabilities_screen_dark() = snap(true) {
+        CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.SCREEN, onOpenGroup = {})
+    }
+    @Test fun settings_dark() = snap(true) {
+        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {}, {}, theme = io.github.aspershupadhyay.latch.data.ThemeChoice.DARK)
+    }
 
     @Test fun connect_created_dark() = snap(true) {
         ConnectScreen(
