@@ -78,7 +78,14 @@ class DeviceLink(
         if (loop != null) return
         worker = scope.launch {
             for (envelope in commands) {
-                val reply = onCommand(envelope)
+                // onCommand answers every failure itself; this only guards the link against a bug there.
+                val reply = try {
+                    onCommand(envelope)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Outgoing.error(envelope.id, io.github.aspershupadhyay.latch.protocol.ErrorCode.INTERNAL, "the phone could not finish this")
+                }
                 post(reply)
             }
         }
@@ -161,7 +168,9 @@ class DeviceLink(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: IOException) {
+            } catch (e: Exception) {
+                // IOException is the usual case; anything else (a malformed answer, a bad
+                // address) is retried the same way instead of ending the session silently.
                 failures++
                 connection = null
                 events.retrying(failures)

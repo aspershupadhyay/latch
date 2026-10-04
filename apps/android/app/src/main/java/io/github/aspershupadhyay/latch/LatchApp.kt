@@ -25,7 +25,10 @@ import io.github.aspershupadhyay.latch.session.SessionController
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.ui.MainActivity
 import io.github.aspershupadhyay.latch.update.Updater
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import io.github.aspershupadhyay.latch.data.ActivityKind
+import io.github.aspershupadhyay.latch.session.Crashes
 import kotlinx.coroutines.Dispatchers
 import io.github.aspershupadhyay.latch.files.PhoneFiles
 import io.github.aspershupadhyay.latch.files.PhoneTransfers
@@ -38,7 +41,17 @@ import kotlinx.coroutines.launch
  * dependency-injection framework would add more than it removes.
  */
 class LatchApp : Application() {
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /**
+     * A failure in one piece of work is recorded and shown in Activity, never
+     * allowed to close the app: a closed app takes the accessibility service
+     * with it, and Android then leaves the service switched off.
+     */
+    val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate + CoroutineExceptionHandler { _, error ->
+            Crashes.record(error)
+            log.add(ActivityKind.REFUSAL, "Latch recovered from a problem: ${Crashes.describe(error)}")
+        },
+    )
     lateinit var settings: Settings
         private set
     val log = ActivityLog()
@@ -72,6 +85,7 @@ class LatchApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Crashes.install(this)
         settings = Settings(this)
         grants = ApprovalGrants(PrefsGrantStore(this))
         consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))

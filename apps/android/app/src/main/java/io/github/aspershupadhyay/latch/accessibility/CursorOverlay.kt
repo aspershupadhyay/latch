@@ -27,10 +27,13 @@ import kotlin.math.min
  * pointer catches up.
  *
  * It appears as soon as the AI does anything (also off screen: reading the
- * screen, saving a file, opening a share screen) and stays while the task
- * goes on, saying "Thinking…" between actions and showing a progress bar
- * while a file moves. It fades away once the AI has been quiet for a while,
- * so it is gone when a task is done.
+ * screen, saving a file, opening a share screen) and says exactly what is
+ * happening: the command under way, "Waiting for your answer" while the
+ * owner is asked, a progress bar while a file moves. Between commands it says
+ * "Waiting for your AI" for a few seconds and then fades away; it disappears
+ * at once when the AI says the task is done or the session stops.
+ *
+ * Every method may be called from any thread; drawing happens on the main thread.
  *
  * It can never press anything (the window is not touchable or focusable), is
  * hidden from screen readers, and is hidden while a screenshot is taken so
@@ -39,7 +42,12 @@ import kotlin.math.min
  */
 class CursorOverlay(private val context: Context) {
     private val windows = context.getSystemService(WindowManager::class.java)
-    private var view: CursorView? = null
+    @Volatile private var view: CursorView? = null
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun ui(block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) block() else main.post(block)
+    }
 
     /** What sits under the pointer; it picks the label (the arrow stays the same). */
     enum class Pointer { ARROW, HAND, TEXT, GRAB }
@@ -49,8 +57,8 @@ class CursorOverlay(private val context: Context) {
 
     data class Stroke(val fromX: Float, val fromY: Float, val toX: Float, val toY: Float)
 
-    fun attach() {
-        if (view != null) return
+    fun attach() = ui {
+        if (view != null) return@ui
         val v = CursorView(context).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -65,37 +73,47 @@ class CursorOverlay(private val context: Context) {
         runCatching { windows.addView(v, params) }.onSuccess { view = v }
     }
 
-    fun detach() {
+    fun detach() = ui {
         view?.let { runCatching { windows.removeView(it) } }
         view = null
     }
 
     /** Glides to a point and presses there. */
-    fun press(x: Int, y: Int, pointer: Pointer, press: Press = Press.TAP) {
+    fun press(x: Int, y: Int, pointer: Pointer, press: Press = Press.TAP) = ui {
         view?.press(x.toFloat(), y.toFloat(), pointer, press)
     }
 
     /** Glides to a text field and shows a blinking caret while typing. */
-    fun type(x: Int, y: Int) {
+    fun type(x: Int, y: Int) = ui {
         view?.press(x.toFloat(), y.toFloat(), Pointer.TEXT, Press.TAP, typing = true)
     }
 
     /** One finger (swipe, scroll, drag) or two (pinch), moving over [durationMs]. */
-    fun stroke(strokes: List<Stroke>, durationMs: Long, holdMs: Long = 0) {
+    fun stroke(strokes: List<Stroke>, durationMs: Long, holdMs: Long = 0) = ui {
         view?.stroke(strokes, durationMs, holdMs)
     }
 
-    /** Says what the AI is doing off screen, e.g. "Saving “clip.mp4”"; the pointer stays where it is. */
-    fun status(text: String) {
+    /** Says what the AI's current command is doing, e.g. "Saving “clip.mp4”"; the pointer stays where it is. */
+    fun status(text: String) = ui {
         view?.status(text)
     }
 
+    /** The current command finished: "Waiting for your AI", then the pointer fades unless another comes. */
+    fun idle() = ui {
+        view?.idle()
+    }
+
+    /** The task is done or the session stopped: gone at once. */
+    fun finish() = ui {
+        view?.finish()
+    }
+
     /** A file moving: its label and how far along it is (0..1, or null when the size is unknown). Null ends it. */
-    fun transfer(text: String?, fraction: Float?) {
+    fun transfer(text: String?, fraction: Float?) = ui {
         view?.transfer(text, fraction)
     }
 
-    /** Hides the cursor for a screenshot; call the returned function to show it again. */
+    /** Hides the cursor for a screenshot; call the returned function to show it again. Main thread only. */
     fun hideForCapture(): () -> Unit {
         val v = view ?: return {}
         v.visibility = View.INVISIBLE
@@ -136,7 +154,7 @@ class CursorOverlay(private val context: Context) {
             strokeWidth = 1 * density
             color = Color.argb(70, 255, 255, 255)
         }
-        private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val label = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = 12.5f * density
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -164,9 +182,10 @@ class CursorOverlay(private val context: Context) {
         private var busyUntil = 0L
         /** When the AI last did anything; the pointer stays until it has been quiet for [LINGER_MS]. */
         private var lastActivity = 0L
-        /** What the AI is doing off screen, shown for [STATUS_MS] after [statusAt]. */
+        /** What the AI's current command is doing; null once it finished. */
         private var statusText: String? = null
-        private var statusAt = 0L
+        /** A command is running: the pointer stays. */
+        private var running = false
         private var transferText: String? = null
         private var transferFraction: Float? = null
 
@@ -174,7 +193,7 @@ class CursorOverlay(private val context: Context) {
 
         /** 1 while the AI works (or a file moves), fading to 0 once it has been quiet for [LINGER_MS]. */
         private fun visibility(t: Long): Float {
-            if (transferText != null) return 1f
+            if (transferText != null || running) return 1f
             val idle = t - max(busyUntil, lastActivity) - LINGER_MS
             return if (idle <= 0) 1f else max(0f, 1f - idle.toFloat() / FADE_MS)
         }
@@ -196,9 +215,27 @@ class CursorOverlay(private val context: Context) {
             val t = now()
             placeIfHidden(t)
             statusText = text
-            statusAt = t
+            running = true
             lastActivity = t
             postInvalidateOnAnimation()
+        }
+
+        fun idle() {
+            running = false
+            statusText = null
+            lastActivity = now()
+            postInvalidateOnAnimation()
+        }
+
+        fun finish() {
+            running = false
+            statusText = null
+            busyUntil = 0
+            lastActivity = 0
+            x = -1f
+            strokes = emptyList()
+            press = null
+            invalidate()
         }
 
         fun transfer(text: String?, fraction: Float?) {
@@ -210,12 +247,12 @@ class CursorOverlay(private val context: Context) {
             postInvalidateOnAnimation()
         }
 
-        /** The words beside the arrow: the gesture under way, a file moving, what the AI just started, or thinking. */
+        /** The words beside the arrow: the gesture under way, a file moving, the command running, or waiting. */
         private fun labelText(t: Long): String = when {
             t < busyUntil -> caption
             transferText != null -> transferText!!
-            statusText != null && t - statusAt < STATUS_MS -> statusText!!
-            else -> "Thinking" + ".".repeat(((t / 400) % 4).toInt())
+            statusText != null -> statusText!!
+            else -> "Waiting for your AI"
         }
 
         fun press(tx: Float, ty: Float, kind: Pointer, how: Press, typing: Boolean = false) {
@@ -410,20 +447,27 @@ class CursorOverlay(private val context: Context) {
 
         /** "Latch · Tapping" in a dark pill beside the arrow, flipped to stay on screen. */
         private fun drawLabel(canvas: Canvas, px: Float, py: Float, alpha: Float, t: Long) {
-            val words = labelText(t)
-            // Thinking keeps its width while the dots change, so the pill does not twitch.
-            val text = "Latch · $words"
-            val measured = "Latch · " + if (words.startsWith("Thinking")) "Thinking..." else words
             val padX = 9 * density
             val fraction = transferFraction.takeIf { transferText != null && t >= busyUntil }
             val h = (if (fraction != null) 30 else 24) * density
             val dotR = 3 * density
-            val w = padX * 2 + dotR * 2 + 6 * density + label.measureText(measured)
+            val margin = 6 * density
+            // This view covers the whole screen; the canvas is in screen pixels.
+            val loc = IntArray(2).also(::getLocationOnScreen)
+            val screenW = (loc[0] + width).toFloat()
+            val screenH = (loc[1] + height).toFloat()
+            val chrome = padX * 2 + dotR * 2 + 6 * density
+            // Long words (a file name) are shortened so the label always fits on the screen.
+            val text = android.text.TextUtils.ellipsize(
+                "Latch · ${labelText(t)}", label, (screenW - margin * 2 - chrome).coerceAtLeast(0f), android.text.TextUtils.TruncateAt.END,
+            ).toString()
+            val w = chrome + label.measureText(text)
             var left = px + 18 * density
             var top = py + 20 * density
-            val screen = resources.displayMetrics
-            if (left + w > screen.widthPixels - 4 * density) left = px - w - 6 * density
-            if (top + h > screen.heightPixels - 4 * density) top = py - h - 8 * density
+            if (left + w > screenW - margin) left = px - w - 6 * density
+            if (top + h > screenH - margin) top = py - h - 8 * density
+            left = left.coerceIn(margin, (screenW - w - margin).coerceAtLeast(margin))
+            top = top.coerceIn(margin, (screenH - h - margin).coerceAtLeast(margin))
             val box = RectF(left, top, left + w, top + h)
             val a = alpha.coerceIn(0f, 1f)
             pill.alpha = (225 * a).toInt()
@@ -476,11 +520,9 @@ class CursorOverlay(private val context: Context) {
             const val DOUBLE_GAP_MS = 160L
             const val TRAIL_FADE_MS = 350L
             const val TYPING_MS = 1_200L
-            /** How long the pointer stays, "Thinking…", after the AI's last command before fading. */
-            const val LINGER_MS = 45_000L
-            /** How long an off-screen status ("Saving “clip.mp4”") is shown before "Thinking…". */
-            const val STATUS_MS = 2_500L
-            /** Frame interval while only the thinking dots move. */
+            /** How long the pointer stays, "Waiting for your AI", after the AI's last command before fading. */
+            const val LINGER_MS = 6_000L
+            /** Frame interval while only the live dot pulses. */
             const val IDLE_FRAME_MS = 120L
             const val FADE_MS = 400L
             const val FINGER_DP = 9f

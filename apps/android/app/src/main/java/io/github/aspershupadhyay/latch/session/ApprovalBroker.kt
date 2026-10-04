@@ -53,7 +53,7 @@ data class PendingApproval(
 class ApprovalBroker {
     private val _pending = MutableStateFlow<PendingApproval?>(null)
     val pending: StateFlow<PendingApproval?> = _pending.asStateFlow()
-    private var answer: CompletableDeferred<ApprovalChoice>? = null
+    @Volatile private var answer: CompletableDeferred<ApprovalChoice>? = null
     private val random = SecureRandom()
 
     /** Told about every new request, e.g. to offer it in the AI app as well (protocol 1.4). */

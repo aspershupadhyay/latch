@@ -110,6 +110,12 @@ private fun shortName(name: String) = if (name.length <= 28) name else name.take
  * covers what happens off screen, so the owner always sees the AI at work.
  */
 private fun cursorLabel(command: Command): String? = when (command) {
+    is Command.Tap -> if (command.longPress) "Holding" else if (command.double) "Double-tapping" else "Tapping"
+    is Command.Swipe -> if (command.holdMs > 0) "Dragging" else "Swiping"
+    is Command.Pinch -> "Zooming"
+    is Command.TypeText -> if (command.submit) "Typing and pressing Enter" else "Typing"
+    is Command.ScrollTo -> "Scrolling to find text"
+    is Command.TransferStatus -> "Checking a file transfer"
     is Command.Observe -> "Looking at the screen"
     is Command.WaitFor -> "Waiting for the screen"
     Command.ListApps -> "Looking at your apps"
@@ -222,6 +228,20 @@ class CommandExecutor(
 
         // The owner sees what the AI is doing, also when it happens off screen.
         cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
+        try {
+            return run(envelope, session, capabilities, current)
+        } finally {
+            bridge.service.value?.cursorIdle()
+        }
+    }
+
+    private suspend fun run(
+        envelope: CommandEnvelope,
+        session: SessionInfo,
+        capabilities: Map<Capability, CapabilityStatus>,
+        current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
+    ): JsonElement {
+        val command = envelope.command
 
         // Latch in front would refuse every screen command; step aside to the home screen first.
         if (worksOnScreen(command) && bridge.service.value?.stepAsideFromLatch() == true) {
@@ -233,6 +253,8 @@ class CommandExecutor(
 
         // Asking the owner is itself a question to the owner, never approved first.
         val judged = if (command.isAction && command !is Command.AskOwner) approve(envelope, session) else null
+        // After a question to the owner, the cursor says what happens next again.
+        cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
 
         if (command == Command.DeviceInfoCommand) {
             val service = bridge.service.value
@@ -431,6 +453,7 @@ class CommandExecutor(
         // Leave the gateway a little time to receive the answer before its deadline.
         val timeout = approvalTimeout(envelope.deadlineMs)
         val app = bridge.service.value?.currentPackage()?.let(appName)
+        waitingForOwner()
         when (approvals.request(title, detail, risk, timeout, rememberable = key != null, appName = app, commandId = envelope.id)) {
             ApprovalOutcome.APPROVED_ONCE -> log.add(ActivityKind.APPROVAL, "You approved: $title")
             ApprovalOutcome.APPROVED_SESSION -> {
@@ -479,6 +502,7 @@ class CommandExecutor(
             return title
         }
         log.add(ActivityKind.APPROVAL, "Asked you: $title")
+        waitingForOwner()
         val outcome = approvals.request(
             title, if (risky) FILE_DETAIL else AGENT_DETAIL, if (risky) "high" else "medium",
             approvalTimeout(envelope.deadlineMs), commandId = envelope.id,
@@ -503,6 +527,7 @@ class CommandExecutor(
      */
     private suspend fun askOwner(command: Command.AskOwner, envelope: CommandEnvelope): String {
         log.add(ActivityKind.APPROVAL, "The AI asked you: ${command.message}")
+        waitingForOwner()
         val outcome = approvals.request(
             title = command.message,
             detail = OWNER_TASK_DETAIL,
@@ -526,6 +551,9 @@ class CommandExecutor(
             }
         }
     }
+
+    /** The cursor says the phone is waiting for the owner, not for the AI. */
+    private fun waitingForOwner() = bridge.service.value?.cursorStatus("Waiting for your answer")
 
     /** The launcher is always usable; Latch and system UI are refused by the service itself. */
     private fun exempt(target: String): Boolean {
@@ -563,6 +591,7 @@ class CommandExecutor(
         val sensitive = consequences.isSensitiveApp(target, name)
         log.add(ActivityKind.APPROVAL, "Asked you: let the AI use $name")
         val timeout = approvalTimeout(envelope.deadlineMs)
+        waitingForOwner()
         val outcome = approvals.request(
             title = "Let the AI use $name?",
             detail = (if (sensitive) "$name may hold money, accounts, or passwords. " else "") +
@@ -648,6 +677,7 @@ class CommandExecutor(
                 expectKeyboard = command is Command.Tap && !command.longPress,
             )
         }
+        service.cursorStatus("Reading the new screen")
         val (session, capabilities) = current()
         val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
         val refusal = when {
