@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0064", "deadline_ms": 20000, "command": { "name": "clipboard.set", "params": { "text": "" } } }

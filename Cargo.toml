@@ -19,7 +19,9 @@ latch-protocol = { path = "crates/protocol" }
 latch-policy = { path = "crates/policy" }
 latch-fake-device = { path = "crates/fake-device" }
 
+aes = "0.9.3"
 axum = { version = "0.8.9", features = ["ws"] }
+ctr = "0.10.1"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 getrandom = "0.4.3"
 schemars = "1.2.2"

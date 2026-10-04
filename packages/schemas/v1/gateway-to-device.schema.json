@@ -792,6 +792,167 @@
             "name",
             "params"
           ]
+        },
+        {
+          "description": "Since 1.7 (ADR-027): download a whole file from `link`, decrypt it,\ncheck that its SHA-256 is `sha256`, and save it like `file.write`\n(same places, names, and overwrite rule). A file whose check fails is\nnever kept. The phone starts the download in the background and\nanswers with a [`crate::FileTransfer`] at once (or when it is done, if\nthat is quick); `file.transfer` follows it.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.fetch"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "link": {
+                  "$ref": "#/$defs/FileLink"
+                },
+                "location": {
+                  "$ref": "#/$defs/FileLocation"
+                },
+                "mime": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "overwrite": {
+                  "type": "boolean"
+                },
+                "sha256": {
+                  "description": "SHA-256 of the plain file, 64 lowercase hex characters.",
+                  "type": "string"
+                },
+                "size": {
+                  "description": "Plain size in bytes, when the gateway knows it (for the progress bar and the free-space check).",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "subfolder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "location",
+                "name",
+                "link",
+                "sha256"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.7 (ADR-027): encrypt the file `id` and upload it to `link`, at\nmost `max_bytes`. Answers like `file.fetch`; when done the\n[`crate::FileTransfer`] carries the plain file's SHA-256.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.push"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "link": {
+                  "$ref": "#/$defs/FileLink"
+                },
+                "max_bytes": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "link",
+                "max_bytes"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.7: progress of a transfer this session started, waiting up to\n`wait_ms` for it to finish. With `cancel` the transfer stops and its\npartial file is removed. Answers with a [`crate::FileTransfer`], or\nwith the error that ended the transfer.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.transfer"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "cancel": {
+                  "type": "boolean"
+                },
+                "transfer": {
+                  "type": "string"
+                },
+                "wait_ms": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "transfer"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
+          "description": "Since 1.7: put `text` on the phone's clipboard, e.g. a caption to paste\ninto an app whose text box Latch cannot type into. Reading the\nclipboard is not offered. Answers with an [`crate::ActionResult`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "clipboard.set"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
         }
       ]
     },
@@ -874,6 +1035,36 @@
         "down",
         "left",
         "right"
+      ]
+    },
+    "FileLink": {
+      "description": "Since 1.7 (ADR-027): where a whole file travels, for `file.fetch` and\n`file.push`. The phone streams the file to or from `url` itself, so its\nsize is not bound by command frames. What is stored there is always\nencrypted with AES-256-CTR under `key_hex` and `iv_hex`, a key made for\nthis one transfer that never goes to the storage; the plain file's\nSHA-256 travels separately, so any change on the way is caught.",
+      "type": "object",
+      "properties": {
+        "headers": {
+          "description": "Extra request headers the storage needs: lower-case names that start\nwith `x-`, or `content-type`.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "iv_hex": {
+          "description": "16-byte initial counter block as 32 lowercase hex characters.",
+          "type": "string"
+        },
+        "key_hex": {
+          "description": "32-byte AES-256 key as 64 lowercase hex characters.",
+          "type": "string"
+        },
+        "url": {
+          "description": "`https://` (or the gateway's own `http://` origin on a LAN). The\nphone only accepts its own gateway's origin and the storage hosts the\nprotocol names (Vercel Blob).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "key_hex",
+        "iv_hex"
       ]
     },
     "FileLocation": {

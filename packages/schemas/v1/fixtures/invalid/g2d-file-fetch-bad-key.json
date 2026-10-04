@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0060", "deadline_ms": 20000, "command": { "name": "file.fetch", "params": { "location": "downloads", "name": "a.bin", "link": { "url": "https://example.com/a", "key_hex": "00", "iv_hex": "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff" }, "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" } } }

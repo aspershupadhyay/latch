@@ -300,6 +300,24 @@ impl FakeFiles {
     ) -> Result<FileItem, ProtocolError> {
         let data = b64::decode(data_base64)
             .ok_or_else(|| err(ErrorCode::InvalidRequest, "data_base64 is not valid base64"))?;
+        self.write_bytes(
+            location, folder, subfolder, name, mime, data, append, overwrite,
+        )
+    }
+
+    /// [`Self::write`] with raw bytes (also what a finished `file.fetch` saves).
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_bytes(
+        &mut self,
+        location: FileLocation,
+        folder: Option<&str>,
+        subfolder: Option<&str>,
+        name: &str,
+        mime: Option<&str>,
+        data: Vec<u8>,
+        append: bool,
+        overwrite: bool,
+    ) -> Result<FileItem, ProtocolError> {
         if location == FileLocation::Photos
             && !mime.is_some_and(|m| m.starts_with("image/") || m.starts_with("video/"))
         {
@@ -342,6 +360,18 @@ impl FakeFiles {
         let name = self.free_name(location, &parent, name);
         let id = self.add(location, parent, &name, mime, &data, true);
         Ok(Self::item(self.get(&id)?))
+    }
+
+    /// A file's item and bytes, for `file.push`.
+    pub fn bytes_of(&self, id: &str) -> Result<(FileItem, Vec<u8>), ProtocolError> {
+        let f = self.get(id)?;
+        if f.folder {
+            return Err(err(
+                ErrorCode::InvalidRequest,
+                "that is a folder; list it instead",
+            ));
+        }
+        Ok((Self::item(f), f.data.clone()))
     }
 
     pub fn mkdir(&mut self, folder: Option<&str>, name: &str) -> Result<FileItem, ProtocolError> {

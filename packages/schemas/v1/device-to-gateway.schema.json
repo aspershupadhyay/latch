@@ -230,6 +230,11 @@
           "description": "Since 1.6: open an app's share screen with files.",
           "type": "string",
           "const": "app.share"
+        },
+        {
+          "description": "Since 1.7: put text on the clipboard (never read it).",
+          "type": "string",
+          "const": "clipboard.write"
         }
       ]
     },

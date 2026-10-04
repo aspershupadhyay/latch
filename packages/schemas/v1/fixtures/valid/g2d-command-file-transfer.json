@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0052", "deadline_ms": 20000, "command": { "name": "file.transfer", "params": { "transfer": "t_7f3a", "wait_ms": 15000 } } }

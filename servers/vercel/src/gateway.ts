@@ -3,7 +3,8 @@
 // phone app and the owner console work against either.
 
 import { type DeviceRecord, Devices, type Timing } from "./devices.js";
-import { MAX_TRANSFER_BYTES, Transfers } from "./files.js";
+import { MAX_TRANSFER_BYTES, Transfers, sizeText } from "./files.js";
+import { GATEWAY_LINK_BYTES, blobLinksFromEnv, type BlobLinks, Links } from "./links.js";
 import { type Elicit, type ElicitResult, askOwnerVia, handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
 import { type ApprovalRequest, type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, isValidMime, parseApprovalRequest, validateHello } from "./protocol.js";
 import { OAuth } from "./oauth.js";
@@ -20,6 +21,8 @@ export interface GatewayConfig {
   timing: Timing;
   settleMs: number;
   maxPollWaitMs: number;
+  /** Vercel Blob for encrypted file links of any size (protocol 1.7); without it links use Redis, up to 4 MB. */
+  blob?: BlobLinks;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
@@ -36,6 +39,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
     },
     settleMs: Number(env.LATCH_SETTLE_MS ?? 500),
     maxPollWaitMs: 25_000,
+    blob: blobLinksFromEnv(env),
   };
 }
 
@@ -75,6 +79,7 @@ export class Gateway {
   readonly devices: Devices;
   /** File links (protocol 1.6). */
   readonly transfers: Transfers;
+  readonly links: Links;
   readonly oauth: OAuth;
   /** When this instance last wrote `last_used_ms` per MCP client. */
   private readonly lastUsedWrites = new Map<string, number>();
@@ -82,6 +87,7 @@ export class Gateway {
   constructor(private readonly store: Store, private readonly config: GatewayConfig) {
     this.devices = new Devices(store, config.timing);
     this.transfers = new Transfers(store);
+    this.links = new Links(store, config.adminToken ?? "", config.blob);
     const setup = () => this.setupMode;
     this.oauth = new OAuth(store, {
       get adminToken() {
@@ -144,6 +150,9 @@ export class Gateway {
     // File links (protocol 1.6): the 256-bit token in the path is the credential.
     if (path.startsWith("/v1/files/") && m === "GET") return this.fileDownload(path.slice("/v1/files/".length));
     if (path.startsWith("/v1/uploads/") && (m === "PUT" || m === "POST")) return this.fileUpload(request, path.slice("/v1/uploads/".length));
+    // Encrypted links (protocol 1.7) when no Blob store is connected; the token is the credential.
+    if (path.startsWith("/v1/blobs/") && m === "GET") return this.linkDownload(path.slice("/v1/blobs/".length));
+    if (path.startsWith("/v1/blobs/") && m === "PUT") return this.linkUpload(request, path.slice("/v1/blobs/".length));
     if (path === "/v1/device/hello" && m === "POST") return this.hello(request);
     if (path === "/v1/device/poll" && m === "GET") return this.poll(request);
     if (path === "/v1/device/messages" && m === "POST") return this.messages(request);
@@ -185,6 +194,31 @@ export class Gateway {
     if (result === "used") return error(409, "this upload link was already used; ask for a new one");
     if (result === "unknown") return error(404, "this link has expired or never existed");
     return json(200, { ok: true, upload_id: token, size: bytes.length });
+  }
+
+  private async linkDownload(token: string): Promise<Response> {
+    const bytes = await this.links.getBytes(decodeURIComponent(token));
+    if (!bytes) return error(404, "this link has expired, never existed, or nothing was uploaded to it yet");
+    // Ciphertext only; never a page of this gateway.
+    return new Response(new Uint8Array(bytes), {
+      status: 200,
+      headers: {
+        "content-type": "application/octet-stream",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "content-security-policy": "sandbox; default-src 'none'",
+      },
+    });
+  }
+
+  private async linkUpload(request: Request, token: string): Promise<Response> {
+    const declared = Number(request.headers.get("content-length") ?? "0");
+    if (declared > GATEWAY_LINK_BYTES) return error(413, `the file is larger than ${sizeText(GATEWAY_LINK_BYTES)}; connect a Vercel Blob store for bigger files`);
+    const result = await this.links.putBytes(decodeURIComponent(token), Buffer.from(await request.arrayBuffer()));
+    if (result === "too_large") return error(413, `the file is larger than ${sizeText(GATEWAY_LINK_BYTES)}; connect a Vercel Blob store for bigger files`);
+    if (result === "used") return error(409, "this link was already used; ask for a new one");
+    if (result === "unknown") return error(404, "this link has expired or never existed");
+    return json(200, { ok: true });
   }
 
   // ---- Public ----
@@ -296,7 +330,7 @@ export class Gateway {
     }
     // Without elicitation, a question the phone asks pauses the call so the AI can ask in the chat.
     const reply = await handleMcp(
-      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, baseUrl: new URL(request.url).origin },
+      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links, baseUrl: new URL(request.url).origin },
       message,
     );
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);
@@ -333,7 +367,7 @@ export class Gateway {
   private streamToolCall(client: string, message: unknown, baseUrl: string): Response {
     const encoder = new TextEncoder();
     const store = this.store;
-    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, baseUrl };
+    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl };
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         let open = true;

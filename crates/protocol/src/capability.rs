@@ -39,10 +39,13 @@ pub enum Capability {
     /// Since 1.6: open an app's share screen with files.
     #[serde(rename = "app.share")]
     AppShare,
+    /// Since 1.7: put text on the clipboard (never read it).
+    #[serde(rename = "clipboard.write")]
+    ClipboardWrite,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 10] = [
+    pub const ALL: [Capability; 11] = [
         Capability::DeviceInfo,
         Capability::UiObserve,
         Capability::ScreenCapture,
@@ -53,6 +56,7 @@ impl Capability {
         Capability::FileRead,
         Capability::FileWrite,
         Capability::AppShare,
+        Capability::ClipboardWrite,
     ];
 
     /// Stable wire identifier, e.g. `input.gesture`.
@@ -68,6 +72,7 @@ impl Capability {
             Capability::FileRead => "file.read",
             Capability::FileWrite => "file.write",
             Capability::AppShare => "app.share",
+            Capability::ClipboardWrite => "clipboard.write",
         }
     }
 
@@ -84,6 +89,7 @@ impl Capability {
             Capability::FileRead => "list and read allowed photos and files",
             Capability::FileWrite => "save, rename, and delete files",
             Capability::AppShare => "share files to an app",
+            Capability::ClipboardWrite => "copy text to the clipboard",
         }
     }
 }

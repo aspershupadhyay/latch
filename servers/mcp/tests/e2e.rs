@@ -4,6 +4,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use latch_fake_device::transfers;
 use latch_fake_device::{Approval, Control, FakeState, Shared};
 use latch_gateway::{AppState, Config, router, store::Store};
 use latch_protocol::Capability;
@@ -36,6 +37,8 @@ async fn start_gateway() -> Gateway {
     };
     let mut state = AppState::new(config, Store::ephemeral());
     state.settle_ms = 0;
+    // Answer with a transfer's progress at once, so transfer_status is exercised.
+    state.transfer_budget_ms = 0;
     let state = Arc::new(state);
     let app = router(state.clone());
     tokio::spawn(async move { axum::serve(listener, app).await });
@@ -93,6 +96,32 @@ async fn http(
 }
 
 /// Raw bytes in and out, for file links (protocol 1.6).
+/// The link path, key, and counter a tool answer hands the computer.
+fn link_in(gw: &Gateway, text: &str) -> (String, latch_protocol::FileLink) {
+    let word_after = |key: &str| -> String {
+        let start = text.find(key).unwrap_or_else(|| panic!("{key} in {text}")) + key.len();
+        text[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_hexdigit())
+            .collect()
+    };
+    let url = text
+        .split(['"', ' ', '\n'])
+        .find(|w| w.starts_with("http://") && w.contains("/v1/blobs/"))
+        .unwrap_or_else(|| panic!("link in {text}"));
+    let path = url
+        .split_once(&gw.addr.to_string())
+        .map(|(_, p)| p.to_owned())
+        .expect("path");
+    let link = latch_protocol::FileLink {
+        url: url.to_owned(),
+        headers: Default::default(),
+        key_hex: word_after("-K "),
+        iv_hex: word_after("-iv "),
+    };
+    (path, link)
+}
+
 async fn http_bytes(gw: &Gateway, method: &str, path: &str, body: &[u8]) -> (u16, Vec<u8>) {
     let head = format!(
         "{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
@@ -300,10 +329,12 @@ async fn mcp_handshake_and_discovery() {
             "read_file",
             "get_file_link",
             "upload_link",
+            "transfer_status",
             "write_file",
             "create_folder",
             "rename_file",
             "delete_file",
+            "set_clipboard",
             "share_to_app",
             "answer_approval"
         ]
@@ -1067,7 +1098,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.6, 23 tools.",
+        lines[0], "Latch gateway, protocol 1.7, 25 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1154,40 +1185,69 @@ async fn files_round_trip_between_phone_and_computer() {
     assert!(text.contains("A smaller copy of the picture"), "{text}");
     assert_eq!(images, 1);
 
-    // Phone → computer: a download link.
+    // Phone → computer: an encrypted download link; the phone uploads the
+    // ciphertext itself and the command in the answer decrypts and checks it.
     let (_, text, _) = call(&gw, "get_file_link", json!({"file_id": caption})).await;
     assert!(
-        text.starts_with("Download link for \"caption.txt\" (19 B), valid for 15 minutes:"),
+        text.starts_with("Download link for \"caption.txt\" (19 B), valid for 15 minutes. The stored copy is encrypted"),
         "{text}"
     );
-    let path = text
-        .split_whitespace()
-        .find(|w| w.starts_with("http://"))
-        .and_then(|u| {
-            u.split_once(&gw.addr.to_string())
-                .map(|(_, p)| p.to_owned())
-        })
-        .expect("link");
-    let (status, body) = http_bytes(&gw, "GET", &path, b"").await;
-    assert_eq!(
-        (status, body.as_slice()),
-        (200, b"Sunset at the beach".as_slice())
+    let (path, link) = link_in(&gw, &text);
+    let (status, mut body) = http_bytes(&gw, "GET", &path, b"").await;
+    assert_eq!(status, 200);
+    assert_ne!(
+        body, b"Sunset at the beach",
+        "the stored copy is ciphertext"
     );
-    let (status, _) = http_bytes(&gw, "GET", "/v1/files/ldl_0000", b"").await;
+    transfers::apply(&link, &mut body).expect("decrypt");
+    assert_eq!(body, b"Sunset at the beach");
+    assert!(
+        text.contains(&format!(
+            "grep -q {}",
+            transfers::sha256_hex(b"Sunset at the beach")
+        )),
+        "{text}"
+    );
+    let (status, _) = http_bytes(&gw, "GET", "/v1/blobs/ltr_0000", b"").await;
     assert_eq!(status, 404);
 
-    // Computer → phone: an upload link, then write_file into a new folder.
+    // Computer → phone: the computer encrypts and uploads, then write_file
+    // hands the phone the link, key, and checksum.
     let (_, text, _) = call(&gw, "create_folder", json!({"name": "abc"})).await;
     let abc = id_after(&text, "folder_id: ");
     let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    assert!(
+        text.starts_with("Upload link for one file (valid for 15 minutes, up to 2.0 GB)."),
+        "{text}"
+    );
     let upload = id_after(&text, "upload_id=\"");
+    let (path, link) = link_in(&gw, &text);
     let big: Vec<u8> = (0..700_000u32).map(|i| (i % 251) as u8).collect();
-    let (status, _) = http_bytes(&gw, "PUT", &format!("/v1/uploads/{upload}"), &big).await;
+    let sha = transfers::sha256_hex(&big);
+    let mut sealed = big.clone();
+    transfers::apply(&link, &mut sealed).expect("encrypt");
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "folder", "name": "early.pdf", "upload_id": upload, "sha256": sha}),
+    )
+    .await;
+    assert!(is_error && text.contains("nothing was uploaded"), "{text}");
+    let (status, _) = http_bytes(&gw, "PUT", &path, &sealed).await;
     assert_eq!(status, 200);
+    let (status, _) = http_bytes(&gw, "PUT", &path, &sealed).await;
+    assert_eq!(status, 409, "a link is filled once");
     let (is_error, text, _) = call(
         &gw,
         "write_file",
         json!({"location": "folder", "folder_id": abc, "name": "report.pdf", "upload_id": upload}),
+    )
+    .await;
+    assert!(is_error && text.contains("sha256 is required"), "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "folder", "folder_id": abc, "name": "report.pdf", "upload_id": upload, "sha256": sha}),
     )
     .await;
     assert!(
@@ -1202,19 +1262,89 @@ async fn files_round_trip_between_phone_and_computer() {
             .iter()
             .find(|f| f.name == "report.pdf")
             .expect("saved");
-        assert_eq!(saved.data, big, "two chunks, appended in order");
+        assert_eq!(saved.data, big, "decrypted and checked on the phone");
         assert_eq!(saved.mime.as_deref(), Some("application/pdf"));
-        // Creating and appending are not approvals.
         assert!(s.approval_requests.is_empty(), "{:?}", s.approval_requests);
     }
+    let (status, _) = http_bytes(&gw, "GET", &path, b"").await;
+    assert_eq!(
+        status, 404,
+        "the stored copy is deleted once the phone has it"
+    );
     // The upload was saved once.
     let (is_error, text, _) = call(
         &gw,
         "write_file",
-        json!({"location": "folder", "name": "again.pdf", "upload_id": upload}),
+        json!({"location": "folder", "name": "again.pdf", "upload_id": upload, "sha256": sha}),
     )
     .await;
     assert!(is_error && text.contains("upload_id is unknown"), "{text}");
+
+    // A file that changed on the way is never kept.
+    let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    let upload = id_after(&text, "upload_id=\"");
+    let (path, link) = link_in(&gw, &text);
+    let mut sealed = b"original".to_vec();
+    transfers::apply(&link, &mut sealed).expect("encrypt");
+    sealed[0] ^= 1;
+    http_bytes(&gw, "PUT", &path, &sealed).await;
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "downloads", "name": "tampered.txt", "upload_id": upload, "sha256": transfers::sha256_hex(b"original")}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("did not match its sha256"),
+        "{text}"
+    );
+    assert!(
+        !phone
+            .state
+            .lock()
+            .expect("lock")
+            .files
+            .files
+            .iter()
+            .any(|f| f.name == "tampered.txt")
+    );
+
+    // A slow transfer answers with its progress; transfer_status finishes it.
+    phone.state.lock().expect("lock").transfer_delay_ms = 1_800;
+    let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    let upload = id_after(&text, "upload_id=\"");
+    let (path, link) = link_in(&gw, &text);
+    let mut sealed = b"slow file".to_vec();
+    transfers::apply(&link, &mut sealed).expect("encrypt");
+    http_bytes(&gw, "PUT", &path, &sealed).await;
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "downloads", "name": "slow.txt", "upload_id": upload, "sha256": transfers::sha256_hex(b"slow file")}),
+    )
+    .await;
+    assert!(
+        !is_error && text.starts_with("Still saving \"slow.txt\" on the phone: 0 B of 9 B."),
+        "{text}"
+    );
+    let transfer = id_after(&text, "transfer_id=\"");
+    let (is_error, text, _) = call(&gw, "transfer_status", json!({"transfer_id": transfer})).await;
+    assert!(
+        !is_error && text.starts_with("Saved \"slow.txt\" to Downloads (9 B)."),
+        "{text}"
+    );
+    phone.state.lock().expect("lock").transfer_delay_ms = 0;
+
+    // The clipboard takes a caption to paste.
+    let (is_error, text, _) = call(&gw, "set_clipboard", json!({"text": "Hello from Latch"})).await;
+    assert!(
+        !is_error && text.starts_with("Copied 16 characters"),
+        "{text}"
+    );
+    assert_eq!(
+        phone.state.lock().expect("lock").clipboard,
+        ["Hello from Latch"]
+    );
 
     // Inline text into Downloads/abc; the same name gets a free name.
     let (_, text, _) = call(

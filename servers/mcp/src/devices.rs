@@ -11,8 +11,9 @@ use std::time::Duration;
 use latch_policy::{Decision, DeviceContext};
 use latch_protocol::{
     ActionResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
-    DeviceInfo, ErrorCode, FileChunk, FileItem, FileList, FilePreview, GatewayToDevice, Hello,
-    Observation, ObserveAfter, Outcome, ProtocolError, SessionInfo, WaitResult, validate,
+    DeviceInfo, ErrorCode, FileChunk, FileItem, FileList, FilePreview, FileTransfer,
+    GatewayToDevice, Hello, Observation, ObserveAfter, Outcome, ProtocolError, SessionInfo,
+    WaitResult, validate,
 };
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
@@ -255,6 +256,13 @@ impl Registry {
             .and_then(|l| l.latest_observation.as_ref().map(|(o, _)| o.clone()))
     }
 
+    /// Minor protocol version the phone spoke in its hello, while connected.
+    pub fn protocol_minor(&self, device_id: &str) -> Option<u32> {
+        self.lock()
+            .get(device_id)
+            .and_then(|l| latch_protocol::minor_version(&l.hello.protocol))
+    }
+
     pub fn is_online(&self, device_id: &str) -> bool {
         self.lock().contains_key(device_id)
     }
@@ -293,6 +301,8 @@ pub enum Output {
     Preview(Box<FilePreview>),
     Chunk(FileChunk),
     Item(FileItem),
+    /// Since 1.7.
+    Transfer(FileTransfer),
 }
 
 /// Chooses the device a tool call addresses.
@@ -596,6 +606,24 @@ async fn execute_inner(
         Command::ReadFile { .. } => Output::Chunk(serde_json::from_value(data).map_err(malformed)?),
         Command::WriteFile { .. } | Command::MakeFolder { .. } | Command::RenameFile { .. } => {
             Output::Item(serde_json::from_value(data).map_err(malformed)?)
+        }
+        Command::FetchFile { .. } | Command::PushFile { .. } | Command::TransferStatus { .. } => {
+            let transfer: FileTransfer = serde_json::from_value(data).map_err(malformed)?;
+            if !validate::is_valid_id(&transfer.id)
+                || transfer
+                    .sha256
+                    .as_deref()
+                    .is_some_and(|h| !validate::is_hex(h, 64))
+            {
+                return Err((
+                    decision,
+                    ProtocolError::new(
+                        ErrorCode::Internal,
+                        "the phone returned a malformed transfer",
+                    ),
+                ));
+            }
+            Output::Transfer(transfer)
         }
         _ => {
             let mut result: ActionResult = serde_json::from_value(data).map_err(malformed)?;
