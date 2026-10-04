@@ -1,8 +1,8 @@
-// Latch device protocol v1.6 for the Vercel gateway. The normative definition
+// Latch device protocol v1.7 for the Vercel gateway. The normative definition
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.6";
+export const PROTOCOL_VERSION = "1.7";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -44,7 +44,7 @@ export class ProtocolError extends Error {
 
 export const CAPABILITIES = [
   "device.info", "ui.observe", "screen.capture", "input.gesture", "input.text", "nav.global", "app.launch",
-  "file.read", "file.write", "app.share",
+  "file.read", "file.write", "app.share", "clipboard.write",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type CapabilityStatus = "enabled" | "disabled" | "needs_permission" | "unsupported";
@@ -61,6 +61,7 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "file.read": "list and read allowed photos and files",
   "file.write": "save, rename, and delete files",
   "app.share": "share files to an app",
+  "clipboard.write": "copy text to the clipboard",
 };
 
 export interface SessionInfo {
@@ -133,7 +134,28 @@ export type Command =
   | { name: "file.mkdir"; params: { folder?: string; name: string } }
   | { name: "file.rename"; params: { id: string; name: string } }
   | { name: "file.delete"; params: { id: string } }
-  | { name: "app.share"; params: { package: string; ids: string[]; text?: string } };
+  | { name: "app.share"; params: { package: string; ids: string[]; text?: string } }
+  // Since 1.7 (ADR-027): whole files by encrypted link, and the clipboard.
+  | {
+    name: "file.fetch";
+    params: {
+      location: FileLocation; folder?: string; subfolder?: string; name: string; mime?: string; overwrite?: boolean;
+      link: FileLink; sha256: string; size?: number;
+    };
+  }
+  | { name: "file.push"; params: { id: string; link: FileLink; max_bytes: number } }
+  | { name: "file.transfer"; params: { transfer: string; wait_ms?: number; cancel?: boolean } }
+  | { name: "clipboard.set"; params: { text: string } };
+
+/**
+ * Since 1.7: where a whole file travels. The stored copy is AES-256-CTR
+ * encrypted under a key made for this transfer that never goes to the storage.
+ */
+export interface FileLink { url: string; headers?: Record<string, string>; key_hex: string; iv_hex: string }
+export type TransferState = "running" | "done";
+export interface FileTransfer {
+  id: string; state: TransferState; done_bytes: number; total_bytes?: number; item?: FileItem; sha256?: string;
+}
 
 export type FileLocation = "photos" | "downloads" | "folder";
 export const FILE_LOCATIONS: readonly FileLocation[] = ["photos", "downloads", "folder"];
@@ -179,6 +201,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   if (c.name === "owner.ask") return 5;
+  if (c.name === "file.fetch" || c.name === "file.push" || c.name === "file.transfer" || c.name === "clipboard.set") return 7;
   if (c.name.startsWith("file.") || c.name === "app.share") return 6;
   return 0;
 }
@@ -201,18 +224,23 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "file.list": case "file.preview": case "file.read": return ["file.read"];
     case "file.write": case "file.mkdir": case "file.rename": case "file.delete": return ["file.write"];
     case "app.share": return ["app.share"];
+    case "file.fetch": return ["file.write"];
+    case "file.push": return ["file.read"];
+    // Follows a transfer that already passed its own checks.
+    case "file.transfer": return [];
+    case "clipboard.set": return ["clipboard.write"];
   }
 }
 
 /** Asking the owner counts as an action: the owner changes the screen while answering. */
 export const isAction = (c: Command) =>
-  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read"].includes(c.name);
+  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read", "file.push", "file.transfer"].includes(c.name);
 
-/** `file.write`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
-export const isFileChange = (c: Command) => ["file.write", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
+/** `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
+export const isFileChange = (c: Command) => ["file.write", "file.fetch", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
 
-/** Actions after which the old observation is stale and a new one is worth returning. */
-export const changesScreen = (c: Command) => isAction(c) && !isFileChange(c);
+/** Actions after which the old observation is stale and a new one is worth returning (files and the clipboard are off screen). */
+export const changesScreen = (c: Command) => isAction(c) && !isFileChange(c) && c.name !== "clipboard.set";
 
 /** Actions the owner approves under "Ask me before every action"; asking the owner is already a question. */
 export const needsOwnerApprovalWhenStrict = (c: Command) =>
@@ -232,6 +260,7 @@ export const LIMITS = {
   maxMessageBytes: 8 * 1024 * 1024, minWaitMs: 100, maxWaitMs: 15_000, maxFindTextChars: 200, maxScrollSwipes: 20, maxHoldMs: 3_000, minPinchSpan: 20,
   maxAskOwnerChars: 300,
   maxFileChunkBytes: 512 * 1024, maxFileNameChars: 120, maxFileList: 200, maxShareFiles: 10, maxMimeChars: 100,
+  maxLinkFileBytes: 4 * 1024 * 1024 * 1024, maxLinkUrlChars: 4_096, maxLinkHeaders: 8, maxClipboardChars: 10_000,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
@@ -271,6 +300,41 @@ function findText(text: string) {
   if (text.trim() === "" || [...text].length > LIMITS.maxFindTextChars) throw invalid(`text must be 1-${LIMITS.maxFindTextChars} characters`);
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f-\u009f]/.test(text)) throw invalid("text must not contain control characters");
+}
+
+/** Where `file.write` and `file.fetch` save. */
+function destination(p: { location: FileLocation; folder?: string; subfolder?: string; name: string; mime?: string }) {
+  if (!FILE_LOCATIONS.includes(p.location)) throw invalid("location must be photos, downloads, or folder");
+  fileName(p.name, "name");
+  if (p.folder !== undefined) {
+    if (p.location !== "folder") throw invalid("folder is only for location \"folder\"");
+    id("folder", p.folder);
+  }
+  if (p.subfolder !== undefined) {
+    if (p.location === "folder") throw invalid("subfolder is for photos and downloads; use folder");
+    fileName(p.subfolder, "subfolder");
+  }
+  if (p.mime !== undefined && !isValidMime(p.mime)) throw invalid("mime must look like type/subtype");
+}
+
+export const isHex = (v: unknown, len: number) => typeof v === "string" && v.length === len && /^[0-9a-f]*$/.test(v);
+
+/** Storage hints only: never credentials or connection headers. */
+export const isValidLinkHeader = (name: string, value: string) =>
+  (name === "content-type" || (name.length > 2 && name.length <= 64 && /^x-[a-z0-9-]+$/.test(name))) &&
+  value.length <= 512 && /^[\x20-\x7e]*$/.test(value);
+
+function link(l: FileLink) {
+  if (
+    typeof l?.url !== "string" || l.url.length > LIMITS.maxLinkUrlChars || !/^https?:\/\/[^/]/.test(l.url) || /[^\x21-\x7e]/.test(l.url)
+  ) {
+    throw invalid(`link.url must be an http(s) URL of at most ${LIMITS.maxLinkUrlChars} characters`);
+  }
+  const headers = Object.entries(l.headers ?? {});
+  if (headers.length > LIMITS.maxLinkHeaders || !headers.every(([k, v]) => isValidLinkHeader(k, v))) {
+    throw invalid(`link.headers must be at most ${LIMITS.maxLinkHeaders} x- or content-type headers with printable values`);
+  }
+  if (!isHex(l.key_hex, 64) || !isHex(l.iv_hex, 32)) throw invalid("link.key_hex must be 64 and link.iv_hex 32 lowercase hex characters");
 }
 
 export function validateCommand(c: Command): void {
@@ -350,17 +414,7 @@ export function validateCommand(c: Command): void {
       return;
     case "file.write": {
       const p = c.params;
-      if (!FILE_LOCATIONS.includes(p.location)) throw invalid("location must be photos, downloads, or folder");
-      fileName(p.name, "name");
-      if (p.folder !== undefined) {
-        if (p.location !== "folder") throw invalid("folder is only for location \"folder\"");
-        id("folder", p.folder);
-      }
-      if (p.subfolder !== undefined) {
-        if (p.location === "folder") throw invalid("subfolder is for photos and downloads; use folder");
-        fileName(p.subfolder, "subfolder");
-      }
-      if (p.mime !== undefined && !isValidMime(p.mime)) throw invalid("mime must look like type/subtype");
+      destination(p);
       if (p.append && p.overwrite) throw invalid("a write either appends or overwrites, not both");
       if (p.data_base64.length > Math.ceil(LIMITS.maxFileChunkBytes / 3) * 4 || !/^[A-Za-z0-9+/=]*$/.test(p.data_base64)) {
         throw invalid(`data_base64 must be base64 of at most ${LIMITS.maxFileChunkBytes} bytes`);
@@ -384,6 +438,32 @@ export function validateCommand(c: Command): void {
       if (t !== undefined && ([...t].length > LIMITS.maxTextChars || /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(t))) {
         throw invalid(`text must be at most ${LIMITS.maxTextChars} characters without control characters`);
       }
+      return;
+    }
+    case "file.fetch": {
+      const p = c.params;
+      destination(p);
+      link(p.link);
+      if (!isHex(p.sha256, 64)) throw invalid("sha256 must be 64 lowercase hex characters");
+      if (p.size !== undefined && p.size > LIMITS.maxLinkFileBytes) throw invalid(`size must be at most ${LIMITS.maxLinkFileBytes} bytes`);
+      return;
+    }
+    case "file.push":
+      id("id", c.params.id);
+      link(c.params.link);
+      if (!isInt(c.params.max_bytes) || c.params.max_bytes < 1 || c.params.max_bytes > LIMITS.maxLinkFileBytes) {
+        throw invalid(`max_bytes must be between 1 and ${LIMITS.maxLinkFileBytes}`);
+      }
+      return;
+    case "file.transfer":
+      id("transfer", c.params.transfer);
+      if ((c.params.wait_ms ?? 0) > LIMITS.maxWaitMs) throw invalid(`wait_ms must be at most ${LIMITS.maxWaitMs}`);
+      return;
+    case "clipboard.set": {
+      const n = [...c.params.text].length;
+      if (n === 0 || n > LIMITS.maxClipboardChars) throw invalid(`text must be 1-${LIMITS.maxClipboardChars} characters`);
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(c.params.text)) throw invalid("text must not contain control characters");
       return;
     }
     case "owner.ask": {
@@ -497,6 +577,26 @@ export function parseCommand(raw: unknown): Command {
       if (!Array.isArray(p.ids) || p.ids.some((v) => typeof v !== "string")) throw invalid("ids must be a list of strings");
       return { name, params: { package: str("package"), ids: p.ids as string[], ...(p.text !== undefined ? { text: str("text") } : {}) } };
     }
+    case "file.fetch": return {
+      name,
+      params: {
+        location: str("location") as FileLocation,
+        ...(p.folder !== undefined ? { folder: str("folder") } : {}),
+        ...(p.subfolder !== undefined ? { subfolder: str("subfolder") } : {}),
+        name: str("name"),
+        ...(p.mime !== undefined ? { mime: str("mime") } : {}),
+        overwrite: bool("overwrite", false),
+        link: p.link as FileLink,
+        sha256: str("sha256"),
+        ...(p.size !== undefined ? { size: int(p.size, "size") } : {}),
+      },
+    };
+    case "file.push": return { name, params: { id: str("id"), link: p.link as FileLink, max_bytes: int(p.max_bytes, "max_bytes") } };
+    case "file.transfer": return {
+      name,
+      params: { transfer: str("transfer"), wait_ms: p.wait_ms === undefined ? 0 : int(p.wait_ms, "wait_ms"), cancel: bool("cancel", false) },
+    };
+    case "clipboard.set": return { name, params: { text: str("text") } };
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
 }

@@ -15,6 +15,7 @@ mod device_http;
 mod device_ws;
 pub mod devices;
 mod http;
+pub mod links;
 pub mod mcp;
 pub mod pairing;
 pub mod secret;
@@ -35,8 +36,12 @@ pub struct AppState {
     pub audit: audit::Audit,
     /// Download and upload links for whole files (protocol 1.6).
     pub transfers: transfers::Transfers,
+    /// Encrypted links for whole files of any size (protocol 1.7).
+    pub links: links::Links,
     /// Pause after an action before observing the result.
     pub settle_ms: u64,
+    /// How long one tool call follows a file transfer before answering with its progress.
+    pub transfer_budget_ms: u64,
 }
 
 impl AppState {
@@ -48,7 +53,9 @@ impl AppState {
             devices: devices::Registry::default(),
             audit: audit::Audit::default(),
             transfers: transfers::Transfers::default(),
+            links: links::Links::from_env(),
             settle_ms: 600,
+            transfer_budget_ms: mcp::files::TRANSFER_TOOL_BUDGET_MS,
         }
     }
 

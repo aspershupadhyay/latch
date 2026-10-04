@@ -172,6 +172,14 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       // Replacing loses the old file: the owner approves (Auto mode aside, on the phone).
       return overwrite ? { risk: "high", title, detail: FILE_DETAIL } : medium(title);
     }
+    case "file.fetch": {
+      const { location, name, overwrite } = command.params;
+      const title = `${overwrite ? "Replace" : "Save"} “${shorten(name)}” ${overwrite ? "in" : "to"} ${WHERE[location]}`;
+      return overwrite ? { risk: "high", title, detail: FILE_DETAIL } : medium(title);
+    }
+    case "file.push": return low("Copy a file from your phone");
+    case "file.transfer": return low(command.params.cancel === true ? "Stop a file transfer" : "Check a file transfer");
+    case "clipboard.set": return medium(`Copy ${[...command.params.text].length} characters to the clipboard`);
     case "file.mkdir": return medium(`Create the folder “${shorten(command.params.name)}”`);
     case "file.rename": return medium(`Rename a file to “${shorten(command.params.name)}”`);
     case "file.delete": return { risk: "high", title: "Delete a file from your phone", detail: FILE_DETAIL };

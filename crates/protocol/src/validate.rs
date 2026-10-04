@@ -36,6 +36,13 @@ pub const MAX_FILE_NAME_CHARS: usize = 120;
 pub const MAX_FILE_LIST: u32 = 200;
 pub const MAX_SHARE_FILES: usize = 10;
 pub const MAX_MIME_CHARS: usize = 100;
+/// Since 1.7: largest file a link transfer may carry (gateways may set lower limits).
+pub const MAX_LINK_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// Since 1.7: longest `FileLink::url` (signed storage URLs are long).
+pub const MAX_LINK_URL_CHARS: usize = 4_096;
+pub const MAX_LINK_HEADERS: usize = 8;
+/// Since 1.7: most characters `clipboard.set` takes.
+pub const MAX_CLIPBOARD_CHARS: usize = 10_000;
 
 /// A file or folder name: no path separators, control characters, or
 /// leading dot (hidden files), and not "." or "..".
@@ -292,24 +299,7 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             append,
             overwrite,
         } => {
-            check_file_name(name, "name")?;
-            if let Some(folder) = folder {
-                if *location != crate::FileLocation::Folder {
-                    return Err(invalid("folder is only for location \"folder\""));
-                }
-                check_id("folder", folder)?;
-            }
-            if let Some(subfolder) = subfolder {
-                if *location == crate::FileLocation::Folder {
-                    return Err(invalid("subfolder is for photos and downloads; use folder"));
-                }
-                check_file_name(subfolder, "subfolder")?;
-            }
-            if let Some(mime) = mime
-                && !is_valid_mime(mime)
-            {
-                return Err(invalid("mime must look like type/subtype"));
-            }
+            check_destination(*location, folder, subfolder, name, mime)?;
             if *append && *overwrite {
                 return Err(invalid("a write either appends or overwrites, not both"));
             }
@@ -355,6 +345,66 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
                 return Err(invalid(format!(
                     "text must be at most {MAX_TEXT_CHARS} characters without control characters"
                 )));
+            }
+            Ok(())
+        }
+        Command::FetchFile {
+            location,
+            folder,
+            subfolder,
+            name,
+            mime,
+            link,
+            sha256,
+            size,
+            ..
+        } => {
+            check_destination(*location, folder, subfolder, name, mime)?;
+            check_link(link)?;
+            if !is_hex(sha256, 64) {
+                return Err(invalid("sha256 must be 64 lowercase hex characters"));
+            }
+            if size.is_some_and(|s| s > MAX_LINK_FILE_BYTES) {
+                return Err(invalid(format!(
+                    "size must be at most {MAX_LINK_FILE_BYTES} bytes"
+                )));
+            }
+            Ok(())
+        }
+        Command::PushFile {
+            id,
+            link,
+            max_bytes,
+        } => {
+            check_id("id", id)?;
+            check_link(link)?;
+            if *max_bytes == 0 || *max_bytes > MAX_LINK_FILE_BYTES {
+                return Err(invalid(format!(
+                    "max_bytes must be between 1 and {MAX_LINK_FILE_BYTES}"
+                )));
+            }
+            Ok(())
+        }
+        Command::TransferStatus {
+            transfer, wait_ms, ..
+        } => {
+            check_id("transfer", transfer)?;
+            if *wait_ms > MAX_WAIT_MS {
+                return Err(invalid(format!("wait_ms must be at most {MAX_WAIT_MS}")));
+            }
+            Ok(())
+        }
+        Command::SetClipboard { text } => {
+            if text.is_empty() || text.chars().count() > MAX_CLIPBOARD_CHARS {
+                return Err(invalid(format!(
+                    "text must be 1-{MAX_CLIPBOARD_CHARS} characters"
+                )));
+            }
+            if text
+                .chars()
+                .any(|c| c.is_control() && c != '\n' && c != '\t')
+            {
+                return Err(invalid("text must not contain control characters"));
             }
             Ok(())
         }
@@ -446,6 +496,85 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             }
         }
     }
+}
+
+/// Where `file.write` and `file.fetch` save: `folder` only in the picked
+/// folder, `subfolder` only in photos and Downloads.
+fn check_destination(
+    location: crate::FileLocation,
+    folder: &Option<String>,
+    subfolder: &Option<String>,
+    name: &str,
+    mime: &Option<String>,
+) -> Result<(), ProtocolError> {
+    check_file_name(name, "name")?;
+    if let Some(folder) = folder {
+        if location != crate::FileLocation::Folder {
+            return Err(invalid("folder is only for location \"folder\""));
+        }
+        check_id("folder", folder)?;
+    }
+    if let Some(subfolder) = subfolder {
+        if location == crate::FileLocation::Folder {
+            return Err(invalid("subfolder is for photos and downloads; use folder"));
+        }
+        check_file_name(subfolder, "subfolder")?;
+    }
+    if let Some(mime) = mime
+        && !is_valid_mime(mime)
+    {
+        return Err(invalid("mime must look like type/subtype"));
+    }
+    Ok(())
+}
+
+/// `len` lowercase hex characters.
+pub fn is_hex(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// A header a [`crate::FileLink`] may carry: storage hints, never credentials
+/// or connection headers.
+pub fn is_valid_link_header(name: &str, value: &str) -> bool {
+    let name_ok = name == "content-type"
+        || (name.len() > 2
+            && name.len() <= 64
+            && name.starts_with("x-")
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
+    name_ok && value.len() <= 512 && value.bytes().all(|b| (0x20..0x7f).contains(&b))
+}
+
+fn check_link(link: &crate::FileLink) -> Result<(), ProtocolError> {
+    let url = link.url.as_str();
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"));
+    if url.len() > MAX_LINK_URL_CHARS
+        || rest.is_none_or(|r| r.is_empty() || r.starts_with('/'))
+        || url.bytes().any(|b| !(0x21..0x7f).contains(&b))
+    {
+        return Err(invalid(format!(
+            "link.url must be an http(s) URL of at most {MAX_LINK_URL_CHARS} characters"
+        )));
+    }
+    if link.headers.len() > MAX_LINK_HEADERS
+        || !link.headers.iter().all(|(k, v)| is_valid_link_header(k, v))
+    {
+        return Err(invalid(format!(
+            "link.headers must be at most {MAX_LINK_HEADERS} x- or content-type headers with printable values"
+        )));
+    }
+    if !is_hex(&link.key_hex, 64) || !is_hex(&link.iv_hex, 32) {
+        return Err(invalid(
+            "link.key_hex must be 64 and link.iv_hex 32 lowercase hex characters",
+        ));
+    }
+    Ok(())
 }
 
 /// Checks an [`crate::ApprovalRequest`] from a phone (since 1.4).

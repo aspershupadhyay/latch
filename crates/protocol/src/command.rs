@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Capability, FileLocation};
+use crate::{Capability, FileLink, FileLocation};
 
 /// A point in physical screen pixels of the observation it was taken from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -240,6 +240,61 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
     },
+
+    /// Since 1.7 (ADR-027): download a whole file from `link`, decrypt it,
+    /// check that its SHA-256 is `sha256`, and save it like `file.write`
+    /// (same places, names, and overwrite rule). A file whose check fails is
+    /// never kept. The phone starts the download in the background and
+    /// answers with a [`crate::FileTransfer`] at once (or when it is done, if
+    /// that is quick); `file.transfer` follows it.
+    #[serde(rename = "file.fetch")]
+    FetchFile {
+        location: FileLocation,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        folder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subfolder: Option<String>,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime: Option<String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        overwrite: bool,
+        link: Box<FileLink>,
+        /// SHA-256 of the plain file, 64 lowercase hex characters.
+        sha256: String,
+        /// Plain size in bytes, when the gateway knows it (for the progress bar and the free-space check).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<u64>,
+    },
+
+    /// Since 1.7 (ADR-027): encrypt the file `id` and upload it to `link`, at
+    /// most `max_bytes`. Answers like `file.fetch`; when done the
+    /// [`crate::FileTransfer`] carries the plain file's SHA-256.
+    #[serde(rename = "file.push")]
+    PushFile {
+        id: String,
+        link: Box<FileLink>,
+        max_bytes: u64,
+    },
+
+    /// Since 1.7: progress of a transfer this session started, waiting up to
+    /// `wait_ms` for it to finish. With `cancel` the transfer stops and its
+    /// partial file is removed. Answers with a [`crate::FileTransfer`], or
+    /// with the error that ended the transfer.
+    #[serde(rename = "file.transfer")]
+    TransferStatus {
+        transfer: String,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        wait_ms: u32,
+        #[serde(default, skip_serializing_if = "is_false")]
+        cancel: bool,
+    },
+
+    /// Since 1.7: put `text` on the phone's clipboard, e.g. a caption to paste
+    /// into an app whose text box Latch cannot type into. Reading the
+    /// clipboard is not offered. Answers with an [`crate::ActionResult`].
+    #[serde(rename = "clipboard.set")]
+    SetClipboard { text: String },
 }
 
 fn default_max_nodes() -> u32 {
@@ -286,6 +341,10 @@ impl Command {
             Command::RenameFile { .. } => "file.rename",
             Command::DeleteFile { .. } => "file.delete",
             Command::Share { .. } => "app.share",
+            Command::FetchFile { .. } => "file.fetch",
+            Command::PushFile { .. } => "file.push",
+            Command::TransferStatus { .. } => "file.transfer",
+            Command::SetClipboard { .. } => "clipboard.set",
         }
     }
 
@@ -320,6 +379,12 @@ impl Command {
             | Command::RenameFile { .. }
             | Command::DeleteFile { .. } => vec![Capability::FileWrite],
             Command::Share { .. } => vec![Capability::AppShare],
+            Command::FetchFile { .. } => vec![Capability::FileWrite],
+            Command::PushFile { .. } => vec![Capability::FileRead],
+            // Follows a transfer that already passed its own checks; the phone
+            // answers only for transfers of the running session.
+            Command::TransferStatus { .. } => vec![],
+            Command::SetClipboard { .. } => vec![Capability::ClipboardWrite],
         }
     }
 
@@ -335,21 +400,24 @@ impl Command {
                 | Command::ListFiles { .. }
                 | Command::PreviewFile { .. }
                 | Command::ReadFile { .. }
+                | Command::PushFile { .. }
+                | Command::TransferStatus { .. }
         )
     }
 
     /// True for actions that change what is on screen, after which the old
     /// observation is stale and a new one is worth returning. File changes
-    /// happen off screen.
+    /// and the clipboard happen off screen.
     pub fn changes_screen(&self) -> bool {
-        self.is_action() && !self.is_file_change()
+        self.is_action() && !self.is_file_change() && !matches!(self, Command::SetClipboard { .. })
     }
 
-    /// `file.write`, `file.mkdir`, `file.rename`, `file.delete`.
+    /// `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`.
     pub fn is_file_change(&self) -> bool {
         matches!(
             self,
             Command::WriteFile { .. }
+                | Command::FetchFile { .. }
                 | Command::MakeFolder { .. }
                 | Command::RenameFile { .. }
                 | Command::DeleteFile { .. }
@@ -384,6 +452,10 @@ impl Command {
             | Command::RenameFile { .. }
             | Command::DeleteFile { .. }
             | Command::Share { .. } => 6,
+            Command::FetchFile { .. }
+            | Command::PushFile { .. }
+            | Command::TransferStatus { .. }
+            | Command::SetClipboard { .. } => 7,
             _ => 0,
         }
     }

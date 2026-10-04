@@ -1,0 +1,1 @@
+{ "type": "result", "id": "c_0052", "outcome": { "status": "ok", "data": { "id": "t_7f3b", "state": "done", "done_bytes": 2048, "total_bytes": 2048, "item": { "id": "f_0004", "name": "beach.jpg", "kind": "image", "location": "folder", "mime": "image/jpeg", "size": 2048 }, "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" } } }

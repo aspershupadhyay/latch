@@ -19,6 +19,7 @@ use latch_protocol::{
 use screens::{Effect, Phone, Screen};
 
 pub mod files;
+pub mod transfers;
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
 
 /// 1x1 transparent PNG; the fake device has no real pixels.
@@ -63,6 +64,14 @@ pub struct FakeState {
     pub shared: Vec<(String, Vec<String>, Option<String>)>,
     /// Every command the device executed (not refused).
     pub executed: Vec<String>,
+    /// Link transfers of this session (protocol 1.7).
+    pub transfers: Vec<transfers::FakeTransfer>,
+    /// Transfer work waiting to be started by the connection loop.
+    jobs: Vec<transfers::Job>,
+    /// How long each transfer waits before moving, so tests can see one running.
+    pub transfer_delay_ms: u64,
+    /// Every `clipboard.set` text.
+    pub clipboard: Vec<String>,
     pub device_id: Option<String>,
     pub revoked: bool,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
@@ -98,6 +107,10 @@ impl FakeState {
             files: files::FakeFiles::default(),
             shared: Vec::new(),
             executed: Vec::new(),
+            transfers: Vec::new(),
+            jobs: Vec::new(),
+            transfer_delay_ms: 0,
+            clipboard: Vec::new(),
             device_id: None,
             revoked: false,
             latest: None,
@@ -360,6 +373,95 @@ pub fn handle(
             state.latest = None;
             done(state)
         }
+        Command::FetchFile {
+            location,
+            folder,
+            subfolder,
+            name,
+            mime,
+            overwrite,
+            link,
+            sha256,
+            size,
+        } => {
+            let id = format!("t_{:04}", state.transfers.len() + 1);
+            state.transfers.push(transfers::FakeTransfer {
+                id: id.clone(),
+                done_bytes: 0,
+                total_bytes: *size,
+                destination: Some(transfers::Destination {
+                    location: *location,
+                    folder: folder.clone(),
+                    subfolder: subfolder.clone(),
+                    name: name.clone(),
+                    mime: mime.clone(),
+                    overwrite: *overwrite,
+                }),
+                item: None,
+                sha256: None,
+                error: None,
+                finished: false,
+            });
+            state.jobs.push(transfers::Job::Fetch {
+                transfer: id.clone(),
+                link: (**link).clone(),
+                sha256: sha256.clone(),
+            });
+            state.executed.push("file.fetch".into());
+            transfer_value(state, &id)
+        }
+        Command::PushFile {
+            id,
+            link,
+            max_bytes,
+        } => {
+            let (item, data) = state.files.bytes_of(id)?;
+            if data.len() as u64 > *max_bytes {
+                return Err(err(
+                    ErrorCode::InvalidRequest,
+                    "the file is larger than this gateway's link limit",
+                ));
+            }
+            let transfer = format!("t_{:04}", state.transfers.len() + 1);
+            state.transfers.push(transfers::FakeTransfer {
+                id: transfer.clone(),
+                done_bytes: 0,
+                total_bytes: Some(data.len() as u64),
+                destination: None,
+                item: Some(item),
+                sha256: Some(transfers::sha256_hex(&data)),
+                error: None,
+                finished: false,
+            });
+            state.jobs.push(transfers::Job::Push {
+                transfer: transfer.clone(),
+                link: (**link).clone(),
+                data,
+                max_bytes: *max_bytes,
+            });
+            state.executed.push("file.push".into());
+            transfer_value(state, &transfer)
+        }
+        Command::TransferStatus {
+            transfer, cancel, ..
+        } => {
+            if *cancel
+                && let Some(t) = state
+                    .transfers
+                    .iter_mut()
+                    .find(|t| &t.id == transfer && !t.finished)
+            {
+                t.finished = true;
+                t.error = Some(err(ErrorCode::Cancelled, "the transfer was stopped"));
+            }
+            transfer_value(state, transfer)
+        }
+        Command::SetClipboard { text } => {
+            state.clipboard.push(text.clone());
+            state.executed.push("clipboard.set".into());
+            serde_json::to_value(ActionResult::default())
+                .map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
         Command::AskOwner { message } => {
             state.owner_questions.push(message.clone());
             let reply = state.owner_reply;
@@ -492,6 +594,157 @@ fn screen_info() -> ScreenInfo {
         width: screens::WIDTH,
         height: screens::HEIGHT,
         rotation: 0,
+    }
+}
+
+/// A transfer as `file.fetch`, `file.push`, and `file.transfer` answer it.
+fn transfer_value(state: &FakeState, id: &str) -> Result<serde_json::Value, ProtocolError> {
+    let t = state.transfers.iter().find(|t| t.id == id).ok_or_else(|| {
+        err(
+            ErrorCode::TargetNotFound,
+            "no transfer with that id in this session",
+        )
+    })?;
+    if let Some(error) = &t.error {
+        return Err(error.clone());
+    }
+    serde_json::to_value(latch_protocol::FileTransfer {
+        id: t.id.clone(),
+        state: if t.finished {
+            latch_protocol::TransferState::Done
+        } else {
+            latch_protocol::TransferState::Running
+        },
+        done_bytes: t.done_bytes,
+        total_bytes: t.total_bytes,
+        item: t.item.clone().filter(|_| t.finished),
+        sha256: t
+            .sha256
+            .clone()
+            .filter(|_| t.finished && t.destination.is_none()),
+    })
+    .map_err(|_| err(ErrorCode::Internal, "encode"))
+}
+
+/// How long `file.fetch` and `file.push` wait for a quick transfer before
+/// answering "running" (the Android app does the same).
+const QUICK_TRANSFER_MS: u64 = 1_500;
+
+/// [`handle`], plus what needs time: `file.transfer` waits up to its
+/// `wait_ms`, and transfers run in the background like on a real phone.
+pub async fn handle_async(
+    state: &Shared,
+    envelope: &CommandEnvelope,
+) -> Result<serde_json::Value, ProtocolError> {
+    let running = |state: &Shared, id: &str| {
+        lock(state)
+            .transfers
+            .iter()
+            .any(|t| t.id == id && !t.finished)
+    };
+    if let Command::TransferStatus {
+        transfer,
+        wait_ms,
+        cancel: false,
+    } = &envelope.command
+    {
+        let until = now_ms() + u64::from(*wait_ms);
+        while now_ms() < until && running(state, transfer) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+    let result = handle(&mut lock(state), envelope);
+    let jobs = std::mem::take(&mut lock(state).jobs);
+    let started: Vec<String> = jobs
+        .iter()
+        .map(|j| match j {
+            transfers::Job::Fetch { transfer, .. } | transfers::Job::Push { transfer, .. } => {
+                transfer.clone()
+            }
+        })
+        .collect();
+    for job in jobs {
+        tokio::spawn(run_job(state.clone(), job));
+    }
+    if let (Ok(_), Some(id)) = (&result, started.first()) {
+        let until = now_ms() + QUICK_TRANSFER_MS;
+        while now_ms() < until && running(state, id) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        return transfer_value(&lock(state), id);
+    }
+    result
+}
+
+async fn run_job(state: Shared, job: transfers::Job) {
+    let delay = lock(&state).transfer_delay_ms;
+    if delay > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+    }
+    match job {
+        transfers::Job::Fetch {
+            transfer,
+            link,
+            sha256,
+        } => {
+            let downloaded = transfers::download(&link, &sha256).await;
+            let mut s = lock(&state);
+            let Some(dest) = s
+                .transfers
+                .iter()
+                .find(|t| t.id == transfer && !t.finished)
+                .and_then(|t| t.destination.clone())
+            else {
+                return; // cancelled meanwhile
+            };
+            let saved = downloaded.and_then(|data| {
+                let len = data.len() as u64;
+                s.files
+                    .write_bytes(
+                        dest.location,
+                        dest.folder.as_deref(),
+                        dest.subfolder.as_deref(),
+                        &dest.name,
+                        dest.mime.as_deref(),
+                        data,
+                        false,
+                        dest.overwrite,
+                    )
+                    .map(|item| (item, len))
+            });
+            if let Some(t) = s.transfers.iter_mut().find(|t| t.id == transfer) {
+                t.finished = true;
+                match saved {
+                    Ok((item, len)) => {
+                        t.item = Some(item);
+                        t.done_bytes = len;
+                        t.total_bytes = Some(len);
+                    }
+                    Err(e) => t.error = Some(e),
+                }
+            }
+        }
+        transfers::Job::Push {
+            transfer,
+            link,
+            data,
+            max_bytes: _,
+        } => {
+            let len = data.len() as u64;
+            let uploaded = transfers::upload(&link, data).await;
+            let mut s = lock(&state);
+            if let Some(t) = s
+                .transfers
+                .iter_mut()
+                .find(|t| t.id == transfer && !t.finished)
+            {
+                t.finished = true;
+                match uploaded {
+                    Ok(()) => t.done_bytes = len,
+                    Err(e) => t.error = Some(e),
+                }
+            }
+        }
     }
 }
 
@@ -656,7 +909,7 @@ pub async fn run(
         match message {
             GatewayToDevice::Welcome { device_id, .. } => lock(&state).device_id = Some(device_id),
             GatewayToDevice::Command(envelope) => {
-                let outcome = match handle(&mut lock(&state), &envelope) {
+                let outcome = match handle_async(&state, &envelope).await {
                     Ok(data) => Outcome::Ok { data },
                     Err(error) => Outcome::Error { error },
                 };
@@ -773,7 +1026,7 @@ pub async fn run_poll(
             (200, body) => {
                 match serde_json::from_str::<GatewayToDevice>(&body).map_err(protocol)? {
                     GatewayToDevice::Command(envelope) => {
-                        let outcome = match handle(&mut lock(&state), &envelope) {
+                        let outcome = match handle_async(&state, &envelope).await {
                             Ok(data) => Outcome::Ok { data },
                             Err(error) => Outcome::Error { error },
                         };

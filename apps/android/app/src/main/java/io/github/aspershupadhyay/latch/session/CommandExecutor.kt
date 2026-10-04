@@ -10,6 +10,7 @@ import io.github.aspershupadhyay.latch.data.ApprovalGrants
 import io.github.aspershupadhyay.latch.data.AppDecision
 import io.github.aspershupadhyay.latch.data.Autonomy
 import io.github.aspershupadhyay.latch.files.PhoneFiles
+import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import io.github.aspershupadhyay.latch.policy.Consequence
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.Judgement
@@ -28,6 +29,7 @@ import io.github.aspershupadhyay.latch.protocol.FileItem
 import io.github.aspershupadhyay.latch.protocol.FileList
 import io.github.aspershupadhyay.latch.protocol.FileLocation
 import io.github.aspershupadhyay.latch.protocol.FilePreview
+import io.github.aspershupadhyay.latch.protocol.FileTransfer
 import io.github.aspershupadhyay.latch.protocol.GlobalAction
 import io.github.aspershupadhyay.latch.protocol.Observation
 import io.github.aspershupadhyay.latch.protocol.ObserveAfter
@@ -87,6 +89,11 @@ fun describe(command: Command): String = when (command) {
     is Command.RenameFile -> "Rename a file to “${command.newName}”"
     is Command.DeleteFile -> "Delete a file from your phone"
     is Command.Share -> "Share ${command.ids.size} ${if (command.ids.size == 1) "file" else "files"} to ${command.packageName}"
+    is Command.FetchFile -> (if (command.overwrite) "Replace" else "Save") +
+        " “${command.fileName}” " + (if (command.overwrite) "in " else "to ") + where(command.location)
+    is Command.PushFile -> "Copy a file from your phone"
+    is Command.TransferStatus -> if (command.cancel) "Stop a file transfer" else "Check a file transfer"
+    is Command.SetClipboard -> "Copy ${command.text.codePointCount(0, command.text.length)} characters to the clipboard"
 }
 
 private fun where(location: FileLocation) = when (location) {
@@ -95,11 +102,42 @@ private fun where(location: FileLocation) = when (location) {
     FileLocation.FOLDER -> "your Latch folder"
 }
 
+/** A file name as the cursor shows it: short enough for the label. */
+private fun shortName(name: String) = if (name.length <= 28) name else name.take(25) + "…"
+
+/**
+ * What the cursor says while a command runs. Gestures draw themselves; this
+ * covers what happens off screen, so the owner always sees the AI at work.
+ */
+private fun cursorLabel(command: Command): String? = when (command) {
+    is Command.Observe -> "Looking at the screen"
+    is Command.WaitFor -> "Waiting for the screen"
+    Command.ListApps -> "Looking at your apps"
+    is Command.LaunchApp -> "Opening an app"
+    is Command.AskOwner -> "Waiting for you"
+    is Command.ListFiles, is Command.PreviewFile -> "Looking at files"
+    is Command.ReadFile, is Command.PushFile -> "Copying a file"
+    is Command.WriteFile -> "Saving “${shortName(command.fileName)}”"
+    is Command.FetchFile -> "Saving “${shortName(command.fileName)}”"
+    is Command.MakeFolder -> "Making a folder"
+    is Command.RenameFile -> "Renaming a file"
+    is Command.DeleteFile -> "Deleting a file"
+    is Command.Share -> "Opening a share screen"
+    is Command.SetClipboard -> "Copying text"
+    is Command.Global -> when (command.action) {
+        GlobalAction.BACK -> "Going back"
+        GlobalAction.HOME -> "Going home"
+        GlobalAction.RECENTS -> "Opening Recents"
+    }
+    else -> null
+}
+
 /** Commands that read or act on the screen in front, as opposed to opening an app or going home. */
 private fun worksOnScreen(command: Command): Boolean = when (command) {
     Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.AskOwner,
     is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
-    is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share -> false
+    is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share,
+    is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
 }
@@ -149,6 +187,8 @@ class CommandExecutor(
     private val longApprovals: () -> Boolean = { false },
     /** Photos, Downloads, and the picked folder (protocol 1.6). */
     private val files: PhoneFiles? = null,
+    /** Whole files by encrypted link (protocol 1.7). */
+    private val transfers: PhoneTransfers? = null,
 ) {
     /** How long a question waits for the owner, given the command's own deadline. */
     private fun approvalTimeout(deadlineMs: Long): Long {
@@ -180,6 +220,9 @@ class CommandExecutor(
             }
         }
 
+        // The owner sees what the AI is doing, also when it happens off screen.
+        cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
+
         // Latch in front would refuse every screen command; step aside to the home screen first.
         if (worksOnScreen(command) && bridge.service.value?.stepAsideFromLatch() == true) {
             log.add(ActivityKind.ACTION, "Went to the home screen so the AI can work (Latch is off limits to it)")
@@ -210,6 +253,7 @@ class CommandExecutor(
 
         val action = ActionResult()
         fun files() = files ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot use files")
+        fun transfers() = transfers ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot move whole files")
         return when (command) {
             is Command.ListFiles -> {
                 val list = files().list(command.location, command.folder, command.query, command.limit, command.offset)
@@ -234,6 +278,29 @@ class CommandExecutor(
                 )
                 if (!command.append) log.add(ActivityKind.ACTION, judged ?: describe(command))
                 Protocol.json.encodeToJsonElement(FileItem.serializer(), item)
+            }
+            is Command.FetchFile -> {
+                val result = transfers().fetch(command)
+                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
+            }
+            is Command.PushFile -> {
+                val result = transfers().push(command)
+                log.add(ActivityKind.OBSERVE, "Copied a file off the phone")
+                Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
+            }
+            is Command.TransferStatus -> {
+                // Never longer than the command's own deadline allows.
+                val wait = command.waitMs.toLong().coerceAtMost((envelope.deadlineMs - 2_000).coerceAtLeast(0))
+                val result = transfers().status(command.transfer, wait, command.cancel)
+                if (command.cancel) log.add(ActivityKind.ACTION, describe(command))
+                Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
+            }
+            is Command.SetClipboard -> {
+                service.setClipboard(command.text)
+                // The text itself never goes into the log.
+                log.add(ActivityKind.ACTION, judged ?: describe(command))
+                Protocol.json.encodeToJsonElement(ActionResult.serializer(), action)
             }
             is Command.MakeFolder -> {
                 val item = files().mkdir(command.folder, command.folderName)
@@ -400,8 +467,10 @@ class CommandExecutor(
             else -> describe(command)
         }
         // Replacing asks only when there is something to replace.
-        val replaces = command is Command.WriteFile && command.overwrite &&
-            files.existing(command.location, command.folder, command.subfolder, command.fileName) != null
+        val replaces = (command is Command.WriteFile && command.overwrite &&
+            files.existing(command.location, command.folder, command.subfolder, command.fileName) != null) ||
+            (command is Command.FetchFile && command.overwrite &&
+                files.existing(command.location, command.folder, command.subfolder, command.fileName) != null)
         val risky = command is Command.DeleteFile || replaces
         val strict = session.approveEveryAction && !(command is Command.WriteFile && command.append)
         if (!risky && !strict) return title
@@ -472,7 +541,8 @@ class CommandExecutor(
     private fun appTarget(command: Command): String? = when (command) {
         Command.DeviceInfoCommand, Command.ListApps, is Command.AskOwner,
         is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
-        is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile -> null
+        is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile,
+        is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard -> null
         is Command.LaunchApp -> command.packageName
         // Sharing opens that app: only apps the owner allowed (or Auto mode).
         is Command.Share -> command.packageName

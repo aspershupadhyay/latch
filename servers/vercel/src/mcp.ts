@@ -6,7 +6,8 @@ import { SERVER } from "./generated/contract.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live } from "./devices.js";
 import { type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
-import { FILE_TOOLS, runFileTool, type Transfers, uploadLink } from "./files.js";
+import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
+import type { Links } from "./links.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
 type Tool = (typeof SERVER.tools)[number];
@@ -23,6 +24,8 @@ export interface McpContext {
   resumeCommandId?: string;
   /** File links (protocol 1.6) and the address AI apps reach this gateway at. */
   transfers?: Transfers;
+  /** Encrypted file links (protocol 1.7). */
+  links?: Links;
   baseUrl?: string;
 }
 
@@ -199,17 +202,34 @@ async function answerApproval(ctx: McpContext, args: Record<string, unknown>): P
 async function runTool(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === "list_devices") return textResult(await renderDevices(ctx.devices));
   if (name === "upload_link") {
-    if (!ctx.transfers || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
-    return uploadLink(ctx.transfers, ctx.baseUrl);
+    if (!ctx.transfers || !ctx.links || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
+    // Phones on protocol 1.6 still save from the old, unencrypted links.
+    let minor = minorVersion(PROTOCOL_VERSION) ?? 0;
+    try {
+      minor = minorVersion((await ctx.devices.resolveDevice(argStr(args, "device_id"))).live.protocol) ?? 0;
+    } catch {
+      // No phone connected yet: the link is for the current protocol.
+    }
+    return minor >= 7 ? encryptedUploadLink(ctx.links, ctx.baseUrl) : uploadLink(ctx.transfers, ctx.baseUrl);
   }
 
   const { id: deviceId, live } = await ctx.devices.resolveDevice(argStr(args, "device_id"));
+  if (name === "set_clipboard") {
+    const text = reqStr(args, "text");
+    const run = await execute(ctx, deviceId, { name: "clipboard.set", params: { text } });
+    return withTiming(textResult(
+      `Copied ${[...text].length} characters to the phone's clipboard. To paste, long-press the text box and tap Paste.`,
+    ), run.timing);
+  }
   if ((FILE_TOOLS as readonly string[]).includes(name)) {
-    if (!ctx.transfers || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
+    if (!ctx.transfers || !ctx.links || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
     return runFileTool({
       devices: ctx.devices,
       transfers: ctx.transfers,
+      links: ctx.links,
       baseUrl: ctx.baseUrl,
+      minor: minorVersion(live.protocol) ?? 0,
+      deviceId,
       live,
       execute: (command, observeAfter = false, screenshot = false) =>
         execute(ctx, deviceId, command, observeAfter

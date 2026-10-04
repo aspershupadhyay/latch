@@ -26,8 +26,11 @@ import kotlin.math.min
  * The visuals never delay an action: the gesture runs at once and the
  * pointer catches up.
  *
- * It appears when the AI acts and fades away a few seconds after its last
- * action, so it is gone once a task is done.
+ * It appears as soon as the AI does anything (also off screen: reading the
+ * screen, saving a file, opening a share screen) and stays while the task
+ * goes on, saying "Thinking…" between actions and showing a progress bar
+ * while a file moves. It fades away once the AI has been quiet for a while,
+ * so it is gone when a task is done.
  *
  * It can never press anything (the window is not touchable or focusable), is
  * hidden from screen readers, and is hidden while a screenshot is taken so
@@ -82,6 +85,16 @@ class CursorOverlay(private val context: Context) {
         view?.stroke(strokes, durationMs, holdMs)
     }
 
+    /** Says what the AI is doing off screen, e.g. "Saving “clip.mp4”"; the pointer stays where it is. */
+    fun status(text: String) {
+        view?.status(text)
+    }
+
+    /** A file moving: its label and how far along it is (0..1, or null when the size is unknown). Null ends it. */
+    fun transfer(text: String?, fraction: Float?) {
+        view?.transfer(text, fraction)
+    }
+
     /** Hides the cursor for a screenshot; call the returned function to show it again. */
     fun hideForCapture(): () -> Unit {
         val v = view ?: return {}
@@ -129,6 +142,8 @@ class CursorOverlay(private val context: Context) {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(139, 139, 255) }
+        private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) }
+        private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(139, 139, 255) }
 
         // ---- State (screen pixels, uptime ms) ----
         private var x = -1f
@@ -145,15 +160,62 @@ class CursorOverlay(private val context: Context) {
         private var pressAt = 0L
         private var typingUntil = 0L
         private var caption = "Latch"
-        /** When the current action's visuals end; the pointer lingers a moment, then fades away. */
+        /** When the current action's visuals end. */
         private var busyUntil = 0L
+        /** When the AI last did anything; the pointer stays until it has been quiet for [LINGER_MS]. */
+        private var lastActivity = 0L
+        /** What the AI is doing off screen, shown for [STATUS_MS] after [statusAt]. */
+        private var statusText: String? = null
+        private var statusAt = 0L
+        private var transferText: String? = null
+        private var transferFraction: Float? = null
 
         private fun now() = SystemClock.uptimeMillis()
 
-        /** 1 while the AI is acting, fading to 0 once it has been idle for [LINGER_MS]. */
+        /** 1 while the AI works (or a file moves), fading to 0 once it has been quiet for [LINGER_MS]. */
         private fun visibility(t: Long): Float {
-            val idle = t - busyUntil - LINGER_MS
+            if (transferText != null) return 1f
+            val idle = t - max(busyUntil, lastActivity) - LINGER_MS
             return if (idle <= 0) 1f else max(0f, 1f - idle.toFloat() / FADE_MS)
+        }
+
+        /** Where the pointer waits before the AI has touched anything: upper middle, out of the way. */
+        private fun placeIfHidden(t: Long) {
+            if (x >= 0 && visibility(t) > 0f) return
+            val screen = resources.displayMetrics
+            x = screen.widthPixels * 0.5f
+            y = screen.heightPixels * 0.3f
+            fromX = x
+            fromY = y
+            glideStart = 0L
+            strokes = emptyList()
+            press = null
+        }
+
+        fun status(text: String) {
+            val t = now()
+            placeIfHidden(t)
+            statusText = text
+            statusAt = t
+            lastActivity = t
+            postInvalidateOnAnimation()
+        }
+
+        fun transfer(text: String?, fraction: Float?) {
+            val t = now()
+            if (text != null) placeIfHidden(t)
+            transferText = text
+            transferFraction = fraction
+            lastActivity = t
+            postInvalidateOnAnimation()
+        }
+
+        /** The words beside the arrow: the gesture under way, a file moving, what the AI just started, or thinking. */
+        private fun labelText(t: Long): String = when {
+            t < busyUntil -> caption
+            transferText != null -> transferText!!
+            statusText != null && t - statusAt < STATUS_MS -> statusText!!
+            else -> "Thinking" + ".".repeat(((t / 400) % 4).toInt())
         }
 
         fun press(tx: Float, ty: Float, kind: Pointer, how: Press, typing: Boolean = false) {
@@ -176,6 +238,7 @@ class CursorOverlay(private val context: Context) {
                 Press.TAP -> 0L
             }
             busyUntil = max(pressAt + held + RIPPLE_MS, typingUntil)
+            lastActivity = t
             postInvalidateOnAnimation()
         }
 
@@ -195,6 +258,7 @@ class CursorOverlay(private val context: Context) {
                 else -> "Swiping"
             }
             busyUntil = strokeStart + holdMs + strokeMs + TRAIL_FADE_MS
+            lastActivity = t
             postInvalidateOnAnimation()
         }
 
@@ -249,8 +313,10 @@ class CursorOverlay(private val context: Context) {
             drawLabel(canvas, px, py, alpha, t)
 
             canvas.restore()
-            // Keep drawing until the fade has finished; then nothing is redrawn until the next action.
-            postInvalidateOnAnimation()
+            // Smooth frames while something moves; a few frames a second for the thinking dots,
+            // so a waiting pointer costs almost nothing. Nothing is redrawn once it has faded.
+            val moving = t < busyUntil + TRAIL_FADE_MS || (glideStart != 0L && t < glideStart + glideMs) || alpha < 1f
+            if (moving) postInvalidateOnAnimation() else postInvalidateDelayed(IDLE_FRAME_MS)
         }
 
         /** The arrow dips a little as it presses, and springs back. */
@@ -344,11 +410,15 @@ class CursorOverlay(private val context: Context) {
 
         /** "Latch · Tapping" in a dark pill beside the arrow, flipped to stay on screen. */
         private fun drawLabel(canvas: Canvas, px: Float, py: Float, alpha: Float, t: Long) {
-            val text = "Latch · $caption"
+            val words = labelText(t)
+            // Thinking keeps its width while the dots change, so the pill does not twitch.
+            val text = "Latch · $words"
+            val measured = "Latch · " + if (words.startsWith("Thinking")) "Thinking..." else words
             val padX = 9 * density
-            val h = 24 * density
+            val fraction = transferFraction.takeIf { transferText != null && t >= busyUntil }
+            val h = (if (fraction != null) 30 else 24) * density
             val dotR = 3 * density
-            val w = padX * 2 + dotR * 2 + 6 * density + label.measureText(text)
+            val w = padX * 2 + dotR * 2 + 6 * density + label.measureText(measured)
             var left = px + 18 * density
             var top = py + 20 * density
             val screen = resources.displayMetrics
@@ -363,10 +433,22 @@ class CursorOverlay(private val context: Context) {
             canvas.drawRoundRect(box, h / 2, h / 2, pill)
             canvas.drawRoundRect(box, h / 2, h / 2, pillEdge)
             // A small live dot that pulses while the AI acts.
-            val pulse = if (t < busyUntil) 0.75f + 0.25f * kotlin.math.sin(t / 140.0).toFloat() else 1f
-            canvas.drawCircle(left + padX + dotR, top + h / 2, dotR * pulse, dot)
-            val baseline = top + h / 2 - (label.descent() + label.ascent()) / 2
-            canvas.drawText(text, left + padX + dotR * 2 + 6 * density, baseline, label)
+            val pulse = 0.75f + 0.25f * kotlin.math.sin(t / (if (t < busyUntil) 140.0 else 260.0)).toFloat()
+            canvas.drawCircle(left + padX + dotR, if (fraction != null) top + 12 * density else top + h / 2, dotR * pulse, dot)
+            val textLeft = left + padX + dotR * 2 + 6 * density
+            val center = if (fraction != null) top + 12 * density else top + h / 2
+            val baseline = center - (label.descent() + label.ascent()) / 2
+            canvas.drawText(text, textLeft, baseline, label)
+            if (fraction != null) {
+                // A slim progress bar under the words while a file moves.
+                val barTop = top + h - 8 * density
+                val barRight = left + w - padX
+                track.alpha = (60 * a).toInt()
+                bar.alpha = (255 * a).toInt()
+                val r = 1.5f * density
+                canvas.drawRoundRect(RectF(textLeft, barTop, barRight, barTop + 3 * density), r, r, track)
+                canvas.drawRoundRect(RectF(textLeft, barTop, textLeft + (barRight - textLeft) * fraction.coerceIn(0f, 1f), barTop + 3 * density), r, r, bar)
+            }
         }
 
         /** A rounded arrow with its tip (the hotspot) at 0,0. */
@@ -394,8 +476,12 @@ class CursorOverlay(private val context: Context) {
             const val DOUBLE_GAP_MS = 160L
             const val TRAIL_FADE_MS = 350L
             const val TYPING_MS = 1_200L
-            /** How long the pointer stays after the AI's last action before fading (it is usually thinking). */
-            const val LINGER_MS = 4_000L
+            /** How long the pointer stays, "Thinking…", after the AI's last command before fading. */
+            const val LINGER_MS = 45_000L
+            /** How long an off-screen status ("Saving “clip.mp4”") is shown before "Thinking…". */
+            const val STATUS_MS = 2_500L
+            /** Frame interval while only the thinking dots move. */
+            const val IDLE_FRAME_MS = 120L
             const val FADE_MS = 400L
             const val FINGER_DP = 9f
             val SHADOW_ALPHAS = intArrayOf(46, 26, 12)

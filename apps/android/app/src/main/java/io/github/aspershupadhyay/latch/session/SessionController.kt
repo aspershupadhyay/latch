@@ -6,6 +6,7 @@ import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
 import io.github.aspershupadhyay.latch.data.Autonomy
 import io.github.aspershupadhyay.latch.files.PhoneFiles
+import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -62,6 +63,7 @@ class SessionController(
     appName: (String) -> String? = { null },
     private val autonomy: Autonomy? = null,
     private val files: PhoneFiles? = null,
+    private val transfers: PhoneTransfers? = null,
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -76,7 +78,7 @@ class SessionController(
     /** Minor protocol version of the connected gateway; 1.4 relays approvals and waits for them. */
     @Volatile private var gatewayMinor = 0
 
-    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files)
+    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers)
     private var link: DeviceLink? = null
     private var wanted = false
     private var paused = false
@@ -132,6 +134,7 @@ class SessionController(
         wanted = true
         paused = false
         grants.endSession()
+        transfers?.cancelAll()
         files?.reset()
         // "This session" app answers from an earlier session are gone already (stop clears them);
         // Auto mode chosen "for this session" just before starting must survive the start.
@@ -172,6 +175,7 @@ class SessionController(
         grants.endSession()
         autonomy?.endSession()
         // File ids live for one session.
+        transfers?.cancelAll()
         files?.reset()
         val closing = link
         link = null

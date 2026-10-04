@@ -403,6 +403,37 @@ fn assess(
                 Assessment::medium(title)
             })
         }
+        Command::FetchFile {
+            location,
+            name,
+            overwrite,
+            ..
+        } => {
+            let title = if *overwrite {
+                format!(
+                    "Replace “{}” in {}",
+                    shorten(name),
+                    where_on_phone(*location)
+                )
+            } else {
+                format!("Save “{}” to {}", shorten(name), where_on_phone(*location))
+            };
+            Ok(if *overwrite {
+                Assessment::file_risk(title)
+            } else {
+                Assessment::medium(title)
+            })
+        }
+        Command::PushFile { .. } => Ok(low("Copy a file from your phone".into())),
+        Command::TransferStatus { cancel, .. } => Ok(low(if *cancel {
+            "Stop a file transfer".into()
+        } else {
+            "Check a file transfer".into()
+        })),
+        Command::SetClipboard { text } => Ok(Assessment::medium(format!(
+            "Copy {} characters to the clipboard",
+            text.chars().count()
+        ))),
         Command::MakeFolder { name, .. } => Ok(Assessment::medium(format!(
             "Create the folder “{}”",
             shorten(name)

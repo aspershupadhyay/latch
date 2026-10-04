@@ -36,6 +36,15 @@ object LatchIcons {
         lineTo(x + 0.01f, y)
     }
 
+    val Clipboard = icon("clipboard") {
+        moveTo(9f, 4f); lineTo(6.5f, 4f); arcToRelative(1.5f, 1.5f, 0f, false, false, -1.5f, 1.5f); lineTo(5f, 19.5f)
+        arcToRelative(1.5f, 1.5f, 0f, false, false, 1.5f, 1.5f); lineTo(17.5f, 21f); arcToRelative(1.5f, 1.5f, 0f, false, false, 1.5f, -1.5f)
+        lineTo(19f, 5.5f); arcToRelative(1.5f, 1.5f, 0f, false, false, -1.5f, -1.5f); lineTo(15f, 4f)
+        moveTo(9f, 3f); lineTo(15f, 3f); lineTo(15f, 6f); lineTo(9f, 6f); close()
+        moveTo(8.5f, 11f); lineTo(15.5f, 11f)
+        moveTo(8.5f, 15f); lineTo(13f, 15f)
+    }
+
     val Home = icon("home") {
         moveTo(3f, 10.5f); lineTo(12f, 3.5f); lineTo(21f, 10.5f)
         moveTo(5f, 9f); lineTo(5f, 20f); lineTo(19f, 20f); lineTo(19f, 9f)

@@ -1,12 +1,15 @@
-// File tools (protocol 1.6, ADR-026). Same tools and texts as
-// servers/mcp/src/mcp/files.rs; whole files travel through short-lived links
-// kept in Redis, so their bytes never pass through the AI's context. Vercel
-// functions take and return at most 4.5 MB per request, so links here carry
-// up to 4 MB (the Rust gateway: 64 MB).
+// File tools (protocol 1.6, ADR-026; encrypted links since 1.7, ADR-027).
+// Same tools and texts as servers/mcp/src/mcp/files.rs. Whole files travel by
+// link, so their bytes never pass through the AI's context. With protocol 1.7
+// the phone and the computer move the encrypted bytes themselves (Vercel Blob,
+// or this gateway's Redis for files up to 4 MB); phones on 1.6 still get the
+// old Redis links of up to 4 MB, which Vercel functions limit to 4.5 MB per
+// request.
 
 import type { CommandTiming, Devices, Live } from "./devices.js";
+import type { LinkRecord, Links } from "./links.js";
 import {
-  type Command, type FileChunk, type FileItem, type FileList, type FileLocation, type FilePreview, LIMITS, ProtocolError,
+  type Command, type FileChunk, type FileItem, type FileList, type FileLocation, type FilePreview, type FileTransfer, LIMITS, ProtocolError, isHex,
 } from "./protocol.js";
 import { quote, textResult } from "./render.js";
 import { newToken } from "./secret.js";
@@ -14,7 +17,13 @@ import type { Store } from "./store.js";
 
 export const FILE_TOOLS = [
   "list_files", "read_file", "get_file_link", "upload_link", "write_file", "create_folder", "rename_file", "delete_file", "share_to_app",
+  "transfer_status",
 ] as const;
+
+/** How long one tool call follows a transfer before answering with its progress. */
+export const TRANSFER_TOOL_BUDGET_MS = 45_000;
+/** Each `file.transfer` waits at most this long on the phone (under the 20 s command deadline). */
+const TRANSFER_WAIT_MS = 15_000;
 
 /** Largest file one link carries on Vercel. */
 export const MAX_TRANSFER_BYTES = 4 * 1024 * 1024;
@@ -134,12 +143,15 @@ function location(args: Record<string, unknown>): FileLocation {
 
 export const WHERE_ON_PHONE: Record<FileLocation, string> = { photos: "your photos", downloads: "Downloads", folder: "your Latch folder" };
 
-/** "12 B", "3 KB", "4.5 MB": the same integer arithmetic as the Rust gateway. */
+/** "12 B", "3 KB", "4.5 MB", "1.2 GB": the same integer arithmetic as the Rust gateway. */
 export function sizeText(n: number): string {
+  const MB = 1024 * 1024;
+  const GB = 1024 * MB;
   if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.ceil(n / 1024)} KB`;
-  const tenths = Math.floor((n * 10 + 512 * 1024) / (1024 * 1024));
-  return `${Math.floor(tenths / 10)}.${tenths % 10} MB`;
+  if (n < MB) return `${Math.ceil(n / 1024)} KB`;
+  const unit = n < GB ? MB : GB;
+  const tenths = Math.floor((n * 10 + unit / 2) / unit);
+  return `${Math.floor(tenths / 10)}.${tenths % 10} ${unit === MB ? "MB" : "GB"}`;
 }
 
 export function itemText(item: FileItem): string {
@@ -167,12 +179,105 @@ export function guessMime(name: string): string {
 export interface FileToolContext {
   devices: Devices;
   transfers: Transfers;
+  links: Links;
   baseUrl: string;
+  /** The phone's protocol minor version: 7 and up take encrypted links. */
+  minor: number;
+  deviceId: string;
   execute: (command: Command, observeAfter?: boolean, screenshotAfter?: boolean) => Promise<{
     data: unknown; observation?: unknown; timing: CommandTiming;
   }>;
   observationResult: (obs: unknown, screenshotWithheld: boolean) => ToolResult;
   live: Live;
+}
+
+/** "-H "name: value"" for each header a link needs. */
+const curlHeaders = (headers: Record<string, string>) => Object.entries(headers).map(([k, v]) => ` -H "${k}: ${v}"`).join("");
+
+/** The file name as the shell command writes it. */
+const shellName = (name: string) => [...name].map((c) => (/[A-Za-z0-9._-]/.test(c) ? c : "_")).join("");
+
+/** Answers `upload_link` for a phone on protocol 1.7: an encrypted upload. */
+export async function encryptedUploadLink(links: Links, baseUrl: string): Promise<ToolResult> {
+  const { token, record } = await links.create("up", baseUrl);
+  const { key_hex: key, iv_hex: iv } = links.keyOf(token);
+  return textResult(
+    `Upload link for one file (valid for 15 minutes, up to ${sizeText(record.max_bytes)}). The file is encrypted on this computer before it leaves; only the phone gets the key.\n` +
+      "Run this in a shell with openssl and curl (macOS, Linux, or Git Bash), with <path> replaced by the file:\n" +
+      `f="<path>"; openssl enc -aes-256-ctr -K ${key} -iv ${iv} -in "$f" | curl -fsS -T - -H "transfer-encoding:" -H "content-length: $(wc -c < "$f" | tr -d ' ')"${curlHeaders(record.put.headers)} "${record.put.url}" && openssl dgst -sha256 "$f"\n` +
+      `Then call write_file with upload_id="${token}" and sha256 set to the 64-character hash it printed.`,
+  ) as ToolResult;
+}
+
+/** The command that downloads, decrypts, and checks a phone file on the computer. */
+function downloadText(links: Links, token: string, record: LinkRecord): ToolResult {
+  const { key_hex: key, iv_hex: iv } = links.keyOf(token);
+  const out = shellName(record.name ?? "file");
+  return textResult(
+    `Download link for ${quote(record.name ?? "file", 80)} (${sizeText(record.size ?? 0)}), valid for 15 minutes. The stored copy is encrypted; this command decrypts and checks it:\n` +
+      `curl -fsSL "${record.get}" | openssl enc -d -aes-256-ctr -K ${key} -iv ${iv} -out "${out}" && openssl dgst -sha256 "${out}" | grep -q ${record.sha256} && echo "Saved and verified ${out}" || { rm -f "${out}"; echo "The download failed or was damaged; ask for a new link"; }\n` +
+      "The link is private: do not share or post it.",
+  ) as ToolResult;
+}
+
+function savedText(item: FileItem, place: string, size: number, askedName: string): ToolResult {
+  const renamed = item.name !== askedName ? " A file with that name already existed, so this one got a new name." : "";
+  return textResult(`Saved ${quote(item.name, 80)} to ${place} (${sizeText(size)}). file_id: ${item.id}.${renamed}`) as ToolResult;
+}
+
+function progressText(record: LinkRecord, t: FileTransfer): ToolResult {
+  const verb = record.kind === "up" ? "saving" : "copying";
+  const total = t.total_bytes !== undefined ? ` of ${sizeText(t.total_bytes)}` : "";
+  return textResult(
+    `Still ${verb} ${quote(record.name ?? record.asked_name ?? "the file", 80)} on the phone: ${sizeText(t.done_bytes)}${total}. ` +
+      `Call transfer_status with transfer_id="${t.id}" to wait for it.`,
+  ) as ToolResult;
+}
+
+/** Follows a phone transfer until it is done or this call's time is up. */
+async function follow(ctx: FileToolContext, first: FileTransfer): Promise<FileTransfer> {
+  const until = Date.now() + TRANSFER_TOOL_BUDGET_MS;
+  let t = first;
+  while (t.state !== "done" && Date.now() + TRANSFER_WAIT_MS < until) {
+    t = (await ctx.execute({ name: "file.transfer", params: { transfer: t.id, wait_ms: TRANSFER_WAIT_MS } })).data as FileTransfer;
+  }
+  return t;
+}
+
+/** What a finished transfer answers; deletes an upload's stored copy (the phone has it now). */
+async function finish(ctx: FileToolContext, token: string, started: LinkRecord, t: FileTransfer): Promise<ToolResult> {
+  // The phone's own upload may have updated the record meanwhile.
+  const record = { ...started, ...(await ctx.links.record(token)) };
+  if (t.state !== "done") {
+    await ctx.links.follow(token, record, ctx.deviceId, t.id);
+    return progressText(record, t);
+  }
+  if (record.kind === "up") {
+    await ctx.links.discard(token, record);
+    if (!t.item) throw new ProtocolError("internal", "the phone finished without naming the saved file");
+    return savedText(t.item, record.place ?? "the phone", t.done_bytes, record.asked_name ?? t.item.name);
+  }
+  if (!t.item || !t.sha256 || !isHex(t.sha256, 64)) throw new ProtocolError("internal", "the phone finished without the file's checksum");
+  const done: LinkRecord = { ...record, name: t.item.name, size: t.done_bytes, sha256: t.sha256 };
+  await ctx.links.save(token, done);
+  return downloadText(ctx.links, token, done);
+}
+
+async function encryptedFileLink(ctx: FileToolContext, id: string): Promise<ToolResult> {
+  const { token, record } = await ctx.links.create("down", ctx.baseUrl);
+  const link = { url: record.put.url, ...(Object.keys(record.put.headers).length > 0 ? { headers: record.put.headers } : {}), ...ctx.links.keyOf(token) };
+  const first = (await ctx.execute({ name: "file.push", params: { id, link, max_bytes: record.max_bytes } })).data as FileTransfer;
+  return finish(ctx, token, record, await follow(ctx, first));
+}
+
+/** Answers `transfer_status`. */
+async function transferStatus(ctx: FileToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const transfer = req(args, "transfer_id");
+  const cancel = flag(args, "cancel", false);
+  const found = await ctx.links.byTransfer(ctx.deviceId, transfer);
+  if (!found) throw bad("no transfer with that transfer_id is running on this phone; it may have finished or expired");
+  const t = (await ctx.execute({ name: "file.transfer", params: { transfer, wait_ms: cancel ? 0 : TRANSFER_WAIT_MS, cancel } })).data as FileTransfer;
+  return finish(ctx, found.token, found.record, cancel ? t : await follow(ctx, t));
 }
 
 export async function uploadLink(transfers: Transfers, baseUrl: string): Promise<ToolResult> {
@@ -223,8 +328,10 @@ export async function runFileTool(ctx: FileToolContext, name: string, args: Reco
       }
       return textResult(`${head}. No preview for this kind of file: use get_file_link to copy it, or share_to_app to send it to an app.`) as ToolResult;
     }
+    case "transfer_status": return transferStatus(ctx, args);
     case "get_file_link": {
       const id = req(args, "file_id");
+      if (ctx.minor >= 7) return encryptedFileLink(ctx, id);
       const parts: Buffer[] = [];
       let size = 0;
       let item: FileItem;
@@ -240,10 +347,9 @@ export async function runFileTool(ctx: FileToolContext, name: string, args: Reco
       }
       const token = await ctx.transfers.putDownload(item.name, item.mime ?? "application/octet-stream", Buffer.concat(parts));
       const url = `${ctx.baseUrl}/v1/files/${token}`;
-      const shellName = [...item.name].map((c) => (/[A-Za-z0-9._-]/.test(c) ? c : "_")).join("");
       return textResult(
         `Download link for ${quote(item.name, 80)} (${sizeText(size)}), valid for 15 minutes:\n${url}\n` +
-          `Save it on the computer with: curl -fsSL -o "${shellName}" "${url}"\n` +
+          `Save it on the computer with: curl -fsSL -o "${shellName(item.name)}" "${url}"\n` +
           "The link is private: do not share or post it.",
       ) as ToolResult;
     }
@@ -293,6 +399,31 @@ async function writeFile(ctx: FileToolContext, args: Record<string, unknown>): P
   const data = str(args, "data_base64");
   const upload = str(args, "upload_id");
   if ([text, data, upload].filter((v) => v !== undefined).length !== 1) throw bad("give exactly one of text, data_base64, or upload_id");
+  const place = subfolder !== undefined && loc === "photos"
+    ? `your photos (${quote(subfolder, 60)})`
+    : subfolder !== undefined && loc === "downloads" ? `Downloads (${quote(subfolder, 60)})` : WHERE_ON_PHONE[loc];
+  if (upload !== undefined && upload.startsWith("ltr_")) {
+    const sha256 = str(args, "sha256");
+    if (sha256 === undefined || !isHex(sha256.toLowerCase(), 64)) {
+      throw bad("sha256 is required with this upload_id: the 64-character hash the upload command printed");
+    }
+    const record = await ctx.links.record(upload);
+    if (!record || record.kind !== "up" || record.used) throw bad("that upload_id is unknown, expired, already saved, or nothing was uploaded to it yet");
+    const size = await ctx.links.uploadedSize(record);
+    if (size === undefined) throw bad("nothing was uploaded to that upload_id yet: run the upload command first");
+    const first = (await ctx.execute({
+      name: "file.fetch",
+      params: {
+        location: loc, ...(folder !== undefined ? { folder } : {}), ...(subfolder !== undefined ? { subfolder } : {}),
+        name, mime, overwrite,
+        link: { url: record.get, ...ctx.links.keyOf(upload) },
+        sha256: sha256.toLowerCase(), size,
+      },
+    })).data as FileTransfer;
+    const started: LinkRecord = { ...record, used: true, place, asked_name: name, size };
+    await ctx.links.save(upload, started);
+    return finish(ctx, upload, started, await follow(ctx, first));
+  }
   let bytes: Buffer;
   if (text !== undefined) bytes = Buffer.from(text, "utf8");
   else if (data !== undefined) {
@@ -322,10 +453,5 @@ async function writeFile(ctx: FileToolContext, args: Record<string, unknown>): P
     };
     saved = (await ctx.execute(command)).data as FileItem;
   }
-  const item = saved as FileItem;
-  const place = subfolder !== undefined && loc === "photos"
-    ? `your photos (${quote(subfolder, 60)})`
-    : subfolder !== undefined && loc === "downloads" ? `Downloads (${quote(subfolder, 60)})` : WHERE_ON_PHONE[loc];
-  const renamed = item.name !== name ? " A file with that name already existed, so this one got a new name." : "";
-  return textResult(`Saved ${quote(item.name, 80)} to ${place} (${sizeText(bytes.length)}). file_id: ${item.id}.${renamed}`) as ToolResult;
+  return savedText(saved as FileItem, place, bytes.length, name);
 }

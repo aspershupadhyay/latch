@@ -24,7 +24,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.6"
+    const val VERSION = "1.7"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -79,6 +79,8 @@ enum class Capability(val wire: String) {
     FILE_WRITE("file.write"),
     /** Since 1.6: open an app's share screen with files. */
     APP_SHARE("app.share"),
+    /** Since 1.7: put text on the clipboard (never read it). */
+    CLIPBOARD_WRITE("clipboard.write"),
     ;
 
     companion object {
@@ -242,6 +244,25 @@ data class FileChunk(
     val offset: Long,
     @SerialName("data_base64") val dataBase64: String,
     val eof: Boolean,
+)
+
+/**
+ * Since 1.7 (ADR-027): where a whole file travels. The stored copy is
+ * AES-256-CTR encrypted under [keyHex] and [ivHex], made for this one
+ * transfer; the plain file's SHA-256 travels separately.
+ */
+data class FileLink(val url: String, val headers: Map<String, String>, val keyHex: String, val ivHex: String)
+
+/** Since 1.7: answer to `file.fetch`, `file.push`, and `file.transfer`. */
+@Serializable
+data class FileTransfer(
+    val id: String,
+    /** running or done. */
+    val state: String,
+    @SerialName("done_bytes") val doneBytes: Long,
+    @SerialName("total_bytes") val totalBytes: Long? = null,
+    val item: FileItem? = null,
+    val sha256: String? = null,
 )
 
 /** Result of `ui.wait` (since 1.3). */
@@ -501,11 +522,48 @@ sealed interface Command {
         override val name = "app.share"
         override val requiredCapabilities = listOf(Capability.APP_SHARE)
     }
+
+    /** Since 1.7: download [link], decrypt, check [sha256], and save like [WriteFile]. */
+    data class FetchFile(
+        val location: FileLocation,
+        val folder: String?,
+        val subfolder: String?,
+        val fileName: String,
+        val mime: String?,
+        val overwrite: Boolean,
+        val link: FileLink,
+        val sha256: String,
+        val size: Long?,
+    ) : Command {
+        override val name = "file.fetch"
+        override val requiredCapabilities = listOf(Capability.FILE_WRITE)
+    }
+
+    /** Since 1.7: encrypt file [id] and upload it to [link], at most [maxBytes]. */
+    data class PushFile(val id: String, val link: FileLink, val maxBytes: Long) : Command {
+        override val name = "file.push"
+        override val requiredCapabilities = listOf(Capability.FILE_READ)
+        override val isAction = false
+    }
+
+    /** Since 1.7: progress of a transfer of this session, waiting up to [waitMs]. */
+    data class TransferStatus(val transfer: String, val waitMs: Int, val cancel: Boolean) : Command {
+        override val name = "file.transfer"
+        override val requiredCapabilities = emptyList<Capability>()
+        override val isAction = false
+    }
+
+    /** Since 1.7: put [text] on the clipboard. */
+    data class SetClipboard(val text: String) : Command {
+        override val name = "clipboard.set"
+        override val requiredCapabilities = listOf(Capability.CLIPBOARD_WRITE)
+    }
 }
 
 /** Saving, renaming, and deleting files: changes made off screen. */
 val Command.isFileChange: Boolean
-    get() = this is Command.WriteFile || this is Command.MakeFolder || this is Command.RenameFile || this is Command.DeleteFile
+    get() = this is Command.WriteFile || this is Command.FetchFile || this is Command.MakeFolder ||
+        this is Command.RenameFile || this is Command.DeleteFile
 
 /** Since 1.2: observe after a successful action and return it in the same result. */
 data class ObserveAfter(
@@ -714,8 +772,33 @@ object GatewayParser {
                 } ?: invalid("ids must be a list"),
                 params.optStr("text"),
             )
+            "file.fetch" -> Command.FetchFile(
+                location(params.str("location")),
+                params.optStr("folder"),
+                params.optStr("subfolder"),
+                params.str("name"),
+                params.optStr("mime"),
+                params.bool("overwrite", false),
+                parseLink(params.obj("link")),
+                params.str("sha256"),
+                if (params.containsKey("size")) params.long("size") else null,
+            )
+            "file.push" -> Command.PushFile(params.str("id"), parseLink(params.obj("link")), params.long("max_bytes"))
+            "file.transfer" -> Command.TransferStatus(
+                params.str("transfer"),
+                if (params.containsKey("wait_ms")) params.int("wait_ms") else 0,
+                params.bool("cancel", false),
+            )
+            "clipboard.set" -> Command.SetClipboard(params.str("text"))
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
         }
+    }
+
+    private fun parseLink(link: JsonObject): FileLink {
+        val headers = (link["headers"] as? JsonObject)?.mapValues { (k, v) ->
+            (v as? JsonPrimitive)?.takeIf { it.isString }?.content ?: invalid("link.headers.$k must be a string")
+        } ?: emptyMap()
+        return FileLink(link.str("url"), headers, link.str("key_hex"), link.str("iv_hex"))
     }
 
     private fun parseTarget(target: JsonObject): Target = when {
@@ -752,6 +835,20 @@ object Limits {
     const val MAX_FILE_LIST = 200
     const val MAX_SHARE_FILES = 10
     const val MAX_MIME_CHARS = 100
+    /** Since 1.7. */
+    const val MAX_LINK_FILE_BYTES = 4L * 1024 * 1024 * 1024
+    const val MAX_LINK_URL_CHARS = 4_096
+    const val MAX_LINK_HEADERS = 8
+    const val MAX_CLIPBOARD_CHARS = 10_000
+
+    fun isHex(value: String, length: Int) = value.length == length && value.all { it in '0'..'9' || it in 'a'..'f' }
+
+    /** Storage hints only: never credentials or connection headers. */
+    fun isValidLinkHeader(name: String, value: String): Boolean {
+        val nameOk = name == "content-type" ||
+            (name.length in 3..64 && name.startsWith("x-") && name.all { it in 'a'..'z' || it in '0'..'9' || it == '-' })
+        return nameOk && value.length <= 512 && value.all { it.code in 0x20..0x7e }
+    }
 
     /** No path separators, control characters, or leading dot; same rule as the gateways. */
     fun isValidFileName(name: String): Boolean {
@@ -800,6 +897,32 @@ object Validation {
         if (text.any(Character::isISOControl)) invalid("control characters")
     }
 
+    /** Where `file.write` and `file.fetch` save. */
+    private fun destination(location: FileLocation, folder: String?, subfolder: String?, name: String, mime: String?) {
+        if (!Limits.isValidFileName(name)) invalid("bad file name")
+        folder?.let {
+            if (location != FileLocation.FOLDER) invalid("folder is only for location folder")
+            id(it)
+        }
+        subfolder?.let {
+            if (location == FileLocation.FOLDER) invalid("subfolder is for photos and downloads")
+            if (!Limits.isValidFileName(it)) invalid("bad subfolder name")
+        }
+        mime?.let { if (!Limits.isValidMime(it)) invalid("bad mime type") }
+    }
+
+    private fun link(link: FileLink) {
+        val url = link.url
+        val rest = url.removePrefix("https://").takeIf { it != url } ?: url.removePrefix("http://").takeIf { it != url }
+        if (url.length > Limits.MAX_LINK_URL_CHARS || rest.isNullOrEmpty() || rest.startsWith("/") || url.any { it.code !in 0x21..0x7e }) {
+            invalid("link.url must be an http(s) URL")
+        }
+        if (link.headers.size > Limits.MAX_LINK_HEADERS || !link.headers.all { (k, v) -> Limits.isValidLinkHeader(k, v) }) {
+            invalid("link.headers must be x- or content-type headers with printable values")
+        }
+        if (!Limits.isHex(link.keyHex, 64) || !Limits.isHex(link.ivHex, 32)) invalid("link.key_hex must be 64 and link.iv_hex 32 lowercase hex characters")
+    }
+
     fun command(command: Command) {
         when (command) {
             Command.DeviceInfoCommand, Command.ListApps, is Command.Global -> Unit
@@ -840,16 +963,7 @@ object Validation {
                 if (command.length !in 1..Limits.MAX_FILE_CHUNK_BYTES) invalid("length out of range")
             }
             is Command.WriteFile -> {
-                if (!Limits.isValidFileName(command.fileName)) invalid("bad file name")
-                command.folder?.let {
-                    if (command.location != FileLocation.FOLDER) invalid("folder is only for location folder")
-                    id(it)
-                }
-                command.subfolder?.let {
-                    if (command.location == FileLocation.FOLDER) invalid("subfolder is for photos and downloads")
-                    if (!Limits.isValidFileName(it)) invalid("bad subfolder name")
-                }
-                command.mime?.let { if (!Limits.isValidMime(it)) invalid("bad mime type") }
+                destination(command.location, command.folder, command.subfolder, command.fileName, command.mime)
                 if (command.append && command.overwrite) invalid("a write either appends or overwrites, not both")
                 if (command.dataBase64.length > (Limits.MAX_FILE_CHUNK_BYTES + 2) / 3 * 4 ||
                     !command.dataBase64.all { it.isLetterOrDigit() && it.code < 128 || it == '+' || it == '/' || it == '=' }
@@ -874,6 +988,26 @@ object Validation {
                         invalid("bad share text")
                     }
                 }
+            }
+            is Command.FetchFile -> {
+                destination(command.location, command.folder, command.subfolder, command.fileName, command.mime)
+                link(command.link)
+                if (!Limits.isHex(command.sha256, 64)) invalid("sha256 must be 64 lowercase hex characters")
+                if (command.size != null && command.size !in 0..Limits.MAX_LINK_FILE_BYTES) invalid("size out of range")
+            }
+            is Command.PushFile -> {
+                id(command.id)
+                link(command.link)
+                if (command.maxBytes !in 1..Limits.MAX_LINK_FILE_BYTES) invalid("max_bytes out of range")
+            }
+            is Command.TransferStatus -> {
+                id(command.transfer)
+                if (command.waitMs !in 0..Limits.MAX_WAIT_MS) invalid("wait_ms out of range")
+            }
+            is Command.SetClipboard -> {
+                val n = command.text.codePointCount(0, command.text.length)
+                if (n !in 1..Limits.MAX_CLIPBOARD_CHARS) invalid("text must be 1-${Limits.MAX_CLIPBOARD_CHARS} characters")
+                if (command.text.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
             is Command.AskOwner -> {
                 val n = command.message.codePointCount(0, command.message.length)

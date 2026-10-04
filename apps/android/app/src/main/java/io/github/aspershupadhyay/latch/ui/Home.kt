@@ -307,4 +307,5 @@ fun shortName(c: Capability) = when (c) {
     Capability.FILE_READ -> "See files"
     Capability.FILE_WRITE -> "Save files"
     Capability.APP_SHARE -> "Share"
+    Capability.CLIPBOARD_WRITE -> "Clipboard"
 }

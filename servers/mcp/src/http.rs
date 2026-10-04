@@ -47,6 +47,13 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .post(file_upload)
                 .layer(DefaultBodyLimit::max(crate::transfers::MAX_TRANSFER_BYTES)),
         )
+        // Encrypted links (protocol 1.7): streamed, never held in memory whole.
+        .route(
+            "/v1/blobs/{token}",
+            get(link_download)
+                .put(link_upload)
+                .layer(DefaultBodyLimit::disable()),
+        )
         .route("/v1/admin/devices", get(admin_devices))
         .route("/v1/admin/devices/{id}", delete(admin_revoke))
         .route("/v1/admin/pairings", post(admin_create_pairing))
@@ -130,6 +137,137 @@ async fn file_upload(
             "this link has expired or never existed",
         ),
     }
+}
+
+const LINK_CHUNK_BYTES: usize = 256 * 1024;
+
+async fn link_upload(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Body,
+) -> Response {
+    use crate::links::LinkError;
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+    let declared = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    let too_large = || {
+        error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &format!(
+                "the file is larger than this gateway's limit of {}",
+                mcp::files::size_text(state.links.max_bytes)
+            ),
+        )
+    };
+    let path = match state.links.begin_upload(&token, declared) {
+        Ok(path) => path,
+        Err(LinkError::TooLarge) => return too_large(),
+        Err(LinkError::Used) => {
+            return error(
+                StatusCode::CONFLICT,
+                "this link was already used; ask for a new one",
+            );
+        }
+        Err(LinkError::Full) => {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the gateway holds too many files right now; try again in a few minutes",
+            );
+        }
+        Err(LinkError::Unknown) => {
+            return error(
+                StatusCode::NOT_FOUND,
+                "this link has expired or never existed",
+            );
+        }
+        Err(LinkError::Io) => {
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the gateway could not store the file",
+            );
+        }
+    };
+    let failed = |status: StatusCode, message: &str| {
+        let _ = std::fs::remove_file(&path);
+        error(status, message)
+    };
+    let Ok(mut file) = tokio::fs::File::create(&path).await else {
+        return failed(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the gateway could not store the file",
+        );
+    };
+    let mut size = 0u64;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let Ok(chunk) = chunk else {
+            return failed(StatusCode::BAD_REQUEST, "the upload was interrupted");
+        };
+        size += chunk.len() as u64;
+        if size > state.links.max_bytes {
+            let _ = std::fs::remove_file(&path);
+            return too_large();
+        }
+        if file.write_all(&chunk).await.is_err() {
+            return failed(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the gateway could not store the file",
+            );
+        }
+    }
+    if file.flush().await.is_err() || declared.is_some_and(|n| n != size) {
+        return failed(StatusCode::BAD_REQUEST, "the upload was incomplete");
+    }
+    match state.links.finish_upload(&token, size) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(_) => failed(
+            StatusCode::CONFLICT,
+            "this link was already used; ask for a new one",
+        ),
+    }
+}
+
+async fn link_download(State(state): State<Arc<AppState>>, Path(token): Path<String>) -> Response {
+    use tokio::io::AsyncReadExt;
+    let Some((path, size)) = state.links.stored(&token) else {
+        return error(
+            StatusCode::NOT_FOUND,
+            "this link has expired, never existed, or nothing was uploaded to it yet",
+        );
+    };
+    let Ok(file) = tokio::fs::File::open(&path).await else {
+        return error(StatusCode::NOT_FOUND, "this link's file is gone");
+    };
+    let stream = futures_util::stream::unfold(file, |mut file| async move {
+        let mut buf = vec![0u8; LINK_CHUNK_BYTES];
+        match file.read(&mut buf).await {
+            Ok(0) => None,
+            Ok(n) => {
+                buf.truncate(n);
+                Some((Ok::<_, std::io::Error>(Bytes::from(buf)), file))
+            }
+            Err(e) => Some((Err(e), file)),
+        }
+    });
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (header::CONTENT_LENGTH, size.to_string()),
+            (header::CACHE_CONTROL, "no-store".to_owned()),
+            // Ciphertext only; never a page of this gateway.
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "sandbox; default-src 'none'".to_owned(),
+            ),
+        ],
+        axum::body::Body::from_stream(stream),
+    )
+        .into_response()
 }
 
 fn error(status: StatusCode, message: &str) -> Response {
