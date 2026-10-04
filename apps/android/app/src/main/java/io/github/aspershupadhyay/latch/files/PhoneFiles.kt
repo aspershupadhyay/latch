@@ -455,8 +455,10 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
         /** The file this one replaces once it checks out. */
         internal val replaces: Entry?,
         internal val name: String,
-        /** Photos and Downloads: a MediaStore item marked pending. */
+        /** Photos and Downloads: a MediaStore item. */
         internal val media: Boolean,
+        /** The MediaStore item is marked pending (hidden) until committed. */
+        internal val hidden: Boolean = false,
     ) : TransferFiles.Target
 
     /**
@@ -495,15 +497,20 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
                     type.startsWith("video/") -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                     else -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                 }
-                val values = ContentValues().apply {
+                fun values(pending: Boolean) = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                     put(MediaStore.MediaColumns.MIME_TYPE, type)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath(location, subfolder))
                     // Hidden from the gallery and other apps until the file is complete and checked.
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    if (pending) put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
-                val uri = resolver.insert(collection, values) ?: fail(ErrorCode.INTERNAL, "the phone did not accept a new file")
-                Pending(Entry(uri, location, false, displayName(uri) ?: name, type, subfolder), replaces, name, media = true)
+                // Some phones refuse pending items in a collection; a plain item is still
+                // deleted again if the transfer fails or its checksum does not match.
+                val pendingUri = runCatching { resolver.insert(collection, values(pending = true)) }.getOrNull()
+                val uri = pendingUri
+                    ?: runCatching { resolver.insert(collection, values(pending = false)) }.getOrNull()
+                    ?: fail(ErrorCode.INTERNAL, "the phone did not accept a new file there")
+                Pending(Entry(uri, location, false, displayName(uri) ?: name, type, subfolder), replaces, name, media = true, hidden = pendingUri != null)
             }
         }
     }
@@ -530,11 +537,17 @@ class PhoneFiles(private val context: Context, private val folderUri: () -> Uri?
         var entry = pending.entry
         if (pending.media) {
             val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.IS_PENDING, 0)
+                if (pending.hidden) put(MediaStore.MediaColumns.IS_PENDING, 0)
                 // With the old file gone, the replacement takes its name.
                 if (pending.replaces != null) put(MediaStore.MediaColumns.DISPLAY_NAME, pending.name)
             }
-            resolver.update(entry.uri, values, null, null)
+            if (values.size() > 0) {
+                try {
+                    resolver.update(entry.uri, values, null, null)
+                } catch (e: Exception) {
+                    fail(ErrorCode.INTERNAL, "the phone did not publish the saved file (${e.javaClass.simpleName})")
+                }
+            }
             entry = Entry(entry.uri, entry.location, false, displayName(entry.uri) ?: pending.name, entry.mime, entry.subfolder)
         } else if (pending.replaces != null) {
             val uri = try {
