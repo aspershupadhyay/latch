@@ -172,7 +172,7 @@
   const root = document.createElement("div");
   root.className = "pet";
   root.innerHTML = `
-    <div class="pet-say" aria-hidden="true"><span></span></div>
+    <div class="pet-say" aria-hidden="true"><span><span class="typed"></span><span class="rest"></span></span></div>
     <button class="pet-btn" type="button" aria-label="Mochi, the Latch mascot. Press for a tip.">${SVG}</button>
     <button class="pet-x" type="button" aria-label="Hide Mochi" title="Hide Mochi">×</button>
     <p class="pet-sr" aria-live="polite"></p>`;
@@ -184,7 +184,9 @@
 
   const btn = root.querySelector(".pet-btn");
   const bubble = root.querySelector(".pet-say");
-  const bubbleText = bubble.querySelector("span");
+  // The untyped rest of a line is laid out but hidden, so the bubble has its full size from the first letter.
+  const typed = bubble.querySelector(".typed");
+  const rest = bubble.querySelector(".rest");
   const live = root.querySelector(".pet-sr");
 
   let x = 0, busy = false, sleeping = false, away = false, last = "";
@@ -220,13 +222,16 @@
     bubble.classList.add("on", "typing");
     if (announce) live.textContent = text;
     if (reduce) {
-      bubbleText.textContent = text;
+      typed.textContent = text;
+      rest.textContent = "";
       bubble.classList.remove("typing");
     } else {
       let i = 0;
-      bubbleText.textContent = "";
+      typed.textContent = "";
+      rest.textContent = text;
       typeTimer = setInterval(() => {
-        bubbleText.textContent = text.slice(0, ++i);
+        typed.textContent = text.slice(0, ++i);
+        rest.textContent = text.slice(i);
         if (i >= text.length) { clearInterval(typeTimer); bubble.classList.remove("typing"); }
       }, 24);
     }
