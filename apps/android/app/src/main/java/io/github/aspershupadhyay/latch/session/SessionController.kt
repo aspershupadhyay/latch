@@ -3,6 +3,7 @@
 package io.github.aspershupadhyay.latch.session
 
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
+import io.github.aspershupadhyay.latch.data.ActivityActor
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
@@ -63,7 +64,7 @@ class SessionController(
     private val http: OkHttpClient,
     private val grants: ApprovalGrants,
     consequences: Consequences,
-    appName: (String) -> String? = { null },
+    private val appName: (String) -> String? = { null },
     private val autonomy: Autonomy? = null,
     private val files: PhoneFiles? = null,
     private val transfers: PhoneTransfers? = null,
@@ -142,7 +143,9 @@ class SessionController(
         // "This session" app answers from an earlier session are gone already (stop clears them);
         // Auto mode chosen "for this session" just before starting must survive the start.
         expiresAtMs = System.currentTimeMillis() + settings.preferences.value.sessionMinutes * 60_000L
-        log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes")
+        log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes", by = ActivityActor.OWNER)
+        // The owner's own taps while the session runs are logged as theirs.
+        bridge.touches.onOwnerTap = { pkg -> log.add(ActivityKind.ACTION, "You tapped the screen", appName(pkg) ?: pkg, ActivityActor.OWNER) }
         expiryJob?.cancel()
         expiryJob = scope.launch {
             delay(expiresAtMs - System.currentTimeMillis())
@@ -173,6 +176,7 @@ class SessionController(
         if (!wanted && link == null) return
         wanted = false
         paused = false
+        bridge.touches.onOwnerTap = null
         expiryJob?.cancel()
         approvals.cancel()
         grants.endSession()
@@ -184,7 +188,7 @@ class SessionController(
         link = null
         // Tell the gateway right away so tool calls fail fast instead of timing out.
         scope.launch { closing?.stop(sayBye = true) }
-        log.add(ActivityKind.SESSION, reason)
+        log.add(ActivityKind.SESSION, reason, by = if (reason.startsWith("You ") || reason == FORGOT) ActivityActor.OWNER else ActivityActor.LATCH)
         _state.value = if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle
     }
 
@@ -192,13 +196,13 @@ class SessionController(
         if (!wanted || paused == value) return
         paused = value
         if (value) approvals.cancel()
-        log.add(ActivityKind.SESSION, if (value) "Session paused" else "Session resumed")
+        log.add(ActivityKind.SESSION, if (value) "You paused the session" else "You resumed the session", by = ActivityActor.OWNER)
         pushState()
         (state.value as? SessionState.Active)?.let { _state.value = it.copy(paused = value) }
     }
 
     fun forget() {
-        stop("This phone forgot the gateway")
+        stop(FORGOT)
         settings.forgetPairing()
         grants.clearAll()
         _state.value = SessionState.Unpaired
@@ -260,7 +264,8 @@ class SessionController(
             scope.launch {
                 // Only when the owner allowed it; a gateway cannot answer on its own otherwise.
                 if (!settings.preferences.value.remoteApprovals) return@launch
-                if (approvals.answerRemote(nonce, choice)) log.add(ActivityKind.APPROVAL, "Answered in the AI app: $choice")
+                // Relayed by the AI app: Latch cannot tell who typed it there.
+                if (approvals.answerRemote(nonce, choice)) log.add(ActivityKind.APPROVAL, "Answered in the AI app: $choice", by = ActivityActor.AI)
             }
         }
     }
@@ -352,3 +357,5 @@ object Pairing {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 }
+
+private const val FORGOT = "This phone forgot the gateway"

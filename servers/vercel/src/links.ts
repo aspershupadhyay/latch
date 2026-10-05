@@ -55,6 +55,7 @@ export interface LinkRecord {
 
 const recordKey = (token: string) => `latch:link:${token}`;
 const partKey = (token: string, i: number) => `latch:link:${token}:${i}`;
+const claimKey = (token: string) => `latch:link:${token}:claim`;
 const byTransferKey = (device: string, transfer: string) => `latch:linkxfer:${device}:${transfer}`;
 /** Blob pathnames to delete once their link expires (field = path, value = expiry ms). */
 const GC_KEY = "latch:linkgc";
@@ -207,6 +208,8 @@ export class Links {
     if (!record || record.storage !== "gateway") return "unknown";
     if (bytes.length > GATEWAY_LINK_BYTES) return "too_large";
     if (record.filled) return "used";
+    // Two uploads at once to one link: only the first may write.
+    if (!(await this.store.set(claimKey(token), "1", { px: LINK_TTL_MS, nx: true }))) return "used";
     const parts = Math.ceil(bytes.length / PART_BYTES);
     for (let i = 0; i < parts; i++) {
       await this.store.set(partKey(token, i), bytes.subarray(i * PART_BYTES, (i + 1) * PART_BYTES).toString("base64"), { px: LINK_TTL_MS });

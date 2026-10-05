@@ -11,6 +11,10 @@ updates:
   - package-ecosystem: npm
     directory: /tests/interop
     schedule: { interval: monthly }
+  # The Vercel gateway faces the internet: its packages are checked weekly.
+  - package-ecosystem: npm
+    directory: /servers/vercel
+    schedule: { interval: weekly }
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

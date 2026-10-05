@@ -103,7 +103,7 @@ Change single switches any time in the **Access** tab. Want to approve **every s
 
 **Choose the apps the AI can use:** **Access → Apps the AI can use** lists every app on your phone with a switch.
 
-- **Switched on:** the AI works there without asking you, including sending and deleting. Everything it does is listed in the **Activity** tab.
+- **Switched on:** the AI works there without asking you, including sending and deleting. Everything it does is listed in the **Activity** tab. Each line says who did it: **AI**, **You** (your own taps during a session, and your answers), or **Latch**.
 - **Switched off:** the first time the AI needs that app, your phone asks once: **Not now**, **This session**, or **Always**. Until you say yes, the AI can't even see that app.
 - **Not near your phone?** Turn on **Access → Answer from your AI chat too**. Then when Latch asks you something, your AI asks you the same question in the chat, and you can answer there or on the phone, whichever comes first. (Apps that support MCP "elicitation" show it as a pop-up; others, like Claude's connectors, have the AI ask you and pass on your answer.)
 - **Money and password apps** (banking, UPI, wallets, password managers) show a warning before you switch them on, and the AI is told to check with you in the chat before acting there.
@@ -361,7 +361,7 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `get_file_link`, `upload_link` | Private, encrypted 15-minute links to copy whole files (up to 2 GB) between your computer and the phone (openssl + curl) |
 | `transfer_status` | Waits for a big file that is still moving |
 | `set_clipboard` | Puts text on the phone's clipboard to paste (never reads it) |
-| `get_activity` | Reads the phone's Activity log (apps, actions, approvals, refusals, files), if you switch it on |
+| `get_activity` | Reads the phone's Activity log (apps, actions, approvals, refusals, files, and who did each: AI, you, or Latch), if you switch it on |
 | `finish_task` | The AI says it is done: the cursor disappears at once and its summary goes into Activity |
 | `write_file`, `create_folder`, `rename_file`, `delete_file` | Save and organise files; replacing and deleting ask you unless Auto mode is on |
 | `share_to_app` | Opens any app's Share screen with files, ready to post or send |

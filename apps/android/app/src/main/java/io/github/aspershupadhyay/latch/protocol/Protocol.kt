@@ -276,6 +276,8 @@ data class ActivityItem(
     val kind: String,
     val summary: String,
     val app: String? = null,
+    /** Who did it: "ai", "owner", or "latch". Optional: older phones leave it out. */
+    val by: String? = null,
 )
 
 /** Since 1.8: answer to `activity.list`, newest first. */

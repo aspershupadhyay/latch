@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.github.aspershupadhyay.latch.data.ActivityActor
 import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -138,8 +139,10 @@ private fun iconFor(kind: ActivityKind) = when (kind) {
 }
 
 /** The Activity filters, in the order the owner looks for things. Session also covers the connection. */
-internal enum class ActivityFilter(val label: String, val kinds: Set<ActivityKind>?) {
+internal enum class ActivityFilter(val label: String, val kinds: Set<ActivityKind>?, val by: ActivityActor? = null) {
     ALL("All", null),
+    BY_AI("By AI", null, ActivityActor.AI),
+    BY_YOU("By you", null, ActivityActor.OWNER),
     ACTIONS("Actions", setOf(ActivityKind.ACTION)),
     APPS("App access", setOf(ActivityKind.APP)),
     APPROVALS("Approvals", setOf(ActivityKind.APPROVAL)),
@@ -151,7 +154,27 @@ internal enum class ActivityFilter(val label: String, val kinds: Set<ActivityKin
     SESSION("Session", setOf(ActivityKind.SESSION, ActivityKind.CONNECTION)),
     ;
 
-    fun matches(e: ActivityEntry) = kinds == null || e.kind in kinds
+    fun matches(e: ActivityEntry) = (kinds == null || e.kind in kinds) && (by == null || e.by == by)
+}
+
+/** Who did it: "AI" (through Latch), "You" (your own finger or answer), or "Latch". */
+@Composable
+private fun ActorTag(by: ActivityActor) {
+    val signal = LocalSignal.current
+    val color = when (by) {
+        ActivityActor.AI -> signal.accent
+        ActivityActor.OWNER -> signal.success
+        ActivityActor.LATCH -> signal.text2
+    }
+    Text(
+        by.label,
+        style = MaterialTheme.typography.labelMedium,
+        color = color,
+        maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .semantics { contentDescription = "Done by ${if (by == ActivityActor.OWNER) "you" else by.label}" },
+    )
 }
 
 /** "Today", "Yesterday", or the date, for the day headers. */
@@ -184,7 +207,7 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { ScreenTitle("Activity", "Every app, action, approval, refusal, and file. Kept on this phone for 7 days; never screen or typed text.") }
+        item { ScreenTitle("Activity", "What the AI did, what you did, and what Latch did. Kept on this phone for 7 days. Never screen text or typed text.") }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(ActivityFilter.entries.filter { it == ActivityFilter.ALL || counts[it] != 0 || it == filter }, key = { it.name }) { f ->
@@ -240,6 +263,7 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
                         e.summary,
                         listOfNotNull(format.format(Date(e.atMs)), e.kind.label, e.app).joinToString(" · "),
                         tint = tint,
+                        trailing = { ActorTag(e.by) },
                     )
                 }
             }

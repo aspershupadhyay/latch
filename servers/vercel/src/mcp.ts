@@ -573,7 +573,8 @@ export function renderActivity(list: ActivityList, limit: number): string {
   for (const e of entries) {
     const at = new Date(Number(e.at_ms)).toISOString().replace("T", " ").replace(/\.\d+Z$/, "Z");
     const app = typeof e.app === "string" ? ` [${[...e.app].slice(0, 80).join("")}]` : "";
-    out += `- ${at} ${String(e.kind)}${app}: ${[...String(e.summary)].slice(0, 300).join("")}\n`;
+    const by = e.by === "ai" ? " by AI" : e.by === "owner" ? " by the owner" : e.by === "latch" ? " by Latch" : "";
+    out += `- ${at} ${String(e.kind)}${by}${app}: ${[...String(e.summary)].slice(0, 300).join("")}\n`;
   }
   return out;
 }

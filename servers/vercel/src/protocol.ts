@@ -157,7 +157,9 @@ export type Command =
 export const ACTIVITY_KINDS = ["session", "connection", "screen", "action", "app", "approval", "refusal", "file", "folder", "task"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 /** Since 1.8: one line of the phone's log; never screen content or typed text. */
-export interface ActivityEntry { at_ms: number; kind: ActivityKind; summary: string; app?: string }
+/** Who did it; phones before this field leave it out. */
+export type ActivityActor = "ai" | "owner" | "latch";
+export interface ActivityEntry { at_ms: number; kind: ActivityKind; summary: string; app?: string; by?: ActivityActor }
 export interface ActivityList { entries: ActivityEntry[]; total: number }
 
 /**

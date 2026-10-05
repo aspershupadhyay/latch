@@ -13,11 +13,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
-    ActionResult, ActivityEntry, ActivityKind, ActivityList, AppList, Capability, CapabilityState,
-    CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceToGateway,
-    ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation, Outcome, OwnerReply,
-    PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target, WaitResult,
-    validate,
+    ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AppList, Capability,
+    CapabilityState, CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor, DeviceInfo,
+    DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation, Outcome,
+    OwnerReply, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target,
+    WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -492,6 +492,7 @@ pub fn handle(
                     },
                     summary: format!("Ran {name}"),
                     app: None,
+                    by: Some(ActivityActor::Ai),
                 })
                 .filter(|e| kinds.is_empty() || kinds.contains(&e.kind))
                 .filter(|e| since_ms.is_none_or(|since| e.at_ms >= since))

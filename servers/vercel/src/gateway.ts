@@ -213,6 +213,8 @@ export class Gateway {
   private async fileUpload(request: Request, token: string): Promise<Response> {
     const declared = Number(request.headers.get("content-length") ?? "0");
     if (declared > MAX_TRANSFER_BYTES) return error(413, "the file is larger than 4 MB");
+    // Read no body for a link that does not exist.
+    if (!(await this.transfers.uploadOpen(decodeURIComponent(token)))) return error(404, "this link has expired or never existed");
     const bytes = Buffer.from(await request.arrayBuffer());
     const result = await this.transfers.putUpload(decodeURIComponent(token), bytes);
     if (result === "too_large") return error(413, "the file is larger than 4 MB");
@@ -239,6 +241,8 @@ export class Gateway {
   private async linkUpload(request: Request, token: string): Promise<Response> {
     const declared = Number(request.headers.get("content-length") ?? "0");
     if (declared > GATEWAY_LINK_BYTES) return error(413, `the file is larger than ${sizeText(GATEWAY_LINK_BYTES)}; connect a Vercel Blob store for bigger files`);
+    // Read no body for a link that does not exist.
+    if (!(await this.links.record(decodeURIComponent(token)))) return error(404, "this link has expired or never existed");
     const result = await this.links.putBytes(decodeURIComponent(token), Buffer.from(await request.arrayBuffer()));
     if (result === "too_large") return error(413, `the file is larger than ${sizeText(GATEWAY_LINK_BYTES)}; connect a Vercel Blob store for bigger files`);
     if (result === "used") return error(409, "this link was already used; ask for a new one");

@@ -578,7 +578,7 @@ export const SERVER = {
         "readOnlyHint": true,
         "title": "Read the phone's activity log"
       },
-      "description": "Read Latch's activity log on the phone, newest first: the apps the AI used, every action it took, what the owner was asked and answered, what was refused, and the files and folders it touched. Use it when the user asks what happened on the phone. Entries never hold screen content or typed text. Needs the owner's activity switch.",
+      "description": "Read Latch's activity log on the phone, newest first: the apps the AI used, every action it took, what the owner was asked and answered, what was refused, and the files and folders it touched. Each line says who did it: the AI, the owner (their own taps and answers), or Latch. Use it when the user asks what happened on the phone. Entries never hold screen content or typed text. Needs the owner's activity switch.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

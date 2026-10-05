@@ -41,6 +41,20 @@ fn normalize(code: &str) -> String {
         .collect()
 }
 
+/// Rejection sampling: `byte % 31` would make some letters likelier than others.
+fn random_code(length: usize) -> String {
+    let limit = 256 - (256 % ALPHABET.len());
+    let mut code = String::with_capacity(length);
+    while code.len() < length {
+        for b in secret::random_bytes::<16>() {
+            if (b as usize) < limit && code.len() < length {
+                code.push(ALPHABET[b as usize % ALPHABET.len()] as char);
+            }
+        }
+    }
+    code
+}
+
 impl Pairings {
     fn prune(&mut self, now_ms: u64) {
         self.codes.retain(|_, p| p.expires_at_ms > now_ms);
@@ -54,11 +68,7 @@ impl Pairings {
         if self.codes.len() >= MAX_OUTSTANDING {
             return Err(PairingError::TooMany);
         }
-        let bytes = secret::random_bytes::<8>();
-        let code: String = bytes
-            .iter()
-            .map(|b| ALPHABET[*b as usize % ALPHABET.len()] as char)
-            .collect();
+        let code = random_code(8);
         let expires_at_ms = now_ms + CODE_TTL_MS;
         self.codes.insert(
             code.clone(),
@@ -118,6 +128,15 @@ mod tests {
         }
         assert_eq!(p.redeem(&code, 10), Err(PairingError::RateLimited));
         assert_eq!(p.redeem(&code, 70_011), Ok("pixel".into()));
+    }
+
+    #[test]
+    fn codes_use_only_the_alphabet() {
+        for _ in 0..200 {
+            let code = random_code(8);
+            assert_eq!(code.len(), 8);
+            assert!(code.bytes().all(|b| ALPHABET.contains(&b)));
+        }
     }
 
     #[test]
