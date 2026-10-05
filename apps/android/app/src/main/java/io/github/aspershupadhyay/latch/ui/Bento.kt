@@ -152,10 +152,32 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
 
+/** What a secret looks like on screen: its start, so the owner can tell keys apart, never the rest. */
+fun maskSecret(value: String): String {
+    // A private link: keep the address up to the key, then four characters of the key.
+    val at = value.indexOf("/mcp/")
+    if (at >= 0) return value.take(at + "/mcp/".length + 4) + "\u2022".repeat(14)
+    return value.take(10) + "\u2022".repeat(14)
+}
+
+/**
+ * While a secret is on screen, the window is kept out of screenshots, screen
+ * recordings, casting, and the recent-apps preview (FLAG_SECURE).
+ */
+@Composable
+fun SecureWhileShown() {
+    val window = androidx.activity.compose.LocalActivity.current?.window ?: return
+    androidx.compose.runtime.DisposableEffect(window) {
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+}
+
 /** A value the owner copies elsewhere (address, link, key), with a Copy button. */
 @Composable
 fun CopyRow(label: String, value: String, onCopy: () -> Unit, masked: Boolean = false) {
     val signal = LocalSignal.current
+    if (masked) SecureWhileShown()
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(signal.canvas).border(1.dp, signal.border2, RoundedCornerShape(8.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -163,7 +185,7 @@ fun CopyRow(label: String, value: String, onCopy: () -> Unit, masked: Boolean = 
         TileLabel(label, maxLines = 3)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (masked) value.take(10) + "•".repeat(14) else value,
+                if (masked) maskSecret(value) else value,
                 fontFamily = GeistMono,
                 style = MaterialTheme.typography.bodyMedium,
                 color = signal.text,

@@ -6,6 +6,7 @@ import android.os.Build
 import io.github.aspershupadhyay.latch.BuildConfig
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
 import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
+import io.github.aspershupadhyay.latch.data.ActivityActor
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
@@ -170,6 +171,17 @@ private const val TYPE_EXPECT_CHANGE_MS = 900L
 private const val SYSTEM_UI = "com.android.systemui"
 
 /** Activity lines that happen inside an app and so name it. */
+/**
+ * Who a line is about, from its words: "You …" is the owner's answer; Latch's
+ * own questions and timeouts are Latch's; the rest, including actions done
+ * without asking, is what the AI did.
+ */
+internal fun actorOf(summary: String): ActivityActor = when {
+    summary.startsWith("You ") -> ActivityActor.OWNER
+    summary.startsWith("Asked you") || summary.startsWith("Expired without") || summary.startsWith("No answer") -> ActivityActor.LATCH
+    else -> ActivityActor.AI
+}
+
 private val IN_APP_KINDS = setOf(ActivityKind.SCREEN, ActivityKind.ACTION, ActivityKind.APPROVAL, ActivityKind.REFUSAL)
 
 /** Android's app choosers ("Open with", "Share"): a tap there opens another app. */
@@ -237,9 +249,11 @@ class CommandExecutor(
 
         // The owner sees what the AI is doing, also when it happens off screen.
         cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
+        bridge.touches.aiStarted()
         try {
             return run(envelope, session, capabilities, current)
         } finally {
+            bridge.touches.aiFinished()
             bridge.service.value?.cursorIdle()
         }
     }
@@ -254,7 +268,7 @@ class CommandExecutor(
 
         // Latch in front would refuse every screen command; step aside to the home screen first.
         if (worksOnScreen(command) && bridge.service.value?.stepAsideFromLatch() == true) {
-            note(ActivityKind.ACTION, "Went to the home screen so the AI can work (Latch is off limits to it)")
+            note(ActivityKind.ACTION, "Went to the home screen so the AI can work (Latch is off limits to it)", ActivityActor.LATCH)
         }
 
         // Only apps the owner allowed; the first use of an app asks once.
@@ -270,7 +284,7 @@ class CommandExecutor(
         }
         if (command is Command.TaskDone) {
             bridge.service.value?.cursorFinish()
-            log.add(ActivityKind.TASK, command.summary?.let { "The AI finished: $it" } ?: "The AI said the task is done")
+            log.add(ActivityKind.TASK, command.summary?.let { "The AI finished: $it" } ?: "The AI said the task is done", by = ActivityActor.AI)
             return Protocol.json.encodeToJsonElement(ActionResult.serializer(), ActionResult())
         }
 
@@ -546,14 +560,20 @@ class CommandExecutor(
     private suspend fun askOwner(command: Command.AskOwner, envelope: CommandEnvelope): String {
         note(ActivityKind.APPROVAL, "The AI asked you: ${command.message}")
         waitingForOwner()
-        val outcome = approvals.request(
+        // While the owner does the step, their taps are theirs, not the AI's.
+        bridge.touches.aiPaused()
+        val outcome = try {
+            approvals.request(
             title = command.message,
             detail = OWNER_TASK_DETAIL,
             risk = "medium",
             timeoutMs = approvalTimeout(envelope.deadlineMs),
-            kind = ApprovalKind.OWNER_TASK,
-            commandId = envelope.id,
-        )
+                kind = ApprovalKind.OWNER_TASK,
+                commandId = envelope.id,
+            )
+        } finally {
+            bridge.touches.aiStarted()
+        }
         return when (outcome) {
             ApprovalOutcome.EXPIRED -> {
                 note(ActivityKind.APPROVAL, "No answer to the AI's request")
@@ -571,9 +591,9 @@ class CommandExecutor(
     }
 
     /** A line in Activity; screen, action, and approval lines name the app they happened in. */
-    private fun note(kind: ActivityKind, summary: String) {
+    private fun note(kind: ActivityKind, summary: String, by: ActivityActor = actorOf(summary)) {
         val app = if (kind in IN_APP_KINDS) bridge.service.value?.currentPackage()?.let { appName(it) ?: it } else null
-        log.add(kind, summary, app)
+        log.add(kind, summary, app, by)
     }
 
     /** The cursor says the phone is waiting for the owner, not for the AI. */

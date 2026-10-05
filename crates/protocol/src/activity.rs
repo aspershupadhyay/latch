@@ -29,6 +29,19 @@ pub enum ActivityKind {
     Task,
 }
 
+/// Who did what an activity line describes. Optional on the wire: phones
+/// before this field leave it out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityActor {
+    /// The AI, through Latch.
+    Ai,
+    /// The owner: their own tap, or their answer.
+    Owner,
+    /// Latch itself: a timer, a rule, the connection.
+    Latch,
+}
+
 /// Since 1.8: one line of the phone's activity log. Holds no screen content
 /// or typed text: only what happened, in which app, and when.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -39,6 +52,9 @@ pub struct ActivityEntry {
     /// The app it happened in, as the launcher names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<String>,
+    /// Who did it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<ActivityActor>,
 }
 
 /// Since 1.8: answer to `activity.list`, newest first.

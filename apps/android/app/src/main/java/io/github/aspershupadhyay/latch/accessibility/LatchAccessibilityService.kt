@@ -96,6 +96,12 @@ class LatchAccessibilityService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.packageName?.toString()?.let { foregroundPackage = it }
         }
+        // A tap the AI did not make is the owner's: Activity says "You". Latch's own
+        // screens and the system bars are not logged.
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) {
+            val pkg = event.packageName?.toString()
+            if (pkg != null && pkg != packageName && pkg != SYSTEM_UI) LatchApp.get(this).bridge.touches.tapped(pkg)
+        }
         // Latch's own overlays (Stop pill, approval card, cursor) are not the app changing.
         if (event.packageName?.toString() != packageName) lastUiEventAtMs = SystemClock.uptimeMillis()
     }
@@ -391,6 +397,15 @@ class LatchAccessibilityService : AccessibilityService() {
 
     private var approvalCard: android.view.View? = null
     private var approvalNonce: String? = null
+    /** Where the card is on screen, padded: only the owner's finger may answer it. */
+    @Volatile private var approvalBounds: Rect? = null
+
+    /** The AI can never answer its own question by tapping the card. */
+    private fun refuseOnApprovalCard(x: Int, y: Int) {
+        if (approvalBounds?.contains(x, y) == true) {
+            throw ProtocolException(ErrorCode.POLICY_REFUSED, "that point is on Latch's approval card, which only the owner may answer")
+        }
+    }
 
     fun showApproval(pending: PendingApproval, onAnswer: (ApprovalChoice) -> Unit) {
         if (approvalNonce == pending.nonce) return
@@ -454,6 +469,8 @@ class LatchAccessibilityService : AccessibilityService() {
             minHeight = dp(48)
             isClickable = true
             isFocusable = true
+            // A window from another app drawn over the card must not trick the owner into a tap.
+            filterTouchesWhenObscured = true
             setTextColor(if (primary) (if (dark) Color.rgb(31, 26, 22) else Color.WHITE) else if (muted) text2 else accent)
             background = GradientDrawable().apply {
                 cornerRadius = dp(24).toFloat()
@@ -512,12 +529,23 @@ class LatchAccessibilityService : AccessibilityService() {
         if (runCatching { getSystemService(WindowManager::class.java).addView(card, params) }.isFailure) return
         approvalCard = card
         approvalNonce = pending.nonce
+        // Until it is laid out, the whole width at the card's edge of the screen is the card's.
+        val m = resources.displayMetrics
+        approvalBounds = if (ownerTask) Rect(0, 0, m.widthPixels, m.heightPixels / 2) else Rect(0, m.heightPixels / 2, m.widthPixels, m.heightPixels)
+        card.post {
+            if (approvalCard !== card) return@post
+            val loc = IntArray(2)
+            card.getLocationOnScreen(loc)
+            val pad = dp(16)
+            approvalBounds = Rect(loc[0] - pad, loc[1] - pad, loc[0] + card.width + pad, loc[1] + card.height + pad)
+        }
     }
 
     fun hideApproval() {
         approvalCard?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }
         approvalCard = null
         approvalNonce = null
+        approvalBounds = null
     }
 
     // ---- Observation ----
@@ -800,6 +828,7 @@ class LatchAccessibilityService : AccessibilityService() {
         if (overlayBounds?.contains(x, y) == true) {
             throw ProtocolException(ErrorCode.POLICY_REFUSED, "that point is on the Latch stop button")
         }
+        refuseOnApprovalCard(x, y)
         if (y < statusBarHeight()) {
             throw ProtocolException(ErrorCode.POLICY_REFUSED, "gestures may not start in the status bar")
         }
@@ -929,7 +958,10 @@ class LatchAccessibilityService : AccessibilityService() {
         val sides = listOf(-1, 1).map { (cx + it * startSpan / 2).coerceIn(0, screen.width - 1) to cy }
         movePillAside(cx to cy, *sides.toTypedArray())
         checkGesturePoint(cx, cy, snap)
-        sides.forEach { (x, y) -> if (overlayBounds?.contains(x, y) == true) throw ProtocolException(ErrorCode.POLICY_REFUSED, "a finger of this pinch would start on the Latch stop button") }
+        sides.forEach { (x, y) ->
+            if (overlayBounds?.contains(x, y) == true) throw ProtocolException(ErrorCode.POLICY_REFUSED, "a finger of this pinch would start on the Latch stop button")
+            refuseOnApprovalCard(x, y)
+        }
         fun clampX(v: Int) = v.coerceIn(0, screen.width - 1)
         val fingers = listOf(-1, 1).map { side ->
             CursorOverlay.Stroke(

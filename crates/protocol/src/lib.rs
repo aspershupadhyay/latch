@@ -22,7 +22,7 @@ mod message;
 mod observation;
 pub mod validate;
 
-pub use activity::{ActivityEntry, ActivityKind, ActivityList};
+pub use activity::{ActivityActor, ActivityEntry, ActivityKind, ActivityList};
 pub use capability::{Capability, CapabilityState, CapabilityStatus};
 pub use command::{
     Command, ConfirmRequest, Direction, GlobalAction, MAX_REMEMBER_CHARS, Point, RiskLevel, Target,

@@ -74,7 +74,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                             Text("You'll see it only once. Keep it private, like a password.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
                         }
                     }
-                    CopyRow("Private link (for apps that ask only for a link)", created.secretLink, { actions.copy("Secret link", created.secretLink, true) })
+                    CopyRow("Private link (for apps that ask only for a link)", created.secretLink, { actions.copy("Secret link", created.secretLink, true) }, masked = true)
                     CopyRow("Key (for apps that ask for a link and a key)", "Bearer ${created.token}", { actions.copy("Authorization header", "Bearer ${created.token}", true) }, masked = true)
                     PrimaryButton("Done, I saved it", actions.dismissCreated, Modifier.fillMaxWidth())
                 }

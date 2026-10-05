@@ -253,7 +253,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   // Protocol 1.8: the phone's activity log, filtered by kind, and the end of a task.
   const activity = text(await client.callTool({ name: "get_activity", arguments: { limit: 2, kinds: ["file"] } }));
   assert.match(activity, /^Activity on the phone, newest first \(2 of \d+\)\./);
-  assert.match(activity, / file: Ran file\./);
+  assert.match(activity, / file by AI: Ran file\./);
   assert.doesNotMatch(activity, /clipboard/);
   const wrongKind = await client.callTool({ name: "get_activity", arguments: { kinds: ["photos"] } });
   assert.equal(wrongKind.isError, true);

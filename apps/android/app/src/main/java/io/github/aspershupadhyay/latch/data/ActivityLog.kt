@@ -32,10 +32,31 @@ enum class ActivityKind(val wire: String, val label: String) {
 }
 
 /**
- * One line in the activity timeline: what happened, in which app, and when.
- * Never holds screen text or typed text; file and app names only.
+ * Who did it (`by` on the wire): the AI through Latch, the owner's own hand,
+ * or Latch itself (a timer, a rule, the connection). [label] is what Activity shows.
  */
-data class ActivityEntry(val atMs: Long, val kind: ActivityKind, val summary: String, val app: String? = null)
+enum class ActivityActor(val wire: String, val label: String) {
+    AI("ai", "AI"),
+    OWNER("owner", "You"),
+    LATCH("latch", "Latch"),
+    ;
+
+    companion object {
+        fun fromWire(wire: String?): ActivityActor? = entries.firstOrNull { it.wire == wire }
+    }
+}
+
+/**
+ * One line in the activity timeline: what happened, who did it, in which app,
+ * and when. Never holds screen text or typed text; file and app names only.
+ */
+data class ActivityEntry(
+    val atMs: Long,
+    val kind: ActivityKind,
+    val summary: String,
+    val app: String? = null,
+    val by: ActivityActor = ActivityActor.LATCH,
+)
 
 /**
  * Every AI action, question to the owner, answer, refusal, and file the AI
@@ -54,8 +75,8 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
         writer?.execute(::load)
     }
 
-    fun add(kind: ActivityKind, summary: String, app: String? = null) {
-        val entry = ActivityEntry(now(), kind, summary.take(MAX_SUMMARY_CHARS), app?.take(MAX_APP_CHARS))
+    fun add(kind: ActivityKind, summary: String, app: String? = null, by: ActivityActor = ActivityActor.LATCH) {
+        val entry = ActivityEntry(now(), kind, summary.take(MAX_SUMMARY_CHARS), app?.take(MAX_APP_CHARS), by)
         _entries.update { (listOf(entry) + it).take(CAPACITY) }
         writer?.execute {
             runCatching {
@@ -80,10 +101,12 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
         val matching = _entries.value.filter { e ->
             (kinds.isEmpty() || e.kind.wire in kinds) && (sinceMs == null || e.atMs >= sinceMs)
         }
-        return ActivityList(matching.take(limit).map { ActivityItem(it.atMs, it.kind.wire, it.summary, it.app) }, matching.size)
+        return ActivityList(matching.take(limit).map(::item), matching.size)
     }
 
-    private fun encode(e: ActivityEntry) = Protocol.json.encodeToString(ActivityItem.serializer(), ActivityItem(e.atMs, e.kind.wire, e.summary, e.app))
+    private fun item(e: ActivityEntry) = ActivityItem(e.atMs, e.kind.wire, e.summary, e.app, e.by.wire)
+
+    private fun encode(e: ActivityEntry) = Protocol.json.encodeToString(ActivityItem.serializer(), item(e))
 
     private fun load() {
         val f = file ?: return
@@ -92,7 +115,12 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
             if (!f.exists()) return@runCatching emptyList()
             f.readLines().asReversed().asSequence().mapNotNull { line ->
                 runCatching { Protocol.json.decodeFromString(ActivityItem.serializer(), line) }.getOrNull()
-                    ?.let { item -> ActivityKind.fromWire(item.kind)?.let { ActivityEntry(item.atMs, it, item.summary, item.app) } }
+                    ?.let { item ->
+                        // Lines saved by older versions have no `by`: an AI action line is the AI's; the rest are Latch's.
+                        ActivityKind.fromWire(item.kind)?.let {
+                            ActivityEntry(item.atMs, it, item.summary, item.app, ActivityActor.fromWire(item.by) ?: legacyActor(it, item.summary))
+                        }
+                    }
             }.filter { it.atMs >= cutoff }.take(CAPACITY).toList()
         }.getOrDefault(emptyList())
         // Lines added while loading come first; both lists are newest first.
@@ -114,6 +142,13 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
     }
 
     companion object {
+        /** Best guess for a line saved before `by` existed. */
+        fun legacyActor(kind: ActivityKind, summary: String): ActivityActor = when {
+            summary.startsWith("You ") -> ActivityActor.OWNER
+            kind in setOf(ActivityKind.SCREEN, ActivityKind.ACTION, ActivityKind.FILE, ActivityKind.FOLDER, ActivityKind.TASK) -> ActivityActor.AI
+            else -> ActivityActor.LATCH
+        }
+
         const val CAPACITY = 2_000
         const val RETENTION_MS = 7L * 24 * 60 * 60 * 1000
         private const val COMPACT_EVERY = 500

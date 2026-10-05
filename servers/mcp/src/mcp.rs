@@ -426,8 +426,9 @@ pub fn tool_definitions() -> Vec<Value> {
             "Read the phone's activity log",
             "Read Latch's activity log on the phone, newest first: the apps the AI used, every \
              action it took, what the owner was asked and answered, what was refused, and the \
-             files and folders it touched. Use it when the user asks what happened on the phone. \
-             Entries never hold screen content or typed text. Needs the owner's activity switch.",
+             files and folders it touched. Each line says who did it: the AI, the owner (their \
+             own taps and answers), or Latch. Use it when the user asks what happened on the \
+             phone. Entries never hold screen content or typed text. Needs the owner's activity switch.",
             true,
             json!({
                 "device_id": device_id_schema(),
@@ -561,8 +562,14 @@ pub fn render_activity(list: &latch_protocol::ActivityList) -> String {
             .as_deref()
             .map(|a| format!(" [{a}]"))
             .unwrap_or_default();
+        let by = match e.by {
+            Some(latch_protocol::ActivityActor::Ai) => " by AI",
+            Some(latch_protocol::ActivityActor::Owner) => " by the owner",
+            Some(latch_protocol::ActivityActor::Latch) => " by Latch",
+            None => "",
+        };
         out.push_str(&format!(
-            "- {} {kind}{app}: {}\n",
+            "- {} {kind}{by}{app}: {}\n",
             utc_time(e.at_ms),
             e.summary
         ));

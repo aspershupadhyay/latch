@@ -171,6 +171,21 @@ Not done, deliberately: caching app lists or observations in the gateway (a cach
 |---|---|---|
 | Instagram's caption "OK" accepted the accessibility click and did nothing; Latch answered "Done" | An element tap whose screen does not change within 450 ms is repeated as a real finger tap on the element | IN_REVIEW: re-run on the phone |
 
+**Security audit (2026-10-05, owner request: "check the entire code base"):** both gateways, the Android app, CI, and the website were reviewed. Findings and changes:
+
+| Finding | Change | Status |
+|---|---|---|
+| AI gestures were kept off the Stop pill but not off Latch's approval card: a coordinate tap there could answer the phone's own question | Gestures and pinch fingers that start on the card are refused (`policy_refused`); the card's buttons also ignore taps through another app's overlay (`filterTouchesWhenObscured`) | IN_REVIEW: needs a look on the phone |
+| After "Create key", the private link (`/mcp/<key>`) was shown whole on screen | Shown masked like the key; while a key or link is on screen the window is kept out of screenshots, recordings, and the recents preview (`FLAG_SECURE`) | IN_REVIEW |
+| Two uploads at once to one link could both write | Rust: one claimed upload per link, released on failure or a dropped connection, and its space held against the disk limit; Vercel: `SET NX` claim, and no body is read for an unknown link | DONE (tests on both gateways) |
+| Open OAuth registration (Vercel) could be filled for good (200 entries, no expiry) | Oldest registrations make room; 30 registrations a minute | DONE |
+| Client metadata documents could be fetched from `0.0.0.0/8`, carrier NAT, or `*.localhost` | Refused, with trailing-dot hosts | DONE |
+| Pairing codes drawn with `byte % 31` (slight bias) | Rejection sampling (both gateways) | DONE |
+| CI actions pinned to moving tags in jobs that hold the release key | Pinned to commit SHAs (Dependabot keeps them current); Dependabot now also watches the Vercel gateway's npm packages | DONE |
+| Owner: tell the AI's actions from the owner's own | Every Activity line carries who did it (`by`: `ai`, `owner`, `latch`), with "By AI" / "By you" filters and a tag per line; the owner's own taps during a session are logged as "You tapped the screen" with the app name only (never what was tapped), at most once per app every 30 s; taps during and 1.5 s after an AI command count as the AI's, except while `ask_owner` waits for the owner; `get_activity` shows it on both gateways | IN_REVIEW: needs a phone run |
+
+Checked and found sound: constant-time token checks, hashed tokens at rest, PKCE S256 only, exact redirect matching, origin checks on MCP, private headers and CSP, upload link host allowlist on the phone, update signer and SHA-256 checks, no cloud backup of app data, `npm audit` clean for both Node packages.
+
 ## 9. Feature roadmap (owner request, 2026-10-02)
 
 The owner asked for the full feature list, ordered by priority, to be built one wave at a time. Every feature gets its own capability switch (off by default), protocol and fixture changes, tests on both gateways, and README steps. Items that change §3 ("no file or credential tools") or a chapter 08 rule need an ADR in the same change. All items are TODO unless marked otherwise.

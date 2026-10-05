@@ -1435,7 +1435,7 @@ async fn files_round_trip_between_phone_and_computer() {
         text.starts_with("Activity on the phone, newest first (3 of "),
         "{text}"
     );
-    assert!(text.contains(" file: Ran file."), "{text}");
+    assert!(text.contains(" file by AI: Ran file."), "{text}");
     assert!(!text.contains("clipboard"), "{text}");
     let (is_error, text, _) = call(&gw, "get_activity", json!({"kinds": ["photos"]})).await;
     assert!(
