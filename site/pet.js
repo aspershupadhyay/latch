@@ -22,7 +22,7 @@
   // Everything Mochi says is true about Latch (see README and SECURITY.md).
   const TIPS = [
     "Every switch starts off. Default deny!",
-    "Stop is always one tap. Big red button.",
+    "The Stop button stays on screen the whole session.",
     "I never type passwords, PINs, or one-time codes.",
     "Payments, installs, permission pop-ups? Those wait for your OK.",
     "Your gateway, your account. No Latch server in the middle.",
@@ -283,7 +283,7 @@
     async spin() { await flash("is-spin", 950); say(pick(["Ta-da!", "Wheee!", "Did you see that?"])); },
     async dance() { say(pick(["♪ beep boop ♪", "♪ tap tap swipe ♪", "♪ latch latch ♪"])); await flash("is-dance", 2000); },
     async wag() { if (Math.random() < 0.5) say(pick(["Wag wag!", "*ear twitch*", "Hehe."])); await flash("is-wag", 1500); },
-    async stop() { say("Stop is always one tap. Big red button."); await flash("is-stop", 2600); },
+    async stop() { say("The Stop button stays on screen the whole session."); await flash("is-stop", 2600); },
     async tap() { say(pick(["tap ✓", "type_text ✓", "scroll ✓"])); await flash("is-tap", 1400); },
     async tip() { say(nextTip()); await flash("is-happy", 1600); },
     async look() {
