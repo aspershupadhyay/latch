@@ -27,7 +27,7 @@ jobs:
           mkdir dist
           cp target/release/latch-gateway dist/latch-gateway-linux-x86_64
           cp target/release/latch-fake-device dist/latch-fake-device-linux-x86_64
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with: { name: gateway, path: dist/* }
 
   android:
@@ -81,7 +81,7 @@ jobs:
               --arg commit "${GITHUB_SHA::7}" \
               '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit}' > dist/latch-update.json
           fi
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with: { name: android, path: dist/* }
 
   container:
