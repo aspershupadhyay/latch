@@ -530,10 +530,10 @@ class CommandExecutor(
         val strict = session.approveEveryAction && !(command is Command.WriteFile && command.append)
         if (!risky && !strict) return title
         if (!strict && autonomy?.state?.value?.autoOn == true) {
-            note(ActivityKind.APPROVAL, "Done without asking (Auto mode): $title")
+            note(ActivityKind.APPROVAL, "Done without asking (Auto mode): $title", inApp = false)
             return title
         }
-        note(ActivityKind.APPROVAL, "Asked you: $title")
+        note(ActivityKind.APPROVAL, "Asked you: $title", inApp = false)
         waitingForOwner()
         val outcome = approvals.request(
             title, if (risky) FILE_DETAIL else AGENT_DETAIL, if (risky) "high" else "medium",
@@ -541,14 +541,14 @@ class CommandExecutor(
         )
         when (outcome) {
             ApprovalOutcome.DENIED -> {
-                note(ActivityKind.REFUSAL, "You denied: $title")
+                note(ActivityKind.REFUSAL, "You denied: $title", inApp = false)
                 throw ProtocolException(ErrorCode.USER_DENIED, "the owner denied this action")
             }
             ApprovalOutcome.EXPIRED -> {
-                note(ActivityKind.REFUSAL, "Expired without an answer: $title")
+                note(ActivityKind.REFUSAL, "Expired without an answer: $title", inApp = false)
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
             }
-            else -> note(ActivityKind.APPROVAL, "You approved: $title")
+            else -> note(ActivityKind.APPROVAL, "You approved: $title", inApp = false)
         }
         return title
     }
@@ -591,8 +591,9 @@ class CommandExecutor(
     }
 
     /** A line in Activity; screen, action, and approval lines name the app they happened in. */
-    private fun note(kind: ActivityKind, summary: String, by: ActivityActor = actorOf(summary)) {
-        val app = if (kind in IN_APP_KINDS) bridge.service.value?.currentPackage()?.let { appName(it) ?: it } else null
+    /** [inApp] false for things that do not happen in the app in front (file changes), so they are not tagged with it. */
+    private fun note(kind: ActivityKind, summary: String, by: ActivityActor = actorOf(summary), inApp: Boolean = kind in IN_APP_KINDS) {
+        val app = if (inApp) bridge.service.value?.currentPackage()?.let { appName(it) ?: it } else null
         log.add(kind, summary, app, by)
     }
 

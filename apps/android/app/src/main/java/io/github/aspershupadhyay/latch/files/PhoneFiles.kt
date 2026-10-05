@@ -207,9 +207,10 @@ class PhoneFiles(
             putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
             putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
         }
-        val projection = arrayOf(
+        val projection = mediaProjection(
+            location,
             MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE,
-            MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.Files.FileColumns.MEDIA_TYPE,
+            MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED,
         )
         val items = mutableListOf<FileItem>()
         resolver.query(collection, projection, queryArgs, null)?.use { c ->
@@ -442,7 +443,7 @@ class PhoneFiles(
     private fun findMedia(location: FileLocation, subfolder: String?, name: String): Entry? {
         val collection = if (location == FileLocation.DOWNLOADS) MediaStore.Downloads.EXTERNAL_CONTENT_URI else MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
-        val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.MIME_TYPE, MediaStore.Files.FileColumns.MEDIA_TYPE)
+        val projection = mediaProjection(location, MediaStore.MediaColumns._ID, MediaStore.MediaColumns.MIME_TYPE)
         return resolver.query(collection, projection, selection, arrayOf(name, relativePath(location, subfolder)), null)?.use { c ->
             if (!c.moveToFirst()) return@use null
             val type = if (location == FileLocation.PHOTOS) c.getInt(2) else MediaStore.Files.FileColumns.MEDIA_TYPE_NONE
@@ -778,5 +779,13 @@ class PhoneFiles(
         private const val MAX_FOLDER_SCAN = 5_000
         private const val PREVIEW_PX = 1024
         private const val PREVIEW_MAX_BYTES = 512 * 1024
+
+        /**
+         * The columns to read from a location's MediaStore collection, with MEDIA_TYPE last for
+         * photos only: it is a column of the Files table, and the Downloads collection rejects it
+         * (strict projections, Android 11+), so listing or saving in Downloads would fail.
+         */
+        internal fun mediaProjection(location: FileLocation, vararg columns: String): Array<String> =
+            if (location == FileLocation.PHOTOS) arrayOf(*columns, MediaStore.Files.FileColumns.MEDIA_TYPE) else arrayOf(*columns)
     }
 }
