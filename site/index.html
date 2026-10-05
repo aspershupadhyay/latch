@@ -30,7 +30,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
 
 <script type="application/ld+json">
@@ -93,9 +93,9 @@
 <main id="main">
   <section class="hero">
     <div class="hero-copy">
-      <p class="status"><span class="dot" aria-hidden="true"></span>open source <b>/</b> mcp <b>/</b> android</p>
-      <h1>Let AI use your phone.<br><span class="accent">You stay in charge.<span class="caret" aria-hidden="true"></span></span></h1>
-      <p class="lead">Ask Claude or ChatGPT to do a task. Watch your phone do it. <em>Stop it with one tap.</em></p>
+      <p class="status"><span class="dot" aria-hidden="true"></span>open source <b>/</b> android <b>/</b> beta</p>
+      <h1>Your AI can use your phone now.<br><span class="accent">One tap stops it.<span class="caret" aria-hidden="true"></span></span></h1>
+      <p class="lead">Ask Claude or ChatGPT to do something on your Android phone. <em>You see each tap as it happens.</em></p>
       <div class="cta">
         <a class="get" href="https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk">
           <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.87 3.23A11.4 11.4 0 0 0 12 8.2c-1.77 0-3.43.4-4.91.95L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg>
@@ -167,39 +167,45 @@
   </section>
 
   <section id="how" class="section">
-    <div class="sec-head"><p class="label"><span>01</span> How it works</p><h2>You ask. Your phone does it.</h2></div>
-    <div class="map" role="img" aria-label="Diagram: you ask your AI app, your private relay passes the request on, and your phone does the task and reports back.">
-      <div class="stop-pt">
-        <div class="bubble" aria-hidden="true">
-          <svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M8 10h32v22H22l-9 7v-7H8z"/><path class="typing" d="M16 21h2M23 21h2M30 21h2" stroke-linecap="round" stroke-width="3.2"/></svg>
+    <div class="sec-head"><p class="label"><span>01</span> How it works</p><h2>One request, start to finish.</h2></div>
+    <div class="run" role="img" aria-label="Example: you ask your AI to turn on Do Not Disturb. Your relay passes three steps to your phone. The phone opens Settings, taps the switch, and reports back. The AI says it is done.">
+      <figure class="pane">
+        <div class="pane-bar" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span>your AI app</div>
+        <div class="chat" aria-hidden="true">
+          <p class="me">Turn on Do Not Disturb.</p>
+          <p class="ai think">On it<span>…</span></p>
+          <p class="ai done">Done. Do Not Disturb is on.</p>
         </div>
-        <h3>You ask</h3>
-        <p>“Play something chill.”</p>
-        <small>Claude · ChatGPT · any MCP app</small>
-      </div>
-      <div class="pipe" aria-hidden="true"><i class="pkt"></i><i class="pkt back"></i></div>
-      <div class="stop-pt">
-        <div class="bubble mid" aria-hidden="true">
-          <svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M24 6l15 6v10c0 10-6.5 16.5-15 20-8.5-3.5-15-10-15-20V12z"/><path d="M17 24l5 5 9-10" stroke-linecap="round"/></svg>
+        <figcaption><b>1</b> You ask your AI<small>Claude, ChatGPT, or any MCP app</small></figcaption>
+      </figure>
+      <div class="wire2" aria-hidden="true"><i></i></div>
+      <figure class="pane">
+        <div class="pane-bar" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span>your relay</div>
+        <ol class="steps2" aria-hidden="true">
+          <li><span>→</span>open Settings</li>
+          <li><span>→</span>tap “Do Not Disturb”</li>
+          <li><span>→</span>read the screen</li>
+          <li class="ok"><span>←</span>done · 2.4 s</li>
+        </ol>
+        <figcaption><b>2</b> Your relay passes it on<small>runs in your own Vercel account</small></figcaption>
+      </figure>
+      <div class="wire2" aria-hidden="true"><i></i></div>
+      <figure class="pane">
+        <div class="pane-bar" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span>your phone</div>
+        <div class="mini" aria-hidden="true">
+          <p class="mini-h">Settings</p>
+          <p class="mini-row">Wi-Fi<i class="t on"></i></p>
+          <p class="mini-row hit">Do Not Disturb<i class="t dnd"></i></p>
+          <p class="mini-row">Bluetooth<i class="t"></i></p>
+          <svg class="ptr" width="16" height="16" viewBox="0 0 24 24"><path d="M4 3l15 7-6.5 2L10 19z" fill="#ff6a3d" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
         </div>
-        <h3>Your relay passes it on</h3>
-        <p>It's yours. No one else sees it.</p>
-        <small>gateway · your Vercel or server</small>
-      </div>
-      <div class="pipe" aria-hidden="true"><i class="pkt"></i><i class="pkt back"></i></div>
-      <div class="stop-pt">
-        <div class="bubble" aria-hidden="true">
-          <svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><rect x="13" y="4" width="22" height="40" rx="4"/><circle class="tapdot" cx="24" cy="24" r="3.5" fill="currentColor" stroke="none"/></svg>
-        </div>
-        <h3>Your phone does it</h3>
-        <p>Taps, types, scrolls. Then says “done”.</p>
-        <small>Latch app · Android</small>
-      </div>
+        <figcaption><b>3</b> Your phone does it<small>the Latch app, Android 11+</small></figcaption>
+      </figure>
     </div>
   </section>
 
   <section id="features" class="section">
-    <div class="sec-head"><p class="label"><span>02</span> What you get</p><h2>Help from AI. Control stays with you.</h2></div>
+    <div class="sec-head"><p class="label"><span>02</span> What you get</p><h2>What you control.</h2></div>
     <div class="tiles">
       <article class="tile">
         <div class="viz" aria-hidden="true">
@@ -215,13 +221,13 @@
       <article class="tile">
         <div class="viz" aria-hidden="true"><span class="bigstop">■ Stop</span></div>
         <h3>One tap stops it</h3>
-        <p>Always on screen. Sessions also end by themselves.</p>
+        <p>It stays on screen. Sessions also end on their own.</p>
       </article>
       <article class="tile">
         <div class="viz" aria-hidden="true">
           <div class="ask"><p>Pay ₹499 for this order?</p><span class="no">Don't allow</span><span class="yes">Allow</span></div>
         </div>
-        <h3>Big moves ask you</h3>
+        <h3>Big steps ask you first</h3>
         <p>Payments, installs, and permissions wait for your OK.</p>
       </article>
       <article class="tile">
@@ -253,7 +259,7 @@
   </section>
 
   <section id="safety" class="section">
-    <div class="sec-head"><p class="label"><span>03</span> Safety</p><h2>Clear limits. Built in.</h2></div>
+    <div class="sec-head"><p class="label"><span>03</span> Safety</p><h2>Some things stay off limits.</h2></div>
     <div class="rules">
       <div class="rule can">
         <p class="rule-h">With your OK, the AI can</p>
@@ -283,25 +289,31 @@
   </section>
 
   <section id="setup" class="section">
-    <div class="sec-head"><p class="label"><span>04</span> Setup</p><h2>Ready in about five minutes.</h2></div>
-    <ol class="path">
-      <li>
-        <div class="viz sm" aria-hidden="true"><svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="13" y="4" width="22" height="40" rx="4"/><path class="drop" d="M24 14v14m-6-6l6 6 6-6"/></svg></div>
-        <span class="n">1</span><h3>Install the app</h3>
-        <p><a href="https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk">Get the Android beta</a>.</p>
+    <div class="sec-head"><p class="label"><span>04</span> Setup</p><h2>Set up once. About five minutes.</h2></div>
+    <ol class="build">
+      <li class="b1">
+        <div class="stage" aria-hidden="true">
+          <div class="inst"><b>Latch</b><span class="prog"><i></i></span><em>Installed</em></div>
+        </div>
+        <h3><span class="n">1</span>Install the app</h3>
+        <p><a href="https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk">Download the APK</a> and open it.</p>
       </li>
-      <li>
-        <div class="viz sm" aria-hidden="true"><svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M14 36h22a8 8 0 0 0 0-16 11 11 0 0 0-21-2 9 9 0 0 0-1 18z"/><path class="rise" d="M24 32V20m-5 5l5-5 5 5" stroke-linecap="round"/></svg></div>
-        <span class="n">2</span><h3>Make your relay</h3>
-        <p>The app opens Vercel. Tap Deploy. Free.</p>
+      <li class="b2">
+        <div class="stage" aria-hidden="true">
+          <div class="deploy"><b>latch-gateway</b><span class="st"><i></i><span class="lbl"><em class="busy">Building</em><em class="ready">Ready</em></span></span></div>
+        </div>
+        <h3><span class="n">2</span>Make your relay</h3>
+        <p>Latch opens Vercel for you. Tap Deploy. It's free.</p>
       </li>
-      <li>
-        <div class="viz sm" aria-hidden="true"><svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M8 10h32v22H22l-9 7v-7H8z"/><path class="tick2" d="M17 21l5 5 9-9" stroke-linecap="round"/></svg></div>
-        <span class="n">3</span><h3>Connect your AI</h3>
-        <p>Paste one link. Approve it on your phone.</p>
+      <li class="b3">
+        <div class="stage" aria-hidden="true">
+          <div class="conn"><span class="url">https://you.vercel.app/mcp</span><em>Connected</em></div>
+        </div>
+        <h3><span class="n">3</span>Connect your AI</h3>
+        <p>Paste the link into your AI app. Approve it on your phone.</p>
       </li>
     </ol>
-    <a class="textlink" href="https://github.com/aspershupadhyay/latch#set-it-up-about-5-minutes">Step-by-step guide with pictures <span aria-hidden="true">→</span></a>
+    <a class="textlink" href="https://github.com/aspershupadhyay/latch#set-it-up-about-5-minutes">Full setup guide, with screenshots <span aria-hidden="true">→</span></a>
   </section>
 
   <section id="faq" class="section">
@@ -323,9 +335,9 @@
       <svg viewBox="0 0 24 24" width="120" height="120"><rect class="tile-bg" width="24" height="24" rx="6"/><path class="hook" d="M6.9 18.1V10.6a4.6 4.6 0 0 1 9.2 0v1.7" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle class="pin" cx="16.1" cy="16.6" r="2.3"/></svg>
       <span class="click">click</span>
     </div>
-    <h2>Give your AI a hand.<br><span class="accent">Keep the latch.</span></h2>
+    <h2>Let your AI help.<br><span class="accent">Keep the latch.</span></h2>
     <ul class="chips">
-      <li>Free &amp; open source</li><li>No Latch servers</li><li>Stop any time</li>
+      <li>Free &amp; open source</li><li>No Latch servers</li><li>Beta: still improving</li>
     </ul>
     <div class="cta">
       <a class="get" href="https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk">

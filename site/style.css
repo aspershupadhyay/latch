@@ -7,6 +7,7 @@
   --text: #ededef; --muted: #8b8b94; --dim: #5d5d66;
   --ember: #ff6a3d; --ember-ink: #c2532d; --green: #4ade80; --red: #ff5a5a;
   --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --display: "Space Grotesk", "Geist", ui-sans-serif, system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   /* One width for the navbar, every section, and the footer. */
   --w: min(1160px, calc(100% - 32px));
@@ -23,7 +24,7 @@ a:hover { text-decoration-color: var(--ember); }
 a:focus-visible, summary:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
 code { font-family: var(--mono); font-size: 0.86em; color: var(--green); }
 strong { color: var(--text); font-weight: 600; }
-h1, h2, h3 { font-weight: 600; letter-spacing: -0.035em; text-wrap: balance; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; }
 .skip { position: absolute; left: -9999px; top: 8px; background: var(--text); color: var(--bg); padding: 8px 14px; z-index: 10; }
 .skip:focus { left: 16px; }
 
@@ -78,9 +79,8 @@ main { width: var(--w); margin: 0 auto; border-left: 1px solid var(--line); bord
 .status { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 32px; font: 0.78rem var(--mono); color: var(--muted); text-transform: lowercase; }
 .status b { color: var(--dim); font-weight: 400; }
 .dot { width: 7px; height: 7px; background: var(--green); box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.15); }
-h1 { font-size: clamp(2.5rem, 4.7vw, 3.9rem); line-height: 0.98; letter-spacing: -0.05em; margin: 0 0 28px; }
+h1 { font-size: clamp(2.4rem, 4.4vw, 3.7rem); line-height: 1.02; letter-spacing: -0.04em; margin: 0 0 28px; }
 .accent { color: var(--ember); }
-h1 .accent { white-space: nowrap; }
 .caret { display: inline-block; width: 0.08em; height: 0.82em; margin-left: 0.08em; background: var(--ember); vertical-align: -0.04em; }
 .lead { font-size: 1.1rem; line-height: 1.65; color: var(--muted); max-width: 52ch; margin: 0 0 36px; }
 .lead em { color: var(--text); font-style: normal; }
@@ -161,22 +161,35 @@ h1 .accent { white-space: nowrap; }
 .section { padding: 96px 48px; border-bottom: 1px solid var(--line); }
 .sec-head { display: grid; grid-template-columns: 200px 1fr; gap: 24px; align-items: baseline; margin-bottom: 48px; }
 .sec-head .label { padding-top: 0.9em; }
-h2 { font-size: clamp(2rem, 4.2vw, 3.2rem); line-height: 1.02; letter-spacing: -0.045em; margin: 0; max-width: 18ch; }
+h2 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.05; letter-spacing: -0.035em; margin: 0; max-width: 18ch; }
 h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
 .section p { color: var(--muted); }
 
-/* How it works: a three-stop map; a request travels right, "done" comes back. */
-.map { display: grid; grid-template-columns: 1fr 120px 1fr 120px 1fr; align-items: start; }
-.stop-pt { text-align: center; padding: 8px 8px 0; }
-.stop-pt h3 { margin: 18px 0 6px; font-size: 1.15rem; }
-.stop-pt p { margin: 0 0 10px; color: var(--text) !important; font-size: 1rem; }
-.stop-pt small { font: 0.7rem var(--mono); color: var(--dim); letter-spacing: 0.02em; }
-.bubble { width: 88px; height: 88px; margin: 0 auto; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 24px;
-  background: var(--bg-2); color: var(--text); position: relative; }
-.bubble.mid { color: var(--ember); border-color: rgba(255, 106, 61, 0.6); background: linear-gradient(180deg, rgba(255, 106, 61, 0.1), var(--bg-2)); }
-.pipe { position: relative; height: 2px; margin-top: 44px; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 12px); }
-.pkt { position: absolute; top: -4px; left: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--ember); box-shadow: 0 0 12px var(--ember); opacity: 0; }
-.pkt.back { background: var(--green); box-shadow: 0 0 12px var(--green); }
+/* How it works: one request played through the three parts, on a loop */
+.run { display: grid; grid-template-columns: 1fr 56px 1fr 56px 1fr; align-items: start; }
+.pane { margin: 0; min-width: 0; }
+.pane > :not(.pane-bar):not(figcaption) { height: 196px; border: 1px solid var(--line-2); border-top: 0; border-radius: 0 0 14px 14px; background: var(--bg-2); padding: 16px; position: relative; overflow: hidden; }
+.pane-bar { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line-2); border-radius: 14px 14px 0 0; background: var(--panel); font: 0.7rem var(--mono); color: var(--muted); }
+.pane figcaption { margin-top: 16px; font: 600 1.05rem var(--display); letter-spacing: -0.01em; }
+.pane figcaption b { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px; border-radius: 50%; background: var(--ember); color: #0a0a0a; font: 600 0.72rem var(--mono); vertical-align: 2px; }
+.pane figcaption small { display: block; margin-top: 4px; font: 0.74rem var(--mono); color: var(--dim); letter-spacing: 0; }
+.chat { display: grid; align-content: start; gap: 10px; }
+.chat p { margin: 0; max-width: 85%; padding: 8px 12px; border-radius: 14px; font-size: 0.86rem; color: var(--text) !important; }
+.chat .me { justify-self: end; background: var(--ember); color: #140803 !important; border-bottom-right-radius: 4px; }
+.chat .ai { justify-self: start; background: #1d1d24; border-bottom-left-radius: 4px; grid-row: 2; grid-column: 1; }
+.chat .think { opacity: 0; color: var(--muted) !important; }
+.steps2 { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; font: 0.8rem var(--mono); color: var(--text); }
+.steps2 span { color: var(--ember); margin-right: 8px; }
+.steps2 .ok, .steps2 .ok span { color: var(--green); }
+.mini-h { margin: 0 0 12px; font: 600 0.95rem var(--display); color: var(--text) !important; }
+.mini-row { display: flex; align-items: center; margin: 0 0 8px; padding: 9px 10px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); font-size: 0.84rem; color: var(--text) !important; }
+.t { margin-left: auto; flex: none; width: 30px; height: 17px; border-radius: 9px; background: var(--line-2); position: relative; }
+.t::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #d6d6dc; }
+.t.on, .t.dnd { background: var(--green); }
+.t.on::after, .t.dnd::after { transform: translateX(13px); }
+.ptr { position: absolute; right: 26px; top: 108px; }
+.wire2 { position: relative; height: 2px; margin-top: 126px; background: repeating-linear-gradient(90deg, var(--line-2) 0 5px, transparent 5px 10px); }
+.wire2 i { position: absolute; top: -4px; left: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--ember); box-shadow: 0 0 10px var(--ember); opacity: 0; }
 
 /* What you get: tiles that each show their idea in a small moving picture. */
 .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
@@ -230,13 +243,26 @@ h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
 .textlink span { transition: transform 0.15s; }
 .textlink:hover span { transform: translateX(3px); }
 
-/* Setup: three steps joined by a line that fills in */
-.path { list-style: none; margin: 0 0 32px; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; position: relative; }
-.path::before { content: ""; position: absolute; left: 48px; right: 33%; top: 48px; height: 2px; background: var(--line-2); z-index: -1; }
-.path li { position: relative; }
-.path .n { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-bottom: 10px; border-radius: 50%; background: var(--ember); color: #0a0a0a; font: 600 0.8rem var(--mono); }
-.path h3 { margin-bottom: 4px; }
-.path p { margin: 0; }
+/* Setup: each card plays its step in turn: install, deploy, connect */
+.build { list-style: none; margin: 0 0 32px; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.build li { padding: 18px; border: 1px solid var(--line-2); border-radius: 16px; background: var(--bg-2); }
+.build h3 { display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; }
+.build p { margin: 0; font-size: 0.95rem; }
+.build .n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--ember); color: #0a0a0a; font: 600 0.75rem var(--mono); }
+.stage { height: 112px; display: grid; place-items: center; border-radius: 12px; border: 1px solid var(--line); background: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0) 0 0 / 14px 14px, var(--bg); }
+.inst, .deploy, .conn { width: 86%; display: grid; gap: 8px; padding: 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2); font-size: 0.82rem; }
+.inst b, .deploy b { font: 600 0.82rem var(--mono); }
+.prog { height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+.prog i { display: block; height: 100%; width: 100%; background: var(--ember); }
+.inst em, .conn em { font: 600 0.72rem var(--mono); color: var(--green); }
+.deploy .st { display: flex; align-items: center; gap: 8px; font: 0.74rem var(--mono); }
+.deploy .st i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+.deploy em { font-style: normal; }
+.lbl { display: grid; }
+.lbl em { grid-area: 1 / 1; }
+.deploy .busy { opacity: 0; color: #f2b14c; }
+.deploy .ready { color: var(--green); }
+.url { display: block; overflow: hidden; white-space: nowrap; width: 26ch; max-width: 100%; font: 0.74rem var(--mono); color: var(--text); padding: 6px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); box-sizing: content-box; }
 
 /* FAQ */
 .faq { border-top: 1px solid var(--line); max-width: 880px; margin-left: 224px; }
@@ -275,6 +301,52 @@ h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
   .card { animation: pop 6s ease-in-out infinite; }
   .card-b .on { animation: press 6s ease-in-out infinite; }
   .gate svg { animation: glow 4s ease-in-out infinite; }
+  /* How it works: an 8-second run-through */
+  .chat .me { animation: s3 8s ease-out infinite; }
+  .chat .think { animation: think 8s ease-out infinite; }
+  .chat .think span { animation: blink 0.8s steps(1) infinite; }
+  .chat .done { animation: s62 8s ease-out infinite; }
+  .steps2 li:nth-child(1) { animation: s20 8s ease-out infinite; }
+  .steps2 li:nth-child(2) { animation: s32 8s ease-out infinite; }
+  .steps2 li:nth-child(3) { animation: s44 8s ease-out infinite; }
+  .steps2 li:nth-child(4) { animation: s56 8s ease-out infinite; }
+  .run > .wire2:nth-child(2) i { animation: w1 8s linear infinite; }
+  .run > .wire2:nth-child(4) i { animation: w2 8s linear infinite; }
+  .ptr { animation: ptr 8s ease-in-out infinite; }
+  .t.dnd { animation: tog 8s steps(1) infinite; }
+  .t.dnd::after { animation: knob2 8s steps(1) infinite; }
+  @keyframes think { 0%, 9% { opacity: 0; } 11%, 59% { opacity: 1; } 61%, 100% { opacity: 0; } }
+  @keyframes w1 { 0%, 10% { left: 0; opacity: 0; } 12% { opacity: 1; } 20% { left: calc(100% - 10px); opacity: 1; } 22% { opacity: 0; } 58% { left: calc(100% - 10px); opacity: 0; background: var(--green); box-shadow: 0 0 10px var(--green); } 60% { opacity: 1; background: var(--green); box-shadow: 0 0 10px var(--green); } 66% { left: 0; opacity: 1; background: var(--green); box-shadow: 0 0 10px var(--green); } 68%, 100% { left: 0; opacity: 0; } }
+  @keyframes w2 { 0%, 22% { left: 0; opacity: 0; } 24% { opacity: 1; } 30% { left: calc(100% - 10px); opacity: 1; } 32% { opacity: 0; } 50% { left: calc(100% - 10px); opacity: 0; background: var(--green); box-shadow: 0 0 10px var(--green); } 52% { opacity: 1; background: var(--green); box-shadow: 0 0 10px var(--green); } 57% { left: 0; opacity: 1; background: var(--green); box-shadow: 0 0 10px var(--green); } 59%, 100% { left: 0; opacity: 0; } }
+  @keyframes ptr { 0%, 28% { transform: translate(-90px, 60px); opacity: 0; } 31% { opacity: 1; } 38% { transform: none; } 40% { transform: scale(0.8); } 42%, 90% { transform: none; opacity: 1; } 95%, 100% { opacity: 0; } }
+  @keyframes tog { 0% { background: var(--line-2); } 41% { background: var(--green); } 96% { background: var(--line-2); } }
+  @keyframes knob2 { 0% { transform: none; } 41% { transform: translateX(13px); } 96% { transform: none; } }
+  /* Setup: a 9-second loop, one card after another */
+  .b2 { animation: dim2 9s steps(1) infinite; }
+  .b3 { animation: dim3 9s steps(1) infinite; }
+  .prog i { animation: barfill 9s ease-in-out infinite; }
+  .inst em { animation: s27 9s ease-out infinite; }
+  .deploy .busy { animation: busy 9s steps(1) infinite; }
+  .deploy .ready { animation: ready 9s steps(1) infinite; }
+  .deploy .st i { animation: lamp 9s steps(1) infinite; }
+  .url { animation: typeurl 9s steps(26) infinite; }
+  .conn em { animation: s88 9s ease-out infinite; }
+  @keyframes dim2 { 0% { opacity: 0.4; } 33% { opacity: 1; } 97% { opacity: 0.4; } }
+  @keyframes dim3 { 0% { opacity: 0.4; } 66% { opacity: 1; } 97% { opacity: 0.4; } }
+  @keyframes barfill { 0%, 3% { width: 0; } 24%, 95% { width: 100%; } 100% { width: 0; } }
+  @keyframes busy { 0% { opacity: 0; } 35% { opacity: 1; } 56% { opacity: 0; } }
+  @keyframes ready { 0% { opacity: 0; } 56% { opacity: 1; } 97% { opacity: 0; } }
+  @keyframes lamp { 0% { background: var(--line-2); } 35% { background: #f2b14c; } 56% { background: var(--green); } 97% { background: var(--line-2); } }
+  @keyframes typeurl { 0%, 68% { width: 0; } 84%, 96% { width: 26ch; } 100% { width: 0; } }
+  @keyframes s3 { 0%, 2% { opacity: 0; transform: translateY(5px); } 4%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+  @keyframes s20 { 0%, 19% { opacity: 0; transform: translateY(5px); } 21%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+  @keyframes s32 { 0%, 31% { opacity: 0; transform: translateY(5px); } 33%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+  @keyframes s44 { 0%, 43% { opacity: 0; transform: translateY(5px); } 45%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+  @keyframes s56 { 0%, 55% { opacity: 0; transform: translateY(5px); } 57%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+  @keyframes s62 { 0%, 61% { opacity: 0; transform: translateY(5px); } 63%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+  @keyframes s27 { 0%, 26% { opacity: 0; transform: translateY(5px); } 28%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+  @keyframes s88 { 0%, 87% { opacity: 0; transform: translateY(5px); } 89%, 91% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+
   .snap .hook { stroke-dasharray: 20; animation: hookdraw 4s cubic-bezier(0.6, 0, 0.3, 1) infinite; }
   .snap .pin { transform-origin: 16.1px 16.6px; animation: pindrop 4s cubic-bezier(0.3, 1.5, 0.5, 1) infinite; }
   .snap svg { animation: thunk 4s ease-out infinite; }
@@ -283,12 +355,6 @@ h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
   @keyframes pindrop { 0%, 30% { transform: translateY(-14px) scale(0); } 42%, 88% { transform: none; } 100% { transform: translateY(-14px) scale(0); } }
   @keyframes thunk { 0%, 40% { transform: none; } 44% { transform: scale(0.94); } 50%, 100% { transform: none; } }
   @keyframes clickfx { 0%, 40% { opacity: 0; transform: translateY(4px); } 46%, 70% { opacity: 1; transform: none; } 80%, 100% { opacity: 0; } }
-  .pipe .pkt { animation: go 4s ease-in-out infinite; }
-  .pipe + .stop-pt + .pipe .pkt { animation-delay: 0.8s; }
-  .pipe .pkt.back { animation-name: back; }
-  .bubble.mid { animation: glow 4s ease-in-out infinite 0.6s; }
-  .typing { animation: blink 1.2s steps(1) infinite; }
-  .tapdot { animation: tap 4s ease-in-out infinite; transform-origin: 24px 24px; }
   .sw.flip { animation: flip 4s ease-in-out infinite; }
   .sw.flip::after { animation: knob 4s ease-in-out infinite; }
   .bigstop::after { animation: ring 2s ease-out infinite; }
@@ -298,24 +364,13 @@ h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
   .log li:nth-child(3) { animation-delay: 1.2s; }
   .lane .file { animation: carry 3.2s ease-in-out infinite; }
   .replay svg { animation: spin 3s linear infinite; }
-  .drop { animation: drop 2s ease-in-out infinite; }
-  .rise { animation: rise 2s ease-in-out infinite; }
-  .tick2 { stroke-dasharray: 22; animation: draw 2.4s ease-in-out infinite; }
-  .path::before { background: linear-gradient(90deg, var(--ember) 0 50%, var(--line-2) 50%) 100% 0 / 200% 100%; animation: fill 6s ease-in-out infinite; }
-  @keyframes go { 0% { left: 0; opacity: 0; } 8% { opacity: 1; } 42% { left: calc(100% - 10px); opacity: 1; } 48%, 100% { left: calc(100% - 10px); opacity: 0; } }
-  @keyframes back { 0%, 52% { left: calc(100% - 10px); opacity: 0; } 58% { opacity: 1; } 92% { left: 0; opacity: 1; } 100% { left: 0; opacity: 0; } }
   @keyframes glow { 0%, 100% { box-shadow: none; } 45% { box-shadow: 0 0 0 6px rgba(255, 106, 61, 0.12); } }
-  @keyframes tap { 0%, 40%, 100% { transform: scale(0); } 50% { transform: scale(1.4); } 60% { transform: scale(1); } 80% { transform: scale(1); } }
   @keyframes flip { 0%, 35% { background: var(--line-2); } 45%, 85% { background: var(--green); } 95%, 100% { background: var(--line-2); } }
   @keyframes knob { 0%, 35% { transform: none; } 45%, 85% { transform: translateX(13px); } 95%, 100% { transform: none; } }
   @keyframes ring { 0% { opacity: 0.8; transform: scale(0.9); } 100% { opacity: 0; transform: scale(1.25); } }
   @keyframes rowin { 0% { opacity: 0; transform: translateY(6px); } 10%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
   @keyframes carry { 0% { left: 36px; } 45%, 55% { left: calc(100% - 68px); } 100% { left: 36px; } }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes drop { 0%, 100% { transform: translateY(-3px); } 50% { transform: translateY(3px); } }
-  @keyframes rise { 0%, 100% { transform: translateY(3px); } 50% { transform: translateY(-3px); } }
-  @keyframes draw { 0% { stroke-dashoffset: 22; } 40%, 100% { stroke-dashoffset: 0; } }
-  @keyframes fill { 0% { background-position: 100% 0; } 70%, 100% { background-position: 0 0; } }
   .calls li { animation: line 6s steps(1) infinite both; }
   .calls li:nth-child(2) { animation-name: line2; }
   .calls li:nth-child(3) { animation-name: line3; }
@@ -334,6 +389,7 @@ h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
 }
 
 @media (max-width: 1020px) {
+  .run { grid-template-columns: 1fr 24px 1fr 24px 1fr; }
   .tiles { grid-template-columns: 1fr 1fr; }
   .hero { grid-template-columns: 1fr; }
   .hero-copy { border-right: 0; border-bottom: 1px solid var(--line); padding: 72px 32px 56px; }
@@ -349,6 +405,9 @@ h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
   .spec div:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
 }
 @media (max-width: 760px) {
+  .run { grid-template-columns: 1fr; gap: 28px; }
+  .wire2 { display: none; }
+  .build { grid-template-columns: 1fr; }
   .nav nav { display: none; }
 }
 @media (max-width: 760px) {
@@ -356,18 +415,9 @@ h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: -0.02em; }
   .gate { height: 64px; }
   .gate::before { top: 0; bottom: 0; }
   .click { display: none; }
-  .map { grid-template-columns: 1fr; gap: 0; }
-  .pipe { width: 2px; height: 56px; margin: 12px auto; background: repeating-linear-gradient(180deg, var(--line-2) 0 6px, transparent 6px 12px); }
-  .pkt { left: -4px !important; animation-name: godown !important; }
-  .pkt.back { animation-name: backup !important; }
-  .path { grid-template-columns: 1fr; }
-  .path::before { display: none; }
   .tiles { grid-template-columns: 1fr; }
 }
-@media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
-  @keyframes godown { 0% { top: 0; opacity: 0; } 8% { opacity: 1; } 42% { top: calc(100% - 10px); opacity: 1; } 48%, 100% { top: calc(100% - 10px); opacity: 0; } }
-  @keyframes backup { 0%, 52% { top: calc(100% - 10px); opacity: 0; } 58% { opacity: 1; } 92% { top: 0; opacity: 1; } 100% { top: 0; opacity: 0; } }
-}
+
 @media (max-width: 640px) {
   main { border-left: 0; border-right: 0; }
   .hero-copy { padding: 56px 0 44px; }
