@@ -20,6 +20,8 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 const ACCESS_TTL_S = 3600;
 const REFRESH_TTL_MS = 90 * 24 * 3600 * 1000;
 const MAX_REGISTERED = 200;
+/** Keeps a flood of registrations from pushing out an app that is signing in right now. */
+const MAX_REGISTRATIONS_PER_MINUTE = 30;
 const MAX_PENDING = 10;
 
 const K = {
@@ -124,8 +126,17 @@ export class OAuth {
     if (method !== undefined && method !== "none") {
       return oauthError(400, "invalid_client_metadata", "only public clients are supported (token_endpoint_auth_method: none)");
     }
-    const all = await this.store.hgetall(K.clients);
-    if (Object.keys(all).length >= MAX_REGISTERED) return oauthError(429, "temporarily_unavailable", "too many registered clients");
+    const minute = `latch:oauth:regs:${Math.floor(Date.now() / 60_000)}`;
+    if ((await this.store.incr(minute, 120_000)) > MAX_REGISTRATIONS_PER_MINUTE) {
+      return oauthError(429, "temporarily_unavailable", "too many registrations; try again in a minute");
+    }
+    // Registration is open to anyone, so a full list must not lock new apps out
+    // for good: the oldest registrations make room. An app that loses its
+    // registration registers again; approved apps keep their tokens.
+    const all = Object.entries(await this.store.hgetall(K.clients))
+      .map(([id, raw]) => ({ id, at: (JSON.parse(raw) as RegisteredClient).created_at_ms }))
+      .sort((a, b) => a.at - b.at);
+    for (const old of all.slice(0, Math.max(0, all.length - MAX_REGISTERED + 1))) await this.store.hdel(K.clients, old.id);
     const client: RegisteredClient = {
       client_id: newId("lc"),
       client_name: cleanName(body.client_name),
@@ -387,12 +398,15 @@ export function matchRedirect(registered: string[], requested: string): string |
   return undefined;
 }
 
-function isPublicHttps(url: string): boolean {
+export function isPublicHttps(url: string): boolean {
   try {
     const u = new URL(url);
     if (u.protocol !== "https:" || u.username || u.password || u.port) return false;
     const h = u.hostname;
-    return !(LOOPBACK.has(h) || h.endsWith(".local") || h.endsWith(".internal") || /^(10|127|169\.254|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(h) || h.includes(":"));
+    const host = h.replace(/\.$/, "");
+    // Literal private, loopback, link-local, carrier NAT, and "this network" addresses, and IPv6 literals.
+    const privateV4 = /^(0|10|127|169\.254|192\.168|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./;
+    return !(LOOPBACK.has(host) || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || privateV4.test(host) || h.includes(":") || h.startsWith("["));
   } catch {
     return false;
   }

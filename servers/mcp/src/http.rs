@@ -224,10 +224,13 @@ async fn link_upload(
             );
         }
     };
-    let failed = |status: StatusCode, message: &str| {
-        let _ = std::fs::remove_file(&path);
-        error(status, message)
+    // Released on every way out but success, including a dropped connection.
+    let mut claim = UploadClaim {
+        links: &state.links,
+        token: &token,
+        done: false,
     };
+    let failed = |status: StatusCode, message: &str| error(status, message);
     let Ok(mut file) = tokio::fs::File::create(&path).await else {
         return failed(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -242,7 +245,6 @@ async fn link_upload(
         };
         size += chunk.len() as u64;
         if size > state.links.max_bytes {
-            let _ = std::fs::remove_file(&path);
             return too_large();
         }
         if file.write_all(&chunk).await.is_err() {
@@ -256,11 +258,29 @@ async fn link_upload(
         return failed(StatusCode::BAD_REQUEST, "the upload was incomplete");
     }
     match state.links.finish_upload(&token, size) {
-        Ok(()) => Json(json!({ "ok": true })).into_response(),
-        Err(_) => failed(
+        Ok(()) => {
+            claim.done = true;
+            Json(json!({ "ok": true })).into_response()
+        }
+        Err(_) => error(
             StatusCode::CONFLICT,
             "this link was already used; ask for a new one",
         ),
+    }
+}
+
+/// An upload in progress; dropping it unfinished frees the link and its space.
+struct UploadClaim<'a> {
+    links: &'a crate::links::Links,
+    token: &'a str,
+    done: bool,
+}
+
+impl Drop for UploadClaim<'_> {
+    fn drop(&mut self) {
+        if !self.done {
+            self.links.abort_upload(self.token);
+        }
     }
 }
 

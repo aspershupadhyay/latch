@@ -25,8 +25,15 @@ export function bearer(header: string | null): string | undefined {
 
 /** Pairing codes avoid 0/O and 1/I/L: people type them on phones. */
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-export function pairingCode(): string {
-  const bytes = randomBytes(8);
-  return [...bytes].map((b) => ALPHABET[b % ALPHABET.length]).join("");
+/** Rejection sampling: `byte % 31` would make some letters likelier than others. */
+export function pairingCode(length = 8): string {
+  const limit = 256 - (256 % ALPHABET.length);
+  let code = "";
+  while (code.length < length) {
+    for (const b of randomBytes(length * 2)) {
+      if (b < limit && code.length < length) code += ALPHABET[b % ALPHABET.length];
+    }
+  }
+  return code;
 }
 export const normalizeCode = (code: string) => code.replace(/[^A-Za-z0-9]/g, "").toUpperCase();

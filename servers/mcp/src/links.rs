@@ -39,6 +39,9 @@ pub struct Record {
     pub expires_ms: u64,
     /// Bytes on disk, once something was uploaded.
     pub size: Option<u64>,
+    /// Bytes held for an upload that is still arriving: only one upload at a
+    /// time, and it counts against the disk limit before it is finished.
+    pub reserved: Option<u64>,
     /// An upload was handed to a phone (each upload is saved once).
     pub used: bool,
     /// Phone side of a running transfer, for `transfer_status`.
@@ -136,6 +139,7 @@ impl Links {
             iv_hex: secret::hex(&secret::random_bytes::<16>()),
             expires_ms: now_ms() + LINK_TTL_MS,
             size: None,
+            reserved: None,
             used: false,
             device: None,
             transfer: None,
@@ -185,22 +189,49 @@ impl Links {
     }
 
     /// Checks that `token` may receive `declared` bytes; returns the file to write.
+    ///
+    /// Claims the link: a second upload to it while the first still runs is
+    /// refused, so two writers never share one file. An upload without a
+    /// declared length holds the link's whole limit until it finishes.
     pub fn begin_upload(&self, token: &str, declared: Option<u64>) -> Result<PathBuf, LinkError> {
         self.collect();
-        let record = self.record(token).ok_or(LinkError::Unknown)?;
-        if record.size.is_some() || record.used {
-            return Err(LinkError::Used);
-        }
         if declared.is_some_and(|n| n > self.max_bytes) {
             return Err(LinkError::TooLarge);
         }
-        let used: u64 = self.lock().values().filter_map(|r| r.size).sum();
-        if used + declared.unwrap_or(0) > self.max_total_bytes {
-            return Err(LinkError::Full);
+        let now = now_ms();
+        {
+            let mut records = self.lock();
+            let held: u64 = records
+                .values()
+                .map(|r| r.size.unwrap_or(0) + r.reserved.unwrap_or(0))
+                .sum();
+            let record = records
+                .get_mut(token)
+                .filter(|r| Self::valid(token) && r.expires_ms > now)
+                .ok_or(LinkError::Unknown)?;
+            if record.size.is_some() || record.used || record.reserved.is_some() {
+                return Err(LinkError::Used);
+            }
+            let want = declared.unwrap_or(self.max_bytes);
+            if held.saturating_add(want) > self.max_total_bytes {
+                return Err(LinkError::Full);
+            }
+            record.reserved = Some(want);
         }
-        std::fs::create_dir_all(&self.dir).map_err(|_| LinkError::Io)?;
+        if std::fs::create_dir_all(&self.dir).is_err() {
+            self.abort_upload(token);
+            return Err(LinkError::Io);
+        }
         restrict(&self.dir);
         Ok(self.path(token))
+    }
+
+    /// Releases the claim of an upload that failed, so the link can be tried again.
+    pub fn abort_upload(&self, token: &str) {
+        let _ = std::fs::remove_file(self.path(token));
+        if let Some(r) = self.lock().get_mut(token) {
+            r.reserved = None;
+        }
     }
 
     /// Records a finished upload of `size` bytes.
@@ -210,6 +241,7 @@ impl Links {
         if record.size.is_some() {
             return Err(LinkError::Used);
         }
+        record.reserved = None;
         record.size = Some(size);
         Ok(())
     }
@@ -259,5 +291,26 @@ mod tests {
             Err(LinkError::Unknown)
         );
         assert!(links.record("ltr_nope").is_none());
+    }
+
+    #[test]
+    fn one_upload_at_a_time_and_space_is_held_while_it_runs() {
+        let links = Links::new(10);
+        let (a, _) = links.create(Kind::Up);
+        let (b, _) = links.create(Kind::Up);
+        let (c, _) = links.create(Kind::Up);
+        // Without a declared length an upload holds the whole per-link limit.
+        assert!(links.begin_upload(&a, None).is_ok());
+        assert_eq!(links.begin_upload(&a, Some(1)), Err(LinkError::Used));
+        assert!(links.begin_upload(&b, Some(10)).is_ok());
+        assert!(links.begin_upload(&c, Some(10)).is_ok());
+        let (d, _) = links.create(Kind::Up);
+        assert!(links.begin_upload(&d, Some(10)).is_ok());
+        let (e, _) = links.create(Kind::Up);
+        assert_eq!(links.begin_upload(&e, Some(1)), Err(LinkError::Full));
+        // A failed upload frees the link and its space.
+        links.abort_upload(&a);
+        assert!(links.begin_upload(&e, Some(1)).is_ok());
+        assert!(links.begin_upload(&a, Some(1)).is_ok());
     }
 }

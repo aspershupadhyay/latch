@@ -89,11 +89,19 @@ export class Transfers {
   }
 
   /** "ok", or why not. Each upload link is filled once. */
+  /** True when `token` is an upload link that still takes a file (checked before reading a body). */
+  async uploadOpen(token: string): Promise<boolean> {
+    const meta = await this.meta(token);
+    return meta?.kind === "upload" && meta.parts === undefined;
+  }
+
   async putUpload(token: string, bytes: Buffer): Promise<"ok" | "too_large" | "used" | "unknown"> {
     if (bytes.length > MAX_TRANSFER_BYTES) return "too_large";
     const meta = await this.meta(token);
     if (meta?.kind !== "upload") return "unknown";
     if (meta.parts !== undefined) return "used";
+    // Two uploads at once to one link: only the first may write.
+    if (!(await this.store.set(`${metaKey(token)}:claim`, "1", { px: LINK_TTL_MS, nx: true }))) return "used";
     await this.putBytes(token, { kind: "upload" }, bytes);
     return "ok";
   }
