@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Latch: let AI use your Android phone, safely</title>
-<meta name="description" content="Free, open-source Android app that lets Claude, ChatGPT, Cursor, or any MCP AI see your screen and tap for you. Your gateway, your apps, your Stop button.">
+<meta name="description" content="Free, open-source Android app. Claude, ChatGPT, Cursor, or a different MCP AI sees your screen and taps for you. You own the gateway and the Stop button.">
 <link rel="canonical" href="https://aspershupadhyay.github.io/latch/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#09090b">
@@ -18,14 +18,14 @@
 <meta property="og:site_name" content="Latch">
 <meta property="og:url" content="https://aspershupadhyay.github.io/latch/">
 <meta property="og:title" content="Latch: let AI use your phone, on your terms">
-<meta property="og:description" content="Open-source Android app that lets any MCP AI (Claude, ChatGPT, Cursor…) see your screen and tap for you. Your gateway, your apps, your Stop button.">
+<meta property="og:description" content="Open-source Android app. Claude, ChatGPT, Cursor, or a different MCP AI sees your screen and taps for you. You own the gateway and the Stop button.">
 <meta property="og:image" content="https://aspershupadhyay.github.io/latch/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Latch: let AI use your phone, on your terms.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Latch: let AI use your phone, on your terms">
-<meta name="twitter:description" content="Open-source Android app that lets any MCP AI see your screen and tap for you. Your gateway, your apps, your Stop button.">
+<meta name="twitter:description" content="Open-source Android app. An MCP AI sees your screen and taps for you. You own the gateway and the Stop button.">
 <meta name="twitter:image" content="https://aspershupadhyay.github.io/latch/og.png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -54,13 +54,14 @@
     {
       "@type": "FAQPage",
       "mainEntity": [
-        { "@type": "Question", "name": "Is Latch free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Latch is free, open-source software under the GNU AGPL-3.0. The gateway runs on a free Vercel Hobby account with a free Upstash Redis database, or on any server you own." } },
-        { "@type": "Question", "name": "Which AI apps work with Latch?", "acceptedAnswer": { "@type": "Answer", "text": "Any app that supports the Model Context Protocol (MCP) with remote servers: Claude, ChatGPT, Codex, Cursor, VS Code, Windsurf, or your own agent. Most sign in with only the URL; others use a key from the Latch app." } },
-        { "@type": "Question", "name": "Does my screen go to a Latch company server?", "acceptedAnswer": { "@type": "Answer", "text": "No. There is no Latch server in the middle. Your phone talks to your own gateway, in your own Vercel account or on your own hardware." } },
-        { "@type": "Question", "name": "Can the AI type my passwords or one-time codes?", "acceptedAnswer": { "@type": "Answer", "text": "No. Latch refuses password, PIN, one-time-code, and payment fields. When a step needs one, the AI asks you to do it on the phone." } },
-        { "@type": "Question", "name": "How do I stop the AI?", "acceptedAnswer": { "@type": "Answer", "text": "Tap the red Latch Stop button that stays on screen during every session. Sessions also end on their own after 15 to 120 minutes." } },
-        { "@type": "Question", "name": "Can I fork Latch or build my own version?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, under the GNU AGPL-3.0: you must publish your complete source code under the same license, keep the credit “Based on Latch by Aspersh Upadhyay”, mark it as modified, and use your own name and logo." } },
-        { "@type": "Question", "name": "Does Latch work on iPhone?", "acceptedAnswer": { "@type": "Answer", "text": "Not yet. iOS has no public way for one app to operate other apps, so an iOS companion will offer a smaller, honest set of features later." } }
+        { "@type": "Question", "name": "Is Latch free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Latch is free, open-source software (GNU AGPL-3.0). The gateway runs on a free Vercel account with a free Upstash Redis database, or on your own server." } },
+        { "@type": "Question", "name": "Which AI apps work with Latch?", "acceptedAnswer": { "@type": "Answer", "text": "Each app that supports remote MCP servers: Claude, ChatGPT, Codex, Cursor, VS Code, Windsurf, or your own agent. Most apps connect with the URL only. Other apps use a key from the Latch app." } },
+        { "@type": "Question", "name": "Does my screen go to a Latch company server?", "acceptedAnswer": { "@type": "Answer", "text": "No. Latch has no server between you and your AI. Your phone connects only to your own gateway." } },
+        { "@type": "Question", "name": "Can the AI type my passwords or one-time codes?", "acceptedAnswer": { "@type": "Answer", "text": "No. Latch refuses password, PIN, one-time code, and payment fields. For these steps, the AI asks you to do them on the phone." } },
+        { "@type": "Question", "name": "How do I stop the AI?", "acceptedAnswer": { "@type": "Answer", "text": "Tap the red Stop button. It stays on the screen during each session. Each session also stops after 15 to 120 minutes." } },
+        { "@type": "Question", "name": "How do I know if the AI or I did something?", "acceptedAnswer": { "@type": "Answer", "text": "Open Activity in the Latch app. Each line shows AI, You, or Latch. Your own taps during a session show as You." } },
+        { "@type": "Question", "name": "Can I fork Latch or build my own version?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, under the GNU AGPL-3.0. Publish all of your source code under the same license. Keep the credit “Based on Latch by Aspersh Upadhyay”. Mark your version as changed. Use your own name and logo." } },
+        { "@type": "Question", "name": "Does Latch work on iPhone?", "acceptedAnswer": { "@type": "Answer", "text": "Not yet. iOS does not let one app operate other apps. A smaller iOS app can come later." } }
       ]
     }
   ]
@@ -94,8 +95,8 @@
   <section class="hero">
     <div class="hero-copy">
       <p class="status"><span class="dot" aria-hidden="true"></span>open source <b>/</b> mcp <b>/</b> android</p>
-      <h1>Let AI use your phone.<br><span class="accent">On your terms<span class="caret" aria-hidden="true"></span></span></h1>
-      <p class="lead">Latch lets Claude, ChatGPT, Cursor, or any MCP AI see your Android screen and tap for you, through a gateway <em>you</em> own, only in apps <em>you</em> switch on, with a Stop button that never leaves the screen.</p>
+      <h1>Let AI use your phone.<br><span class="accent">You stay in control<span class="caret" aria-hidden="true"></span></span></h1>
+      <p class="lead">Latch lets an AI app see your Android screen and tap for you. <em>You</em> own the gateway. <em>You</em> choose the apps. <em>You</em> can stop it at any time.</p>
       <div class="cta">
         <a class="btn btn-primary" href="https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk">
           <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M12 4v11m0 0l-5-5m5 5l5-5M5 20h14"/></svg>
@@ -105,7 +106,7 @@
           Star on GitHub <span aria-hidden="true">↗</span>
         </a>
       </div>
-      <p class="fine"><span>$</span> latch-android.apk · early alpha, tested on real phones</p>
+      <p class="fine"><span>$</span> latch-android.apk · beta, tested on real phones</p>
     </div>
 
     <div class="hero-visual" aria-label="Example: you ask your AI to play music, and it works on your phone">
@@ -135,7 +136,7 @@
               <span class="app-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 17V5l11-2v12"/><circle cx="6.5" cy="17" r="2.5" fill="currentColor"/><circle cx="17.5" cy="15" r="2.5" fill="currentColor"/></svg></span>
               <div><p class="card-t">Let the AI use Spotify?</p><p class="card-src">latch · permission</p></div>
             </div>
-            <p class="card-s">It can see and tap only in apps you switch on.</p>
+            <p class="card-s">The AI can use only the apps that you switch on.</p>
             <div class="card-b">
               <span class="on"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Always</span>
               <span>This session</span><span>Not now</span>
@@ -172,87 +173,87 @@
   </section>
 
   <section id="how" class="section">
-    <div class="sec-head"><p class="label"><span>01</span> How it works</p><h2>Three pieces. You own all of them.</h2></div>
+    <div class="sec-head"><p class="label"><span>01</span> How it works</p><h2>Three parts. You own all three.</h2></div>
     <div class="flow">
-      <div class="node"><span class="n">[ client ]</span><h3>Your AI app</h3><p>Claude, ChatGPT, Cursor… Add one URL, approve it on your phone, done.</p></div>
+      <div class="node"><span class="n">[ client ]</span><h3>Your AI app</h3><p>Claude, ChatGPT, Cursor, or a different MCP app. Add one URL. Approve it on your phone.</p></div>
       <div class="link" aria-hidden="true"><span class="wire"><i></i></span><small>mcp</small></div>
-      <div class="node hl"><span class="n">[ gateway ]</span><h3>Your gateway</h3><p>A tiny server in <strong>your</strong> free Vercel account, or on your own hardware. No Latch company in the middle.</p></div>
+      <div class="node hl"><span class="n">[ gateway ]</span><h3>Your gateway</h3><p>A small server in <strong>your</strong> free Vercel account or on your own computer. No Latch company sees your data.</p></div>
       <div class="link rev" aria-hidden="true"><span class="wire"><i></i></span><small>dial-out</small></div>
-      <div class="node"><span class="n">[ device ]</span><h3>The Latch app</h3><p>On your Android phone. It dials out to your gateway, sees the screen, and taps, only while you run a session.</p></div>
+      <div class="node"><span class="n">[ device ]</span><h3>The Latch app</h3><p>It connects from your phone to your gateway. It reads the screen and taps only during a session that you start.</p></div>
     </div>
   </section>
 
   <section id="features" class="section">
-    <div class="sec-head"><p class="label"><span>02</span> Features</p><h2>Built for real tasks, not demos.</h2></div>
+    <div class="sec-head"><p class="label"><span>02</span> Features</p><h2>Made for real tasks.</h2></div>
     <div class="grid">
       <article class="cell c-full c-skill">
         <p class="tag">new · skills</p>
-        <h3>Do it once. Repeat it in one go, with whatever you need this time.</h3>
-        <p>Ask your AI to save a task as a skill. Bread and paneer today, ten other things tomorrow: the same skill fills a different cart, picks the <em>ADD</em> next to the right product even among look-alikes, skips pop-ups, and hands back anything that changed. Approvals still ask you.</p>
+        <h3>Do a task once. Do it again with one command.</h3>
+        <p>Tell your AI to save a task as a skill. Next time, give it new values, for example a different shopping list. Approvals still ask you.</p>
       </article>
       <article class="cell c-wide">
         <span class="idx">f.01</span>
         <h3>You choose the apps</h3>
-        <p>Switch apps on and the AI works there without nagging you. For anything else, your phone asks once: <em>Not now</em>, <em>This session</em>, or <em>Always</em>. Until you say yes, the AI can't even see that app.</p>
+        <p>Switch on an app, and the AI can use it. For a different app, the phone asks you first: <em>Not now</em>, <em>This session</em>, or <em>Always</em>. The AI cannot see an app until you say yes.</p>
       </article>
       <article class="cell">
         <span class="idx">f.02</span>
-        <h3>Stop is always one tap</h3>
-        <p>A red Stop button floats over every session. Sessions also end on their own after 15–120 minutes.</p>
+        <h3>Stop is one tap</h3>
+        <p>A red Stop button stays on the screen during each session. Each session also stops after 15 to 120 minutes.</p>
       </article>
       <article class="cell">
         <span class="idx">f.03</span>
-        <h3>Big moves ask first</h3>
-        <p>Payments, app installs, permission pop-ups, and deleting accounts wait for your OK on the phone, unless you choose otherwise.</p>
+        <h3>Important actions ask first</h3>
+        <p>Payments, app installs, permission requests, and account deletion wait for your OK on the phone.</p>
       </article>
       <article class="cell">
         <span class="idx">f.04</span>
-        <h3>See every tap</h3>
-        <p>A pointer glides to each spot the AI uses and says what it's doing. Activity keeps a log on the phone for 7 days.</p>
+        <h3>See who did what</h3>
+        <p>A pointer shows each tap of the AI. Activity marks each line: <em>AI</em>, <em>You</em>, or <em>Latch</em>. The log stays on your phone for 7 days.</p>
       </article>
       <article class="cell">
         <span class="idx">f.05</span>
-        <h3>Files, encrypted</h3>
-        <p>Move files between your computer and phone at full quality, AES-256 encrypted between your devices, up to 2 GB.</p>
+        <h3>Encrypted files</h3>
+        <p>Move files between your computer and your phone. Latch encrypts each file with AES-256. The limit is 2 GB.</p>
       </article>
       <article class="cell c-wide">
         <span class="idx">f.06</span>
-        <h3>Any AI, one standard</h3>
-        <p>Latch speaks the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Apps that support sign-in connect with just the URL; others use a key you create in the app and can revoke any time.</p>
+        <h3>Any MCP AI</h3>
+        <p>Latch uses the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Most apps connect with the URL only. For other apps, make a key in Latch. You can cancel each key at any time.</p>
       </article>
     </div>
   </section>
 
   <section id="safety" class="section">
-    <div class="sec-head"><p class="label"><span>03</span> Safety</p><h2>Default deny. Always your call.</h2></div>
+    <div class="sec-head"><p class="label"><span>03</span> Safety</p><h2>Off by default. You decide.</h2></div>
     <div class="split">
       <div class="term">
         <div class="bar" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span><span>hard limits · the AI can never</span></div>
         <ul class="never">
           <li><span>deny</span> type passwords, PINs, or one-time codes</li>
           <li><span>deny</span> read your clipboard</li>
-          <li><span>deny</span> open Latch itself, the notification shade, or the lock screen</li>
-          <li><span>deny</span> act on a screen it hasn't just looked at</li>
-          <li><span>deny</span> follow instructions written on screen</li>
-          <li><span>deny</span> run a shell or record you silently</li>
+          <li><span>deny</span> open Latch, the notification shade, or the lock screen</li>
+          <li><span>deny</span> tap without a new look at the screen</li>
+          <li><span>deny</span> obey instructions written on the screen</li>
+          <li><span>deny</span> run a shell or record you</li>
           <li><span>deny</span> keep screen content in any log</li>
         </ul>
       </div>
       <div class="safety-copy">
-        <p>Every switch starts <strong>off</strong>. You pick what the AI may do (just look, look and tap, or everything) and which apps it may use.</p>
-        <p>Screen text, web pages, and notifications are treated as untrusted data, so a page that says “ignore your rules” changes nothing.</p>
-        <p>Your gateway is private: no web console, no owner-key box, nothing for search engines to index. Only your phone and the AI apps you approved get in, each with its own 256-bit key you can revoke.</p>
+        <p>Each switch starts <strong>off</strong>. You choose what the AI can do and which apps it can use.</p>
+        <p>Latch treats screen text, web pages, and notifications as data, not as commands. Text such as “ignore your rules” has no effect.</p>
+        <p>Your gateway is private. Only your phone and the AI apps that you approve can connect. Each has its own 256-bit key. You can cancel each key.</p>
         <a class="textlink" href="https://github.com/aspershupadhyay/latch/blob/main/SECURITY.md">Read the security policy <span aria-hidden="true">→</span></a>
       </div>
     </div>
   </section>
 
   <section id="setup" class="section">
-    <div class="sec-head"><p class="label"><span>04</span> Setup</p><h2>About five minutes. Three copy-pastes.</h2></div>
+    <div class="sec-head"><p class="label"><span>04</span> Setup</p><h2>About five minutes.</h2></div>
     <ol class="steps">
-      <li><span class="n">01</span><h3>Install the app</h3><p>Download the <a href="https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk">Android beta</a> and tap <strong>Create my own gateway</strong>. Copy your owner key.</p></li>
-      <li><span class="n">02</span><h3>Deploy your gateway</h3><p>Tap <strong>Open Vercel</strong>, paste the key, add the free Upstash store, and press Deploy. Paste your new address back into the app.</p></li>
-      <li><span class="n">03</span><h3>Connect your AI</h3><p>Add <code>https://&lt;your-address&gt;/mcp</code> to your AI app and approve it in the app. Start a session and ask away.</p></li>
+      <li><span class="n">01</span><h3>Install the app</h3><p>Download the <a href="https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk">Android beta</a>. Tap <strong>Create my own gateway</strong>. Copy your owner key.</p></li>
+      <li><span class="n">02</span><h3>Make your gateway</h3><p>Tap <strong>Open Vercel</strong>. Paste the key. Add the free Upstash store. Tap Deploy. Paste the new address into the app.</p></li>
+      <li><span class="n">03</span><h3>Connect your AI</h3><p>Add <code>https://&lt;your-address&gt;/mcp</code> to your AI app. Approve it in Latch. Start a session.</p></li>
     </ol>
     <a class="textlink" href="https://github.com/aspershupadhyay/latch#set-it-up-about-5-minutes">Full step-by-step guide <span aria-hidden="true">→</span></a>
   </section>
@@ -260,14 +261,15 @@
   <section id="faq" class="section">
     <div class="sec-head"><p class="label"><span>05</span> FAQ</p><h2>Questions people ask.</h2></div>
     <div class="faq">
-      <details><summary>Is Latch free?</summary><p>Yes. Latch is free, open-source software under the GNU AGPL-3.0. The gateway runs on a free Vercel Hobby account with a free Upstash Redis database, or on any server you own.</p></details>
-      <details><summary>Which AI apps work with Latch?</summary><p>Any app that supports the Model Context Protocol (MCP) with remote servers: Claude, ChatGPT, Codex, Cursor, VS Code, Windsurf, or your own agent. Most sign in with only the URL; others use a key from the Latch app.</p></details>
-      <details><summary>Does my screen go to a Latch company server?</summary><p>No. There is no Latch server in the middle. Your phone talks to your own gateway, in your own Vercel account or on your own hardware.</p></details>
-      <details><summary>Can the AI type my passwords or one-time codes?</summary><p>No. Latch refuses password, PIN, one-time-code, and payment fields. When a step needs one, the AI asks you to do it on the phone.</p></details>
-      <details><summary>How do I stop the AI?</summary><p>Tap the red Latch Stop button that stays on screen during every session. Sessions also end on their own after 15 to 120 minutes.</p></details>
-      <details><summary>Can I fork Latch or build my own version?</summary><p>Yes, under the GNU AGPL-3.0: you must publish your complete source code under the same license, keep the credit “Based on Latch by Aspersh Upadhyay”, mark it as modified, and use your own name and logo. See the <a href="https://github.com/aspershupadhyay/latch/blob/main/NOTICE">notice</a> and <a href="https://github.com/aspershupadhyay/latch/blob/main/TRADEMARKS.md">name policy</a>.</p></details>
-      <details><summary>Does Latch work on iPhone?</summary><p>Not yet. iOS has no public way for one app to operate other apps, so an iOS companion will offer a smaller, honest set of features later.</p></details>
-      <details><summary>Android says “App blocked” or “Restricted setting”. Is something wrong?</summary><p>No. Android protects accessibility apps installed from a file. The <a href="https://github.com/aspershupadhyay/latch#phone-and-vercel-settings">setup guide</a> shows the exact taps for each phone brand. Latch never tries to sneak past these checks.</p></details>
+      <details><summary>Is Latch free?</summary><p>Yes. Latch is free, open-source software (GNU AGPL-3.0). The gateway runs on a free Vercel account with a free Upstash Redis database, or on your own server.</p></details>
+      <details><summary>Which AI apps work with Latch?</summary><p>Each app that supports remote MCP servers: Claude, ChatGPT, Codex, Cursor, VS Code, Windsurf, or your own agent. Most apps connect with the URL only. Other apps use a key from the Latch app.</p></details>
+      <details><summary>Does my screen go to a Latch company server?</summary><p>No. Latch has no server between you and your AI. Your phone connects only to your own gateway.</p></details>
+      <details><summary>Can the AI type my passwords or one-time codes?</summary><p>No. Latch refuses password, PIN, one-time code, and payment fields. For these steps, the AI asks you to do them on the phone.</p></details>
+      <details><summary>How do I stop the AI?</summary><p>Tap the red Stop button. It stays on the screen during each session. Each session also stops after 15 to 120 minutes.</p></details>
+      <details><summary>How do I know if the AI or I did something?</summary><p>Open Activity in the Latch app. Each line shows AI, You, or Latch. Your own taps during a session show as You.</p></details>
+      <details><summary>Can I fork Latch or build my own version?</summary><p>Yes, under the GNU AGPL-3.0. Publish all of your source code under the same license. Keep the credit “Based on Latch by Aspersh Upadhyay”. Mark your version as changed. Use your own name and logo. Read the <a href="https://github.com/aspershupadhyay/latch/blob/main/NOTICE">notice</a> and the <a href="https://github.com/aspershupadhyay/latch/blob/main/TRADEMARKS.md">name policy</a>.</p></details>
+      <details><summary>Does Latch work on iPhone?</summary><p>Not yet. iOS does not let one app operate other apps. A smaller iOS app can come later.</p></details>
+      <details><summary>Android says “App blocked” or “Restricted setting”. Is something wrong?</summary><p>No. Android protects accessibility apps that you install from a file. The <a href="https://github.com/aspershupadhyay/latch#phone-and-vercel-settings">setup guide</a> shows the steps for each phone brand. Latch does not try to go around these checks.</p></details>
     </div>
   </section>
 

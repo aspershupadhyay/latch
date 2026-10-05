@@ -109,7 +109,7 @@ h1 .accent { white-space: nowrap; }
 .ph-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .ph-tiles i { height: 72px; border-radius: 8px; background: #141419; border: 1px solid var(--line); }
 .ph-tiles i:first-child { background: rgba(255, 106, 61, 0.14); border-color: rgba(255, 106, 61, 0.55); }
-.cursor { --tx: 96px; --ty: 230px; transform-origin: 3px 2px; position: absolute; left: 40px; top: 140px; display: flex; align-items: center; gap: 4px; z-index: 2; }
+.cursor { --tx: 56px; --ty: 230px; transform-origin: 3px 2px; position: absolute; left: 40px; top: 140px; display: flex; align-items: center; gap: 4px; z-index: 2; }
 .cursor span { font: 500 0.58rem var(--mono); color: #0a0a0a; background: var(--ember); padding: 2px 6px; }
 .card { position: absolute; left: 8px; right: 8px; bottom: 54px; padding: 8px 12px 12px; border-radius: 20px;
   background: linear-gradient(180deg, #1d1d24, #141419); border: 1px solid #2e2e37;
