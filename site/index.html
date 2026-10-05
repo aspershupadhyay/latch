@@ -3,6 +3,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- GitHub Pages cannot send headers, so the page carries its own policy: only its own script, Google Fonts, nothing else. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Latch: let AI use your Android phone, safely</title>
 <meta name="description" content="Free, open-source Android app. Claude, ChatGPT, Cursor, or a different MCP AI sees your screen and taps for you. You own the gateway and the Stop button.">

@@ -90,7 +90,7 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
                 )
             }
             Text(
-                "Ask Claude, ChatGPT, or another AI to do things on your phone for you. You choose which apps it can use, and one tap stops it.",
+                "Ask Claude, ChatGPT, or another AI to do things on your phone for you. You choose which apps it can use, and you can end the session whenever you want.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = signal.text2,
             )
@@ -115,7 +115,7 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                 Promise(Modifier.weight(1f), LatchIcons.Shield, "Off until you start", signal.sage, signal.mint)
                 Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "Only apps you pick", signal.butter, signal.warning)
-                Promise(Modifier.weight(1f), LatchIcons.Stop, "One tap stops it", signal.pool, signal.accent2)
+                Promise(Modifier.weight(1f), LatchIcons.Stop, "Stop button on screen", signal.pool, signal.accent2)
             }
         }
     }

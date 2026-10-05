@@ -54,5 +54,7 @@ Third-party components keep their own licenses; see each package's
 manifest. The Geist and Geist Mono fonts bundled in the Android app
 (apps/android/app/src/main/res/font) are Copyright (c) 2023 Vercel and
 are used under the SIL Open Font License 1.1
-(apps/android/third_party/geist/OFL.txt). Brand logos of AI products shown on the project website belong
+(apps/android/third_party/geist/OFL.txt). The Space Grotesk font bundled
+there is Copyright 2020 The Space Grotesk Project Authors and is used
+under the same license (apps/android/third_party/space-grotesk/OFL.txt). Brand logos of AI products shown on the project website belong
 to their owners and are used only to indicate compatibility.

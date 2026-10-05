@@ -20,8 +20,8 @@ import io.github.aspershupadhyay.latch.R
 
 /**
  * Latch tokens, "terminal" (2026-10), matching the website: a near-black
- * canvas, hairline borders, Geist for words and Geist Mono for labels,
- * numbers, and codes, and one ember accent for action. The app is dark only.
+ * canvas, hairline borders, Space Grotesk for headings, Geist for words,
+ * Geist Mono for labels, numbers, and codes, and one ember accent for action. The app is dark only.
  * Colour still means something: green for done and connected, amber for
  * attention, red for stop. The four group tints (clay, sage, butter, pool)
  * are dark panels washed with a hue, always with light text on them.
@@ -103,18 +103,25 @@ val GeistMono = FontFamily(
     Font(R.font.geist_mono_semibold, FontWeight.SemiBold),
 )
 
-/** Headlines and big numbers. */
-val Display = Geist
+/** Space Grotesk: headings, as on the website (res/font, SIL OFL 1.1). */
+val SpaceGrotesk = FontFamily(
+    Font(R.font.space_grotesk_medium, FontWeight.Medium),
+    Font(R.font.space_grotesk_semibold, FontWeight.SemiBold),
+    Font(R.font.space_grotesk_bold, FontWeight.Bold),
+)
+
+/** Headlines. */
+val Display = SpaceGrotesk
 
 /** The small uppercase "machine voice" used for captions, tags, and tile labels. */
 val MonoLabel = TextStyle(fontFamily = GeistMono, fontSize = 10.5.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.3.sp)
 
 private val LatchType = Typography(
     displayLarge = TextStyle(fontFamily = GeistMono, fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.Medium, letterSpacing = (-2).sp),
-    displayMedium = TextStyle(fontFamily = Geist, fontSize = 38.sp, lineHeight = 42.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1.4).sp),
-    displaySmall = TextStyle(fontFamily = Geist, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp),
-    headlineSmall = TextStyle(fontFamily = Geist, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.55).sp),
-    titleLarge = TextStyle(fontFamily = Geist, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.35).sp),
+    displayMedium = TextStyle(fontFamily = Display, fontSize = 38.sp, lineHeight = 42.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1.4).sp),
+    displaySmall = TextStyle(fontFamily = Display, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp),
+    headlineSmall = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.55).sp),
+    titleLarge = TextStyle(fontFamily = Display, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.35).sp),
     titleMedium = TextStyle(fontFamily = Geist, fontSize = 15.5.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.15).sp),
     titleSmall = TextStyle(fontFamily = Geist, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium),
     bodyLarge = TextStyle(fontFamily = Geist, fontSize = 16.sp, lineHeight = 24.sp),

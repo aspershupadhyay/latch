@@ -126,7 +126,7 @@ class CursorOverlay(private val context: Context) {
     private class CursorView(context: Context) : View(context) {
         private val density = resources.displayMetrics.density
         /** The arrow is drawn in a 24-unit grid; one unit is this many pixels. */
-        private val unit = 1.05f * density
+        private val unit = 1.25f * density
         /** Latch ember (the brand colour, as on the website), bright enough on dark and light screens. */
         private val accent = Color.rgb(255, 106, 61)
 
@@ -135,7 +135,7 @@ class CursorOverlay(private val context: Context) {
             style = Paint.Style.STROKE
             strokeJoin = Paint.Join.ROUND
             strokeCap = Paint.Cap.ROUND
-            strokeWidth = 2.2f
+            strokeWidth = 2.4f
             color = Color.WHITE
         }
         private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
@@ -159,9 +159,10 @@ class CursorOverlay(private val context: Context) {
         }
         private val label = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 12f * density
+            // Large enough to read at a glance over any app.
+            textSize = 15f * density
             // Geist Mono, as in the app; the system bold face if the font cannot load.
-            typeface = runCatching { resources.getFont(R.font.geist_mono_medium) }.getOrElse { Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+            typeface = runCatching { resources.getFont(R.font.geist_mono_semibold) }.getOrElse { Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
         }
         private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) }
@@ -451,25 +452,26 @@ class CursorOverlay(private val context: Context) {
 
         /** "Latch · Tapping" in a dark pill beside the arrow, flipped to stay on screen. */
         private fun drawLabel(canvas: Canvas, px: Float, py: Float, alpha: Float, t: Long) {
-            val padX = 9 * density
+            val padX = 13 * density
             val fraction = transferFraction.takeIf { transferText != null && t >= busyUntil }
-            val h = (if (fraction != null) 30 else 24) * density
-            val dotR = 3 * density
-            val margin = 6 * density
+            val h = (if (fraction != null) 42 else 34) * density
+            val dotR = 4 * density
+            val gap = 8 * density
+            val margin = 8 * density
             // This view covers the whole screen; the canvas is in screen pixels.
             val loc = IntArray(2).also(::getLocationOnScreen)
             val screenW = (loc[0] + width).toFloat()
             val screenH = (loc[1] + height).toFloat()
-            val chrome = padX * 2 + dotR * 2 + 6 * density
+            val chrome = padX * 2 + dotR * 2 + gap
             // Long words (a file name) are shortened so the label always fits on the screen.
             val text = android.text.TextUtils.ellipsize(
                 "Latch · ${labelText(t)}", label, (screenW - margin * 2 - chrome).coerceAtLeast(0f), android.text.TextUtils.TruncateAt.END,
             ).toString()
             val w = chrome + label.measureText(text)
-            var left = px + 18 * density
-            var top = py + 20 * density
-            if (left + w > screenW - margin) left = px - w - 6 * density
-            if (top + h > screenH - margin) top = py - h - 8 * density
+            var left = px + 22 * density
+            var top = py + 26 * density
+            if (left + w > screenW - margin) left = px - w - 8 * density
+            if (top + h > screenH - margin) top = py - h - 10 * density
             left = left.coerceIn(margin, (screenW - w - margin).coerceAtLeast(margin))
             top = top.coerceIn(margin, (screenH - h - margin).coerceAtLeast(margin))
             val box = RectF(left, top, left + w, top + h)
@@ -482,20 +484,20 @@ class CursorOverlay(private val context: Context) {
             canvas.drawRoundRect(box, h / 2, h / 2, pillEdge)
             // A small live dot that pulses while the AI acts.
             val pulse = 0.75f + 0.25f * kotlin.math.sin(t / (if (t < busyUntil) 140.0 else 260.0)).toFloat()
-            canvas.drawCircle(left + padX + dotR, if (fraction != null) top + 12 * density else top + h / 2, dotR * pulse, dot)
-            val textLeft = left + padX + dotR * 2 + 6 * density
-            val center = if (fraction != null) top + 12 * density else top + h / 2
+            val center = if (fraction != null) top + 16 * density else top + h / 2
+            canvas.drawCircle(left + padX + dotR, center, dotR * pulse, dot)
+            val textLeft = left + padX + dotR * 2 + gap
             val baseline = center - (label.descent() + label.ascent()) / 2
             canvas.drawText(text, textLeft, baseline, label)
             if (fraction != null) {
                 // A slim progress bar under the words while a file moves.
-                val barTop = top + h - 8 * density
+                val barTop = top + h - 11 * density
                 val barRight = left + w - padX
                 track.alpha = (60 * a).toInt()
                 bar.alpha = (255 * a).toInt()
-                val r = 1.5f * density
-                canvas.drawRoundRect(RectF(textLeft, barTop, barRight, barTop + 3 * density), r, r, track)
-                canvas.drawRoundRect(RectF(textLeft, barTop, textLeft + (barRight - textLeft) * fraction.coerceIn(0f, 1f), barTop + 3 * density), r, r, bar)
+                val r = 2f * density
+                canvas.drawRoundRect(RectF(textLeft, barTop, barRight, barTop + 4 * density), r, r, track)
+                canvas.drawRoundRect(RectF(textLeft, barTop, textLeft + (barRight - textLeft) * fraction.coerceIn(0f, 1f), barTop + 4 * density), r, r, bar)
             }
         }
 

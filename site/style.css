@@ -120,7 +120,7 @@ h1 { font-size: clamp(2.4rem, 4.4vw, 3.7rem); line-height: 1.02; letter-spacing:
 .ph-tiles i:first-child { background: rgba(255, 106, 61, 0.14); border-color: rgba(255, 106, 61, 0.55); }
 /* The pointer stays in the left half and its tag sits under it, so the tag always fits inside the screen. */
 .cursor { --tx: 30px; --ty: 236px; transform-origin: 3px 2px; position: absolute; left: 44px; top: 140px; z-index: 2; }
-.cursor span { position: absolute; left: 12px; top: 20px; white-space: nowrap; font: 500 0.58rem var(--mono); color: #0a0a0a; background: var(--ember); padding: 2px 6px; }
+.cursor span { position: absolute; left: 14px; top: 22px; white-space: nowrap; font: 600 0.74rem/1.2 var(--mono); color: #0a0a0a; background: var(--ember); padding: 4px 8px; border-radius: 3px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.8); }
 .card { position: absolute; left: 8px; right: 8px; bottom: 54px; padding: 8px 12px 12px; border-radius: 20px;
   background: linear-gradient(180deg, #1d1d24, #141419); border: 1px solid #2e2e37;
   box-shadow: 0 -18px 40px -16px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.07); }
