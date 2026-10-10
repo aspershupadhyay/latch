@@ -4,7 +4,7 @@
 [versions]
 agp = "8.13.2"
 kotlin = "2.4.20"
-composeBom = "2026.06.01"   # 2026.08+ needs compileSdk 37 (AGP 9)
+composeBom = "2026.09.00"   # 2026.08+ needs compileSdk 37 (AGP 9)
 activityCompose = "1.13.0"
 lifecycle = "2.10.0"        # 2.11 needs compileSdk 37 and AGP 9.1
 coreKtx = "1.18.0"          # 1.19 needs compileSdk 37 (AGP 9)
