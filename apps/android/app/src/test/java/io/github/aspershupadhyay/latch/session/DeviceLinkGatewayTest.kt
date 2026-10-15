@@ -365,6 +365,19 @@ class DeviceLinkGatewayTest(private val implementation: String) {
     }
 
     @Test
+    fun theOwnerListsAndRemovesPhonesOnTheRelay() = runBlocking {
+        startGateway()
+        val paired = GatewaySetup(http).pairAsOwner(base, ADMIN, "Pixel", "Pixel")
+        val owner = OwnerClient(http, base, ADMIN)
+        val listed = owner.phones().single()
+        assertEquals(paired.deviceId to "Pixel", listed.id to listed.name)
+        assertEquals(false, listed.connected)
+        owner.removePhone(paired.deviceId)
+        assertEquals(emptyList<RelayPhone>(), owner.phones())
+        owner.removePhone(paired.deviceId) // already gone: still fine
+    }
+
+    @Test
     fun aFastRelayGivesNoSpeedWarning() = runBlocking {
         startGateway()
         // Both relays here keep their state close by (memory), so there is nothing to warn about.

@@ -132,3 +132,4 @@ Added for the roadmap rows that wait on a phone (chapter 17 §10; each row says 
 24. **Starter skills and replay (R8, R14):** `list_skills {starters: true}` labels match the phone's apps; after a task, Activity → **By task** shows it with its steps.
 25. **Repeats (R12):** Google Maps search results are listed once each, and the Stop pill does not cover them.
 26. **Phone controls (R16):** each group stays refused until switched on in **Access → Phone controls**; volume, brightness (after "Modify system settings"), flashlight, and the Wi-Fi panel each work once.
+27. **Old pairings:** *Settings → Disconnect from this relay*, then pair again at once: `list_devices` lists the phone once. **Connect → Other phones on this relay** lists the other phones; **Remove** asks first, and the removed phone drops off `list_devices`.

@@ -48,6 +48,17 @@ Use a **debug** build: it accepts `http://` gateways, and its package
 5. Start a session in the app. The emulator now shows in `list_devices` like any
    phone.
 
+CI does all of this on every push: `scripts/emulator-test.sh` (job
+*Android emulator* in `.github/workflows/ci.yml`) boots an Android 14 emulator,
+starts a fresh container gateway, and runs `EmulatorGatewayTest`
+(`apps/android/app/src/androidTest`). The test pairs with the owner key,
+switches the service on as above, starts a session, and then acts as an AI
+client over MCP: `list_devices`, `diagnose` (it names battery optimisation
+exactly when Android applies it), `launch_app` refused until the owner's
+capability switches are on, then `launch_app` Settings, `tap` into
+*Network & internet*, and `observe` after **Stop**, which must fail. Run it
+locally with the same script on a computer with `/dev/kvm`.
+
 Several emulators work the same way: each one pairs with its own name and
 shows up with its own `device_id`.
 

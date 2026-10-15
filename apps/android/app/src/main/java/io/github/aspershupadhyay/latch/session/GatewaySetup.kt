@@ -46,6 +46,17 @@ data class McpClient(
     val apps: List<String>? = null,
 )
 
+/** A phone paired with the relay, as the owner API lists it. */
+@Serializable
+data class RelayPhone(
+    val id: String,
+    val name: String,
+    val model: String = "",
+    val connected: Boolean = false,
+    @SerialName("last_seen_ms") val lastSeenMs: Long? = null,
+    @SerialName("paired_at_ms") val pairedAtMs: Long = 0,
+)
+
 /** An AI app asking to sign in. The owner approves it when [match] equals the code on its sign-in page. */
 @Serializable
 data class SignInRequest(
@@ -235,6 +246,22 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
         val (status, _) = send("PATCH", "clients/${URLEncoder.encode(id, "UTF-8")}", """{"apps":$list}""")
         if (status == 404) throw SetupException("That AI app was removed. Refresh the list.")
         check(status, ok = 204)
+    }
+
+    suspend fun phones(): List<RelayPhone> {
+        val (status, body) = send("GET", "devices")
+        check(status)
+        val list = Protocol.json.parseToJsonElement(body).jsonObject.getValue("devices").jsonArray
+        return Protocol.json.decodeFromJsonElement(ListSerializer(RelayPhone.serializer()), list)
+    }
+
+    /**
+     * Removes a phone's pairing from the relay; its credential stops working.
+     * A phone that is already gone counts as removed.
+     */
+    suspend fun removePhone(id: String) {
+        val (status, _) = send("DELETE", "devices/${URLEncoder.encode(id, "UTF-8")}")
+        if (status != 404) check(status, ok = 204)
     }
 
     suspend fun revokeClient(id: String) {

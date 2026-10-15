@@ -20,7 +20,8 @@ fi
 mkdir -p "$ANDROID_HOME/cmdline-tools"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL -o "$tmp/tools.zip" "https://dl.google.com/android/repository/$CMDLINE_TOOLS_ZIP"
+# Google's download server sometimes answers 502; retry before failing the job.
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$tmp/tools.zip" "https://dl.google.com/android/repository/$CMDLINE_TOOLS_ZIP"
 unzip -q "$tmp/tools.zip" -d "$tmp"
 rm -rf "$ANDROID_HOME/cmdline-tools/latest"
 mv "$tmp/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
