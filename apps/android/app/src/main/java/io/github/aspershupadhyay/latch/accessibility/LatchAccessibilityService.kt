@@ -167,20 +167,24 @@ class LatchAccessibilityService : AccessibilityService() {
      * and no event arrived for [quietMs]. Never longer than [maxMs].
      * With [expectKeyboard], a tap that focused a text field also waits for
      * the keyboard to open, so the agent sees the screen it will type into.
+     * Returns how long after the start the screen first differed from
+     * [before], or null when it never did (roadmap R7 learns from this).
      */
-    suspend fun awaitSettled(before: Int, quietMs: Long, maxMs: Long, minMs: Long, expectChangeMs: Long, expectKeyboard: Boolean = false) {
+    suspend fun awaitSettled(before: Int, quietMs: Long, maxMs: Long, minMs: Long, expectChangeMs: Long, expectKeyboard: Boolean = false): Long? {
         val start = SystemClock.uptimeMillis()
         var previous = screenSignature()
+        var firstChangeMs: Long? = null
         while (true) {
             delay(SETTLE_STEP_MS)
             val now = SystemClock.uptimeMillis()
             val elapsed = now - start
-            if (elapsed >= maxMs) return
+            if (elapsed >= maxMs) return firstChangeMs
             val current = screenSignature()
             val changed = current != before
+            if (changed && current != 0 && firstChangeMs == null) firstChangeMs = elapsed
             val still = current == previous && current != 0 && now - max(lastUiEventAtMs, start) >= quietMs
             val keyboardPending = expectKeyboard && elapsed < KEYBOARD_WAIT_MS && keyboardBounds() == null && editableFocused()
-            if (still && !keyboardPending && elapsed >= minMs && (changed || elapsed >= expectChangeMs)) return
+            if (still && !keyboardPending && elapsed >= minMs && (changed || elapsed >= expectChangeMs)) return firstChangeMs
             previous = current
         }
     }
