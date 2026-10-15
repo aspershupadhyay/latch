@@ -287,6 +287,18 @@ class CommandExecutor(
         // After a question to the owner, the cursor says what happens next again.
         cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
 
+        // Protocol 1.11: controls that stay off screen answer at once with what they read back.
+        // (Before the checks below, which the compiler uses to know which commands remain.)
+        if (command is Command.Control && !command.control.changesScreen) {
+            val service = bridge.service.value
+                ?: throw ProtocolException(ErrorCode.PERMISSION_MISSING, "the Latch accessibility service is switched off")
+            val reading = PhoneControls(service).apply(command.control)
+            note(ActivityKind.ACTION, judged ?: describe(command))
+            return Protocol.json.encodeToJsonElement(
+                ActionResult.serializer(),
+                ActionResult(`package` = service.currentPackage(), control = reading),
+            )
+        }
         if (command is Command.ListActivity) {
             return Protocol.json.encodeToJsonElement(ActivityList.serializer(), log.query(command.limit, command.kinds, command.sinceMs))
         }
@@ -314,15 +326,6 @@ class CommandExecutor(
             ?: throw ProtocolException(ErrorCode.PERMISSION_MISSING, "the Latch accessibility service is switched off")
 
         val action = ActionResult()
-        // Protocol 1.11: controls that stay off screen answer at once with what they read back.
-        if (command is Command.Control && !command.control.changesScreen) {
-            val reading = PhoneControls(service).apply(command.control)
-            note(ActivityKind.ACTION, judged ?: describe(command))
-            return Protocol.json.encodeToJsonElement(
-                ActionResult.serializer(),
-                action.copy(`package` = service.currentPackage(), control = reading),
-            )
-        }
         fun files() = files ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot use files")
         fun transfers() = transfers ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot move whole files")
         return when (command) {
