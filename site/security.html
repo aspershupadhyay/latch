@@ -1,0 +1,107 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only · Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- GitHub Pages cannot send headers, so the page carries its own policy: only its own script, Google Fonts, nothing else. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Latch security compared: approvals, keys, and who sees your screen</title>
+<meta name="description" content="How Latch protects a personal phone compared with an ADB test agent: app switches, approvals, refused passwords, Stop, and who sees the screen.">
+<link rel="canonical" href="https://aspershupadhyay.github.io/latch/security.html">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#09090b">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Latch">
+<meta property="og:url" content="https://aspershupadhyay.github.io/latch/security.html">
+<meta property="og:title" content="Latch security compared: approvals, keys, and who sees your screen">
+<meta property="og:description" content="How Latch protects a personal phone compared with an ADB test agent: app switches, approvals, refused passwords, Stop, and who sees the screen.">
+<meta property="og:image" content="https://aspershupadhyay.github.io/latch/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="bg-grid" aria-hidden="true"></div>
+
+<header class="nav">
+  <div class="nav-in">
+    <a class="logo" href="./" aria-label="Latch home">
+      <img src="favicon.svg" alt="" width="22" height="22"><span>latch</span><em>beta</em>
+    </a>
+    <nav aria-label="Main">
+      <a href="./"><i>01</i>Home</a>
+      <a href="benchmark.html"><i>02</i>Benchmark</a>
+      <a href="security.html"><i>03</i>Security compared</a>
+    </nav>
+    <a class="btn btn-ghost btn-sm" href="https://github.com/aspershupadhyay/latch">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5a9.5 9.5 0 0 0-3 18.5c.5.1.7-.2.7-.5v-1.8c-2.7.6-3.3-1.2-3.3-1.2-.4-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.1-.2-4.4-1.1-4.4-4.8 0-1 .4-1.9 1-2.6-.1-.2-.4-1.2.1-2.6 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.4.2 2.4.1 2.6.6.7 1 1.6 1 2.6 0 3.7-2.3 4.6-4.4 4.8.3.3.7.9.7 1.8v2.7c0 .3.2.6.7.5A9.5 9.5 0 0 0 12 2.5z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="section">
+    <div class="sec-head"><p class="label"><span>//</span> Security compared</p><h1>Who can do what, and who sees your screen.</h1></div>
+    <div class="stack">
+      <p class="page-lede">Phone automation tools are built for different jobs. Test-automation agents drive a phone you develop on, from a computer, over USB debugging. Latch is for your own personal phone, from any AI app, while you are away from your computer. That changes what has to be protected. This page compares the two approaches using each project's own documentation.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="cmp-h">
+    <div class="sec-head"><p class="label"><span>01</span> Side by side</p><h2 id="cmp-h">Latch and an ADB test agent.</h2></div>
+    <div class="stack">
+      <p>The example is Google's ARTEMIS, an open-source Android automation agent released in August 2026, as described on <a href="https://github.com/google/artemis">its GitHub page</a> when this page was written (15 October 2026). "Not documented" means that page does not describe it, not that the project lacks it.</p>
+      <div class="table-wrap" role="region" aria-labelledby="cmp-cap" tabindex="0">
+        <table class="data">
+          <caption id="cmp-cap">Checked 15 October 2026 against each project's own documentation</caption>
+          <thead><tr><th scope="col"></th><th scope="col">Latch</th><th scope="col">ARTEMIS (ADB test agent)</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Built for</th><td>Your own phone, with any AI app you use</td><td>Turning instructions into Android automation, such as app testing</td></tr>
+            <tr><th scope="row">How it reaches the phone</th><td>An app you install. You switch on its accessibility access, and the phone connects out to your own gateway</td><td>USB debugging enabled on the phone, and ADB on a computer</td></tr>
+            <tr><th scope="row">Needs your computer nearby</th><td class="yes">No. The gateway runs on your free Vercel account or your server</td><td>Yes. ADB, the agent, and image processing run on the computer the phone is connected to</td></tr>
+            <tr><th scope="row">Which AI</th><td>Any MCP client: Claude, ChatGPT, Cursor, and others</td><td>Its own agent (reported 3–5 s per step with Gemini Flash), offered to coding tools as MCP tools</td></tr>
+            <tr><th scope="row">Which apps the AI may use</th><td class="yes">Only the apps you switch on, all off at first. Each AI app can be limited further</td><td class="open">Not documented</td></tr>
+            <tr><th scope="row">Sending, paying, installing</th><td class="yes">The phone asks you first. Payments, installs, and permission prompts always ask unless you opt in for an app</td><td>A "Safety Net" checks actions before they run. No approval by the phone's owner is documented</td></tr>
+            <tr><th scope="row">Passwords, PINs, one-time codes</th><td class="yes">Refused. The AI hands those steps to you on the phone</td><td class="open">Not documented</td></tr>
+            <tr><th scope="row">Text on the screen giving orders</th><td class="yes">Treated as data, never as permission</td><td class="open">Not documented</td></tr>
+            <tr><th scope="row">Stopping it</th><td class="yes">A Stop button always on screen, plus pause, session expiry, and revoking the phone or an AI app</td><td class="open">Not documented</td></tr>
+            <tr><th scope="row">Who may connect an AI</th><td class="yes">Per-app keys, or OAuth sign-in that you approve on the phone</td><td class="open">Not documented</td></tr>
+            <tr><th scope="row">Proof a message came from your phone</th><td class="yes">Signed by a key kept in the phone's keystore</td><td>Not applicable: a cable or local ADB connection</td></tr>
+            <tr><th scope="row">Who sees the screen</th><td>Your gateway and your AI app's provider. On Vercel, the database holds screens only encrypted. Self-host the gateway to keep it all on your hardware</td><td>Your computer and the model provider</td></tr>
+            <tr><th scope="row">Licence</th><td>GNU AGPL-3.0</td><td>Apache-2.0</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="sources">Latch sources: <a href="https://github.com/aspershupadhyay/latch/blob/main/SECURITY.md">SECURITY.md</a>, <a href="https://github.com/aspershupadhyay/latch/blob/main/handbook/08-safety-privacy-security.md">safety model</a>, <a href="https://github.com/aspershupadhyay/latch/blob/main/docs/adr/README.md">decision records</a> (ADR-021, -022, -036, -037, -038, -039). Spot a mistake about either project? <a href="https://github.com/aspershupadhyay/latch/issues">Open an issue</a> and we will correct it.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="limits-h">
+    <div class="sec-head"><p class="label"><span>02</span> Honest limits</p><h2 id="limits-h">What Latch does not protect against.</h2></div>
+    <ul class="stack">
+      <li><p><strong>Your AI app's provider sees what the AI sees.</strong> The model has to read a screen to act on it. Choose an AI app you would trust with that screen.</p></li>
+      <li><p><strong>A cloud gateway sees screens in transit.</strong> Self-hosting the container gateway is the answer. Latch runs no servers of its own.</p></li>
+      <li><p><strong>Spotting Send, Pay, and password fields is a safety net, not a guarantee.</strong> Latch uses Android's own signals first and word lists second. Turn on <em>Ask me before every action</em> for apps that matter.</p></li>
+      <li><p><strong>Latch is in beta</strong> and has not had an outside security audit.</p></li>
+    </ul>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="foot-in">
+    <p><img src="favicon.svg" alt="" width="16" height="16"> Latch · free software under the GNU AGPL-3.0 · AI product logos belong to their owners</p>
+    <p><a href="benchmark.html">Benchmark</a><a href="security.html">Security compared</a><a href="https://github.com/aspershupadhyay/latch">GitHub</a><a href="https://github.com/aspershupadhyay/latch/blob/main/SECURITY.md">Security</a><a href="https://github.com/aspershupadhyay/latch/blob/main/CONTRIBUTING.md">Contribute</a><a href="https://github.com/aspershupadhyay/latch/blob/main/LICENSE">License</a><a href="https://github.com/aspershupadhyay/latch/blob/main/TRADEMARKS.md">Name and logo</a></p>
+  </div>
+</footer>
+<script src="pet.js" defer></script>
+</body>
+</html>
