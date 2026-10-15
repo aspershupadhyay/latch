@@ -1,0 +1,207 @@
+{
+  "cases": [
+    {
+      "entries": [
+        {
+          "at_ms": 1760000090000,
+          "kind": "app",
+          "summary": "You switched off Chat",
+          "app": "Chat",
+          "by": "owner"
+        },
+        {
+          "at_ms": 1760000075999,
+          "kind": "task",
+          "summary": "The AI finished: Sent the message",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000072000,
+          "kind": "refusal",
+          "summary": "Refused typing into a password field",
+          "app": "Bank",
+          "by": "latch"
+        },
+        {
+          "at_ms": 1760000071000,
+          "kind": "connection",
+          "summary": "Reconnected to the gateway",
+          "by": "latch"
+        },
+        {
+          "at_ms": 1760000070900,
+          "kind": "action",
+          "summary": "Tapped \"Send\"",
+          "app": "Chat",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000070100,
+          "kind": "approval",
+          "summary": "You allowed: Send in Chat",
+          "app": "Chat",
+          "by": "owner"
+        },
+        {
+          "at_ms": 1760000063000,
+          "kind": "approval",
+          "summary": "Asked: Send in Chat",
+          "app": "Chat",
+          "by": "latch"
+        },
+        {
+          "at_ms": 1760000062500,
+          "kind": "action",
+          "summary": "Typed into \"Message\"",
+          "app": "Chat",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000061234,
+          "kind": "action",
+          "summary": "Opened Chat",
+          "app": "Chat",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000060000,
+          "kind": "screen",
+          "summary": "Read the app list",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000002000,
+          "kind": "task",
+          "summary": "The AI finished: Opened Wi-Fi",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000001000,
+          "kind": "screen",
+          "summary": "Read the screen",
+          "app": "Settings",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000000000,
+          "kind": "session",
+          "summary": "Session started for 30 minutes",
+          "by": "owner"
+        }
+      ],
+      "total": 13
+    },
+    {
+      "entries": [
+        {
+          "at_ms": 1760000009400,
+          "kind": "action",
+          "summary": "Tapped \"Search here\"",
+          "app": "Maps",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000009000,
+          "kind": "action",
+          "summary": "Opened Maps",
+          "app": "Maps",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000000500,
+          "kind": "task",
+          "summary": "The AI said the task is done",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000000000,
+          "kind": "screen",
+          "summary": "Read the screen",
+          "app": "Maps",
+          "by": "ai"
+        }
+      ],
+      "total": 4
+    },
+    {
+      "entries": [
+        {
+          "at_ms": 1760000006000,
+          "kind": "app",
+          "summary": "You switched on Shop",
+          "app": "Shop",
+          "by": "owner"
+        },
+        {
+          "at_ms": 1760000005000,
+          "kind": "session",
+          "summary": "You stopped the session",
+          "by": "owner"
+        },
+        {
+          "at_ms": 1760000004200,
+          "kind": "action",
+          "summary": "Tapped \"ADD\"",
+          "app": "Shop",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000003000,
+          "kind": "screen",
+          "summary": "Read the screen",
+          "app": "Shop",
+          "by": "ai"
+        },
+        {
+          "at_ms": 1760000000000,
+          "kind": "session",
+          "summary": "Session started for 10 minutes",
+          "by": "owner"
+        }
+      ],
+      "total": 5
+    },
+    {
+      "entries": [
+        {
+          "at_ms": 1760000003000,
+          "kind": "task",
+          "summary": "The AI said the task is done"
+        },
+        {
+          "at_ms": 1760000002350,
+          "kind": "file",
+          "summary": "Deleted old.txt"
+        },
+        {
+          "at_ms": 1760000000100,
+          "kind": "screen",
+          "summary": "Read the screen"
+        },
+        {
+          "at_ms": 1760000000000,
+          "kind": "approval",
+          "summary": "Asked: Delete in Files"
+        }
+      ],
+      "total": 4
+    },
+    {
+      "entries": [
+        {
+          "at_ms": 1760000000010,
+          "kind": "connection",
+          "summary": "Connected to the gateway",
+          "by": "latch"
+        },
+        {
+          "at_ms": 1760000000000,
+          "kind": "session",
+          "summary": "Session started for 30 minutes",
+          "by": "owner"
+        }
+      ],
+      "total": 2
+    }
+  ]
+}

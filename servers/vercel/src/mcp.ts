@@ -5,6 +5,7 @@
 // test/ hold both to packages/schemas/v1/mcp.
 
 import { SERVER } from "./generated/contract.js";
+import { renderLatestTask } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
 import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
@@ -249,6 +250,14 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     ), run.timing);
   }
   if (name === "get_activity") {
+    const task = args.task;
+    if (task !== undefined && task !== null) {
+      if (task !== "latest") throw bad('task must be "latest"');
+      if ((args.kinds ?? null) !== null || (args.since_ms ?? null) !== null) throw bad("task cannot be combined with kinds or since_ms");
+      // The whole recent log: a task is cut from every kind of entry.
+      const run = await execute(ctx, deviceId, { name: "activity.list", params: { limit: LIMITS.maxActivityEntries } });
+      return withTiming(textResult(renderLatestTask(run.data as ActivityList)), run.timing);
+    }
     const kinds = args.kinds;
     if (kinds !== undefined && kinds !== null && (!Array.isArray(kinds) || kinds.some((k) => !(ACTIVITY_KINDS as readonly unknown[]).includes(k)))) {
       throw bad(`kinds must be a list of: ${ACTIVITY_KINDS.join(", ")}`);

@@ -601,7 +601,7 @@ export const SERVER = {
         "readOnlyHint": true,
         "title": "Read the phone's activity log"
       },
-      "description": "Read Latch's activity log on the phone, newest first: the apps the AI used, every action it took, what the owner was asked and answered, what was refused, and the files and folders it touched. Each line says who did it: the AI, the owner (their own taps and answers), or Latch. Use it when the user asks what happened on the phone. Entries never hold screen content or typed text. Needs the owner's activity switch.",
+      "description": "Read Latch's activity log on the phone, newest first: the apps the AI used, every action it took, what the owner was asked and answered, what was refused, and the files and folders it touched. Each line says who did it: the AI, the owner (their own taps and answers), or Latch. Use it when the user asks what happened on the phone. With task \"latest\" it replays the latest AI task instead: every step from first to last with seconds from the start, and the approvals and refusals on the way. Entries never hold screen content or typed text. Needs the owner's activity switch.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -638,6 +638,13 @@ export const SERVER = {
             "description": "Only entries at or after this Unix time in milliseconds.",
             "minimum": 0,
             "type": "integer"
+          },
+          "task": {
+            "description": "\"latest\": a timeline of the latest AI task (oldest first, seconds from its start) instead of the plain log. Not combined with kinds or since_ms.",
+            "enum": [
+              "latest"
+            ],
+            "type": "string"
           }
         },
         "required": [],

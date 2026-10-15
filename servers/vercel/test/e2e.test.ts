@@ -272,6 +272,13 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const wrongKind = await client.callTool({ name: "get_activity", arguments: { kinds: ["photos"] } });
   assert.equal(wrongKind.isError, true);
   assert.match(text(await client.callTool({ name: "finish_task", arguments: { summary: "Copied a caption" } })), /^Done\. The cursor is gone/);
+  // Roadmap R14: the latest task as a timeline, ending at finish_task (same text as the Rust gateway).
+  const replay = text(await client.callTool({ name: "get_activity", arguments: { task: "latest" } }));
+  assert.match(replay, /^Latest AI task on the phone, oldest first: finished, /);
+  assert.match(replay, /\n- \+0\.0 s /);
+  assert.ok(replay.endsWith(" task by AI: Ran task.done\n"), replay);
+  const mixed = await client.callTool({ name: "get_activity", arguments: { task: "latest", kinds: ["file"] } });
+  assert.ok(mixed.isError && /task cannot be combined/.test(text(mixed)), text(mixed));
   const note = text(await client.callTool({ name: "write_file", arguments: { location: "downloads", subfolder: "abc", name: "todo.txt", text: "milk" } }));
   assert.match(note, /^Saved "todo\.txt" to Downloads \("abc"\) \(4 B\)\./);
   const shared = await client.callTool({ name: "share_to_app", arguments: { package: "com.linkedin.android", file_ids: [clip], text: "New video" } });

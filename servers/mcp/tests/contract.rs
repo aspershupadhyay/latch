@@ -199,3 +199,23 @@ fn starter_skills_are_valid() {
 fn starter_skills_text_matches() {
     check("starters-expected.txt", mcp::skills::starters_text());
 }
+
+#[test]
+fn replay_rendering_matches() {
+    let input: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir().join("replay-input.json")).expect("input"),
+    )
+    .expect("json");
+    let text = input["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .map(|case| {
+            let list: latch_protocol::ActivityList =
+                serde_json::from_value(case.clone()).expect("case");
+            mcp::replay::render_latest_task(&list)
+        })
+        .collect::<Vec<_>>()
+        .join("---\n");
+    check("replay-expected.txt", text);
+}
