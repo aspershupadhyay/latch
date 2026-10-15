@@ -41,6 +41,10 @@ pub struct ClientRecord {
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth_client_id: Option<String>,
+    /// Roadmap R18: the only phone apps (package names) this AI app may use.
+    /// `None`: no limit beyond the phone's own app switches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apps: Option<Vec<String>>,
 }
 
 /// An app that registered for OAuth (RFC 7591). Registration alone grants nothing.
@@ -249,6 +253,20 @@ impl Store {
         }
     }
 
+    /// Sets (or with `None` clears) an AI app's limit; false when there is no such app.
+    pub fn set_client_apps(&mut self, id: &str, apps: Option<Vec<String>>) -> io::Result<bool> {
+        let Some(c) = self.clients.iter_mut().find(|c| c.id == id) else {
+            return Ok(false);
+        };
+        c.apps = apps;
+        self.save()?;
+        Ok(true)
+    }
+
+    pub fn client(&self, id: &str) -> Option<&ClientRecord> {
+        self.clients.iter().find(|c| c.id == id)
+    }
+
     pub fn client_exists(&self, id: &str) -> bool {
         self.clients.iter().any(|c| c.id == id)
     }
@@ -316,6 +334,7 @@ mod tests {
             last_used_ms: None,
             kind: Some("oauth".into()),
             oauth_client_id: Some("lc_1".into()),
+            apps: None,
         }
     }
 

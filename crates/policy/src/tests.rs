@@ -100,6 +100,7 @@ fn decide(
             session,
             latest_observation: obs,
             now_ms: NOW,
+            allowed_apps: None,
         },
     )
 }
@@ -513,6 +514,7 @@ fn judge(obs: &Observation, target: Target) -> Decision {
             session: session(),
             latest_observation: Some((obs, NOW)),
             now_ms: NOW,
+            allowed_apps: None,
         },
     )
 }

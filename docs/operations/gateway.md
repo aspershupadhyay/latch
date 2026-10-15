@@ -15,6 +15,7 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 | `LATCH_DATA_DIR` | no | Holds `devices.json` (device ids, names, token hashes). Default `./latch-data`; `/data` in the image. Back it up; losing it means re-pairing phones. |
 | `LATCH_MAX_TRANSFER_MB` | no | Largest file one link carries, in MB (default 2048, at most 4096). Links are streamed to a private temporary folder (mode 700) as AES-256 ciphertext; keys live only in memory; files are deleted when the phone has them or the link expires (15 minutes). All links together hold at most four times this size. |
 | `LATCH_ALLOWED_ORIGINS` | no | Comma-separated browser origins allowed to call `/mcp`. Requests carrying any other `Origin` header are rejected (DNS-rebinding defence). Server-side clients send no `Origin` and are unaffected. |
+| `LATCH_CLIENT_CALLS_PER_MINUTE` | no | Tool calls each AI app may make per minute (default 120, `0` for no limit). Over it, the AI reads `rate_limited: …` and waits; other AI apps are unaffected (roadmap R18). |
 | `RUST_LOG` | no | Log filter, default `info`. Logs never contain screen text, typed text, or tokens. |
 
 Generate tokens with `latch-gateway gen-token` (or `openssl rand -hex 32`).
@@ -71,4 +72,5 @@ Other clients: Streamable HTTP URL `https://latch.example.com/mcp` with header `
 - **Emergency stop for everything:** stop the gateway process. Phones show "Connection lost" and run nothing; their own Stop button also always works.
 - **Upgrade:** pull the new image and restart. `devices.json` is forward compatible; phones reconnect automatically.
 - **Back up:** copy `devices.json` (it holds only hashes, but treat it as sensitive).
+- **Limit an AI app to some phone apps** (roadmap R18): `curl -X PATCH https://latch.example.com/v1/admin/clients/<id> -H "Authorization: Bearer $LATCH_ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"apps":["com.whatsapp","com.android.settings"]}'` (or `"apps"` when creating the key). That AI app can then open, share to, and act in only those apps, and the gateway never shows it a screen from any other app (it may still press Home and read your file folders if you allowed them). `{"apps":null}` lifts the limit. The phone's own app switches still apply on top. Keys from `LATCH_MCP_TOKEN` have no limit.
 - **Sign an AI app out:** revoke it in the app's **Connect** tab (or `curl -X DELETE …/v1/admin/clients/<id>`): its OAuth tokens stop at once.

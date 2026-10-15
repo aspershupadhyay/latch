@@ -69,6 +69,10 @@ fn shared_policy_cases() {
         };
         let age = field("observation_age_ms");
         let latest = age.as_u64().map(|a| (&observation, now - a));
+        // Roadmap R18: the calling AI app's limit, when the case sets one.
+        let apps: Option<Vec<String>> = case
+            .get("client_apps")
+            .map(|v| serde_json::from_value(v.clone()).expect("client_apps"));
         let decision = evaluate(
             &command,
             &DeviceContext {
@@ -76,6 +80,7 @@ fn shared_policy_cases() {
                 session,
                 latest_observation: latest,
                 now_ms: now,
+                allowed_apps: apps.as_deref(),
             },
         );
 

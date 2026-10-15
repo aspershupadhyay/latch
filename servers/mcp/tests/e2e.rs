@@ -24,6 +24,10 @@ struct Gateway {
 }
 
 async fn start_gateway() -> Gateway {
+    start_gateway_with(|_| {}).await
+}
+
+async fn start_gateway_with(adjust: impl FnOnce(&mut AppState)) -> Gateway {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -41,6 +45,7 @@ async fn start_gateway() -> Gateway {
     state.settle_ms = 0;
     // Answer with a transfer's progress at once, so transfer_status is exercised.
     state.transfer_budget_ms = 0;
+    adjust(&mut state);
     let state = Arc::new(state);
     let app = router(state.clone());
     tokio::spawn(async move { axum::serve(listener, app).await });
@@ -2019,4 +2024,145 @@ async fn starter_skills_are_listed_but_not_saved() {
     )
     .await;
     assert!(is_error && text.contains("no skill named"), "{text}");
+}
+
+/// One tool call with a given credential (an AI app's own key).
+async fn call_as(gw: &Gateway, token: &str, tool: &str, args: Value) -> (bool, String) {
+    let (status, body) = http(
+        gw,
+        "POST",
+        "/mcp",
+        Some(token),
+        Some(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": args}})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let text = body["result"]["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    (body["result"]["isError"].as_bool().unwrap_or(false), text)
+}
+
+#[tokio::test]
+async fn an_ai_app_limited_to_some_apps_cannot_use_or_see_others() {
+    let gw = start_gateway().await;
+    let _phone = connect_phone(&gw, &Capability::ALL).await;
+    let (status, created) = http(
+        &gw,
+        "POST",
+        "/v1/admin/clients",
+        Some(ADMIN),
+        Some(json!({ "name": "Settings helper", "apps": ["com.android.settings"] })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200, "{created}");
+    let token = created["token"].as_str().expect("token").to_owned();
+    let id = created["id"].as_str().expect("id").to_owned();
+
+    // Inside its limit: works as usual.
+    let (is_error, text) = call_as(
+        &gw,
+        &token,
+        "launch_app",
+        json!({"package": "com.android.settings"}),
+    )
+    .await;
+    assert!(
+        !is_error && text.contains("app com.android.settings"),
+        "{text}"
+    );
+    // Outside: refused before the phone is asked, and the phone did nothing.
+    let (is_error, text) = call_as(
+        &gw,
+        &token,
+        "launch_app",
+        json!({"package": "org.latch.demo.chat"}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("policy_refused") && text.contains("org.latch.demo.chat"),
+        "{text}"
+    );
+    // Going home is allowed, but the home screen is not shown to it.
+    let (is_error, text) = call_as(&gw, &token, "press", json!({"button": "home"})).await;
+    assert!(is_error && text.contains("not shown"), "{text}");
+    assert!(!text.contains("[n1]"), "no screen content: {text}");
+    let (is_error, text) = call_as(&gw, &token, "observe", json!({"screenshot": false})).await;
+    assert!(
+        is_error && text.contains("not shown") && !text.contains("[n1]"),
+        "{text}"
+    );
+
+    // The owner sees the limit, and lifting it gives the AI app the phone's own rules again.
+    let (_, clients) = http(&gw, "GET", "/v1/admin/clients", Some(ADMIN), None, &[]).await;
+    assert_eq!(
+        clients["clients"][0]["apps"],
+        json!(["com.android.settings"])
+    );
+    let (status, _) = http(
+        &gw,
+        "PATCH",
+        &format!("/v1/admin/clients/{id}"),
+        Some(ADMIN),
+        Some(json!({ "apps": ["bad package!"] })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 400);
+    let (status, _) = http(
+        &gw,
+        "PATCH",
+        &format!("/v1/admin/clients/{id}"),
+        Some(ADMIN),
+        Some(json!({ "apps": null })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 204);
+    let (is_error, text) = call_as(
+        &gw,
+        &token,
+        "launch_app",
+        json!({"package": "org.latch.demo.chat"}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    // The gateway's own token has no limit.
+    let (is_error, text, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    assert!(!is_error, "{text}");
+}
+
+#[tokio::test]
+async fn each_ai_app_has_its_own_budget_of_calls() {
+    let gw = start_gateway_with(|s| s.calls_per_minute = 3).await;
+    let (_, created) = http(
+        &gw,
+        "POST",
+        "/v1/admin/clients",
+        Some(ADMIN),
+        Some(json!({ "name": "Busy app" })),
+        &[],
+    )
+    .await;
+    let token = created["token"].as_str().expect("token").to_owned();
+    for _ in 0..3 {
+        let (_, text) = call_as(&gw, &token, "list_devices", json!({})).await;
+        assert!(text.starts_with("Latch gateway"), "{text}");
+    }
+    let (is_error, text) = call_as(&gw, &token, "list_devices", json!({})).await;
+    assert!(
+        is_error
+            && text
+                .starts_with("rate_limited: this AI app made more than 3 tool calls in a minute."),
+        "{text}"
+    );
+    // Another AI app is not slowed down by the first.
+    let (is_error, text, _) = call(&gw, "list_devices", json!({})).await;
+    assert!(!is_error, "{text}");
 }

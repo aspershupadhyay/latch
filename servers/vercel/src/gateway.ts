@@ -25,7 +25,24 @@ export interface GatewayConfig {
   maxPollWaitMs: number;
   /** Vercel Blob for encrypted file links of any size (protocol 1.7); without it links use Redis, up to 4 MB. */
   blob?: BlobLinks;
+  /** Roadmap R18: tool calls each AI app may make per minute (LATCH_CLIENT_CALLS_PER_MINUTE; 0 = no limit). */
+  callsPerMinute?: number;
 }
+
+/** Tool calls an AI app may make per minute by default, as on the Rust gateway. */
+export const DEFAULT_CALLS_PER_MINUTE = 120;
+
+/** What an AI app reads when it is over its budget; the same text as the Rust gateway. */
+export const rateLimitedText = (perMinute: number) =>
+  `rate_limited: this AI app made more than ${perMinute} tool calls in a minute. Wait a moment, then continue; the owner can raise the limit with LATCH_CLIENT_CALLS_PER_MINUTE.`;
+
+/** The AI app making an MCP request (R18): its id (`env` for LATCH_MCP_TOKEN) and the owner's limit for it. */
+interface Caller { key: string; apps?: string[] }
+
+/** At most 100 package names, each a valid Android package name; null clears the limit. */
+const appsOk = (apps: unknown): apps is string[] | null =>
+  apps === null || (Array.isArray(apps) && apps.length <= 100 && apps.every((p) => typeof p === "string" && /^[A-Za-z0-9._]{1,255}$/.test(p)));
+const APPS_INVALID = "apps must be a list of at most 100 package names (letters, digits, dots, underscores), or null";
 
 export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
   const clean = (v?: string) => (v && v.trim() !== "" ? v.trim() : undefined);
@@ -42,6 +59,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
     settleMs: Number(env.LATCH_SETTLE_MS ?? 500),
     maxPollWaitMs: 25_000,
     blob: blobLinksFromEnv(env),
+    callsPerMinute: Number(clean(env.LATCH_CLIENT_CALLS_PER_MINUTE) ?? DEFAULT_CALLS_PER_MINUTE),
   };
 }
 
@@ -312,19 +330,20 @@ export class Gateway {
   // ---- MCP ----
 
   /** Checks an MCP credential on every request (revocation is immediate). Two round trips. */
-  private async isMcpClient(token: string | undefined): Promise<boolean> {
-    if (token === undefined || token === "") return false;
-    if (this.config.mcpToken && secretsEqual(token, this.config.mcpToken)) return true;
+  private async mcpCaller(token: string | undefined): Promise<Caller | undefined> {
+    if (token === undefined || token === "") return undefined;
+    if (this.config.mcpToken && secretsEqual(token, this.config.mcpToken)) return { key: "env" };
     const id = token.startsWith("lat_") ? await this.oauth.accessTokenApp(token) : await this.store.get(`latch:clienttoken:${sha256(token)}`);
-    if (!id) return false;
+    if (!id) return undefined;
     const raw = await this.store.hget("latch:clients", id);
-    if (!raw) return false;
+    if (!raw) return undefined;
+    const record = JSON.parse(raw) as { apps?: string[] | null };
     const now = Date.now();
     if (now - (this.lastUsedWrites.get(id) ?? 0) > LAST_USED_WRITE_MS) {
       this.lastUsedWrites.set(id, now);
       await this.store.hset("latch:clients", id, JSON.stringify({ ...JSON.parse(raw), last_used_ms: now }));
     }
-    return true;
+    return { key: id, ...(Array.isArray(record.apps) ? { apps: record.apps } : {}) };
   }
 
   private async mcp(request: Request, token: string | undefined): Promise<Response> {
@@ -333,7 +352,8 @@ export class Gateway {
       return error(403, "origin not allowed; see LATCH_ALLOWED_ORIGINS");
     }
     if (this.setupMode) return error(503, "this gateway is not set up yet");
-    if (!(await this.isMcpClient(token))) return this.mcpUnauthorized(request, token !== undefined);
+    const caller = await this.mcpCaller(token);
+    if (!caller) return this.mcpUnauthorized(request, token !== undefined);
     let message: unknown;
     try {
       message = await readJson(request, 256 * 1024);
@@ -352,14 +372,23 @@ export class Gateway {
       return new Response(null, { status: 202 });
     }
     if (isInitialize) await this.rememberClient(client, m.params);
+    // R18: each AI app gets its own budget of tool calls per minute.
+    const perMinute = this.config.callsPerMinute ?? DEFAULT_CALLS_PER_MINUTE;
+    if (m.method === "tools/call" && perMinute > 0
+      && (await this.store.incr(`latch:calls:${caller.key}:${Math.floor(Date.now() / 60_000)}`, 120_000)) > perMinute) {
+      return json(200, { jsonrpc: "2.0", id: m.id ?? null, result: { content: [{ type: "text", text: rateLimitedText(perMinute) }], isError: true } });
+    }
     // Clients that can show questions get the tool call as an event stream, so an
     // approval the phone waits on can be asked in the AI app as well.
     if (m.method === "tools/call" && (request.headers.get("accept") ?? "").includes("text/event-stream") && (await this.canElicit(client))) {
-      return this.streamToolCall(client, message, this.baseUrl(request));
+      return this.streamToolCall(client, message, this.baseUrl(request), caller.apps);
     }
     // Without elicitation, a question the phone asks pauses the call so the AI can ask in the chat.
     const reply = await handleMcp(
-      { devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links, baseUrl: this.baseUrl(request), skills: this.store },
+      {
+        devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links,
+        baseUrl: this.baseUrl(request), skills: this.store, allowedApps: caller.apps,
+      },
       message,
     );
     return reply === undefined ? new Response(null, { status: 202 }) : json(200, reply);
@@ -393,10 +422,10 @@ export class Gateway {
     await this.store.set(`latch:elicit:${m.id}`, JSON.stringify(result).slice(0, 4096), { px: 60_000 });
   }
 
-  private streamToolCall(client: string, message: unknown, baseUrl: string): Response {
+  private streamToolCall(client: string, message: unknown, baseUrl: string, allowedApps: string[] | undefined): Response {
     const encoder = new TextEncoder();
     const store = this.store;
-    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl, skills: this.store };
+    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl, skills: this.store, allowedApps };
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         let open = true;
@@ -582,20 +611,35 @@ export class Gateway {
     if (path === "audit" && method === "GET") return json(200, { events: await this.devices.audit(200) });
     if (path === "clients" && method === "GET") {
       const clients = Object.values(await this.store.hgetall("latch:clients"))
-        .map((v) => JSON.parse(v) as { id: string; name: string; created_at_ms: number; last_used_ms?: number; kind?: string })
+        .map((v) => JSON.parse(v) as { id: string; name: string; created_at_ms: number; last_used_ms?: number; kind?: string; apps?: string[] | null })
         .sort((a, b) => a.created_at_ms - b.created_at_ms)
-        .map((c) => ({ id: c.id, name: c.name, created_at_ms: c.created_at_ms, last_used_ms: c.last_used_ms ?? null, kind: c.kind ?? "key" }));
+        .map((c) => ({ id: c.id, name: c.name, created_at_ms: c.created_at_ms, last_used_ms: c.last_used_ms ?? null, kind: c.kind ?? "key", apps: c.apps ?? null }));
       return json(200, { clients });
     }
     if (path === "clients" && method === "POST") {
       const body = (await readJson(request, 4096)) as Record<string, unknown>;
-      if (!bounded(body?.name, 40) || Object.keys(body).length !== 1) return error(400, "name must be 1-40 characters");
+      if (!bounded(body?.name, 40) || Object.keys(body).some((k) => k !== "name" && k !== "apps")) return error(400, "name must be 1-40 characters");
+      if (body.apps !== undefined && !appsOk(body.apps)) return error(400, APPS_INVALID);
       if (Object.keys(await this.store.hgetall("latch:clients")).length >= 50) return error(429, "revoke unused clients first (limit 50)");
       const token = newToken("lmt");
-      const record = { id: newId("m"), name: body.name.trim(), token_sha256: sha256(token), created_at_ms: Date.now() };
+      const record = {
+        id: newId("m"), name: body.name.trim(), token_sha256: sha256(token), created_at_ms: Date.now(),
+        ...(Array.isArray(body.apps) ? { apps: body.apps } : {}),
+      };
       await this.store.hset("latch:clients", record.id, JSON.stringify(record));
       await this.store.set(`latch:clienttoken:${record.token_sha256}`, record.id);
       return json(200, { id: record.id, token, mcp_url: `${this.baseUrl(request)}/mcp` });
+    }
+    // R18: limit an AI app to some phone apps, or lift the limit with null.
+    if (path.startsWith("clients/") && method === "PATCH") {
+      const id = decodeURIComponent(path.slice("clients/".length));
+      const body = (await readJson(request, 16 * 1024)) as Record<string, unknown>;
+      if (typeof body !== "object" || body === null || Object.keys(body).some((k) => k !== "apps") || !appsOk(body.apps)) return error(400, APPS_INVALID);
+      const raw = await this.store.hget("latch:clients", id);
+      if (!raw) return error(404, "no such client");
+      const { apps: _old, ...rest } = JSON.parse(raw) as Record<string, unknown>;
+      await this.store.hset("latch:clients", id, JSON.stringify(Array.isArray(body.apps) ? { ...rest, apps: body.apps } : rest));
+      return noContent();
     }
     if (path.startsWith("clients/") && method === "DELETE") {
       const id = decodeURIComponent(path.slice("clients/".length));

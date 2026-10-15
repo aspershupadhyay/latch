@@ -4,7 +4,7 @@
 // Mirrors servers/mcp/src/devices.rs: one command at a time per phone, policy
 // before anything leaves the gateway, typed results, redacted audit.
 
-import { evaluate } from "./policy.js";
+import { appAllowed, evaluate, screenWithheld } from "./policy.js";
 import {
   type ApprovalChoice, type ApprovalRequest, type CapabilityState, type Command, type ConfirmRequest, type ErrorCode, type Hello, type Observation, type ObserveAfter,
   type Outcome, ProtocolError, RECOVERY_HINTS, type SessionInfo, changesScreen, minMinorVersion, minorVersion, normalizeObservation,
@@ -93,6 +93,8 @@ export interface ExecuteOptions {
   deferWhenAsked?: boolean;
   /** Collect the result of a command already sent (after `answer_approval`) instead of sending a new one. */
   resumeCommandId?: string;
+  /** Roadmap R18: the only phone apps the calling AI app may use; undefined for no limit. */
+  allowedApps?: readonly string[];
 }
 
 export interface DeviceRecord {
@@ -443,6 +445,7 @@ export class Devices {
       session: live.session,
       latestObservation: cached && cached.conn === live.conn ? { observation: cached.observation, receivedAtMs: cached.received_at_ms } : undefined,
       nowMs: now,
+      allowedApps: options.allowedApps,
     });
     if (decision.kind === "deny") throw decision.error;
     setDecision(decision.kind);
@@ -532,6 +535,10 @@ export class Devices {
       });
     };
     const malformed = () => new ProtocolError("internal", "the phone returned a malformed result");
+    // R18: a screen from an app outside this AI app's limit is never shown to it.
+    const shown = (observation: Observation) => {
+      if (!appAllowed(options.allowedApps, observation.package)) throw screenWithheld(observation.package);
+    };
     if (command.name === "ui.observe") {
       let observation: Observation;
       try {
@@ -540,6 +547,7 @@ export class Devices {
         throw e instanceof ProtocolError ? e : malformed();
       }
       remember(observation);
+      shown(observation);
       return { data: observation, phoneMs };
     }
     if (typeof outcome.data !== "object" || outcome.data === null) throw malformed();
@@ -553,19 +561,22 @@ export class Devices {
         throw e instanceof ProtocolError ? e : malformed();
       }
       remember(observation);
+      shown(observation);
       return { data: { matched: raw.matched }, observation, phoneMs };
     }
     if (!observeAfter) return { data: outcome.data, phoneMs };
     // The action ran; a bad or missing observation only means the agent must observe itself.
     const { observation: rawObservation, observation_error: rawError, ...data } = outcome.data as Record<string, unknown>;
     if (rawObservation !== undefined) {
+      let observation: Observation;
       try {
-        const observation = normalizeObservation(rawObservation, observeAfter.max_nodes);
-        remember(observation);
-        return { data, observation, phoneMs };
+        observation = normalizeObservation(rawObservation, observeAfter.max_nodes);
       } catch {
         return { data, observationError: malformed(), phoneMs };
       }
+      remember(observation);
+      shown(observation);
+      return { data, observation, phoneMs };
     }
     const e = rawError as { code?: unknown; message?: unknown } | undefined;
     const observationError = typeof e?.code === "string" && e.code in RECOVERY_HINTS && typeof e.message === "string"

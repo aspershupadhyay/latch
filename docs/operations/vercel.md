@@ -50,6 +50,7 @@ The container gateway (`servers/mcp`) supports the same sign-in with only the UR
 | `LATCH_MCP_TOKEN` | no | An extra static MCP token, if you prefer one fixed key. |
 | `LATCH_PUBLIC_URL` | no | Custom domain to show in links. |
 | `LATCH_ALLOWED_ORIGINS` | no | Browser origins allowed to call `/mcp`. |
+| `LATCH_CLIENT_CALLS_PER_MINUTE` | no | Tool calls each AI app may make per minute (default 120, `0` for no limit). Over it, the AI reads `rate_limited: …` and waits; other AI apps are unaffected (roadmap R18). Costs one Redis round trip per tool call. |
 | `LATCH_POLL_INTERVAL_MS` | no | How often a waiting phone poll checks for work (default 500). Lower is snappier but uses more Redis commands. |
 | `LATCH_HOT_POLL_INTERVAL_MS` | no | The same while an agent is actively using the phone (the phone sends `hot=1` for 60 s after each command; default 100). |
 | `LATCH_RESULT_INTERVAL_MS` | no | How often a waiting tool call checks for the phone's answer (default 100). |

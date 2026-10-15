@@ -64,7 +64,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/v1/admin/clients",
             get(admin_clients).post(admin_create_client),
         )
-        .route("/v1/admin/clients/{id}", delete(admin_revoke_client))
+        .route(
+            "/v1/admin/clients/{id}",
+            delete(admin_revoke_client).patch(admin_limit_client),
+        )
         .route("/v1/admin/oauth/requests", get(admin_oauth_requests))
         .route("/v1/admin/oauth/requests/{id}", post(admin_oauth_decide))
         // OAuth for MCP clients (roadmap R17): sign in with only the URL, approved on the phone.
@@ -374,24 +377,45 @@ fn is_admin(state: &AppState, headers: &HeaderMap) -> bool {
 }
 
 /// Accepts the optional `LATCH_MCP_TOKEN` or any client token created in the console.
-fn is_mcp_client(state: &AppState, token: Option<&str>) -> bool {
-    let Some(token) = token else {
-        return false;
-    };
+/// The AI app a credential belongs to, with the owner's limits for it (R18).
+fn mcp_caller(state: &AppState, token: Option<&str>) -> Option<crate::Caller> {
+    let token = token?;
     let by_env = state
         .config
         .mcp_token
         .as_deref()
         .is_some_and(|expected| secret::secrets_equal(token, expected));
     if by_env {
-        return true;
+        return Some(crate::Caller {
+            key: "env".into(),
+            apps: None,
+        });
     }
     // OAuth access tokens; revoking the app in the owner list ends them at once.
-    if token.starts_with("lat_") {
-        let app = state.oauth().access_app(token, now_ms());
-        return app.is_some_and(|app| state.store().use_client(&app, now_ms()));
-    }
-    state.store().authenticate_client(token, now_ms()).is_some()
+    let app = if token.starts_with("lat_") {
+        Some(state.oauth().access_app(token, now_ms())?)
+    } else {
+        None
+    };
+    let mut store = state.store();
+    let record = match app {
+        Some(app) => {
+            store.use_client(&app, now_ms()).then_some(())?;
+            store.client(&app)?.clone()
+        }
+        None => store.authenticate_client(token, now_ms())?.clone(),
+    };
+    Some(crate::Caller {
+        key: record.id,
+        apps: record.apps,
+    })
+}
+
+/// What an AI app reads when it is over its budget; the same text on both gateways.
+pub fn rate_limited_text(per_minute: u32) -> String {
+    format!(
+        "rate_limited: this AI app made more than {per_minute} tool calls in a minute. Wait a moment, then continue; the owner can raise the limit with LATCH_CLIENT_CALLS_PER_MINUTE."
+    )
 }
 
 // ---- The public page: static, no scripts, no forms ----
@@ -481,9 +505,9 @@ async fn mcp_serve(
             );
         }
     }
-    if !is_mcp_client(state, token) {
+    let Some(caller) = mcp_caller(state, token) else {
         return oauth::mcp_unauthorized(state, headers, token.is_some());
-    }
+    };
     if let Some(version) = headers.get("mcp-protocol-version") {
         let version = version.to_str().unwrap_or_default();
         if !mcp::SUPPORTED_VERSIONS.contains(&version) {
@@ -500,7 +524,22 @@ async fn mcp_serve(
                 .into_response();
         }
     };
-    match mcp::handle(state, message).await {
+    // R18: each AI app gets its own budget of tool calls per minute.
+    if message["method"] == "tools/call" && !state.count_call(&caller.key, now_ms()) {
+        return Json(json!({
+            "jsonrpc": "2.0",
+            "id": message["id"],
+            "result": {
+                "content": [{ "type": "text", "text": rate_limited_text(state.calls_per_minute) }],
+                "isError": true,
+            },
+        }))
+        .into_response();
+    }
+    match crate::CALLER
+        .scope(caller, mcp::handle(state, message))
+        .await
+    {
         Some(reply) => Json(reply).into_response(),
         None => StatusCode::ACCEPTED.into_response(),
     }
@@ -715,6 +754,60 @@ async fn admin_audit(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
 #[serde(deny_unknown_fields)]
 struct CreateClient {
     name: String,
+    /// R18: the only phone apps this AI app may use; absent for no limit.
+    #[serde(default)]
+    apps: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClientLimits {
+    /// `null` removes the limit.
+    apps: Option<Vec<String>>,
+}
+
+/// At most 100 package names, each a valid Android package name.
+fn apps_ok(apps: &Option<Vec<String>>) -> bool {
+    apps.as_ref().is_none_or(|list| {
+        list.len() <= 100
+            && list.iter().all(|p| {
+                (1..=255).contains(&p.len())
+                    && p.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
+            })
+    })
+}
+
+const APPS_INVALID: &str = "apps must be a list of at most 100 package names (letters, digits, dots, underscores), or null";
+
+/// R18: limits an AI app to some phone apps, or lifts the limit.
+async fn admin_limit_client(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    let Ok(limits) = serde_json::from_slice::<ClientLimits>(&body) else {
+        return error(StatusCode::BAD_REQUEST, APPS_INVALID);
+    };
+    if !apps_ok(&limits.apps) {
+        return error(StatusCode::BAD_REQUEST, APPS_INVALID);
+    }
+    let saved = state.store().set_client_apps(&id, limits.apps);
+    match saved {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => error(StatusCode::NOT_FOUND, "no such client"),
+        Err(e) => {
+            tracing::error!(error = %e, "could not persist client limits");
+            error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not save the limits",
+            )
+        }
+    }
 }
 
 async fn admin_clients(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
@@ -732,6 +825,7 @@ async fn admin_clients(State(state): State<Arc<AppState>>, headers: HeaderMap) -
                 "created_at_ms": c.created_at_ms,
                 "last_used_ms": c.last_used_ms,
                 "kind": c.kind.as_deref().unwrap_or("key"),
+                "apps": c.apps,
             })
         })
         .collect();
@@ -785,6 +879,9 @@ async fn admin_create_client(
     if !bounded(&request.name, 40) {
         return error(StatusCode::BAD_REQUEST, "name must be 1-40 characters");
     }
+    if !apps_ok(&request.apps) {
+        return error(StatusCode::BAD_REQUEST, APPS_INVALID);
+    }
     if state.store().clients().len() >= 50 {
         return error(
             StatusCode::TOO_MANY_REQUESTS,
@@ -800,6 +897,7 @@ async fn admin_create_client(
         last_used_ms: None,
         kind: None,
         oauth_client_id: None,
+        apps: request.apps,
     };
     let id = record.id.clone();
     if let Err(e) = state.store().insert_client(record) {

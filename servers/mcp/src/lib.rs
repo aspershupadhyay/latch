@@ -47,6 +47,10 @@ pub struct AppState {
     pub transfer_budget_ms: u64,
     /// OAuth sign-in requests, codes, and access tokens (roadmap R17).
     oauth: Mutex<oauth::OAuth>,
+    /// Roadmap R18: tool calls each AI app may make per minute (0: no limit).
+    pub calls_per_minute: u32,
+    /// Tool calls in the current minute, per caller key.
+    calls: Mutex<std::collections::HashMap<String, (u64, u32)>>,
 }
 
 impl AppState {
@@ -62,6 +66,11 @@ impl AppState {
             settle_ms: 600,
             transfer_budget_ms: mcp::files::TRANSFER_TOOL_BUDGET_MS,
             oauth: Mutex::new(oauth::OAuth::default()),
+            calls_per_minute: std::env::var("LATCH_CLIENT_CALLS_PER_MINUTE")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(DEFAULT_CALLS_PER_MINUTE),
+            calls: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -77,6 +86,19 @@ impl AppState {
         self.store.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Counts one tool call for `key`; false when it is over this minute's budget.
+    pub fn count_call(&self, key: &str, now_ms: u64) -> bool {
+        if self.calls_per_minute == 0 {
+            return true;
+        }
+        let minute = now_ms / 60_000;
+        let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+        calls.retain(|_, (m, _)| *m == minute);
+        let entry = calls.entry(key.to_owned()).or_insert((minute, 0));
+        entry.1 += 1;
+        entry.1 <= self.calls_per_minute
+    }
+
     pub(crate) fn oauth(&self) -> MutexGuard<'_, oauth::OAuth> {
         self.oauth.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -84,6 +106,30 @@ impl AppState {
     pub(crate) fn pairings(&self) -> MutexGuard<'_, pairing::Pairings> {
         self.pairings.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// The AI app making the current MCP request (roadmap R18), set for the
+/// request's task by the HTTP layer so every command it runs is checked
+/// against the owner's limits for that app.
+#[derive(Debug, Clone, Default)]
+pub struct Caller {
+    /// The AI app's id, or `env` for `LATCH_MCP_TOKEN`; rate limits count per key.
+    pub key: String,
+    /// The only phone apps it may use; `None` for no limit beyond the phone's own.
+    pub apps: Option<Vec<String>>,
+}
+
+/// Tool calls an AI app may make per minute unless `LATCH_CLIENT_CALLS_PER_MINUTE` says otherwise.
+/// An agent working fast makes about one call a second; this leaves room for bursts.
+pub const DEFAULT_CALLS_PER_MINUTE: u32 = 120;
+
+tokio::task_local! {
+    pub static CALLER: Caller;
+}
+
+/// The phone apps the current caller may use (`None`: no limit, or no caller, as in stdio mode).
+pub fn caller_apps() -> Option<Vec<String>> {
+    CALLER.try_with(|c| c.apps.clone()).ok().flatten()
 }
 
 pub fn now_ms() -> u64 {
