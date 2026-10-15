@@ -3,6 +3,7 @@
 package io.github.aspershupadhyay.latch.policy
 
 import io.github.aspershupadhyay.latch.protocol.Observation
+import io.github.aspershupadhyay.latch.protocol.Rect
 import io.github.aspershupadhyay.latch.protocol.UiNode
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -54,8 +55,35 @@ class Consequences(private val words: PolicyWords) {
         return Consequence.NONE
     }
 
-    /** Judges a tap on [node] (null: a point on no element) in [observation]. */
-    fun judgeTap(observation: Observation, node: UiNode?, longPress: Boolean, extra: List<UiNode> = emptyList(), double: Boolean = false): Judgement {
+    /**
+     * Judges a tap on [node] (null: a point on no element) in [observation].
+     * [seen] is text read from the pixels of an unlabeled target (ADR-032): it
+     * can only raise the outcome and never appears in the title or key.
+     */
+    fun judgeTap(
+        observation: Observation,
+        node: UiNode?,
+        longPress: Boolean,
+        extra: List<UiNode> = emptyList(),
+        double: Boolean = false,
+        seen: String? = null,
+    ): Judgement {
+        val pixels = seen?.takeIf { it.isNotBlank() }?.let { listOf(UiNode(id = "seen", role = "View", text = it, bounds = Rect(0, 0, 0, 0))) }.orEmpty()
+        val base = judgeLabeled(observation, node, longPress, extra, double)
+        val raised = classify(pixels, null)
+        return if (raised.ordinal > base.consequence.ordinal) base.copy(consequence = raised) else base
+    }
+
+    /**
+     * True when nothing the tap would hit carries a label, so the words on it
+     * can only be read from its pixels (ADR-032).
+     */
+    fun needsReading(observation: Observation, node: UiNode?, extra: List<UiNode> = emptyList()): Boolean {
+        if (node == null) return true
+        return (scopeOf(observation.nodes, node) + extra).all { ownLabel(it) == null }
+    }
+
+    private fun judgeLabeled(observation: Observation, node: UiNode?, longPress: Boolean, extra: List<UiNode>, double: Boolean): Judgement {
         val verb = when {
             longPress -> "Long-press"
             double -> "Double-tap"
@@ -157,6 +185,31 @@ class Consequences(private val words: PolicyWords) {
                 }
             }
             return scope
+        }
+
+        /** Largest region read for a tap, per side: a control, not a page of text. */
+        const val MAX_READ_EDGE = 360
+        /** Half the side of the square read around a tap on no element or on a big container. */
+        const val READ_RADIUS = 96
+
+        /**
+         * The part of the screen whose words a tap on [node] at ([x], [y]) is
+         * judged by: the control itself when it is control-sized, otherwise a
+         * small square around the tap, so a page full of text never counts.
+         */
+        fun readRegion(node: UiNode?, x: Int, y: Int, screenWidth: Int, screenHeight: Int): Rect {
+            val b = node?.bounds
+            val region = if (b != null && !b.isEmpty && b.right - b.left <= MAX_READ_EDGE && b.bottom - b.top <= MAX_READ_EDGE) {
+                b
+            } else {
+                Rect(x - READ_RADIUS, y - READ_RADIUS, x + READ_RADIUS, y + READ_RADIUS)
+            }
+            return Rect(
+                region.left.coerceIn(0, screenWidth),
+                region.top.coerceIn(0, screenHeight),
+                region.right.coerceIn(0, screenWidth),
+                region.bottom.coerceIn(0, screenHeight),
+            )
         }
 
         /** Smallest node containing the point, preferring actionable ones (`Observation::node_at`). */

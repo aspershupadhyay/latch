@@ -299,6 +299,8 @@ fun SettingsScreen(
     update: UpdateState = UpdateState.Idle,
     checkUpdates: Boolean = true,
     onCheckUpdates: (Boolean) -> Unit = {},
+    readButtons: Boolean = true,
+    onReadButtons: (Boolean) -> Unit = {},
     onCheckNow: () -> Unit = {},
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     reducedMotion: Boolean = false,
@@ -327,7 +329,21 @@ fun SettingsScreen(
             RowDivider()
             ListRow(LatchIcons.Person, "Screen access", "Turn it off in Android's settings at any time", tint = signal.accent2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
             RowDivider()
-            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs; screen content is never saved. Activity (what the AI did, no screen text) stays on this phone for 7 days. No tracking.", tint = signal.text2)
+            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs; screen content is never saved. Activity (what the AI did, no screen text) stays on this phone for 7 days. No tracking by Latch.", tint = signal.text2)
+            RowDivider()
+            ListRow(
+                LatchIcons.Eye,
+                "Read unlabeled buttons",
+                "Before the AI taps a button with no label, Latch reads the words on it here on the phone, so an icon-only Send or Pay still asks you. Uses Google ML Kit: the picture and words never leave the phone, but ML Kit sends Google usage statistics (phone model, app version, speed).",
+                tint = signal.accent,
+                trailing = {
+                    LatchSwitch(
+                        checked = readButtons,
+                        onCheckedChange = onReadButtons,
+                        modifier = Modifier.semantics { contentDescription = "Read unlabeled buttons" },
+                    )
+                },
+            )
         }
         SectionCaption("Updates")
         if (update.shownOnHome()) UpdateCard(update, reducedMotion, onInstallUpdate)

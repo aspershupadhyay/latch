@@ -17,6 +17,7 @@ import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import io.github.aspershupadhyay.latch.policy.Consequence
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.Judgement
+import io.github.aspershupadhyay.latch.policy.LabelReader
 import io.github.aspershupadhyay.latch.protocol.ActionResult
 import io.github.aspershupadhyay.latch.protocol.ActivityList
 import io.github.aspershupadhyay.latch.protocol.AppList
@@ -216,6 +217,8 @@ class CommandExecutor(
     private val files: PhoneFiles? = null,
     /** Whole files by encrypted link (protocol 1.7). */
     private val transfers: PhoneTransfers? = null,
+    /** Reads the words on unlabeled controls (ADR-032); null while the owner's switch is off. */
+    private val labelReader: () -> LabelReader? = { null },
 ) {
     /** How long a question waits for the owner, given the command's own deadline. */
     private fun approvalTimeout(deadlineMs: Long): Long {
@@ -392,6 +395,8 @@ class CommandExecutor(
                 var owner: String? = null
                 // What the screen looked like before, so settling can tell when the action took effect.
                 var before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
+                // Protocol 1.9 `effect`: the screen and app before anything happened, typing included.
+                val untouched = if (envelope.observeAfter != null) service.screenSignature() to service.currentPackage() else null
                 var expectChangeMs = EXPECT_CHANGE_MS
                 when (command) {
                     is Command.Tap -> {
@@ -422,7 +427,7 @@ class CommandExecutor(
                 }
                 note(ActivityKind.ACTION, judged ?: describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted, owner = owner)
-                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current) }
+                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current, untouched) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
         }
@@ -671,11 +676,11 @@ class CommandExecutor(
     }
 
     /** The phone's own judgement of a tap or swipe, or null for other commands. */
-    private fun judge(command: Command): Judgement? {
+    private suspend fun judge(command: Command): Judgement? {
         val service = bridge.service.value ?: return null
         return when (command) {
             is Command.Tap -> service.tapContext(command.observationId, command.target)?.let {
-                consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double)
+                consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double, seen = readUnlabeled(service, it, command.target))
             }
             is Command.Swipe -> consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
             is Command.TypeText -> if (!command.submit) {
@@ -687,6 +692,22 @@ class CommandExecutor(
             }
             else -> null
         }
+    }
+
+    /**
+     * ADR-032: the words drawn on the tapped control when nothing it contains
+     * carries a label (an icon-only Send or Pay button), read on the phone.
+     * They only ever raise the judgement and go nowhere else.
+     */
+    private suspend fun readUnlabeled(service: LatchAccessibilityService, context: LatchAccessibilityService.TapContext, target: Target): String? {
+        val reader = labelReader() ?: return null
+        if (!consequences.needsReading(context.observation, context.node, context.live)) return null
+        val (x, y) = when (target) {
+            is Target.Point -> target.x to target.y
+            is Target.Element -> (context.node?.bounds ?: return null).let { it.centerX to it.centerY }
+        }
+        val (width, height) = service.screenSize()
+        return reader.read(Consequences.readRegion(context.node, x, y, width, height))
     }
 
     /**
@@ -702,6 +723,7 @@ class CommandExecutor(
         expectChangeMs: Long,
         result: ActionResult,
         current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
+        untouched: Pair<Int, String?>? = null,
     ): ActionResult {
         val quiet = after.quietMs
         if (quiet == null) {
@@ -724,6 +746,16 @@ class CommandExecutor(
             )
         }
         service.cursorStatus("Reading the new screen")
+        val effected = untouched?.let { (signature, pkg) -> result.copy(effect = effectOf(signature, pkg, service.screenSignature(), service.currentPackage())) } ?: result
+        return observeSettled(service, after, effected, current)
+    }
+
+    private suspend fun observeSettled(
+        service: LatchAccessibilityService,
+        after: ObserveAfter,
+        result: ActionResult,
+        current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
+    ): ActionResult {
         val (session, capabilities) = current()
         val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
         val refusal = when {
@@ -753,4 +785,14 @@ class CommandExecutor(
             result.copy(observationError = ErrorBody(e.code.wire, e.message ?: e.code.wire))
         }
     }
+}
+
+/**
+ * Protocol 1.9: what an action visibly did, from the screen signature and app
+ * before it and after the screen settled. A signature of 0 means unreadable.
+ */
+internal fun effectOf(signatureBefore: Int, packageBefore: String?, signatureAfter: Int, packageAfter: String?): String = when {
+    packageBefore != null && packageAfter != null && packageAfter != packageBefore -> "new_app"
+    signatureBefore == 0 || signatureAfter == 0 || signatureAfter != signatureBefore -> "changed"
+    else -> "none"
 }

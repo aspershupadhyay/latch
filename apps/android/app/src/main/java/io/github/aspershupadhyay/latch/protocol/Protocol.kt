@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.8"
+    const val VERSION = "1.9"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -197,6 +197,8 @@ data class ActionResult(
     val submitted: Boolean? = null,
     /** `owner.ask` only (since 1.5): done, cant, or no_answer. */
     val owner: String? = null,
+    /** Since 1.9, with observe_after: none, changed, or new_app, judged after the screen settled. */
+    val effect: String? = null,
 )
 
 // ---- Files (since 1.6, ADR-026) ----

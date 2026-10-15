@@ -665,6 +665,8 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         update = update,
         checkUpdates = prefs.checkUpdates,
         onCheckUpdates = { v -> app.settings.update { it.copy(checkUpdates = v) } },
+        readButtons = prefs.readButtons,
+        onReadButtons = { v -> app.settings.update { it.copy(readButtons = v) } },
         onCheckNow = { app.updater.check(manual = true) },
         onInstallUpdate = { info -> installUpdate(app, context, info) },
         reducedMotion = reducedMotion,

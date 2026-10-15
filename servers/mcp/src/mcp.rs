@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use latch_protocol::{
-    Command, Direction, ErrorCode, GlobalAction, Observation, ObserveAfter, OwnerReply, Point,
-    ProtocolError, Target, UiNode,
+    ActionEffect, Command, Direction, ErrorCode, GlobalAction, Observation, ObserveAfter,
+    OwnerReply, Point, ProtocolError, Target, UiNode,
 };
 use serde_json::{Value, json};
 
@@ -68,7 +68,9 @@ in one call with this time's inputs (a different cart, another contact, a new me
 finishing a task the user will repeat, offer to save it with `save_skill`, generalized: what \
 changes becomes params, things that vary in number become a list with for_each, elements are \
 named by their words, and near picks the right row. If a run stops because the screen \
-differs, do that step yourself and continue with from_step.";
+differs, do that step yourself and continue with from_step. When you can predict the next few \
+steps (open an app, search, tap a result), send them together with `run_steps` instead of one \
+call each: it saves a round trip per step.";
 
 /// Shown under the untrusted-content banner for apps `latch_policy::is_sensitive_app` flags.
 pub const SENSITIVE_APP_NOTE: &str = "Caution: this app may hold money, accounts, or passwords. \
@@ -734,12 +736,15 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             files::upload_link(state)
         });
     }
-    if skills::NAMES.contains(&name) && name != "run_skill" {
+    if skills::NAMES.contains(&name) && name != "run_skill" && name != "run_steps" {
         return skills::run_store(state, name, args);
     }
     let device_id = devices::resolve_device(state, arg_str(args, "device_id").map_err(bad)?)?;
     if name == "run_skill" {
         return skills::run(state, args, &device_id).await;
+    }
+    if name == "run_steps" {
+        return skills::run_steps(state, args, &device_id).await;
     }
     if name == "set_clipboard" {
         let text = req_str(args, "text").map_err(bad)?.to_owned();
@@ -963,7 +968,11 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
         (Some(text), _) => format!("Did not find {} after scrolling.", quote(text, 60)),
         (None, _) if action.owner.is_some() => owner_said(action.owner).into(),
         (None, _) if action.submitted == Some(false) => NOT_SUBMITTED.into(),
-        (None, _) => "Done.".into(),
+        (None, _) => match action.effect {
+            Some(ActionEffect::None) => NO_EFFECT.into(),
+            Some(ActionEffect::NewApp) => "Done; another app is now in front.".into(),
+            _ => "Done.".into(),
+        },
     };
     let headline = format!("{done} The screen after the action:");
     if let Some(obs) = &action.observation {
@@ -1009,6 +1018,10 @@ fn owner_said(reply: Option<OwnerReply>) -> &'static str {
         _ => "The owner did not answer within 2 minutes. Tell the user what you need from them.",
     }
 }
+
+/// Said when the phone saw no change after an action (protocol 1.9 `effect: none`).
+const NO_EFFECT: &str = "Done, but the screen did not visibly change: the action may have missed \
+(a disabled control, the wrong spot) or the app is slow. Check the screen below before going on.";
 
 /// Said when the phone pressed Enter and nothing visibly happened.
 const NOT_SUBMITTED: &str = "Typed, but Enter did nothing visible: the text is still in the field. \

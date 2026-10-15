@@ -344,6 +344,7 @@ async fn mcp_handshake_and_discovery() {
             "save_skill",
             "list_skills",
             "run_skill",
+            "run_steps",
             "delete_skill",
             "answer_approval"
         ]
@@ -572,6 +573,11 @@ async fn agent_navigates_settings_and_toggles_wifi() {
     let (is_error, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Settings")})).await;
     assert!(!is_error, "{screen}");
     assert!(screen.contains("app com.android.settings"), "{screen}");
+    // Protocol 1.9 effect, same text as the Vercel gateway.
+    assert!(
+        screen.starts_with("Done; another app is now in front. The screen after the action:"),
+        "{screen}"
+    );
 
     let (_, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Network & internet")})).await;
     assert!(screen.contains("\"Wi-Fi\""), "{screen}");
@@ -1149,7 +1155,11 @@ async fn pinch_drag_and_double_tap_reach_the_phone() {
         json!({"observation_id": observation_id(&screen), "zoom": "in"}),
     )
     .await;
-    assert!(!is_error && screen.starts_with("Done."), "{screen}");
+    // Protocol 1.9: the fake launcher does not zoom, and the phone says so.
+    assert!(
+        !is_error && screen.starts_with("Done, but the screen did not visibly change"),
+        "{screen}"
+    );
     let (is_error, screen, _) = call(&gw, "swipe", json!({"observation_id": observation_id(&screen), "from_x": 500, "from_y": 400, "to_x": 500, "to_y": 900, "hold_ms": 600})).await;
     assert!(!is_error, "{screen}");
     let (is_error, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Chat"), "double": true})).await;
@@ -1197,7 +1207,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.8, 32 tools.",
+        lines[0], "Latch gateway, protocol 1.9, 33 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1834,4 +1844,69 @@ async fn skills_replay_with_new_inputs_and_hand_back_what_differs() {
     assert!(!is_error);
     let (_, list, _) = call(&gw, "list_skills", json!({})).await;
     assert!(list.starts_with("1 skills"), "{list}");
+}
+
+/// Roadmap R4: steps sent together run in one call, each through the same
+/// rules as a single tool call (the owner is still asked before Send), save
+/// nothing, and stop with the screen when one does not match.
+#[tokio::test]
+async fn run_steps_does_several_steps_in_one_call_under_the_same_rules() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+
+    let (is_error, text, _) = call(
+        &gw,
+        "run_steps",
+        json!({ "steps": [
+            { "do": "launch_app", "package": "org.latch.demo.chat" },
+            { "do": "type", "target": "Message", "text": "On my way" },
+            { "do": "tap", "target": "Send" }
+        ]}),
+    )
+    .await;
+    assert!(
+        !is_error && text.contains("Ran your steps: all 3 steps done."),
+        "{text}"
+    );
+    {
+        let state = phone.state.lock().expect("lock");
+        assert_eq!(
+            state.phone.sent_messages.last().map(String::as_str),
+            Some("On my way")
+        );
+        assert!(
+            state.approval_requests.iter().any(|t| t.contains("Send")),
+            "the owner was asked before Send: {:?}",
+            state.approval_requests
+        );
+    }
+    let (_, skills, _) = call(&gw, "list_skills", json!({})).await;
+    assert!(!skills.contains("\"steps\""), "nothing saved: {skills}");
+
+    // A step that does not match stops the run and hands the screen back.
+    let (is_error, text, _) = call(
+        &gw,
+        "run_steps",
+        json!({ "steps": [
+            { "do": "launch_app", "package": "com.android.settings" },
+            { "do": "tap", "target": "Teleport" }
+        ]}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.contains("stopped: could not find \"Teleport\""),
+        "{text}"
+    );
+    assert!(
+        text.contains("run_steps with from_step 3 and the same steps"),
+        "{text}"
+    );
+    assert!(text.contains("observation_id"), "{text}");
+
+    // Refused before anything runs: bad steps and params are not for run_steps.
+    let (is_error, text, _) = call(&gw, "run_steps", json!({ "steps": [{ "do": "fly" }] })).await;
+    assert!(is_error, "{text}");
+    let (is_error, text, _) = call(&gw, "run_steps", json!({ "steps": [] })).await;
+    assert!(is_error, "{text}");
 }

@@ -164,6 +164,7 @@ After your AI does a task (say, filling a grocery cart), ask it to **save it as 
 - It finds buttons by their words, picks the **ADD** next to the right product even when similar items are listed, and skips pop-ups.
 - If something is different (an item is out of stock, a new screen), it stops and your AI handles that step, then carries on.
 - Payments, sends, and anything that needs your OK still ask you, exactly as before. Skills live on **your** gateway.
+- Even without a saved skill, your AI can send a few predictable steps together (open an app, search, tap a result) with `run_steps`, so it doesn't stop to think between each one. Every step still follows the same rules.
 
 ### Step 8: Start a session and try it 🚀
 
@@ -265,7 +266,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
 
 **Why:** the phone app updates when you install a new APK, but your gateway on Vercel only updates when Vercel deploys new code. The Deploy button makes a **copy** of Latch in your own GitHub (usually called `latch-gateway`), and that copy doesn't receive new versions by itself.
 
-1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.8"`. It also shows `commit` and `repository`.
+1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.9"`. It also shows `commit` and `repository`.
 2. **Update the code Vercel deploys.** Pick one:
    - **Follow Latch directly** (simplest; every Latch release reaches you automatically): Vercel → your project → **Settings → Git** → **Disconnect**, then **Connect Git Repository** → `aspershupadhyay/latch`. Then **Settings → Build and Deployment → Root Directory** → `servers/vercel` → **Save**. This means you trust each new Latch release as soon as it's published.
    - **Keep your own copy and review each version first:** when you want an update, download the newest Latch code (GitHub → **Code → Download ZIP** on `aspershupadhyay/latch`), replace the files in your copy with it, commit, and push. Vercel deploys your copy by itself.
@@ -277,7 +278,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Claude Code / Codex / other apps:** restart them.
 
    Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
-6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.8, 32 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.9, 33 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 
@@ -328,6 +329,7 @@ We built Latch so the AI can't sneak around you:
 - **Your gateway keeps a short activity list:** what kind of action happened and whether it was allowed. No screen text, no pictures. It keeps the last 1,000 entries for up to 30 days.
 - **Keys are stored safely:** scrambled (as hashes) on the gateway, and encrypted on your phone.
 - **Nothing goes to us.** There's no Latch server, no tracking, and no analytics.
+- **Reading unlabeled buttons:** before the AI taps a button with no label (an icon-only Send or Pay), Latch reads the words on it on the phone with Google ML Kit so the button still asks you. The picture and the words never leave the phone, but ML Kit sends Google usage statistics (phone model, app version, speed). Switch it off in **Settings → Read unlabeled buttons**; then ML Kit never runs.
 - **One honest caveat:** whatever your AI sees is sent to that AI company (like Anthropic or OpenAI), because that's how it reads your screen. Their privacy rules apply. Only switch on what you're comfortable sharing.
 
 More detail: [SECURITY.md](SECURITY.md) and [handbook chapter 08](handbook/08-safety-privacy-security.md).

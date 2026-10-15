@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 package io.github.aspershupadhyay.latch.session
 
+import io.github.aspershupadhyay.latch.accessibility.ButtonReader
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
+import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.ActivityActor
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
@@ -12,6 +14,7 @@ import io.github.aspershupadhyay.latch.files.PhoneFiles
 import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.policy.Consequences
+import io.github.aspershupadhyay.latch.policy.LabelReader
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityState
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
@@ -82,13 +85,22 @@ class SessionController(
     /** Minor protocol version of the connected gateway; 1.4 relays approvals and waits for them. */
     @Volatile private var gatewayMinor = 0
 
-    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers)
+    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers, ::labelReader)
+    private var reader: Pair<LatchAccessibilityService, ButtonReader>? = null
     private var link: DeviceLink? = null
     @Volatile private var wanted = false
     @Volatile private var paused = false
     @Volatile private var expiresAtMs = 0L
     private var expiryJob: Job? = null
     @Volatile private var runningCommandId: String? = null
+
+    /** ADR-032: reads unlabeled buttons only while the owner's switch is on; one reader per service. */
+    private fun labelReader(): LabelReader? {
+        if (!settings.preferences.value.readButtons) return null
+        val service = bridge.service.value ?: return null
+        reader?.takeIf { it.first === service }?.let { return it.second }
+        return ButtonReader(service, service::captureRegion).also { reader = service to it }
+    }
 
     init {
         approvals.onRequested = ::offerApproval

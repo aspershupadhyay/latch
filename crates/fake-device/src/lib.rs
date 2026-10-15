@@ -13,11 +13,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
-    ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AppList, Capability,
-    CapabilityState, CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor, DeviceInfo,
-    DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation, Outcome,
-    OwnerReply, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target,
-    WaitResult, validate,
+    ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AppList,
+    Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor,
+    DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation,
+    Outcome, OwnerReply, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo,
+    Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -214,6 +214,17 @@ pub fn handle(
         Ok(node.effect.clone())
     };
 
+    // What the screen looked like before the action (protocol 1.9 `effect`).
+    let snapshot = |state: &FakeState| {
+        let rendered = state.phone.render();
+        let nodes: Vec<&latch_protocol::UiNode> = rendered.iter().map(|n| &n.node).collect();
+        (
+            screens::package_of(&state.phone.screen).to_owned(),
+            serde_json::to_string(&nodes).unwrap_or_default(),
+        )
+    };
+    let before = snapshot(state);
+
     let done = |state: &mut FakeState| {
         state.executed.push(envelope.command.name().to_owned());
         let mut result = ActionResult {
@@ -222,6 +233,14 @@ pub fn handle(
         };
         // Protocol 1.2: observe in the same round trip, under the same rules as ui.observe.
         if let Some(after) = &envelope.observe_after {
+            let now = snapshot(state);
+            result.effect = Some(if now.0 != before.0 {
+                ActionEffect::NewApp
+            } else if now.1 != before.1 {
+                ActionEffect::Changed
+            } else {
+                ActionEffect::None
+            });
             let allowed = state.enabled(Capability::UiObserve)
                 && (!after.include_screenshot || state.enabled(Capability::ScreenCapture));
             if allowed {

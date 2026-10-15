@@ -139,7 +139,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const tools = (await client.listTools()).tools.map((t) => t.name);
   assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
-    "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "delete_skill",
+    "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
     "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
@@ -162,6 +162,10 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.equal((screen.content as { type: string }[]).filter((c) => c.type === "image").length, 1);
 
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Settings") } });
+  // Protocol 1.9 effect, same text as the Rust gateway: the app changed, then a tap that does nothing says so.
+  assert.ok(text(screen).startsWith("Done; another app is now in front. The screen after the action:"), text(screen));
+  screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Display") } });
+  assert.ok(text(screen).startsWith("Done, but the screen did not visibly change"), text(screen));
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Network & internet") } });
   assert.match(text(screen), /\[tap,checked\]/);
   const before = obsId(text(screen));

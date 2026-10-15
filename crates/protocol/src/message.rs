@@ -227,6 +227,22 @@ pub struct ActionResult {
     /// `owner.ask` only (since 1.5): what the owner answered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<OwnerReply>,
+    /// Since 1.9, with `observe_after`: what the action visibly did, judged by
+    /// the phone after the screen settled. Absent from older apps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect: Option<ActionEffect>,
+}
+
+/// What an action visibly did (since 1.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionEffect {
+    /// The screen looks the same as before: the action may have missed.
+    None,
+    /// The same app shows something different.
+    Changed,
+    /// Another app is now in front.
+    NewApp,
 }
 
 /// The owner's answer to `owner.ask` (since 1.5).

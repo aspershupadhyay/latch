@@ -25,7 +25,13 @@ use serde_json::{Map, Value, json};
 use super::{arg_int, arg_str, device_id_schema, quote, req_str, text_result, tool};
 use crate::AppState;
 
-pub const NAMES: &[&str] = &["save_skill", "list_skills", "run_skill", "delete_skill"];
+pub const NAMES: &[&str] = &[
+    "save_skill",
+    "list_skills",
+    "run_skill",
+    "run_steps",
+    "delete_skill",
+];
 
 pub const MAX_SKILLS: usize = 50;
 const MAX_PARAMS: usize = 10;
@@ -845,6 +851,25 @@ pub fn definitions() -> Vec<Value> {
             &["name"],
         ),
         tool(
+            "run_steps",
+            "Run several steps",
+            "Run several steps on the phone in one call when you already know them, e.g. open an app, search, and tap a \
+             result: [{\"do\": \"launch_app\", \"package\": \"com.android.settings\"}, {\"do\": \"type\", \"target\": \"Search settings\", \
+             \"text\": \"battery\", \"submit\": true}, {\"do\": \"tap\", \"target\": \"Battery\"}]. Same step format as save_skill \
+             (launch_app, tap, type, scroll_to, wait_for, press, ask_owner; no params), elements named by their \
+             words, nothing saved. Every step goes through the same rules as a single tool call (apps the owner allows, \
+             approvals, refused fields). If a step does not match the screen, the run stops and returns the screen: do that step \
+             yourself, then call run_steps again with from_step. Use it for the parts of a task you can predict; observe first \
+             when you cannot.",
+            false,
+            json!({
+                "device_id": device_id_schema(),
+                "steps": { "type": "array", "minItems": 1, "maxItems": MAX_TOP_STEPS, "items": { "type": "object" }, "description": "The steps, in order." },
+                "from_step": { "type": "integer", "minimum": 1, "description": "Continue from this step number (from a stopped run's answer)." },
+            }),
+            &["steps"],
+        ),
+        tool(
             "delete_skill",
             "Delete a skill",
             "Delete a saved skill from this gateway.",
@@ -1004,6 +1029,70 @@ pub async fn run(
         ))
     })?;
     let steps = expand(&skill, args.get("params").unwrap_or(&Value::Null)).map_err(bad)?;
+    execute(
+        state,
+        args,
+        device_id,
+        &steps,
+        &Run::Skill(quote(skill_name, 40)),
+    )
+    .await
+}
+
+/// `run_steps` (roadmap R4): steps written for this call, in the same format
+/// as a skill's, run in one call without saving anything. Validated and
+/// expanded by the skill engine, so they obey the same limits and rules.
+pub async fn run_steps(
+    state: &Arc<AppState>,
+    args: &Value,
+    device_id: &str,
+) -> Result<Value, ProtocolError> {
+    let recipe = json!({
+        "name": "steps",
+        "description": "steps for this call",
+        "steps": args.get("steps").cloned().unwrap_or(Value::Null),
+    });
+    let skill = validate(&recipe).map_err(bad)?;
+    let steps = expand(&skill, &Value::Null).map_err(bad)?;
+    execute(state, args, device_id, &steps, &Run::Inline).await
+}
+
+/// What is being run, for the answer's wording.
+enum Run {
+    Skill(String),
+    Inline,
+}
+
+impl Run {
+    fn what(&self) -> String {
+        match self {
+            Run::Skill(name_q) => name_q.clone(),
+            Run::Inline => "your steps".into(),
+        }
+    }
+    fn again(&self, from: usize) -> String {
+        match self {
+            Run::Skill(_) => format!("run_skill with from_step {from} and the same params"),
+            Run::Inline => format!("run_steps with from_step {from} and the same steps"),
+        }
+    }
+    fn differs(&self) -> &'static str {
+        match self {
+            Run::Skill(_) => {
+                "The screen may differ from when the skill was saved (another product, a new pop-up)."
+            }
+            Run::Inline => "The screen did not look as the steps expected.",
+        }
+    }
+}
+
+async fn execute(
+    state: &Arc<AppState>,
+    args: &Value,
+    device_id: &str,
+    steps: &[Value],
+    run: &Run,
+) -> Result<Value, ProtocolError> {
     let from = arg_int(args, "from_step")
         .map_err(|e| bad(e.0))?
         .unwrap_or(1);
@@ -1224,7 +1313,7 @@ pub async fn run(
     }
 
     let total = steps.len();
-    let name_q = quote(skill_name, 40);
+    let name_q = run.what();
     let remaining = |from: usize| -> String {
         steps[from - 1..]
             .iter()
@@ -1236,20 +1325,23 @@ pub async fn run(
     let mut head = match &stop {
         Stop::Done => format!("Ran {name_q}: all {total} steps done."),
         Stop::Help(n, why) => format!(
-            "Ran {name_q} up to step {n} of {total} and stopped: {why}. The screen may differ from when the skill was saved \
-             (another product, a new pop-up). Look at the screen below, do step {n} yourself with the normal tools (or skip it if \
-             it no longer applies), then call run_skill with from_step {} and the same params.\nSteps from here:\n{}",
-            n + 1,
+            "Ran {name_q} up to step {n} of {total} and stopped: {why}. {} Look at the screen below, do step {n} yourself with the \
+             normal tools (or skip it if it no longer applies), then call {}.\nSteps from here:\n{}",
+            run.differs(),
+            run.again(n + 1),
             remaining(*n)
         ),
         Stop::Failed(n, e) => format!(
             "Ran {name_q} up to step {n} of {total} and stopped: {}: {}. Tell the user; if they want to continue, fix the cause and \
-             call run_skill with from_step {n}.",
-            e.code, e.message
+             call {}.",
+            e.code,
+            e.message,
+            run.again(*n)
         ),
         Stop::Paused(n) => format!(
-            "Ran {name_q} up to step {} of {total} and paused to keep this call short. Call run_skill with from_step {n} and the same params to continue.",
-            n.saturating_sub(1)
+            "Ran {name_q} up to step {} of {total} and paused to keep this call short. Call {} to continue.",
+            n.saturating_sub(1),
+            run.again(*n)
         ),
     };
     if !lines.is_empty() {

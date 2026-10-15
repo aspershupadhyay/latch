@@ -82,6 +82,7 @@ class ProtocolFixturesTest {
             .let { (it as kotlinx.serialization.json.JsonObject)["data"]!! }
         val withObservation = Protocol.json.decodeFromJsonElement(ActionResult.serializer(), data("d2g-result-action-observation.json"))
         assertEquals("o_8", withObservation.observation?.observationId)
+        assertEquals("changed", withObservation.effect)
         val withError = Protocol.json.decodeFromJsonElement(ActionResult.serializer(), data("d2g-result-action-observation-error.json"))
         assertEquals("policy_refused", withError.observationError?.code)
         // What the phone sends round-trips through the same shape.

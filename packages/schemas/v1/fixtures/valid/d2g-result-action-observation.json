@@ -5,6 +5,7 @@
     "status": "ok",
     "data": {
       "package": "com.android.settings",
+      "effect": "changed",
       "observation": {
         "observation_id": "o_8",
         "captured_at_ms": 1800000000600,

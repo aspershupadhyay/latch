@@ -11,7 +11,7 @@ import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoi
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
-import { type RunContext, SKILL_TOOLS, runSkill, runStore } from "./skills.js";
+import { type RunContext, SKILL_TOOLS, runSkill, runSteps, runStore } from "./skills.js";
 import type { Store } from "./store.js";
 
 export const SUPPORTED_VERSIONS: readonly string[] = SERVER.supported_versions;
@@ -221,14 +221,14 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     return minor >= 7 ? encryptedUploadLink(ctx.links, ctx.baseUrl) : uploadLink(ctx.transfers, ctx.baseUrl);
   }
 
-  if ((SKILL_TOOLS as readonly string[]).includes(name) && name !== "run_skill") {
+  if ((SKILL_TOOLS as readonly string[]).includes(name) && name !== "run_skill" && name !== "run_steps") {
     if (!ctx.skills) throw new ProtocolError("internal", "skills are not available here");
     return runStore(ctx.skills, name, args);
   }
   const { id: deviceId, live } = await ctx.devices.resolveDevice(argStr(args, "device_id"));
-  if (name === "run_skill") {
+  if (name === "run_skill" || name === "run_steps") {
     if (!ctx.skills) throw new ProtocolError("internal", "skills are not available here");
-    return runSkill({
+    return (name === "run_skill" ? runSkill : runSteps)({
       store: ctx.skills,
       deviceId,
       act: async (tool, toolArgs) => (await runTool(ctx, tool, toolArgs)) as Awaited<ReturnType<RunContext["act"]>>,
@@ -403,8 +403,10 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
   const found = (run.data as { found?: unknown }).found === true;
   const notSubmitted = (run.data as { submitted?: unknown }).submitted === false;
   const owner = (run.data as { owner?: unknown }).owner;
+  const effect = (run.data as { effect?: unknown }).effect;
+  const plainDone = effect === "none" ? NO_EFFECT : effect === "new_app" ? "Done; another app is now in front." : "Done.";
   const doneText = finding === undefined
-    ? owner !== undefined ? ownerSaid(owner) : notSubmitted ? NOT_SUBMITTED : "Done."
+    ? owner !== undefined ? ownerSaid(owner) : notSubmitted ? NOT_SUBMITTED : plainDone
     : found ? `Found ${quote(finding, 60)}.` : `Did not find ${quote(finding, 60)} after scrolling.`;
   const done = (result: ToolResult) => {
     result.content.unshift({ type: "text", text: `${doneText} The screen after the action:` });
@@ -434,6 +436,9 @@ function ownerSaid(reply: unknown): string {
   if (reply === "cant") return "The owner says they can't do it now. Do not ask again; tell the user and stop or find another way.";
   return "The owner did not answer within 2 minutes. Tell the user what you need from them.";
 }
+
+/** Said when the phone saw no change after an action (protocol 1.9 `effect: none`); same text as the Rust gateway. */
+const NO_EFFECT = "Done, but the screen did not visibly change: the action may have missed (a disabled control, the wrong spot) or the app is slow. Check the screen below before going on.";
 
 /** Said when the phone pressed Enter and nothing visibly happened. */
 const NOT_SUBMITTED = "Typed, but Enter did nothing visible: the text is still in the field. If the app has its own Send or Search button, tap it.";
