@@ -150,8 +150,9 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
 
   let screen = await client.callTool({ name: "observe", arguments: {} });
   assert.ok(!screen.isError, text(screen));
-  const timing = (screen._meta as Record<string, { total_ms: number; phone_ms: number }>)["latch/timing"]!;
+  const timing = (screen._meta as Record<string, { total_ms: number; phone_ms: number; store_ms: number }>)["latch/timing"]!;
   assert.ok(timing.total_ms >= timing.phone_ms && timing.phone_ms >= 0, JSON.stringify(timing));
+  assert.ok(timing.store_ms >= 0 && timing.store_ms <= timing.total_ms, JSON.stringify(timing));
   assert.equal((screen.content as { type: string }[]).filter((c) => c.type === "image").length, 1);
 
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Settings") } });

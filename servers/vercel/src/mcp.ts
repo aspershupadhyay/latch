@@ -5,7 +5,7 @@
 // test/ hold both to packages/schemas/v1/mcp.
 
 import { SERVER } from "./generated/contract.js";
-import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live } from "./devices.js";
+import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
 import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
@@ -541,11 +541,13 @@ function appNote(protocol: string): string {
 }
 
 export async function renderDevices(devices: Devices): Promise<string> {
+  const askedAt = Date.now();
   const records: DeviceRecord[] = await devices.records();
+  const storeMs = Date.now() - askedAt;
   // Which gateway answered: an AI app holding an old tool list shows up here.
   let out = `Latch gateway, protocol ${PROTOCOL_VERSION}, ${TOOLS.length} tools.\n`;
   if (records.length === 0) {
-    return out + "No phones are paired yet. The gateway owner creates a pairing code in the Latch admin page.\n";
+    return out + "No phones are paired yet. The gateway owner creates a pairing code in the Latch admin page.\n" + slowStoreNote(storeMs);
   }
   const online = await devices.online();
   // Connected phones first: those are the ones an agent can use.
@@ -561,7 +563,14 @@ export async function renderDevices(devices: Devices): Promise<string> {
       out += `- ${d.id} "${truncate(d.name, 40)}" (${truncate(d.model, 40)}) not connected\n`;
     }
   }
-  return out;
+  return out + slowStoreNote(storeMs);
+}
+
+/** Tells the owner, through the AI, that every command pays for a far-away database. */
+export function slowStoreNote(storeMs: number): string {
+  if (storeMs < SLOW_STORE_MS) return "";
+  return `Note for the owner: one database round trip took ${storeMs} ms, so every phone command is slow. `
+    + "Put the Upstash database in the same region as the Vercel function (see docs/operations/vercel.md, \"Speed\").\n";
 }
 
 /** `get_activity`: one line per entry, the same text as the Rust gateway's. Phone text is bounded. */
