@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
-# Runs every check CI runs. Usage: scripts/check.sh [rust|android|interop|site|all]
+# Runs every check CI runs. Usage: scripts/check.sh [rust|android|interop|site|audit|all]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 what="${1:-all}"
@@ -28,6 +28,14 @@ interop() {
   scripts/interop.sh
 }
 
+audit() {
+  echo "== Dependency audit: RustSec advisories, npm"
+  command -v cargo-audit >/dev/null || cargo install cargo-audit --version 0.22.2 --locked
+  cargo audit
+  (cd servers/vercel && npm audit --audit-level=moderate)
+  (cd tests/interop && npm audit --audit-level=moderate)
+}
+
 site() {
   echo "== Website: search tags, structured data, local links"
   node scripts/check-site.mjs
@@ -40,7 +48,8 @@ case "$what" in
   android) android ;;
   interop) interop ;;
   site) site ;;
-  all) rust; android; interop; site ;;
-  *) echo "usage: $0 [rust|android|interop|site|all]" >&2; exit 2 ;;
+  audit) audit ;;
+  all) rust; android; interop; site; audit ;;
+  *) echo "usage: $0 [rust|android|interop|site|audit|all]" >&2; exit 2 ;;
 esac
 echo "All requested checks passed."
