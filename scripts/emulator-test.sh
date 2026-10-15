@@ -14,7 +14,12 @@ image="system-images;android-$api;google_apis;x86_64"
 tools="$ANDROID_HOME/cmdline-tools/latest/bin"
 adb="$ANDROID_HOME/platform-tools/adb"
 
-"$tools/sdkmanager" --sdk_root="$ANDROID_HOME" "emulator" "$image" >/dev/null
+# The image is about 1 GB from Google's servers, which sometimes fail a download.
+for attempt in 1 2 3; do
+  "$tools/sdkmanager" --sdk_root="$ANDROID_HOME" "emulator" "$image" >/dev/null && break
+  [ "$attempt" = 3 ] && { echo "could not download the emulator image" >&2; exit 1; }
+  sleep 15
+done
 echo no | "$tools/avdmanager" create avd -n latch-ci -k "$image" --force >/dev/null
 
 cargo build -q -p latch-gateway
