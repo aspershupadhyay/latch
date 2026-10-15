@@ -1673,6 +1673,7 @@ fn diagnosis(state: &AppState, only: Option<&str>) -> Result<Value, ProtocolErro
                         protocol: l.protocol.clone(),
                         capabilities: l.capabilities.clone(),
                         session: l.session,
+                        battery_restricted: l.battery_restricted,
                     }),
             })
             .collect(),

@@ -116,6 +116,8 @@ export interface Live {
   /** Session with expires_at_ms translated to the gateway clock. */
   session: SessionInfo;
   connected_at_ms: number;
+  /** Since 1.13: Android may stop the app in the background (battery optimisation). */
+  battery_restricted?: boolean;
 }
 
 export interface LiveSummary {
@@ -123,6 +125,7 @@ export interface LiveSummary {
   /** Protocol version from the phone's hello, e.g. "1.3". */
   protocol: string;
   capabilities: CapabilityState[]; session: SessionInfo; connected_at_ms: number;
+  battery_restricted?: boolean;
 }
 
 export interface AuditEvent {
@@ -227,6 +230,7 @@ export class Devices {
       capabilities: hello.capabilities,
       session: toGatewayClock(hello.session, hello.device_time_ms, now),
       connected_at_ms: now,
+      ...(typeof hello.battery_restricted === "boolean" ? { battery_restricted: hello.battery_restricted } : {}),
     };
     await this.store.set(K.live(id), JSON.stringify(live), { px: POLL_STALE_MS });
     await this.store.del(K.observation(id));
@@ -342,6 +346,7 @@ export class Devices {
       out.push({
         device_id: record.id, platform: l.device.platform, model: l.device.model, os_version: l.device.os_version,
         app_version: l.device.app_version, protocol: String(l.protocol ?? "1.0").slice(0, 16), capabilities: l.capabilities, session: l.session, connected_at_ms: l.connected_at_ms,
+        ...(l.battery_restricted !== undefined ? { battery_restricted: l.battery_restricted } : {}),
       });
     }
     return out.sort((a, b) => a.device_id.localeCompare(b.device_id));

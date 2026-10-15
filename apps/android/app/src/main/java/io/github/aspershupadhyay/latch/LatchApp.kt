@@ -9,6 +9,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import io.github.aspershupadhyay.latch.accessibility.DeviceBridge
@@ -103,7 +104,9 @@ class LatchApp : Application() {
             photosOn = { settings.preferences.value.photosOn },
         )
         transfers = PhoneTransfers(files, http) { settings.pairing.value?.gatewayUrl }
-        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers)
+        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers) {
+            runCatching { !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) }.getOrNull()
+        }
         setup = GatewaySetup(http)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()

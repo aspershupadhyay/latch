@@ -83,6 +83,8 @@ pub struct FakeState {
     /// Protocol 1.12: the key this phone signs every message with; `None`
     /// behaves like a phone from before 1.12 (unsigned messages).
     pub device_key: Option<signing::DeviceKey>,
+    /// Protocol 1.13: what the hello says about Android's battery optimisation.
+    pub battery_restricted: Option<bool>,
     pub device_id: Option<String>,
     pub revoked: bool,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
@@ -125,6 +127,7 @@ impl FakeState {
             tasks_done: Vec::new(),
             controls: Vec::new(),
             device_key: Some(signing::DeviceKey::generate()),
+            battery_restricted: None,
             device_id: None,
             revoked: false,
             latest: None,
@@ -960,6 +963,7 @@ pub async fn run(
             session: s.session,
             device_time_ms: Some(now_ms()),
             device_key: s.device_key.as_ref().map(signing::DeviceKey::public_b64),
+            battery_restricted: s.battery_restricted,
         })
     };
     let key = lock(&state).device_key.clone();
@@ -1050,6 +1054,7 @@ pub async fn run_poll(
             session: s.session,
             device_time_ms: Some(now_ms()),
             device_key: s.device_key.as_ref().map(signing::DeviceKey::public_b64),
+            battery_restricted: s.battery_restricted,
         })
     };
     let key = lock(&state).device_key.clone();

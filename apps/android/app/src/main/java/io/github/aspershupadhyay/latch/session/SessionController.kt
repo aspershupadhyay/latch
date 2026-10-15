@@ -71,6 +71,8 @@ class SessionController(
     private val autonomy: Autonomy? = null,
     private val files: PhoneFiles? = null,
     private val transfers: PhoneTransfers? = null,
+    /** Protocol 1.13: whether Android's battery optimisation applies to Latch; null when unknown. */
+    private val batteryRestricted: () -> Boolean? = { null },
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -177,6 +179,7 @@ class SessionController(
                     capabilities = wireCapabilities(),
                     session = sessionInfo(),
                     deviceTimeMs = System.currentTimeMillis(),
+                    batteryRestricted = batteryRestricted(),
                 )
             },
             onCommand = ::runCommand,

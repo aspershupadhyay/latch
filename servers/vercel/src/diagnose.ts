@@ -18,7 +18,7 @@ export interface PhoneState {
   name: string;
   model: string;
   /** Present while the phone is connected; session expiry on the gateway clock. */
-  live: { protocol: string; capabilities: CapabilityState[]; session: SessionInfo } | null;
+  live: { protocol: string; capabilities: CapabilityState[]; session: SessionInfo; battery_restricted?: boolean | null } | null;
 }
 
 /** What an agent needs for ordinary screen work, and what each one lets it do. */
@@ -72,6 +72,9 @@ export function renderDiagnosis(input: DiagnosisInput): string {
     }
     if ((minorVersion(live.protocol) ?? 0) < gatewayMinor) {
       out += "  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings tab → Check for updates).\n";
+    }
+    if (live.battery_restricted === true) {
+      out += "  - Android's battery optimisation is on for Latch, so Android may stop it in the background and the phone drops off mid-task. Fix: Android Settings → Apps → Latch → Battery → Unrestricted.\n";
     }
     if (live.session.approve_every_action) {
       out += "  - Note: the owner approves every action, so each step waits for a tap on the phone.\n";

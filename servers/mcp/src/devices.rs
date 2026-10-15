@@ -77,6 +77,9 @@ pub struct LiveSummary {
     pub capabilities: Vec<CapabilityState>,
     pub session: SessionInfo,
     pub connected_at_ms: u64,
+    /// Since 1.13: Android may stop the app in the background (battery optimisation).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub battery_restricted: Option<bool>,
 }
 
 /// Translates a device-clock timestamp to the gateway clock.
@@ -302,6 +305,7 @@ impl Registry {
                 capabilities: l.capabilities.clone(),
                 session: l.session,
                 connected_at_ms: l.connected_at_ms,
+                battery_restricted: l.hello.battery_restricted,
             })
             .collect();
         out.sort_by(|a, b| a.device_id.cmp(&b.device_id));
