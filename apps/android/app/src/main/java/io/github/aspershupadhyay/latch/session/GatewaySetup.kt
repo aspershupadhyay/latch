@@ -42,6 +42,8 @@ data class McpClient(
     @SerialName("last_used_ms") val lastUsedMs: Long? = null,
     /** "oauth" when the app signed in with the MCP URL; "key" for a key or secret link. */
     val kind: String = "key",
+    /** Roadmap R18: the only phone apps (package names) this AI app may use; null for no limit. */
+    val apps: List<String>? = null,
 )
 
 /** An AI app asking to sign in. The owner approves it when [match] equals the code on its sign-in page. */
@@ -225,6 +227,14 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
         val (status, body) = send("POST", "clients", """{"name":${quoted(name.take(40))}}""")
         check(status)
         return Protocol.json.decodeFromString(NewMcpClient.serializer(), body)
+    }
+
+    /** Roadmap R18: limits an AI app to [apps] (package names), or lifts the limit with null. */
+    suspend fun limitClient(id: String, apps: List<String>?) {
+        val list = apps?.let { a -> a.joinToString(",", "[", "]") { quoted(it) } } ?: "null"
+        val (status, _) = send("PATCH", "clients/${URLEncoder.encode(id, "UTF-8")}", """{"apps":$list}""")
+        if (status == 404) throw SetupException("That AI app was removed. Refresh the list.")
+        check(status, ok = 204)
     }
 
     suspend fun revokeClient(id: String) {

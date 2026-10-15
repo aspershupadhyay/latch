@@ -23,7 +23,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,17 +40,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.github.aspershupadhyay.latch.session.McpClient
 import io.github.aspershupadhyay.latch.session.SignInRequest
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import io.github.aspershupadhyay.latch.ui.theme.GeistMono
@@ -54,6 +65,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
     val signal = LocalSignal.current
     var name by rememberSaveable { mutableStateOf("") }
     var showKeys by rememberSaveable { mutableStateOf(false) }
+    var limiting by rememberSaveable { mutableStateOf<String?>(null) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -132,8 +144,11 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                         ListRow(
                             if (client.kind == "oauth") LatchIcons.ShieldCheck else LatchIcons.Key,
                             client.name,
-                            "$how · " + (client.lastUsedMs?.let { "used ${format.format(Date(it))}" } ?: "not used yet"),
+                            "$how · " + (client.lastUsedMs?.let { "used ${format.format(Date(it))}" } ?: "not used yet") +
+                                " · " + appsSummary(client.apps, state.phoneApps),
                             tint = signal.accent,
+                            onClick = { limiting = client.id },
+                            onClickLabel = "Choose which phone apps ${client.name} may use",
                             trailing = {
                                 IconButton(onClick = { actions.revoke(client.id) }) {
                                     Icon(LatchIcons.Trash, contentDescription = "Remove ${client.name}", tint = signal.danger, modifier = Modifier.size(20.dp))
@@ -166,11 +181,104 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                     }
                 }
             }
+            state.clients.firstOrNull { it.id == limiting }?.let { client ->
+                LimitAppsDialog(client, state.phoneApps, onDismiss = { limiting = null }) { apps ->
+                    actions.limit(client.id, apps)
+                    limiting = null
+                }
+            }
         } else if (!state.isOwner) {
             Card {
                 ListRow(LatchIcons.Info, "Joined with a code", "Only the relay's owner can connect AI apps.", tint = signal.text2)
             }
         }
+    }
+}
+
+/** How a client's app limit reads in the list (R18). */
+private fun appsSummary(apps: List<String>?, phoneApps: List<PhoneApp>): String = when {
+    apps == null -> "any app you switched on"
+    apps.size == 1 -> "only " + (phoneApps.firstOrNull { it.packageName == apps[0] }?.label ?: apps[0])
+    else -> "only ${apps.size} apps"
+}
+
+/**
+ * R18: which phone apps one AI app may use. The phone's own app switches still
+ * apply on top; this only narrows them for this AI app.
+ */
+@Composable
+private fun LimitAppsDialog(client: McpClient, phoneApps: List<PhoneApp>, onDismiss: () -> Unit, onSave: (List<String>?) -> Unit) {
+    val signal = LocalSignal.current
+    var limited by remember(client.id) { mutableStateOf(client.apps != null) }
+    var picked by remember(client.id) { mutableStateOf(client.apps.orEmpty().toSet()) }
+    var query by remember(client.id) { mutableStateOf("") }
+    // Apps already in the limit stay listed even if they are no longer installed.
+    val choices = remember(phoneApps, client.apps) {
+        val known = phoneApps.map { it.packageName }.toSet()
+        (phoneApps + client.apps.orEmpty().filter { it !in known }.map { PhoneApp(it, it) }).sortedBy { it.label.lowercase() }
+    }
+    val shown = choices.filter { query.isBlank() || it.label.contains(query.trim(), ignoreCase = true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Apps ${client.name} may use") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceRow("Any app I switched on", !limited) { limited = false }
+                ChoiceRow("Only the apps I pick", limited) { limited = true }
+                if (limited) {
+                    Text(
+                        "Your app switches still apply. This AI app is also kept out of every app you don't pick, and never sees their screens.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = signal.text2,
+                    )
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it.take(40) },
+                        label = { Text("Search apps") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (choices.isEmpty()) Text("Reading your apps\u2026", color = signal.text2)
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
+                        items(shown, key = { it.packageName }) { app ->
+                            val on = app.packageName in picked
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .toggleable(value = on, role = Role.Checkbox) { now ->
+                                        picked = if (now) picked + app.packageName else picked - app.packageName
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(checked = on, onCheckedChange = null)
+                                Spacer(Modifier.width(10.dp))
+                                Text(app.label, color = signal.text, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(if (limited) picked.sorted().take(100) else null) },
+                enabled = !limited || picked.isNotEmpty(),
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun ChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit) {
+    val signal = LocalSignal.current
+    Row(
+        Modifier.fillMaxWidth().selectable(selected = selected, role = Role.RadioButton, onClick = onSelect).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = signal.text, style = MaterialTheme.typography.bodyLarge)
     }
 }
 

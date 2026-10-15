@@ -349,6 +349,22 @@ class DeviceLinkGatewayTest(private val implementation: String) {
     }
 
     @Test
+    fun theOwnerLimitsAnAiAppToSomePhoneApps() = runBlocking {
+        startGateway()
+        val owner = OwnerClient(http, base, ADMIN)
+        val id = owner.createClient("Claude").id
+        assertEquals(null, owner.clients().single().apps)
+        owner.limitClient(id, listOf("com.android.settings", "com.whatsapp"))
+        assertEquals(listOf("com.android.settings", "com.whatsapp"), owner.clients().single().apps)
+        owner.limitClient(id, null)
+        assertEquals(null, owner.clients().single().apps)
+        val bad = runCatching { owner.limitClient(id, listOf("not a package!")) }.exceptionOrNull()
+        assertTrue(bad is SetupException)
+        val gone = runCatching { owner.limitClient("m_gone", null) }.exceptionOrNull()
+        assertTrue(gone?.message ?: "", gone is SetupException && gone.message!!.contains("removed"))
+    }
+
+    @Test
     fun aFastRelayGivesNoSpeedWarning() = runBlocking {
         startGateway()
         // Both relays here keep their state close by (memory), so there is nothing to warn about.
