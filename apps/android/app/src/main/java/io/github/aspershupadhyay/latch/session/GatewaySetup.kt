@@ -244,6 +244,20 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
         return Protocol.json.parseToJsonElement(body).jsonObject.getValue("owner_key").jsonPrimitive.content
     }
 
+    /**
+     * Roadmap R3: one database round trip on the relay, in milliseconds, when it is
+     * slow enough to warn about (the database is far from the relay); null when it
+     * is fast or the relay is too old to say.
+     */
+    suspend fun slowDatabaseMs(): Int? {
+        val (status, body) = send("GET", "speed")
+        if (status == 404) return null
+        check(status)
+        val o = Protocol.json.parseToJsonElement(body).jsonObject
+        if (o["slow"]?.jsonPrimitive?.content != "true") return null
+        return o["store_ms"]?.jsonPrimitive?.content?.toIntOrNull()
+    }
+
     /** AI apps waiting for the owner's approval. Empty on gateways without sign-in support. */
     suspend fun signInRequests(): List<SignInRequest> {
         val (status, body) = send("GET", "oauth/requests")

@@ -349,6 +349,15 @@ class DeviceLinkGatewayTest(private val implementation: String) {
     }
 
     @Test
+    fun aFastRelayGivesNoSpeedWarning() = runBlocking {
+        startGateway()
+        // Both relays here keep their state close by (memory), so there is nothing to warn about.
+        assertEquals(null, OwnerClient(http, base, ADMIN).slowDatabaseMs())
+        val refused = runCatching { OwnerClient(http, base, "lok_wrong_wrong_wrong_wrong_wrong_wrong").slowDatabaseMs() }.exceptionOrNull()
+        assertTrue(refused is SetupException)
+    }
+
+    @Test
     fun ownerApprovesAnAiAppSigningIn() = runBlocking {
         startGateway()
         val owner = OwnerClient(http, base, ADMIN)

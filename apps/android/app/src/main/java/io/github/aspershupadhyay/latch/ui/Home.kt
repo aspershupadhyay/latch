@@ -119,6 +119,23 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
         }
 
         AnimatedVisibility(
+            visible = state.slowRelayMs != null,
+            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
+            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
+        ) {
+            Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
+                ListRow(
+                    icon = LatchIcons.Warning,
+                    title = "Your relay is slow",
+                    subtitle = "Its database is far away: each step waits ${state.slowRelayMs ?: 0} ms for it, many times per action. Move the database to your relay's region. Tap for the steps.",
+                    tint = signal.warning,
+                    onClick = actions.openRelaySpeedHelp,
+                    onClickLabel = "Show how to make the relay faster",
+                )
+            }
+        }
+
+        AnimatedVisibility(
             visible = state.update.shownOnHome(),
             enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
             exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,

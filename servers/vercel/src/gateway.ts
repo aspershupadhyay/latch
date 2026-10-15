@@ -4,7 +4,7 @@
 // as the Rust gateway (servers/mcp/src/http.rs and device_http.rs), so the
 // phone app works against either. The page at "/" is static (public/).
 
-import { type DeviceIdentity, type DeviceRecord, Devices, type Timing } from "./devices.js";
+import { type DeviceIdentity, type DeviceRecord, Devices, SLOW_STORE_MS, type Timing } from "./devices.js";
 import { REFUSED, openHello, openMessage } from "./signing.js";
 import { MAX_TRANSFER_BYTES, Transfers, sizeText } from "./files.js";
 import { GATEWAY_LINK_BYTES, blobLinksFromEnv, type BlobLinks, Links } from "./links.js";
@@ -658,6 +658,13 @@ export class Gateway {
       return json(200, { code: `${code.slice(0, 4)}-${code.slice(4)}`, expires_at_ms: expires, gateway_url: this.baseUrl(request) });
     }
     if (path === "audit" && method === "GET") return json(200, { events: await this.devices.audit(200) });
+    // R3: one database round trip, so the app can warn when the database is far from the function.
+    if (path === "speed" && method === "GET") {
+      const askedAt = Date.now();
+      await this.store.get("latch:speed");
+      const storeMs = Date.now() - askedAt;
+      return json(200, { store_ms: storeMs, slow_ms: SLOW_STORE_MS, slow: storeMs >= SLOW_STORE_MS, region: process.env.VERCEL_REGION?.slice(0, 32) ?? null });
+    }
     // R19 (ADR-038): a new owner key, shown only in this answer; the key used to ask stops working.
     if (path === "owner-key" && method === "POST") {
       const ownerKey = newToken("lok");

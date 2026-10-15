@@ -36,6 +36,8 @@ data class HomeState(
     val signInRequests: List<SignInRequest> = emptyList(),
     /** The gateway's protocol when it is older than the app's; the AI then misses newer tools. */
     val outdatedGateway: String? = null,
+    /** R3: milliseconds per database round trip on the owner's relay, when slow. */
+    val slowRelayMs: Int? = null,
     /** In-app update of Latch itself. */
     val update: UpdateState = UpdateState.Idle,
 )
@@ -54,6 +56,7 @@ class HomeActions(
     val openSetup: () -> Unit = {},
     val reviewSignIns: () -> Unit = {},
     val openGatewayUpdateHelp: () -> Unit = {},
+    val openRelaySpeedHelp: () -> Unit = {},
     val installUpdate: (UpdateInfo) -> Unit = {},
 )
 

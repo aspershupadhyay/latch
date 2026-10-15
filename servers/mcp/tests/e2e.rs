@@ -2463,3 +2463,17 @@ async fn the_owner_key_rotates_and_a_new_admin_token_recovers_access() {
     assert_eq!(status, 200);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// R3: the app asks the owner API whether the gateway's database is far away.
+#[tokio::test]
+async fn the_owner_api_reports_no_database_round_trip() {
+    let gw = start_gateway().await;
+    let (status, _) = http(&gw, "GET", "/v1/admin/speed", Some(MCP), None, &[]).await;
+    assert_eq!(status, 401);
+    let (status, body) = http(&gw, "GET", "/v1/admin/speed", Some(ADMIN), None, &[]).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        body,
+        json!({ "store_ms": 0, "slow_ms": 150, "slow": false, "region": null })
+    );
+}

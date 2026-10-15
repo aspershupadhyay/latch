@@ -61,6 +61,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/admin/pairings", post(admin_create_pairing))
         .route("/v1/admin/audit", get(admin_audit))
         .route("/v1/admin/owner-key", post(admin_rotate_owner_key))
+        .route("/v1/admin/speed", get(admin_speed))
         .route(
             "/v1/admin/clients",
             get(admin_clients).post(admin_create_client),
@@ -796,6 +797,16 @@ async fn admin_rotate_owner_key(
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
+}
+
+/// Roadmap R3: the Vercel gateway reports its database round trip here so the
+/// app can warn about a far-away database. This gateway keeps its state in its
+/// own memory, so there is no round trip to report.
+async fn admin_speed(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    Json(json!({ "store_ms": 0, "slow_ms": 150, "slow": false, "region": null })).into_response()
 }
 
 async fn admin_audit(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
