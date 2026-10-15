@@ -69,7 +69,12 @@ data class ConnectState(
     val created: NewMcpClient?,
     /** AI apps waiting for the owner to approve their sign-in. */
     val requests: List<SignInRequest> = emptyList(),
+    /** R18: this phone's apps, offered when limiting an AI app; empty until read. */
+    val phoneApps: List<PhoneApp> = emptyList(),
 )
+
+/** An app on this phone, by package name and the label the owner sees. */
+data class PhoneApp(val packageName: String, val label: String)
 
 class ConnectActions(
     val create: (String) -> Unit = {},
@@ -78,6 +83,8 @@ class ConnectActions(
     val copy: (label: String, value: String, sensitive: Boolean) -> Unit = { _, _, _ -> },
     val refresh: () -> Unit = {},
     val answer: (id: String, approve: Boolean) -> Unit = { _, _ -> },
+    /** R18: limit an AI app to some phone apps (package names), or null for any app switched on. */
+    val limit: (id: String, apps: List<String>?) -> Unit = { _, _ -> },
 )
 
 data class CreateGatewayState(

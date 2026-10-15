@@ -636,15 +636,20 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
         }
     }
     LaunchedEffect(owner, requests.size) { run { clients = it.clients() } }
+    // R18: the phone's apps, offered when the owner limits an AI app.
+    val phoneApps by produceState(app.cachedApps().orEmpty().map { PhoneApp(it.packageName, it.label) }, isOwner) {
+        if (isOwner) value = withContext(Dispatchers.IO) { runCatching { app.launchableApps() }.getOrDefault(emptyList()) }.map { PhoneApp(it.packageName, it.label) }
+    }
 
     ConnectScreen(
-        ConnectState("${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests),
+        ConnectState("${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests, phoneApps),
         ConnectActions(
             create = { name -> run { created = it.createClient(name); clients = it.clients() } },
             revoke = { id -> run { it.revokeClient(id); clients = it.clients() } },
             dismissCreated = { created = null },
             copy = { label, value, sensitive -> copyToClipboard(context, label, value, sensitive) },
             refresh = { run { clients = it.clients() } },
+            limit = { id, apps -> run { it.limitClient(id, apps); clients = it.clients() } },
             answer = { id, approve ->
                 run {
                     it.answerSignIn(id, approve)
