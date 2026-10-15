@@ -137,12 +137,18 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
+  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
     "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "delete_skill",
     "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
+  const diagnosis = text(await client.callTool({ name: "diagnose", arguments: {} }));
+  assert.match(diagnosis, /: connected, app protocol /);
+  assert.ok(diagnosis.endsWith("  Ready.\nVerdict: ready (1 phone usable).\n"), diagnosis);
+  const unknown = await client.callTool({ name: "diagnose", arguments: { device_id: "d_nope" } });
+  assert.ok(unknown.isError && /no phone d_nope is paired/.test(text(unknown)), text(unknown));
+
   const apps = await client.callTool({ name: "list_apps", arguments: { query: " CHAT " } });
   assert.match(text(apps), /^1 of 4 launchable apps on \S+ match "chat" /);
   assert.match(text(apps), /org\.latch\.demo\.chat/);
@@ -150,8 +156,9 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
 
   let screen = await client.callTool({ name: "observe", arguments: {} });
   assert.ok(!screen.isError, text(screen));
-  const timing = (screen._meta as Record<string, { total_ms: number; phone_ms: number }>)["latch/timing"]!;
+  const timing = (screen._meta as Record<string, { total_ms: number; phone_ms: number; store_ms: number }>)["latch/timing"]!;
   assert.ok(timing.total_ms >= timing.phone_ms && timing.phone_ms >= 0, JSON.stringify(timing));
+  assert.ok(timing.store_ms >= 0 && timing.store_ms <= timing.total_ms, JSON.stringify(timing));
   assert.equal((screen.content as { type: string }[]).filter((c) => c.type === "image").length, 1);
 
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Settings") } });

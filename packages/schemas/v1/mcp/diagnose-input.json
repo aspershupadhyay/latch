@@ -1,0 +1,165 @@
+{
+  "cases": [
+    {
+      "gateway_protocol": "1.8",
+      "now_ms": 1800000000000,
+      "phones": []
+    },
+    {
+      "gateway_protocol": "1.8",
+      "now_ms": 1800000000000,
+      "phones": [
+        {
+          "id": "d_ready",
+          "name": "Pixel",
+          "model": "Pixel 8",
+          "live": {
+            "protocol": "1.8",
+            "capabilities": [
+              {
+                "capability": "device.info",
+                "status": "enabled"
+              },
+              {
+                "capability": "ui.observe",
+                "status": "enabled"
+              },
+              {
+                "capability": "input.gesture",
+                "status": "enabled"
+              },
+              {
+                "capability": "input.text",
+                "status": "enabled"
+              },
+              {
+                "capability": "nav.global",
+                "status": "enabled"
+              },
+              {
+                "capability": "app.launch",
+                "status": "enabled"
+              },
+              {
+                "capability": "screen.capture",
+                "status": "enabled"
+              }
+            ],
+            "session": {
+              "expires_at_ms": 1800001380001,
+              "approve_every_action": false,
+              "paused": false,
+              "remote_approvals": false
+            }
+          }
+        },
+        {
+          "id": "d_blocked",
+          "name": "Old phone with a very long name that keeps going on",
+          "model": "realme RMX3710",
+          "live": {
+            "protocol": "1.3",
+            "capabilities": [
+              {
+                "capability": "device.info",
+                "status": "enabled"
+              },
+              {
+                "capability": "ui.observe",
+                "status": "needs_permission"
+              },
+              {
+                "capability": "input.gesture",
+                "status": "needs_permission"
+              },
+              {
+                "capability": "input.text",
+                "status": "disabled"
+              },
+              {
+                "capability": "nav.global",
+                "status": "enabled"
+              },
+              {
+                "capability": "app.launch",
+                "status": "disabled"
+              },
+              {
+                "capability": "screen.capture",
+                "status": "enabled"
+              }
+            ],
+            "session": {
+              "expires_at_ms": 1800000060000,
+              "approve_every_action": true,
+              "paused": true,
+              "remote_approvals": false
+            }
+          }
+        },
+        {
+          "id": "d_expired",
+          "name": "Tablet",
+          "model": "Galaxy Tab",
+          "live": {
+            "protocol": "1.8",
+            "capabilities": [
+              {
+                "capability": "device.info",
+                "status": "enabled"
+              },
+              {
+                "capability": "ui.observe",
+                "status": "disabled"
+              },
+              {
+                "capability": "input.gesture",
+                "status": "enabled"
+              },
+              {
+                "capability": "input.text",
+                "status": "enabled"
+              },
+              {
+                "capability": "nav.global",
+                "status": "enabled"
+              },
+              {
+                "capability": "app.launch",
+                "status": "enabled"
+              },
+              {
+                "capability": "screen.capture",
+                "status": "enabled"
+              }
+            ],
+            "session": {
+              "expires_at_ms": 1799999999999,
+              "approve_every_action": false,
+              "paused": false,
+              "remote_approvals": false
+            }
+          }
+        },
+        {
+          "id": "d_offline",
+          "name": "Spare",
+          "model": "Xiaomi 22041216I",
+          "live": null
+        }
+      ]
+    },
+    {
+      "gateway_protocol": "1.8",
+      "now_ms": 1800000000000,
+      "phones": [
+        {
+          "id": "d_offline",
+          "name": "Spare",
+          "model": "Xiaomi 22041216I",
+          "live": null
+        }
+      ]
+    }
+  ]
+}

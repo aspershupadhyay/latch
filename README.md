@@ -277,7 +277,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Claude Code / Codex / other apps:** restart them.
 
    Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
-6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.8, 27 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.8, 32 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 
@@ -363,6 +363,7 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `set_clipboard` | Puts text on the phone's clipboard to paste (never reads it) |
 | `get_activity` | Reads the phone's Activity log (apps, actions, approvals, refusals, files, and who did each: AI, you, or Latch), if you switch it on |
 | `finish_task` | The AI says it is done: the cursor disappears at once and its summary goes into Activity |
+| `diagnose` | Checks whether each phone is ready (connected, session running, app up to date, switches on) and says what you need to fix on the phone |
 | `write_file`, `create_folder`, `rename_file`, `delete_file` | Save and organise files; replacing and deleting ask you unless Auto mode is on |
 | `share_to_app` | Opens any app's Share screen with files, ready to post or send |
 

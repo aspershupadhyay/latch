@@ -50,7 +50,7 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 
 ## 3. MCP tool surface (stable names)
 
-`list_devices`, `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9), `ask_owner`, the file tools of ADR-026/027, `set_clipboard`, `get_activity`, `finish_task` (ADR-028), and the skill tools `save_skill`, `list_skills`, `run_skill`, `delete_skill` (ADR-031). No shell, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
+`list_devices`, `diagnose` (R13), `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9), `ask_owner`, the file tools of ADR-026/027, `set_clipboard`, `get_activity`, `finish_task` (ADR-028), and the skill tools `save_skill`, `list_skills`, `run_skill`, `delete_skill` (ADR-031). No shell, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
 
 ## 4. Revised delivery: slices and gates
 
@@ -227,3 +227,41 @@ The owner types the PIN once into Latch on the phone; it is stored encrypted on 
 **Later / optional:** notification reading (Play Protect restricts it), clipboard read, owner-started screen recording, scheduled tasks.
 
 **Not planned:** the agent typing a PIN, password, or OTP itself; reading SMS or OTP codes; "all files" access; a shell; silent recording.
+
+## 10. Competitive roadmap: faster and more accurate than ARTEMIS (owner request, 2026-10-15)
+
+Google's ARTEMIS (github.com/google/artemis, Apache-2.0, August 2026) is an ADB-tethered Android test-automation agent: its own model loop, ~3–5 s per step (Flash), a self-reported 99.1 % on AndroidWorld, OCR and visual grounding, traces, and a `mobile_diagnose` tool. It needs USB debugging and documents no consent, approval, or MCP authentication model. Latch's advantages (works away from a laptop, any MCP client, capability and approval model) stay; this list closes the gaps in speed, accuracy, and tooling without weakening chapter 08.
+
+**Handoff rule.** This table is the work queue. Any session, on any account, continues from it: read AGENTS.md and this chapter, take the first row that is TODO and not blocked, set it to IN_PROGRESS in the same commit as the first code change, and update the row (status, evidence, PR) with every push. A row is DONE only when its acceptance check passed in CI or on the phone as stated. Rows marked *needs phone* stay IN_REVIEW until the owner runs them. Each row that changes a protocol, capability, or chapter 08 rule needs its fixtures, both gateways, and an ADR in the same change.
+
+Order: R1 → R2 → R3 → R10 → R9 → R4 → R13, then the rest top to bottom.
+
+| ID | Item | Acceptance | Status | Evidence / notes |
+|---|---|---|---|---|
+| **A. Speed** | | | | |
+| R1 | Re-measure on the phone: `latch/timing` for observe, tap, type_text, list_apps, launch_app after the §8 fixes | Table of median and p90 `total_ms` / `phone_ms` per tool, ≥10 samples each, recorded here | TODO · *needs phone* | Baseline 2026-10-02: ~11–12 s per action, 5.8–7.4 s per observe, 10.3 s `list_apps` |
+| R2 | WebSocket device channel on the Vercel gateway (or a documented reason it cannot be done on Vercel functions, with the fastest alternative) | Fake phone e2e over the new channel on the Vercel gateway; long-poll still works; phone picks the faster channel | DEFERRED (decision 2026-10-15) | Vercel functions gained WebSockets in June 2026, but only as a public beta with connections cut at the function's maximum duration (~5 min). More important, it would not remove the slow part: the MCP request and the phone's socket land on different function instances, so commands still pass through Upstash, and Upstash's REST client has no blocking pop (BLPOP/BRPOP unsupported). The phone's long poll already holds an open HTTP/2 connection (OkHttp reuses it), checks the queue every 100 ms while an agent works, and posts results on the same connection, so a socket would save at most one network round trip per command. Revisit when R1 shows transport (`phone_ms` minus phone work) above ~300 ms; until then the gains are R3 (same region) and R4 (fewer commands). The Android app speaks only long-poll today; the Rust gateway's `GET /v1/device` WebSocket is used by the fake phone. |
+| R3 | Region check: the gateway reports function and store regions and warns when they differ | `latch/timing` carries a region hint; setup docs and the app show the warning | IN_REVIEW | Vercel gateway: `latch/timing` now has `store_ms` (one database round trip) and `region` (`VERCEL_REGION`); `list_devices` ends with a "Note for the owner" when a round trip takes ≥150 ms (`servers/vercel/test/speed.test.ts`, e2e). Upstash does not report its region over REST, so the gateway measures instead of comparing names. Still TODO: a warning in the app (needs an owner API field) and a check on a real deployment. The Rust gateway keeps its state in memory and has no store hop. |
+| R4 | Action chains: several steps in one phone command, each step policy checked and re-checked on the phone, stopping at the first refusal or approval | Threat review + ADR; e2e on both gateways: normal, refused mid-chain, approval mid-chain, stale, stop | TODO | Deferred in §8 until its own threat review |
+| R5 | Screen diffs: actions may return only what changed since the cited observation | Protocol minor version, fixtures, both gateways; full observation on request | TODO | |
+| R6 | Lighter screenshots: WebP, smaller default edge, screenshot only when asked or when the element tree is thin | Size and encode time measured before/after on the fake phone and the phone | TODO | JPEG q70 today |
+| R7 | Adaptive settle: learn per-app quiet times from recent actions, keep the current caps as limits | Unit tests on the settle logic; no change to freshness rules | TODO | Caps: 1.5 s settle, 900 ms after typing, 2.5 s in choosers |
+| R8 | Starter skills (search in an app, send a message, share a photo) shipped as editable examples | Skills validate against the skill schema; docs; nothing runs without the owner adding it | TODO | ADR-031 |
+| **B. Accuracy** | | | | |
+| R9 | On-device OCR labels for unlabeled controls (Canvas, Flutter, icon-only buttons); OCR text feeds the consequential-control check | Fixture screens with unlabeled controls get labels; approval fires for an OCR'd "Send"; dependency review (licence, size, offline) | TODO | Closes the §6 coordinate-tap gap |
+| R10 | Task evaluation suite: 30–50 everyday tasks with success, seconds per step, calls per task; fake-device subset in CI | Suite runs in CI on the fake phone; phone run recorded here | TODO | No benchmark today |
+| R11 | Effect report on every action: `effect: none / changed / navigated` | Protocol, fixtures, both gateways, e2e | TODO | Exists today only for submit and no-effect taps |
+| R12 | Repeated elements (Google Maps) listed once; Stop pill overlap | Unit test with a duplicate tree; *needs phone* look | TODO | §8 open TODO |
+| **C. Features** | | | | |
+| R13 | `diagnose` tool: pairing, accessibility service, battery optimisation, transport, clock skew, capabilities, with fix-it steps | Both gateways, fake phone e2e, no screen content in the answer | IN_REVIEW | Both gateways render the same text from a pure function (`servers/mcp/src/mcp/diagnose.rs`, `servers/vercel/src/diagnose.ts`), pinned by `packages/schemas/v1/mcp/diagnose-{input.json,expected.txt}` (five situations); e2e on both with the fake phone. Covers pairing, connection (with the battery hint), paused/ended session, accessibility permission missing, core switches off, old app, approve-every-action; the Vercel gateway adds the database check (R3). Clock skew needs no check: gateways already convert the phone's clock (`to_gateway_clock`). Not yet: the phone's own battery-optimisation and accessibility-service state (needs a protocol field), a run from a real AI client. |
+| R14 | Session replay: step timeline of one AI session (action, decision, timing), on the phone only | Activity view + `get_activity` filter by task; no content stored | TODO | ADR-028 Activity |
+| R15 | Developer / QA mode: emulator support, Python client, parallel devices; opt-in profile | Docs + client tests against the container gateway | TODO | |
+| R16 | Phone controls: volume, media, brightness, Wi-Fi / Bluetooth panels, flashlight | One capability per group, off by default | TODO | Wave 3 |
+| **D. Security** | | | | |
+| R17 | OAuth 2.1 on the Rust container gateway | Same e2e as the Vercel gateway with the official SDK client | TODO | S5 |
+| R18 | Per-app allowlist enforced in the gateway; per-client rate limits | Policy cases on both gateways | TODO | S5 |
+| R19 | Device-key signatures on phone ↔ gateway messages; owner-key rotation flow | ADR; standard primitives only (ADR-014) | TODO | S5 |
+| R20 | Optional end-to-end encryption of screen content between phone and MCP client | Threat review + ADR | TODO | §6 risk: gateway sees content in transit |
+| R21 | Real-device gate on ≥2 phones, then signed alpha release | S4 checklist complete; S6 pipeline run | TODO · *needs phone* | S4, S6 |
+| **E. Adoption** | | | | |
+| R22 | Public benchmark page (from R10), security comparison page, setup video, F-Droid | `scripts/check-site.mjs` passes; no personal gateway address | TODO | |

@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::devices::{self, Output};
 
+pub mod diagnose;
 pub mod files;
 pub mod skills;
 
@@ -50,7 +51,8 @@ the user in the chat and pass on exactly their answer with `answer_approval`; ne
 for them. When you finish, call `finish_task` with a one-line summary (the phone hides the AI \
 cursor at once), then tell the user which actions you took on the phone: apps opened, and what \
 you tapped, typed, sent, or deleted. When the user asks what happened on the phone, \
-`get_activity` reads the phone's own log.
+`get_activity` reads the phone's own log. When a tool fails in a way you do not understand, \
+call `diagnose` before retrying and pass its fixes on to the user.
 Files: `list_files` shows photos the owner allowed, Downloads, or the folders they share in \
 Latch; `read_file` shows a text file or a picture. To move whole files between the user's \
 computer and the phone, use links instead of pasting content: `get_file_link` gives an \
@@ -215,6 +217,17 @@ pub fn tool_definitions() -> Vec<Value> {
             "List paired phones, whether each is connected, and which capabilities its owner enabled.",
             true,
             json!({}),
+            &[],
+        ),
+        tool(
+            "diagnose",
+            "Check the setup",
+            "Check whether each paired phone is ready for you: connected, session running, the \
+             app up to date, and the switches you need turned on. Every problem comes with the \
+             fix the owner makes on the phone. Call it when a tool fails in a way you do not \
+             understand, before retrying. Reads no screen content.",
+            true,
+            json!({ "device_id": { "type": "string", "description": "Only this phone. Default: every paired phone." } }),
             &[],
         ),
         tool(
@@ -696,6 +709,9 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
 
     if name == "list_devices" {
         return Ok(text_result(render_devices(state)));
+    }
+    if name == "diagnose" {
+        return diagnosis(state, arg_str(args, "device_id").map_err(bad)?);
     }
     if name == "answer_approval" {
         // This gateway waits for the phone's own answer and never hands a question to the AI app.
@@ -1356,6 +1372,46 @@ fn app_note(protocol: &str) -> String {
     } else {
         String::new()
     }
+}
+
+fn diagnosis(state: &AppState, only: Option<&str>) -> Result<Value, ProtocolError> {
+    let online = state.devices.online();
+    let store = state.store();
+    let mut records: Vec<_> = store
+        .devices()
+        .iter()
+        .filter(|d| only.is_none_or(|id| d.id == id))
+        .collect();
+    if let Some(id) = only
+        && records.is_empty()
+    {
+        return Err(ProtocolError::new(
+            ErrorCode::InvalidRequest,
+            format!("no phone {} is paired; see list_devices", truncate(id, 40)),
+        ));
+    }
+    records.sort_by_key(|d| !online.iter().any(|o| o.device_id == d.id));
+    let input = diagnose::DiagnosisInput {
+        gateway_protocol: latch_protocol::PROTOCOL_VERSION.into(),
+        now_ms: crate::now_ms(),
+        phones: records
+            .into_iter()
+            .map(|d| diagnose::PhoneState {
+                id: d.id.clone(),
+                name: d.name.clone(),
+                model: d.model.clone(),
+                live: online
+                    .iter()
+                    .find(|o| o.device_id == d.id)
+                    .map(|l| diagnose::LiveState {
+                        protocol: l.protocol.clone(),
+                        capabilities: l.capabilities.clone(),
+                        session: l.session,
+                    }),
+            })
+            .collect(),
+    };
+    Ok(text_result(diagnose::render_diagnosis(&input)))
 }
 
 fn render_devices(state: &AppState) -> String {

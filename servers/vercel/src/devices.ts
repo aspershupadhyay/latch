@@ -35,7 +35,15 @@ export interface CommandTiming {
   phone_ms: number;
   /** Everything the gateway spent on this command, including its own storage round trips. */
   total_ms: number;
+  /** One storage round trip (the first lock attempt): large values mean the database is far from the function. */
+  store_ms: number;
+  /** The Vercel region this function ran in, when Vercel reports it. */
+  region?: string;
 }
+
+/** A storage round trip above this suggests the database and the function are in different regions. */
+export const SLOW_STORE_MS = 150;
+const REGION = process.env.VERCEL_REGION ? { region: process.env.VERCEL_REGION.slice(0, 32) } : {};
 
 export interface Executed {
   data: unknown;
@@ -364,14 +372,19 @@ export class Devices {
     try {
       // One command at a time per phone: actions on a screen are inherently sequential.
       const lockUntil = started + QUEUE_WAIT_MS;
-      while (!(await this.store.set(K.lock(id), lockToken, { px: CONFIRM_DEADLINE_MS + 15_000, nx: true }))) {
+      let storeMs = -1;
+      for (;;) {
+        const attemptAt = Date.now();
+        const got = await this.store.set(K.lock(id), lockToken, { px: CONFIRM_DEADLINE_MS + 15_000, nx: true });
+        if (storeMs < 0) storeMs = Date.now() - attemptAt;
+        if (got) break;
         if (Date.now() > lockUntil) throw new ProtocolError("transport_unavailable", "the phone is busy with other commands");
         await sleep(100);
       }
       locked = true;
       const lockWaitMs = Date.now() - started;
       const result = await this.run(id, command, options, (d) => { decision = d; }, finish);
-      return { ...result, timing: { lock_wait_ms: lockWaitMs, phone_ms: result.phoneMs, total_ms: Date.now() - started } };
+      return { ...result, timing: { lock_wait_ms: lockWaitMs, phone_ms: result.phoneMs, total_ms: Date.now() - started, store_ms: storeMs, ...REGION } };
     } catch (e) {
       if (e instanceof ApprovalDeferred) {
         outcome = "waiting_for_owner";

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { type DiagnosisInput, renderDiagnosis } from "../src/diagnose.js";
 import { SENSITIVE_APP_NOTE, renderObservation, toolError } from "../src/render.js";
 import { ProtocolError, normalizeObservation } from "../src/protocol.js";
 import { shared } from "./shared.js";
@@ -28,4 +29,9 @@ test("money, account, and password apps carry the same caution as the Rust gatew
     SENSITIVE_APP_NOTE,
     "Caution: this app may hold money, accounts, or passwords. Before acting here, tell the user what you are about to do and get their go-ahead in the chat.\n",
   );
+});
+
+test("diagnose text matches the Rust gateway byte for byte", () => {
+  const input = JSON.parse(shared("mcp/diagnose-input.json")) as { cases: DiagnosisInput[] };
+  assert.equal(input.cases.map(renderDiagnosis).join("---\n"), shared("mcp/diagnose-expected.txt"));
 });
