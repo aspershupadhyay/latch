@@ -29,6 +29,39 @@ pub struct DeviceContext<'a> {
     pub latest_observation: Option<(&'a Observation, u64)>,
     /// Gateway clock, Unix ms.
     pub now_ms: u64,
+    /// Roadmap R18: the only phone apps (package names) the calling AI app may
+    /// use, as the owner set for it; `None` means no limit beyond the phone's own.
+    pub allowed_apps: Option<&'a [String]>,
+}
+
+/// Whether the calling AI app may use `package` (R18).
+pub fn app_allowed(allowed: Option<&[String]>, package: Option<&str>) -> bool {
+    match allowed {
+        None => true,
+        Some(list) => package.is_some_and(|p| list.iter().any(|a| a == p)),
+    }
+}
+
+/// When an action ends in an app outside the AI app's limit: the screen is not shown.
+pub fn screen_withheld(package: Option<&str>) -> ProtocolError {
+    ProtocolError::new(
+        ErrorCode::PolicyRefused,
+        format!(
+            "the screen is in {}, which the owner has not allowed for this AI app, so it is not shown. Press home or open an allowed app with launch_app",
+            package.unwrap_or("an unknown app")
+        ),
+    )
+}
+
+/// The refusal an AI app gets for an app outside the owner's limit for it.
+pub fn app_refused(package: Option<&str>) -> ProtocolError {
+    ProtocolError::new(
+        ErrorCode::PolicyRefused,
+        format!(
+            "the owner limited this AI app to other apps; it may not use {}. Ask the user to add it for this AI app in the Latch app",
+            package.unwrap_or("the app in front")
+        ),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +156,19 @@ pub fn evaluate(command: &Command, ctx: &DeviceContext<'_>) -> Decision {
             }
         },
     };
+
+    // R18: launching, sharing to, or acting in an app outside this AI app's limit.
+    let target = match command {
+        Command::LaunchApp { package } | Command::Share { package, .. } => {
+            Some(Some(package.as_str()))
+        }
+        _ => observation.map(|o| o.package.as_deref()),
+    };
+    if let Some(package) = target
+        && !app_allowed(ctx.allowed_apps, package)
+    {
+        return Decision::Deny(app_refused(package));
+    }
 
     let assessment = match assess(command, observation) {
         Ok(a) => a,

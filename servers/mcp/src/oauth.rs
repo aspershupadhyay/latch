@@ -544,6 +544,7 @@ fn decide(state: &AppState, id: &str, approve: bool) -> Option<String> {
             last_used_ms: None,
             kind: Some("oauth".into()),
             oauth_client_id: Some(request.client_id.clone()),
+            apps: None,
         };
         let app_id = app.id.clone();
         state.store().insert_client(app).ok()?;

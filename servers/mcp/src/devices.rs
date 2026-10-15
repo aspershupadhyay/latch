@@ -432,6 +432,7 @@ async fn execute_inner(
             ProtocolError::new(ErrorCode::DeviceUnavailable, "the phone disconnected"),
         )
     };
+    let apps = crate::caller_apps();
 
     let lock = state
         .devices
@@ -496,6 +497,7 @@ async fn execute_inner(
                 .as_ref()
                 .map(|(o, at)| (o.as_ref(), *at)),
             now_ms: now_ms(),
+            allowed_apps: apps.as_deref(),
         };
         let (decision, confirm) = match latch_policy::evaluate(&command, &ctx) {
             Decision::Allow { .. } => ("allow", None),
@@ -677,6 +679,18 @@ async fn execute_inner(
             Output::Action(result)
         }
     };
+    // R18: a screen from an app outside this AI app's limit is never shown to it.
+    let seen = match &output {
+        Output::Observation(o) => Some(o.package.as_deref()),
+        Output::Wait(w) => Some(w.observation.package.as_deref()),
+        Output::Action(a) => a.observation.as_ref().map(|o| o.package.as_deref()),
+        _ => None,
+    };
+    if let Some(package) = seen
+        && !latch_policy::app_allowed(apps.as_deref(), package)
+    {
+        return Err((decision, latch_policy::screen_withheld(package)));
+    }
     Ok((decision, output))
 }
 

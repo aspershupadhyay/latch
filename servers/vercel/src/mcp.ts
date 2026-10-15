@@ -35,6 +35,8 @@ export interface McpContext {
   baseUrl?: string;
   /** Where skills are saved (ADR-031). */
   skills?: Store;
+  /** Roadmap R18: the only phone apps this AI app may use; undefined for no limit. */
+  allowedApps?: readonly string[];
 }
 
 /** What an MCP client answered to `elicitation/create`, or undefined when it never did. */
@@ -75,6 +77,7 @@ export function askOwnerVia(elicit: Elicit) {
 const execute = (ctx: McpContext, deviceId: string, command: Command, options: Parameters<Devices["execute"]>[2] = {}) =>
   ctx.devices.execute(deviceId, command, {
     ...options, askOwner: ctx.askOwner, deferWhenAsked: ctx.deferWhenAsked, resumeCommandId: ctx.resumeCommandId,
+    allowedApps: ctx.allowedApps,
   });
 
 const ANSWER_MEANINGS: Record<ApprovalChoice, string> = {

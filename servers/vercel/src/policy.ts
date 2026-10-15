@@ -19,7 +19,25 @@ export interface DeviceContext {
   /** Latest observation and when it arrived (gateway clock). */
   latestObservation?: { observation: Observation; receivedAtMs: number };
   nowMs: number;
+  /** Roadmap R18: the only phone apps the calling AI app may use; undefined for no limit beyond the phone's own. */
+  allowedApps?: readonly string[];
 }
+
+/** Whether the calling AI app may use `pkg` (R18). */
+export const appAllowed = (allowed: readonly string[] | undefined, pkg: string | null | undefined) =>
+  allowed === undefined || (typeof pkg === "string" && allowed.includes(pkg));
+
+/** The refusal an AI app gets for an app outside the owner's limit for it; the same text as the Rust policy. */
+export const appRefused = (pkg: string | null | undefined) => new ProtocolError(
+  "policy_refused",
+  `the owner limited this AI app to other apps; it may not use ${pkg ?? "the app in front"}. Ask the user to add it for this AI app in the Latch app`,
+);
+
+/** When an action ends in an app outside the AI app's limit: the screen is not shown. */
+export const screenWithheld = (pkg: string | null | undefined) => new ProtocolError(
+  "policy_refused",
+  `the screen is in ${pkg ?? "an unknown app"}, which the owner has not allowed for this AI app, so it is not shown. Press home or open an allowed app with launch_app`,
+);
 
 export type Decision =
   | { kind: "allow"; risk: RiskLevel }
@@ -60,6 +78,11 @@ export function evaluate(command: Command, ctx: DeviceContext): Decision {
     if (ctx.nowMs - latest.receivedAtMs > MAX_OBSERVATION_AGE_MS) return deny("stale_observation", "that observation is more than 60 seconds old");
     observation = latest.observation;
   }
+
+  // R18: launching, sharing to, or acting in an app outside this AI app's limit.
+  const target = command.name === "app.launch" || command.name === "app.share" ? { pkg: command.params.package }
+    : observation ? { pkg: observation.package } : undefined;
+  if (target && !appAllowed(ctx.allowedApps, target.pkg)) return { kind: "deny", error: appRefused(target.pkg) };
 
   let assessment: Assessment;
   try {

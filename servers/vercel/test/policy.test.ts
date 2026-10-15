@@ -32,6 +32,7 @@ test("shared policy cases decide exactly like the Rust engine", () => {
         session: { expires_at_ms: now + s.expires_in_ms, approve_every_action: s.approve_every_action, paused: s.paused },
         latestObservation: age === null ? undefined : { observation, receivedAtMs: now - age },
         nowMs: now,
+        ...(c.client_apps !== undefined ? { allowedApps: c.client_apps as string[] } : {}),
       });
     } catch (e) {
       // Commands the Rust serde layer would reject never reach policy; treat as invalid_request.
