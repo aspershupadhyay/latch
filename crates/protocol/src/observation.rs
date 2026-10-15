@@ -90,7 +90,7 @@ fn default_true() -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Screenshot {
-    /// `image/jpeg` or `image/png`.
+    /// `image/jpeg`, `image/png`, or (since 1.10) `image/webp`.
     pub mime: String,
     pub width: u32,
     pub height: u32,

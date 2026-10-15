@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.9";
+export const PROTOCOL_VERSION = "1.10";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -707,7 +707,8 @@ export function normalizeObservation(raw: unknown, maxNodes: number): Observatio
     };
   });
   if (o.screenshot) {
-    if (o.screenshot.mime !== "image/jpeg" && o.screenshot.mime !== "image/png") throw invalid("screenshot must be image/jpeg or image/png");
+    // image/webp since 1.10 (roadmap R6): about 40 % smaller than JPEG at the same quality.
+    if (!["image/jpeg", "image/png", "image/webp"].includes(o.screenshot.mime)) throw invalid("screenshot must be image/jpeg, image/png, or image/webp");
     if (o.screenshot.data_base64.length > LIMITS.maxScreenshotBase64) throw invalid("screenshot exceeds the protocol size limit");
   }
   return { ...o, screen: { ...o.screen, rotation: o.screen.rotation ?? 0 }, nodes, redacted_count: o.redacted_count ?? 0, truncated: o.truncated ?? false };

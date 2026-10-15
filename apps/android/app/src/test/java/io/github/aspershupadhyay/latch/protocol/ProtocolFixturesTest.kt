@@ -127,6 +127,9 @@ class ProtocolFixturesTest {
     fun versionCompatibility() {
         assertTrue(Protocol.isCompatible("1.0"))
         assertTrue(Protocol.isCompatible("1.9"))
+        // Two-digit minors compare as numbers: 1.10 gateways take WebP screenshots (R6).
+        assertTrue(Protocol.isCompatible("1.10"))
+        assertEquals(10, Protocol.minorOf("1.10"))
         assertTrue(!Protocol.isCompatible("2.0"))
         assertTrue(!Protocol.isCompatible("1.0.0"))
     }

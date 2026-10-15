@@ -43,7 +43,7 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.9";
+pub const PROTOCOL_VERSION: &str = "1.10";
 
 /// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
 pub fn minor_version(version: &str) -> Option<u32> {
@@ -70,6 +70,9 @@ mod tests {
     fn version_compatibility_requires_matching_major() {
         assert!(is_compatible("1.0"));
         assert!(is_compatible("1.8"));
+        // Two-digit minors compare as numbers (1.10 is newer than 1.9).
+        assert!(is_compatible("1.10"));
+        assert_eq!(minor_version("1.10"), Some(10));
         assert!(!is_compatible("2.0"));
         assert!(!is_compatible("1"));
         assert!(!is_compatible("1.x"));

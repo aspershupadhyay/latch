@@ -818,8 +818,11 @@ class LatchAccessibilityService : AccessibilityService() {
                 software
             }
             val out = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 70, out)
-            val result = Screenshot("image/jpeg", scaled.width, scaled.height, Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+            // Roadmap R6: WebP is about 40 % smaller than JPEG at the same quality; gateways take it since 1.10.
+            val webp = LatchApp.get(this).bridge.gatewayMinor >= WEBP_SINCE_MINOR
+            scaled.compress(if (webp) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.JPEG, SCREENSHOT_QUALITY, out)
+            val mime = if (webp) "image/webp" else "image/jpeg"
+            val result = Screenshot(mime, scaled.width, scaled.height, Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
             scaled.recycle()
             return result
         } finally {
@@ -1398,6 +1401,8 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val LEAVE_QUIET_MS = 200L
         private const val LEAVE_FLOOR_MS = 300L
         private const val MAX_SCREENSHOT_EDGE = 1280
+        private const val SCREENSHOT_QUALITY = 70
+        private const val WEBP_SINCE_MINOR = 10
         private const val MOVE_TOLERANCE_PX = 8
         private const val APPROVE_ENABLE_DELAY_MS = 1_000L
         private const val LIVE_SCOPE_NODES = 64
