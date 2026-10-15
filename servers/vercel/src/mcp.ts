@@ -8,7 +8,7 @@ import { SERVER } from "./generated/contract.js";
 import { renderLatestTask } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
-import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { ACTIVITY_KINDS, MEDIA_ACTIONS, type PhoneControl, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
@@ -277,6 +277,13 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     });
     return withTiming(textResult(renderActivity(run.data as ActivityList, limit)), run.timing);
   }
+  if (name === "phone_control") {
+    const control = phoneControl(args);
+    if (control.kind !== "panel") {
+      const run = await execute(ctx, deviceId, { name: "device.control", params: { control } });
+      return withTiming(textResult(`Done: ${describeControl(control)}.`), run.timing);
+    }
+  }
   if (name === "finish_task") {
     const summary = argStr(args, "summary")?.trim() || undefined;
     const run = await execute(ctx, deviceId, { name: "task.done", params: summary !== undefined ? { summary } : {} });
@@ -397,6 +404,10 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       break;
     case "ask_owner":
       command = { name: "owner.ask", params: { message: reqStr(args, "message") } };
+      break;
+    // A panel opens over the app: the screen comes back like any action's.
+    case "phone_control":
+      command = { name: "device.control", params: { control: phoneControl(args) } };
       break;
     default:
       throw new ProtocolError("internal", "unexpected result type from the phone");
@@ -626,6 +637,32 @@ export function slowStoreNote(storeMs: number): string {
   if (storeMs < SLOW_STORE_MS) return "";
   return `Note for the owner: one database round trip took ${storeMs} ms, so every phone command is slow. `
     + "Put the Upstash database in the same region as the Vercel function (see docs/operations/vercel.md, \"Speed\").\n";
+}
+
+/** `phone_control` arguments as a phone control, with the Rust gateway's error texts. */
+function phoneControl(args: Record<string, unknown>): PhoneControl {
+  const percent = () => {
+    const p = argInt(args, "percent");
+    if (p === undefined) throw bad("percent is required (0-100)");
+    if (p < 0 || p > 100) throw bad("percent must be 0-100");
+    return p;
+  };
+  const pick = <T extends string>(key: string, values: readonly T[], message: string, fallback?: T): T => {
+    const v = args[key] ?? fallback;
+    if (!values.includes(v as T)) throw bad(message);
+    return v as T;
+  };
+  switch (reqStr(args, "control")) {
+    case "volume":
+      return { kind: "volume", stream: pick("stream", VOLUME_STREAMS, "stream must be media, ring, notification, or alarm", "media"), percent: percent() };
+    case "media": return { kind: "media", action: pick("action", MEDIA_ACTIONS, "action must be play_pause, next, or previous") };
+    case "brightness": return { kind: "brightness", percent: percent() };
+    case "flashlight":
+      if (typeof args.on !== "boolean") throw bad("on must be true or false");
+      return { kind: "flashlight", on: args.on };
+    case "panel": return { kind: "panel", panel: pick("panel", SETTINGS_PANELS, "panel must be wifi, internet, bluetooth, or volume") };
+    default: throw bad("control must be volume, media, brightness, flashlight, or panel");
+  }
 }
 
 /** `get_activity`: one line per entry, the same text as the Rust gateway's. Phone text is bounded. */

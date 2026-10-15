@@ -38,6 +38,7 @@ import io.github.aspershupadhyay.latch.protocol.FileTransfer
 import io.github.aspershupadhyay.latch.protocol.GlobalAction
 import io.github.aspershupadhyay.latch.protocol.Observation
 import io.github.aspershupadhyay.latch.protocol.ObserveAfter
+import io.github.aspershupadhyay.latch.protocol.PhoneControl
 import io.github.aspershupadhyay.latch.protocol.Protocol
 import io.github.aspershupadhyay.latch.protocol.ProtocolException
 import io.github.aspershupadhyay.latch.protocol.ScreenInfo
@@ -101,6 +102,7 @@ fun describe(command: Command): String = when (command) {
     is Command.SetClipboard -> "Copy ${command.text.codePointCount(0, command.text.length)} characters to the clipboard"
     is Command.ListActivity -> "Read Latch's activity log"
     is Command.TaskDone -> "Say the task is done"
+    is Command.DeviceControl -> command.control.description
 }
 
 private fun where(location: FileLocation) = when (location) {
@@ -137,6 +139,7 @@ private fun cursorLabel(command: Command): String? = when (command) {
     is Command.DeleteFile -> "Deleting a file"
     is Command.Share -> "Opening a share screen"
     is Command.SetClipboard -> "Copying text"
+    is Command.DeviceControl -> if (command.control is PhoneControl.Panel) "Opening a settings panel" else "Adjusting the phone"
     is Command.Global -> when (command.action) {
         GlobalAction.BACK -> "Going back"
         GlobalAction.HOME -> "Going home"
@@ -151,7 +154,7 @@ private fun worksOnScreen(command: Command): Boolean = when (command) {
     is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
     is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share,
     is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
-    is Command.ListActivity, is Command.TaskDone -> false
+    is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
 }
@@ -355,6 +358,12 @@ class CommandExecutor(
                 if (command.cancel) note(ActivityKind.FILE, describe(command))
                 Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
             }
+            // Panels open over the app like launching one: the screen comes back below.
+            is Command.DeviceControl if command.control !is PhoneControl.Panel -> {
+                PhoneControls.apply(service, command.control)
+                note(ActivityKind.ACTION, judged ?: describe(command))
+                Protocol.json.encodeToJsonElement(ActionResult.serializer(), action)
+            }
             is Command.SetClipboard -> {
                 service.setClipboard(command.text)
                 // The text itself never goes into the log.
@@ -425,10 +434,13 @@ class CommandExecutor(
                     }
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName)
+                    is Command.DeviceControl -> (command.control as? PhoneControl.Panel)?.let { service.openPanel(PhoneControls.panelIntent(it.panel)) }
                     is Command.AskOwner -> owner = askOwner(command, envelope)
                     is Command.Share -> files().share(service, command.packageName, command.ids, command.text)
                     is Command.ScrollTo ->
                         found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
+                    // Reads and off-screen commands were answered above.
+                    else -> Unit
                 }
                 note(ActivityKind.ACTION, judged ?: describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted, owner = owner)
@@ -626,7 +638,7 @@ class CommandExecutor(
         is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
         is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile,
         is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
-        is Command.ListActivity, is Command.TaskDone -> null
+        is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl -> null
         is Command.LaunchApp -> command.packageName
         // Sharing opens that app: only apps the owner allowed (or Auto mode).
         is Command.Share -> command.packageName

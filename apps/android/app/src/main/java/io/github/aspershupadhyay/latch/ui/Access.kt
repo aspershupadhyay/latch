@@ -36,10 +36,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import io.github.aspershupadhyay.latch.session.PhoneControls
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,6 +92,11 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
         "Share, clipboard & log", LatchIcons.Share, listOf(Capability.APP_SHARE, Capability.CLIPBOARD_WRITE, Capability.ACTIVITY_READ),
         "With this on, the AI can hand files to an app's share screen, put text on the clipboard, and read Latch's activity log when you ask what happened. It never reads the clipboard.",
     ),
+    CONTROLS(
+        "Phone controls", LatchIcons.Sliders,
+        listOf(Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS),
+        "With this on, the AI can set volumes, play or pause media, change the brightness, use the flashlight, and open the Wi-Fi and Bluetooth panels. Each is its own switch, off until you turn it on.",
+    ),
     WORKING(
         "While the AI works", LatchIcons.Phone, emptyList(),
         "What you see on the phone while a session runs. None of this gives the AI anything.",
@@ -100,6 +109,7 @@ private fun Signal.hueOf(group: AccessGroup) = when (group) {
     AccessGroup.SCREEN -> mint
     AccessGroup.FILES -> warning
     AccessGroup.SHARING -> accent2
+    AccessGroup.CONTROLS -> mint
     AccessGroup.WORKING -> text2
 }
 
@@ -108,6 +118,7 @@ private fun Signal.colorOf(group: AccessGroup) = when (group) {
     AccessGroup.SCREEN -> sage
     AccessGroup.FILES -> butter
     AccessGroup.SHARING -> pool
+    AccessGroup.CONTROLS -> sage
     AccessGroup.WORKING -> surface
 }
 
@@ -194,6 +205,10 @@ fun CapabilitiesScreen(
                         FilePlaces(folders, photosAllowed, onPickFolder, onForgetFolder, onAllowPhotos, photosOn, onPhotosOn)
                     }
                     AccessGroup.SHARING -> CapabilityList(current, enabled, onToggle)
+                    AccessGroup.CONTROLS -> {
+                        CapabilityList(current, enabled, onToggle)
+                        BrightnessPermission(Capability.CONTROL_BRIGHTNESS in enabled)
+                    }
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
                 }
             }
@@ -251,6 +266,17 @@ private fun AccessOverview(
         BentoRow {
             GroupTile(AccessGroup.FILES, statusOf(AccessGroup.FILES, enabled), enabled, { toggleGroup(AccessGroup.FILES, it) }) { open(AccessGroup.FILES) }
             GroupTile(AccessGroup.SHARING, statusOf(AccessGroup.SHARING, enabled), enabled, { toggleGroup(AccessGroup.SHARING, it) }) { open(AccessGroup.SHARING) }
+        }
+
+        Card {
+            ListRow(
+                AccessGroup.CONTROLS.icon,
+                AccessGroup.CONTROLS.title,
+                statusOf(AccessGroup.CONTROLS, enabled),
+                tint = signal.accent,
+                onClick = { open(AccessGroup.CONTROLS) },
+                onClickLabel = "Open ${AccessGroup.CONTROLS.title}",
+            )
         }
 
         Card {
@@ -596,6 +622,30 @@ private fun AiAccessBody(
             RowDivider()
             TextButton(onClick = onRemoveAllSaved, modifier = Modifier.padding(start = 56.dp)) { Text("Remove all") }
         }
+    }
+}
+
+/** Brightness also needs Android's own "Modify system settings" for Latch; this row opens it. */
+@Composable
+private fun BrightnessPermission(wanted: Boolean) {
+    val context = LocalContext.current
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        resumes++
+        onPauseOrDispose { }
+    }
+    val allowed = remember(resumes) { android.provider.Settings.System.canWrite(context) }
+    if (!wanted || allowed) return
+    val signal = LocalSignal.current
+    Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
+        ListRow(
+            LatchIcons.Warning,
+            "Let Latch change the brightness",
+            "Android asks once: Modify system settings → Latch → on.",
+            tint = signal.warning,
+            onClick = { context.startActivity(PhoneControls.writeSettingsIntent(context)) },
+            onClickLabel = "Open Modify system settings",
+        )
     }
 }
 

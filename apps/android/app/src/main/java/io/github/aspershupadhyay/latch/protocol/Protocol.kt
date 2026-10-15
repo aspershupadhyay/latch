@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.10"
+    const val VERSION = "1.11"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -85,6 +85,14 @@ enum class Capability(val wire: String) {
     CLIPBOARD_WRITE("clipboard.write"),
     /** Since 1.8: read Latch's own activity log (never screen content). */
     ACTIVITY_READ("activity.read"),
+    /** Since 1.11: set volumes and send media keys. */
+    CONTROL_SOUND("control.sound"),
+    /** Since 1.11: set the screen brightness (needs "Modify system settings"). */
+    CONTROL_BRIGHTNESS("control.brightness"),
+    /** Since 1.11: turn the flashlight on or off. */
+    CONTROL_FLASHLIGHT("control.flashlight"),
+    /** Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel. */
+    CONTROL_PANELS("control.panels"),
     ;
 
     companion object {
@@ -593,6 +601,55 @@ sealed interface Command {
         override val requiredCapabilities = emptyList<Capability>()
         override val isAction = false
     }
+
+    /** Since 1.11: one phone control, behind its group's own switch. */
+    data class DeviceControl(val control: PhoneControl) : Command {
+        override val name = "device.control"
+        override val requiredCapabilities = listOf(control.capability)
+    }
+}
+
+/** Since 1.11: a phone control; the same shapes as crates/protocol's `PhoneControl`. */
+sealed interface PhoneControl {
+    val capability: Capability
+
+    /** What it does, in the owner's words; the same text as the gateways' and the approval card's. */
+    val description: String
+
+    data class Volume(val stream: String, val percent: Int) : PhoneControl {
+        override val capability = Capability.CONTROL_SOUND
+        override val description get() = "Set the $stream volume to $percent%"
+    }
+
+    data class Media(val action: String) : PhoneControl {
+        override val capability = Capability.CONTROL_SOUND
+        override val description get() = when (action) {
+            "play_pause" -> "Play or pause media"
+            "next" -> "Skip to the next track"
+            else -> "Go back a track"
+        }
+    }
+
+    data class Brightness(val percent: Int) : PhoneControl {
+        override val capability = Capability.CONTROL_BRIGHTNESS
+        override val description get() = "Set the screen brightness to $percent%"
+    }
+
+    data class Flashlight(val on: Boolean) : PhoneControl {
+        override val capability = Capability.CONTROL_FLASHLIGHT
+        override val description get() = "Turn the flashlight ${if (on) "on" else "off"}"
+    }
+
+    data class Panel(val panel: String) : PhoneControl {
+        override val capability = Capability.CONTROL_PANELS
+        override val description get() = "Open the ${PANEL_NAMES[panel]} panel"
+    }
+
+    companion object {
+        val STREAMS = setOf("media", "ring", "notification", "alarm")
+        val MEDIA_ACTIONS = setOf("play_pause", "next", "previous")
+        val PANEL_NAMES = mapOf("wifi" to "Wi-Fi", "internet" to "internet", "bluetooth" to "Bluetooth", "volume" to "volume")
+    }
 }
 
 /** Saving, renaming, and deleting files: changes made off screen. */
@@ -653,6 +710,18 @@ object GatewayParser {
     private fun location(wire: String): FileLocation = FileLocation.fromWire(wire) ?: invalid("location must be photos, downloads, or folder")
 
     private fun JsonObject.obj(key: String): JsonObject = this[key] as? JsonObject ?: invalid("$key must be an object")
+
+    private fun control(c: JsonObject): PhoneControl {
+        fun oneOf(key: String, values: Collection<String>): String = c.str(key).takeIf { it in values } ?: invalid("$key must be ${values.joinToString()}")
+        return when (c.str("kind")) {
+            "volume" -> PhoneControl.Volume(oneOf("stream", PhoneControl.STREAMS), c.int("percent"))
+            "media" -> PhoneControl.Media(oneOf("action", PhoneControl.MEDIA_ACTIONS))
+            "brightness" -> PhoneControl.Brightness(c.int("percent"))
+            "flashlight" -> PhoneControl.Flashlight(c["on"].let { (it as? JsonPrimitive)?.takeIf { p -> !p.isString }?.booleanOrNull } ?: invalid("on must be a boolean"))
+            "panel" -> PhoneControl.Panel(oneOf("panel", PhoneControl.PANEL_NAMES.keys))
+            else -> invalid("unknown control")
+        }
+    }
 
     fun parse(text: String): GatewayMessage {
         if (text.length > Limits.MAX_GATEWAY_FRAME_CHARS) invalid("frame too large")
@@ -833,6 +902,7 @@ object GatewayParser {
                 if (params.containsKey("since_ms")) params.long("since_ms") else null,
             )
             "task.done" -> Command.TaskDone(params.optStr("summary"))
+            "device.control" -> Command.DeviceControl(control(params.obj("control")))
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
         }
     }
@@ -1059,6 +1129,11 @@ object Validation {
             is Command.TaskDone -> command.summary?.let { s ->
                 if (s.codePointCount(0, s.length) > Limits.MAX_TASK_SUMMARY_CHARS) invalid("summary too long")
                 if (s.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
+            }
+            is Command.DeviceControl -> when (val c = command.control) {
+                is PhoneControl.Volume -> if (c.percent !in 0..100) invalid("percent must be 0-100")
+                is PhoneControl.Brightness -> if (c.percent !in 0..100) invalid("percent must be 0-100")
+                else -> Unit
             }
             is Command.SetClipboard -> {
                 val n = command.text.codePointCount(0, command.text.length)

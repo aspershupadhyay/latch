@@ -48,10 +48,22 @@ pub enum Capability {
     /// did, what the owner was asked and answered). Never screen content.
     #[serde(rename = "activity.read")]
     ActivityRead,
+    /// Since 1.11: set volumes and send media keys (play/pause, next, previous).
+    #[serde(rename = "control.sound")]
+    ControlSound,
+    /// Since 1.11: set the screen brightness (needs Android's "Modify system settings").
+    #[serde(rename = "control.brightness")]
+    ControlBrightness,
+    /// Since 1.11: turn the flashlight on or off.
+    #[serde(rename = "control.flashlight")]
+    ControlFlashlight,
+    /// Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel.
+    #[serde(rename = "control.panels")]
+    ControlPanels,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 12] = [
+    pub const ALL: [Capability; 16] = [
         Capability::DeviceInfo,
         Capability::UiObserve,
         Capability::ScreenCapture,
@@ -64,6 +76,10 @@ impl Capability {
         Capability::AppShare,
         Capability::ClipboardWrite,
         Capability::ActivityRead,
+        Capability::ControlSound,
+        Capability::ControlBrightness,
+        Capability::ControlFlashlight,
+        Capability::ControlPanels,
     ];
 
     /// Stable wire identifier, e.g. `input.gesture`.
@@ -81,6 +97,10 @@ impl Capability {
             Capability::AppShare => "app.share",
             Capability::ClipboardWrite => "clipboard.write",
             Capability::ActivityRead => "activity.read",
+            Capability::ControlSound => "control.sound",
+            Capability::ControlBrightness => "control.brightness",
+            Capability::ControlFlashlight => "control.flashlight",
+            Capability::ControlPanels => "control.panels",
         }
     }
 
@@ -99,6 +119,10 @@ impl Capability {
             Capability::AppShare => "share files to an app",
             Capability::ClipboardWrite => "copy text to the clipboard",
             Capability::ActivityRead => "read Latch's activity log",
+            Capability::ControlSound => "set volumes and play or pause media",
+            Capability::ControlBrightness => "set the screen brightness",
+            Capability::ControlFlashlight => "turn the flashlight on or off",
+            Capability::ControlPanels => "open the Wi-Fi, internet, Bluetooth, and volume panels",
         }
     }
 }

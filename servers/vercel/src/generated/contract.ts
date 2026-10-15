@@ -684,6 +684,86 @@ export const SERVER = {
     {
       "annotations": {
         "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Control volume, media, brightness, flashlight, or a settings panel"
+      },
+      "description": "One phone control per call, each behind its own owner switch (off by default): volume (a stream to 0-100 %) and media keys (play_pause, next, previous) need Sound; brightness (0-100 %, turns adaptive brightness off) needs Brightness; flashlight on or off needs Flashlight; panel opens the Wi-Fi, internet, Bluetooth, or volume panel over the current app and returns the screen, where you continue with tap (Panels). Needs Latch 1.11 on the phone.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "For media.",
+            "enum": [
+              "play_pause",
+              "next",
+              "previous"
+            ],
+            "type": "string"
+          },
+          "control": {
+            "enum": [
+              "volume",
+              "media",
+              "brightness",
+              "flashlight",
+              "panel"
+            ],
+            "type": "string"
+          },
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          },
+          "on": {
+            "description": "For flashlight.",
+            "type": "boolean"
+          },
+          "panel": {
+            "description": "For panel.",
+            "enum": [
+              "wifi",
+              "internet",
+              "bluetooth",
+              "volume"
+            ],
+            "type": "string"
+          },
+          "percent": {
+            "description": "For volume and brightness.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "screenshot_after": {
+            "default": false,
+            "description": "Also return a screenshot of the screen after the action. Default false (element tree only).",
+            "type": "boolean"
+          },
+          "stream": {
+            "default": "media",
+            "description": "For volume.",
+            "enum": [
+              "media",
+              "ring",
+              "notification",
+              "alarm"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "control"
+        ],
+        "type": "object"
+      },
+      "name": "phone_control",
+      "title": "Control volume, media, brightness, flashlight, or a settings panel"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true,
         "readOnlyHint": true,

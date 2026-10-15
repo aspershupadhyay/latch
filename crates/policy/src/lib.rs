@@ -434,6 +434,7 @@ fn assess(
         })),
         Command::ListActivity { .. } => Ok(low("Read Latch's activity log".into())),
         Command::TaskDone { .. } => Ok(low("Say the task is done".into())),
+        Command::DeviceControl { control } => Ok(Assessment::medium(control.describe())),
         Command::SetClipboard { text } => Ok(Assessment::medium(format!(
             "Copy {} characters to the clipboard",
             text.chars().count()

@@ -210,3 +210,10 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Cost:** the Vercel gateway reads the base with one extra Redis round trip per action, and writes it when a screen is shown in full.
 **Reversal trigger:** an AI acting on a stale or wrong element because of a partial screen, or partial screens confusing agents in the R10 phone runs.
 
+## ADR-035 — Phone controls: volume, media, brightness, flashlight, settings panels
+**Status:** accepted (2026-10-15, roadmap R16, owner: "keep going with the next roadmap item") · **Protocol:** 1.11
+**Problem:** turning the volume down or the flashlight on took several taps through Settings or Quick Settings (which Latch keeps off limits), each one slow and easy to miss.
+**Decision:** one command, `device.control`, and one MCP tool, `phone_control`, with four groups, each its own capability and **off by default**: `control.sound` (volume per stream, media keys), `control.brightness`, `control.flashlight`, `control.panels` (the Wi-Fi, internet, and volume panels; Bluetooth opens its settings page, as Android has no panel). Public Android APIs only: `AudioManager`, `Settings.System` behind the owner's own "Modify system settings" grant, `CameraManager.setTorchMode`, `Settings.Panel`. Nothing is read back from the phone.
+**Safety:** policy rates every control medium, like a plain tap, so "Ask me before every action" covers them; the phone logs each one in Activity in the owner's words (`PhoneControl::describe`, the same text on both gateways and the phone). A panel only opens: switching Wi-Fi or Bluetooth inside it is an ordinary tap in the Settings app, which must be switched on and whose risky buttons still ask. Not offered: airplane mode, mobile data, location, Do Not Disturb, and any toggle without a panel, because Android reserves them for system apps or they cut the phone off from its own gateway. Ring and notification changes Android refuses under Do Not Disturb come back as `policy_refused`.
+**Reversal trigger:** an AI using controls to disturb or surprise the owner (e.g. volume at night) in a way the per-group switches and Activity do not make visible.
+

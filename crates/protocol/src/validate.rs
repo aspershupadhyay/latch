@@ -6,7 +6,9 @@
 //! they arrive; devices validate commands again on receipt. Limits are part of
 //! the protocol: a peer may reject anything beyond them.
 
-use crate::{Command, CommandEnvelope, ErrorCode, Hello, Observation, ProtocolError, Target};
+use crate::{
+    Command, CommandEnvelope, ErrorCode, Hello, Observation, PhoneControl, ProtocolError, Target,
+};
 
 /// Largest text frame either side accepts. Screenshots dominate this budget.
 pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
@@ -441,6 +443,10 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             }
             Ok(())
         }
+        Command::DeviceControl {
+            control: PhoneControl::Volume { percent, .. } | PhoneControl::Brightness { percent },
+        } if *percent > 100 => Err(invalid("percent must be 0-100")),
+        Command::DeviceControl { .. } => Ok(()),
         Command::DeviceInfo {} | Command::ListApps {} | Command::Global { .. } => Ok(()),
         Command::Observe { max_nodes, .. } => {
             if *max_nodes == 0 || *max_nodes > MAX_NODES {

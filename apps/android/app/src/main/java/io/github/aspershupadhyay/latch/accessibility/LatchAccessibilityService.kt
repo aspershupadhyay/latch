@@ -1322,6 +1322,12 @@ class LatchAccessibilityService : AccessibilityService() {
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
     }
 
+    /** Opens a settings panel over the current app (protocol 1.11). */
+    fun openPanel(intent: Intent) {
+        invalidate()
+        startActivity(intent)
+    }
+
     /** Puts text on the clipboard (protocol 1.7). Latch never reads the clipboard. */
     suspend fun setClipboard(text: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
         val clipboard = getSystemService(android.content.ClipboardManager::class.java)
