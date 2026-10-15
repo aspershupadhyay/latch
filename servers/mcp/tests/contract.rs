@@ -159,3 +159,25 @@ fn diagnosis_rendering_matches() {
         .join("---\n");
     check("diagnose-expected.txt", text);
 }
+
+#[test]
+fn changes_rendering_matches() {
+    let input: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir().join("changes-input.json")).expect("input"),
+    )
+    .expect("json");
+    let device = input["device_id"].as_str().expect("device_id");
+    let text = input["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .map(|case| {
+            let base: Observation = serde_json::from_value(case["base"].clone()).expect("base");
+            let now: Observation = serde_json::from_value(case["now"].clone()).expect("now");
+            let rendered = mcp::render_changes(device, &now, &base, false)
+                .unwrap_or_else(|| "(shown in full)\n".into());
+            format!("== {}\n{rendered}", case["name"].as_str().expect("name"))
+        })
+        .collect::<String>();
+    check("changes-expected.txt", text);
+}

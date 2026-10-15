@@ -50,6 +50,8 @@ struct Live {
     awaiting_owner: std::collections::HashSet<String>,
     /// Latest observation without its screenshot, and when it arrived.
     latest_observation: Option<(Arc<Observation>, u64)>,
+    /// The last screen the AI was shown in full (roadmap R5), without its screenshot.
+    shown_base: Option<Arc<Observation>>,
     command_lock: Arc<tokio::sync::Mutex<()>>,
     connected_at_ms: u64,
     /// Present for HTTP long-poll connections, absent for WebSockets.
@@ -128,6 +130,7 @@ impl Registry {
             pending: HashMap::new(),
             awaiting_owner: std::collections::HashSet::new(),
             latest_observation: None,
+            shown_base: None,
             command_lock: Arc::new(tokio::sync::Mutex::new(())),
             connected_at_ms: now,
         };
@@ -256,6 +259,22 @@ impl Registry {
         self.lock()
             .get(device_id)
             .and_then(|l| l.latest_observation.as_ref().map(|(o, _)| o.clone()))
+    }
+
+    /// The last screen the AI was shown in full on this connection (R5).
+    pub fn shown_base(&self, device_id: &str) -> Option<Arc<Observation>> {
+        self.lock()
+            .get(device_id)
+            .and_then(|l| l.shown_base.clone())
+    }
+
+    /// Remembers `obs` (without its screenshot) as the screen the AI was shown in full.
+    pub fn set_shown_base(&self, device_id: &str, obs: &Observation) {
+        if let Some(l) = self.lock().get_mut(device_id) {
+            let mut base = obs.clone();
+            base.screenshot = None;
+            l.shown_base = Some(Arc::new(base));
+        }
     }
 
     /// Minor protocol version the phone spoke in its hello, while connected.

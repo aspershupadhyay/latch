@@ -17,6 +17,8 @@ export const CONFIRM_DEADLINE_MS = 120_000;
 export const POLL_STALE_MS = 45_000;
 const QUEUE_WAIT_MS = 30_000;
 const OBSERVATION_TTL_MS = 120_000;
+/** A full screen stays the base for changes this long (R5); after that the next screen is shown in full. */
+const BASE_TTL_MS = 600_000;
 
 export interface Timing {
   /** How often a waiting poll checks the queue (each check is one Redis command). */
@@ -131,6 +133,8 @@ export const K = {
   deferred: (cmd: string) => `latch:deferred:${cmd}`,
   lock: (id: string) => `latch:lock:${id}`,
   observation: (id: string) => `latch:obs:${id}`,
+  /** The last screen the AI was shown in full (roadmap R5). */
+  base: (id: string) => `latch:base:${id}`,
   audit: "latch:audit",
 };
 
@@ -318,6 +322,20 @@ export class Devices {
       });
     }
     return out.sort((a, b) => a.device_id.localeCompare(b.device_id));
+  }
+
+  /** The last screen the AI was shown in full on this connection (R5). One round trip. */
+  async shownBase(id: string, conn: string): Promise<Observation | undefined> {
+    const v = await this.store.get(K.base(id));
+    if (!v) return undefined;
+    const record = JSON.parse(v) as { conn: string; observation: Observation };
+    return record.conn === conn ? record.observation : undefined;
+  }
+
+  /** Remembers `obs` (without its screenshot) as the screen the AI was shown in full. */
+  async setShownBase(id: string, conn: string, obs: Observation): Promise<void> {
+    const { screenshot: _drop, ...withoutScreenshot } = obs;
+    await this.store.set(K.base(id), JSON.stringify({ conn, observation: withoutScreenshot }), { px: BASE_TTL_MS });
   }
 
   async latestObservation(id: string): Promise<Observation | undefined> {

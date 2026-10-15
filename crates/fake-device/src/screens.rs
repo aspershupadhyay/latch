@@ -166,8 +166,14 @@ impl Phone {
                 let mut items = vec![
                     ("Network & internet", Effect::Open(Screen::Network)),
                     ("Connected devices", Effect::None),
+                    ("Apps", Effect::None),
+                    ("Notifications", Effect::None),
                     ("Display", Effect::None),
                     ("Battery", Effect::None),
+                    ("Storage", Effect::None),
+                    ("Sound & vibration", Effect::None),
+                    ("Accessibility", Effect::None),
+                    ("Security & privacy", Effect::None),
                 ];
                 if self.settings_scrolled {
                     items.push(("About phone", Effect::None));

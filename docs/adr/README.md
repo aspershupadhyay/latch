@@ -201,3 +201,12 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Not chosen (yet):** a single phone command that runs several actions on the phone without a gateway round trip in between. It would save more time but needs a protocol change and a phone-side policy loop; revisit when R1 shows the gateway round trip, not the model turn, dominates.
 **Reversal trigger:** a `run_steps` run that acts without an approval the same single tool calls would need.
 
+## ADR-034 — After an action, show the AI only what changed
+**Status:** accepted (2026-10-15, roadmap R5, owner: "keep going with the next roadmap item") · **Amends:** chapter 17 §3 (observation rendering)
+**Problem:** every action answers with the whole screen (up to 400 elements). Most actions change a few lines (a switch, a toast, a counter), but the AI reads and pays for the whole list each time, which is slow and costly in tokens.
+**Decision:** the gateways, not the phone, render an action's screen as the changes since the last screen the AI was shown in full (`render_changes` / `renderChanges`, held byte-identical by `packages/schemas/v1/mcp/changes-{input.json,expected.txt}`) when: the same app is in front on the same screen size, at least 8 shown elements kept their id and line, and at most 40 % of lines changed, appeared, or left. Changed and new elements are listed in full; ids that left are named under "Gone". Otherwise the screen is shown in full and becomes the new base. An explicit `observe` is always in full. The base is per phone connection (Rust: in memory; Vercel: Redis, 10 minutes, without screenshot) and a new connection starts without one.
+**Why ids are safe:** an element counts as unchanged only when its id **and** its whole rendered line are equal, so an id the AI remembers from the full screen still names the same element in the new observation; the phone's own freshness check (same app, element present, within 8 px) still runs on every action.
+**No protocol change:** the phone sends full observations as before; screenshots are unaffected.
+**Cost:** the Vercel gateway reads the base with one extra Redis round trip per action, and writes it when a screen is shown in full.
+**Reversal trigger:** an AI acting on a stale or wrong element because of a partial screen, or partial screens confusing agents in the R10 phone runs.
+

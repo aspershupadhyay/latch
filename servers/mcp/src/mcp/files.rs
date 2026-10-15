@@ -19,9 +19,8 @@ use latch_protocol::{
 use serde_json::{Value, json};
 
 use super::{
-    ArgError, QUIET_MS, SETTLE_MAX_MS, arg_bool, arg_int, arg_str, device_id_schema,
-    observation_result, quote, req_str, screenshot_after_schema, screenshot_allowed, text_result,
-    tool, unexpected,
+    ArgError, QUIET_MS, SETTLE_MAX_MS, arg_bool, arg_int, arg_str, device_id_schema, quote,
+    req_str, screenshot_after_schema, screenshot_allowed, text_result, tool, unexpected,
 };
 use crate::AppState;
 use crate::devices::{self, Output};
@@ -783,7 +782,7 @@ pub async fn run(
             match &action.observation {
                 Some(obs) => {
                     let withheld = screenshot_after && !screenshot_allowed(state, device_id);
-                    let mut result = observation_result(device_id, obs, withheld);
+                    let mut result = super::shown(state, device_id, obs, withheld, false);
                     super::prepend(&mut result, &format!("{done} The screen after the action:"));
                     Ok(result)
                 }

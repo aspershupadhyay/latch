@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { type DiagnosisInput, renderDiagnosis } from "../src/diagnose.js";
-import { SENSITIVE_APP_NOTE, renderObservation, toolError } from "../src/render.js";
+import { SENSITIVE_APP_NOTE, renderChanges, renderObservation, toolError } from "../src/render.js";
 import { ProtocolError, normalizeObservation } from "../src/protocol.js";
 import { shared } from "./shared.js";
 
@@ -34,4 +34,13 @@ test("money, account, and password apps carry the same caution as the Rust gatew
 test("diagnose text matches the Rust gateway byte for byte", () => {
   const input = JSON.parse(shared("mcp/diagnose-input.json")) as { cases: DiagnosisInput[] };
   assert.equal(input.cases.map(renderDiagnosis).join("---\n"), shared("mcp/diagnose-expected.txt"));
+});
+
+test("changes-since text matches the Rust gateway byte for byte", () => {
+  const input = JSON.parse(shared("mcp/changes-input.json")) as { device_id: string; cases: { name: string; base: unknown; now: unknown }[] };
+  const text = input.cases.map((c) => {
+    const rendered = renderChanges(input.device_id, normalizeObservation(c.now, 2000), normalizeObservation(c.base, 2000), false) ?? "(shown in full)\n";
+    return `== ${c.name}\n${rendered}`;
+  }).join("");
+  assert.equal(text, shared("mcp/changes-expected.txt"));
 });

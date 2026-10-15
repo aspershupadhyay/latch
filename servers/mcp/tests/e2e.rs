@@ -578,6 +578,32 @@ async fn agent_navigates_settings_and_toggles_wifi() {
         screen.starts_with("Done; another app is now in front. The screen after the action:"),
         "{screen}"
     );
+    // R5: a tap that changes nothing comes back as the changes since the full screen.
+    let full = screen;
+    let base_id = observation_id(&full);
+    let (is_error, changes, _) = call(
+        &gw,
+        "tap",
+        json!({"observation_id": base_id, "element_id": element(&full, "Display")}),
+    )
+    .await;
+    assert!(!is_error, "{changes}");
+    assert!(
+        changes.contains(&format!(
+            "Changes since observation {base_id}: elements not listed here are unchanged and keep their ids.\n(no element changed)\n"
+        )),
+        "{changes}"
+    );
+    // An unchanged element keeps its id: its id from the full screen works with the new observation.
+    let (is_error, network, _) = call(&gw, "tap", json!({"observation_id": observation_id(&changes), "element_id": element(&full, "Network & internet")})).await;
+    assert!(!is_error && network.contains("\"Wi-Fi\""), "{network}");
+    call(&gw, "press", json!({"button": "back"})).await;
+    // An explicit observe is always in full.
+    let (is_error, screen, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    assert!(
+        !is_error && screen.contains("\"Network & internet\"") && !screen.contains("Changes since"),
+        "{screen}"
+    );
 
     let (_, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Network & internet")})).await;
     assert!(screen.contains("\"Wi-Fi\""), "{screen}");

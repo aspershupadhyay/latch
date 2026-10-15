@@ -30,7 +30,9 @@ Work in a loop: call `observe`, pick an element id from the result, act with `ta
 `type_text`, `scroll`, `scroll_to`, `swipe`, `press`, or `launch_app`, then read the fresh \
 observation that every action returns (do not call observe again after an action; it only \
 costs time). Actions must cite the latest observation_id; if the screen changed you will get \
-stale_observation, so observe again. Save round trips: `type_text` with submit=true types and \
+stale_observation, so observe again. When most of the screen stayed the same, an action's answer \
+lists only the changes since the last full screen: elements not listed are unchanged and keep \
+their ids, and Gone: names the ids that left; call observe for the full screen. Save round trips: `type_text` with submit=true types and \
 presses Enter/Search/Send in one call; `scroll_to` scrolls until a text is visible; \
 `wait_for` waits for a text to appear (a page loading, a message arriving) instead of \
 observing repeatedly. To find an app, call list_apps with a query instead of reading the \
@@ -977,7 +979,7 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
     let headline = format!("{done} The screen after the action:");
     if let Some(obs) = &action.observation {
         let withheld = screenshot_after && !screenshot_allowed(state, &device_id);
-        let mut result = observation_result(&device_id, obs, withheld);
+        let mut result = shown(state, &device_id, obs, withheld, true);
         prepend(&mut result, &headline);
         return Ok(result);
     }
@@ -1052,10 +1054,33 @@ fn screenshot_allowed(state: &AppState, device_id: &str) -> bool {
     })
 }
 
-fn observation_result(device_id: &str, obs: &Observation, screenshot_withheld: bool) -> Value {
-    let mut content = vec![
-        json!({ "type": "text", "text": render_observation(device_id, obs, screenshot_withheld) }),
-    ];
+/// The screen for the AI: as the changes since the last full screen it was
+/// shown when `changes` allows and they are few (R5), otherwise in full,
+/// which then becomes the new base.
+fn shown(
+    state: &AppState,
+    device_id: &str,
+    obs: &Observation,
+    screenshot_withheld: bool,
+    changes: bool,
+) -> Value {
+    let partial = if changes {
+        state
+            .devices
+            .shown_base(device_id)
+            .and_then(|base| render_changes(device_id, obs, &base, screenshot_withheld))
+    } else {
+        None
+    };
+    let text = partial.unwrap_or_else(|| {
+        state.devices.set_shown_base(device_id, obs);
+        render_observation(device_id, obs, screenshot_withheld)
+    });
+    with_screenshot(text, obs)
+}
+
+fn with_screenshot(text: String, obs: &Observation) -> Value {
+    let mut content = vec![json!({ "type": "text", "text": text })];
     if let Some(shot) = &obs.screenshot {
         content.push(json!({ "type": "image", "data": shot.data_base64, "mimeType": shot.mime }));
     }
@@ -1089,7 +1114,7 @@ async fn wait_for(
     let mut result = if want_screenshot && screenshot_allowed(state, device_id) {
         observe(state, device_id, true, 400).await?
     } else {
-        observation_result(device_id, &wait.observation, want_screenshot)
+        shown(state, device_id, &wait.observation, want_screenshot, true)
     };
     prepend(&mut result, &headline);
     Ok(result)
@@ -1119,10 +1144,12 @@ async fn observe(
         max_nodes,
     };
     match devices::execute(state, device_id, command).await? {
-        Output::Observation(obs) => Ok(observation_result(
+        Output::Observation(obs) => Ok(shown(
+            state,
             device_id,
             &obs,
             want_screenshot && !screenshot_allowed,
+            false,
         )),
         _ => Err(unexpected()),
     }
@@ -1255,10 +1282,94 @@ fn is_interesting(n: &UiNode) -> bool {
 }
 
 pub fn render_observation(device_id: &str, obs: &Observation, screenshot_withheld: bool) -> String {
+    use std::fmt::Write;
+
+    let mut out = observation_head(device_id, obs);
+    let lines = node_lines(obs);
+    for (_, line) in &lines {
+        out.push_str(line);
+        out.push('\n');
+    }
+    let _ = write!(
+        out,
+        "{} of {} elements shown; {} redacted",
+        lines.len(),
+        obs.nodes.len(),
+        obs.redacted_count
+    );
+    observation_tail(&mut out, obs, screenshot_withheld);
+    out
+}
+
+/// Roadmap R5: the screen after an action as the changes since `base`, the
+/// last screen the AI was shown in full, when the same app is in front and
+/// most elements kept their id and content. None means: render it in full.
+/// Elements not listed keep the id and content they had in `base`.
+pub fn render_changes(
+    device_id: &str,
+    obs: &Observation,
+    base: &Observation,
+    screenshot_withheld: bool,
+) -> Option<String> {
     use std::collections::HashMap;
     use std::fmt::Write;
 
-    let by_id: HashMap<&str, &UiNode> = obs.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    if obs.package != base.package || obs.screen != base.screen {
+        return None;
+    }
+    let before: HashMap<String, String> = node_lines(base).into_iter().collect();
+    let now = node_lines(obs);
+    let changed: Vec<&String> = now
+        .iter()
+        .filter(|(id, line)| before.get(id) != Some(line))
+        .map(|(_, line)| line)
+        .collect();
+    let unchanged = now.len() - changed.len();
+    let current: std::collections::HashSet<&str> = now.iter().map(|(id, _)| id.as_str()).collect();
+    let gone: Vec<String> = node_lines(base)
+        .into_iter()
+        .map(|(id, _)| id)
+        .filter(|id| !current.contains(id.as_str()))
+        .collect();
+    let differences = changed.len() + gone.len();
+    if unchanged < MIN_UNCHANGED_FOR_CHANGES || differences * 10 > now.len() * 4 {
+        return None;
+    }
+    let mut out = observation_head(device_id, obs);
+    let _ = writeln!(
+        out,
+        "Changes since observation {}: elements not listed here are unchanged and keep their ids.",
+        base.observation_id
+    );
+    if changed.is_empty() {
+        out.push_str("(no element changed)\n");
+    }
+    for line in &changed {
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !gone.is_empty() {
+        let _ = writeln!(out, "Gone: {}", gone.join(", "));
+    }
+    let _ = write!(
+        out,
+        "{} changed or new, {} unchanged, {} gone of {} elements; {} redacted",
+        changed.len(),
+        unchanged,
+        gone.len(),
+        obs.nodes.len(),
+        obs.redacted_count
+    );
+    observation_tail(&mut out, obs, screenshot_withheld);
+    Some(out)
+}
+
+/// A screen is described by its changes only when at least this many shown
+/// elements are unchanged (and at most 40 % differ).
+pub const MIN_UNCHANGED_FOR_CHANGES: usize = 8;
+
+fn observation_head(device_id: &str, obs: &Observation) -> String {
+    use std::fmt::Write;
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -1279,7 +1390,36 @@ pub fn render_observation(device_id: &str, obs: &Observation, screenshot_withhel
     {
         out.push_str(SENSITIVE_APP_NOTE);
     }
-    let mut shown = 0;
+    out
+}
+
+fn observation_tail(out: &mut String, obs: &Observation, screenshot_withheld: bool) {
+    use std::fmt::Write;
+    if obs.truncated {
+        out.push_str("; tree truncated by max_nodes");
+    }
+    out.push('\n');
+    if screenshot_withheld {
+        out.push_str("No screenshot: the owner has not enabled screen.capture.\n");
+    }
+    if let Some(shot) = &obs.screenshot
+        && (shot.width != obs.screen.width || shot.height != obs.screen.height)
+    {
+        let _ = writeln!(
+            out,
+            "The screenshot is scaled to {}x{}. Element bounds and x/y arguments use screen pixels ({}x{}).",
+            shot.width, shot.height, obs.screen.width, obs.screen.height
+        );
+    }
+}
+
+/// One line per shown element, with its id, in screen order.
+fn node_lines(obs: &Observation) -> Vec<(String, String)> {
+    use std::collections::HashMap;
+    use std::fmt::Write;
+
+    let by_id: HashMap<&str, &UiNode> = obs.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let mut out = Vec::new();
     for node in obs.nodes.iter().filter(|n| is_interesting(n)) {
         // Indent by the number of shown ancestors, so structure survives filtering.
         let mut depth = 0;
@@ -1344,31 +1484,7 @@ pub fn render_observation(device_id: &str, obs: &Observation, screenshot_withhel
         if !flags.is_empty() {
             let _ = write!(line, " [{}]", flags.join(","));
         }
-        out.push_str(&line);
-        out.push('\n');
-        shown += 1;
-    }
-    let _ = write!(
-        out,
-        "{shown} of {} elements shown; {} redacted",
-        obs.nodes.len(),
-        obs.redacted_count
-    );
-    if obs.truncated {
-        out.push_str("; tree truncated by max_nodes");
-    }
-    out.push('\n');
-    if screenshot_withheld {
-        out.push_str("No screenshot: the owner has not enabled screen.capture.\n");
-    }
-    if let Some(shot) = &obs.screenshot
-        && (shot.width != obs.screen.width || shot.height != obs.screen.height)
-    {
-        let _ = writeln!(
-            out,
-            "The screenshot is scaled to {}x{}. Element bounds and x/y arguments use screen pixels ({}x{}).",
-            shot.width, shot.height, obs.screen.width, obs.screen.height
-        );
+        out.push((node.id.clone(), line));
     }
     out
 }
