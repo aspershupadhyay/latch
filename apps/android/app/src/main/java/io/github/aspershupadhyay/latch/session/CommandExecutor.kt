@@ -220,6 +220,8 @@ class CommandExecutor(
     /** Reads the words on unlabeled controls (ADR-032); null while the owner's switch is off. */
     private val labelReader: () -> LabelReader? = { null },
 ) {
+    private val settle = SettleStats()
+
     /** How long a question waits for the owner, given the command's own deadline. */
     private fun approvalTimeout(deadlineMs: Long): Long {
         val own = (deadlineMs - 2_000).coerceAtLeast(5_000)
@@ -398,6 +400,9 @@ class CommandExecutor(
                 // Protocol 1.9 `effect`: the screen and app before anything happened, typing included.
                 val untouched = if (envelope.observeAfter != null) service.screenSignature() to service.currentPackage() else null
                 var expectChangeMs = EXPECT_CHANGE_MS
+                // R7: taps, swipes, and pinches in an app that always reacts fast wait less for a change.
+                val learnKey = learnKey(command, service.currentPackage())
+                learnKey?.let { expectChangeMs = settle.expectChange(it, EXPECT_CHANGE_MS) }
                 when (command) {
                     is Command.Tap -> {
                         // Android's "Open with" and share choosers start another app, which takes longer
@@ -427,7 +432,7 @@ class CommandExecutor(
                 }
                 note(ActivityKind.ACTION, judged ?: describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted, owner = owner)
-                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current, untouched) }
+                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current, untouched, learnKey) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
         }
@@ -675,6 +680,19 @@ class CommandExecutor(
         }
     }
 
+    /** R7: the app and action kind whose reaction times are learned, or null for actions that never shorten their wait. */
+    private fun learnKey(command: Command, packageName: String?): String? {
+        val pkg = packageName ?: return null
+        if (pkg in CHOOSER_PACKAGES) return null
+        val kind = when (command) {
+            is Command.Tap -> if (command.longPress) "long" else "tap"
+            is Command.Swipe -> "swipe"
+            is Command.Pinch -> "pinch"
+            else -> return null
+        }
+        return "$pkg|$kind"
+    }
+
     /** The phone's own judgement of a tap or swipe, or null for other commands. */
     private suspend fun judge(command: Command): Judgement? {
         val service = bridge.service.value ?: return null
@@ -724,6 +742,7 @@ class CommandExecutor(
         result: ActionResult,
         current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
         untouched: Pair<Int, String?>? = null,
+        learnKey: String? = null,
     ): ActionResult {
         val quiet = after.quietMs
         if (quiet == null) {
@@ -736,7 +755,7 @@ class CommandExecutor(
             val waited = if (opening != null) service.awaitForeground(opening, after.settleMs.toLong()) else 0L
             // Then wait for the screen to change and hold still: a new page slides in silently,
             // so the agent would otherwise get the old page or one caught mid-animation.
-            service.awaitSettled(
+            val changedAfter = service.awaitSettled(
                 before,
                 quiet.toLong(),
                 (after.settleMs - waited).coerceAtLeast(maxOf(quiet.toLong(), expectChangeMs + quiet)),
@@ -744,6 +763,13 @@ class CommandExecutor(
                 expectChangeMs,
                 expectKeyboard = command is Command.Tap && !command.longPress,
             )
+            learnKey?.let { key ->
+                when {
+                    changedAfter != null -> settle.changed(key, changedAfter)
+                    // A shortened wait saw nothing: maybe the app was just slow this time.
+                    expectChangeMs < EXPECT_CHANGE_MS -> settle.missed(key)
+                }
+            }
         }
         service.cursorStatus("Reading the new screen")
         val effected = untouched?.let { (signature, pkg) -> result.copy(effect = effectOf(signature, pkg, service.screenSignature(), service.currentPackage())) } ?: result
