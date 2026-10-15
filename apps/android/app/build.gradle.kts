@@ -26,6 +26,8 @@ android {
         versionName = System.getenv("LATCH_VERSION_NAME") ?: "0.1.0"
         // The only place the updater may download from; see update/Updater.kt.
         buildConfigField("String", "UPDATE_DOWNLOAD_PREFIX", "\"$RELEASES/download/\"")
+        // The emulator job in CI runs androidTest against a real gateway (docs/operations/qa.md).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -128,6 +130,9 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
