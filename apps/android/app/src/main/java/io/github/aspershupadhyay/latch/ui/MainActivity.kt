@@ -418,6 +418,13 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     val outdatedGateway by app.session.outdatedGateway.collectAsStateWithLifecycle()
     val update by app.updater.state.collectAsStateWithLifecycle()
+    val ownerKeyVersion by app.settings.ownerKeyVersion.collectAsStateWithLifecycle()
+    // R3: once per screen visit, the owner's relay says whether its database is far away.
+    val slowRelayMs by produceState<Int?>(null, pairing, isOwner, ownerKeyVersion) {
+        val p = pairing ?: return@produceState
+        val key = app.settings.ownerKey() ?: return@produceState
+        value = runCatching { OwnerClient(app.http, p.gatewayUrl, key).slowDatabaseMs() }.getOrNull()
+    }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -466,6 +473,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             reducedMotion = reducedMotion,
             signInRequests = signInRequests,
             outdatedGateway = outdatedGateway,
+            slowRelayMs = slowRelayMs,
             update = update,
         ),
         HomeActions(
@@ -495,6 +503,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             openSetup = openSetup,
             reviewSignIns = { go(Tab.CONNECT) },
             openGatewayUpdateHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, GATEWAY_UPDATE_HELP.toUri())) },
+            openRelaySpeedHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, RELAY_SPEED_HELP.toUri())) },
             installUpdate = { info -> installUpdate(app, context, info) },
         ),
     )
@@ -738,4 +747,5 @@ private const val MAX_FOLDERS = 20
 
 /** README steps for bringing a Vercel gateway up to date. */
 private const val GATEWAY_UPDATE_HELP = "https://github.com/aspershupadhyay/latch#fix-update-your-gateway"
+private const val RELAY_SPEED_HELP = "https://github.com/aspershupadhyay/latch/blob/main/docs/operations/vercel.md#speed"
 private const val SOURCE_CODE = "https://github.com/aspershupadhyay/latch"

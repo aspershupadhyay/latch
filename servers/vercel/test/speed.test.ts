@@ -5,7 +5,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Devices, SLOW_STORE_MS } from "../src/devices.js";
 import { renderDevices, slowStoreNote } from "../src/mcp.js";
-import { MemoryStore } from "../src/store.js";
+import { Gateway, configFromEnv } from "../src/gateway.js";
+import { MemoryStore, type Store } from "../src/store.js";
 
 const timing = { pollIntervalMs: 20, hotPollIntervalMs: 10, resultIntervalMs: 20 };
 
@@ -15,6 +16,10 @@ class SlowStore extends MemoryStore {
   override async hgetall(key: string) {
     await new Promise((r) => setTimeout(r, this.delayMs));
     return super.hgetall(key);
+  }
+  override async get(key: string) {
+    await new Promise((r) => setTimeout(r, this.delayMs));
+    return super.get(key);
   }
 }
 
@@ -31,4 +36,19 @@ test("list_devices warns when the database is slow, and not when it is fast", as
   const slow = await renderDevices(new Devices(new SlowStore(SLOW_STORE_MS + 30), timing));
   assert.match(slow, /No phones are paired yet/);
   assert.match(slow, /Note for the owner: one database round trip took \d+ ms/);
+});
+
+test("the owner API reports the database round trip, so the app can warn", async () => {
+  const ADMIN = "admin-token-speed-0123456789abcdef0123";
+  const speed = async (store: Store, token = ADMIN) => {
+    const gw = new Gateway(store, configFromEnv({ LATCH_ADMIN_TOKEN: ADMIN }));
+    const res = await gw.fetch(new Request("http://gw/v1/admin/speed", { headers: { authorization: `Bearer ${token}` } }));
+    return { status: res.status, body: await res.json() as { store_ms: number; slow_ms: number; slow: boolean; region: string | null } };
+  };
+  assert.equal((await speed(new MemoryStore(), "wrong-token-0123456789abcdef0123456789")).status, 401);
+  const fast = await speed(new MemoryStore());
+  assert.equal(fast.status, 200);
+  assert.deepEqual({ slow: fast.body.slow, slow_ms: fast.body.slow_ms }, { slow: false, slow_ms: SLOW_STORE_MS });
+  const slow = await speed(new SlowStore(SLOW_STORE_MS + 30));
+  assert.ok(slow.body.slow && slow.body.store_ms >= SLOW_STORE_MS, JSON.stringify(slow.body));
 });
