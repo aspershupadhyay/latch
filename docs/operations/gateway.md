@@ -67,7 +67,8 @@ Other clients: Streamable HTTP URL `https://latch.example.com/mcp` with header `
 - **Pair a phone:** in the Latch app, enter the gateway address and the owner key; the app creates its own single-use code and pairs. Without the app: `curl -X POST https://latch.example.com/v1/admin/pairings -H "Authorization: Bearer $LATCH_ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"name":"Pixel"}'` and enter the code within 10 minutes. 20 wrong guesses a minute lock pairing for a minute.
 - **Revoke a phone:** in the app, or `curl -X DELETE https://latch.example.com/v1/admin/devices/<id> -H "Authorization: Bearer $LATCH_ADMIN_TOKEN"`. The phone is disconnected immediately and its token stops working.
 - **Rotate the MCP token:** change `LATCH_MCP_TOKEN` and restart; update clients. Phones are unaffected.
-- **Rotate the admin token:** change `LATCH_ADMIN_TOKEN` and restart.
+- **Rotate the owner key:** in the app, Settings → **Rotate owner key** (ADR-038). The gateway issues a new key once, the app saves it, and the old key, `LATCH_ADMIN_TOKEN` included, stops working at once; leave `LATCH_ADMIN_TOKEN` as it is. Without the app: `curl -X POST https://latch.example.com/v1/admin/owner-key -H "Authorization: Bearer <current owner key>"`; the answer's `owner_key` is the only copy.
+- **Lost the owner key:** set a new `LATCH_ADMIN_TOKEN` and restart. The new token works, and the rotated key stops working for good. Phones, AI keys, and OAuth apps stay connected.
 - **Suspected leak of a phone token:** revoke that phone and pair again.
 - **Emergency stop for everything:** stop the gateway process. Phones show "Connection lost" and run nothing; their own Stop button also always works.
 - **Upgrade:** pull the new image and restart. `devices.json` is forward compatible; phones reconnect automatically.

@@ -115,6 +115,15 @@ async function readJson(request: Request, limit: number): Promise<unknown> {
   return JSON.parse(text);
 }
 
+/** The rotated owner key (R19), stored as hashes only. */
+const OWNER_KEY = "latch:ownerkey";
+interface OwnerKeyRecord {
+  key_sha256: string;
+  /** SHA-256 of the LATCH_ADMIN_TOKEN in force when the key was issued. */
+  admin_token_sha256: string;
+  rotated_at_ms: number;
+}
+
 export class Gateway {
   readonly devices: Devices;
   /** File links (protocol 1.6). */
@@ -146,9 +155,24 @@ export class Gateway {
     return this.config.adminToken === undefined || this.config.adminToken.length < 32;
   }
 
-  private isAdmin(request: Request): boolean {
+  /**
+   * The owner key is LATCH_ADMIN_TOKEN until the owner rotates it (ADR-038).
+   * After a rotation only the issued key works, for as long as LATCH_ADMIN_TOKEN
+   * stays the token it was issued under; changing LATCH_ADMIN_TOKEN is the way
+   * back in, and its first use forgets the rotated key.
+   */
+  private async isAdmin(request: Request): Promise<boolean> {
     const token = bearer(request.headers.get("authorization"));
-    return !this.setupMode && token !== undefined && secretsEqual(token, this.config.adminToken!);
+    if (this.setupMode || token === undefined) return false;
+    const env = this.config.adminToken!;
+    const raw = await this.store.get(OWNER_KEY);
+    if (raw === null) return secretsEqual(token, env);
+    const rotated = JSON.parse(raw) as OwnerKeyRecord;
+    if (secretsEqual(sha256(env), rotated.admin_token_sha256)) return secretsEqual(sha256(token), rotated.key_sha256);
+    if (!secretsEqual(token, env)) return false;
+    await this.store.batch([{ op: "delIfEquals", key: OWNER_KEY, value: raw }]);
+    console.info("latch: LATCH_ADMIN_TOKEN changed; the rotated owner key no longer works");
+    return true;
   }
 
   private baseUrl(request: Request): string {
@@ -203,7 +227,7 @@ export class Gateway {
     if (path === "/v1/device") return error(426, "this gateway offers the HTTP poll transport only; see /v1/info");
     if (path.startsWith("/v1/admin/")) {
       if (this.setupMode) return error(503, "set LATCH_ADMIN_TOKEN (at least 32 characters) in the Vercel project settings, then redeploy");
-      if (!this.isAdmin(request)) return unauthorized();
+      if (!(await this.isAdmin(request))) return unauthorized();
       return this.admin(request, path.slice("/v1/admin/".length), m);
     }
     return error(404, "not found");
@@ -628,6 +652,13 @@ export class Gateway {
       return json(200, { code: `${code.slice(0, 4)}-${code.slice(4)}`, expires_at_ms: expires, gateway_url: this.baseUrl(request) });
     }
     if (path === "audit" && method === "GET") return json(200, { events: await this.devices.audit(200) });
+    // R19 (ADR-038): a new owner key, shown only in this answer; the key used to ask stops working.
+    if (path === "owner-key" && method === "POST") {
+      const ownerKey = newToken("lok");
+      const record: OwnerKeyRecord = { key_sha256: sha256(ownerKey), admin_token_sha256: sha256(this.config.adminToken!), rotated_at_ms: Date.now() };
+      await this.store.set(OWNER_KEY, JSON.stringify(record));
+      return json(200, { owner_key: ownerKey, rotated_at_ms: record.rotated_at_ms });
+    }
     if (path === "clients" && method === "GET") {
       const clients = Object.values(await this.store.hgetall("latch:clients"))
         .map((v) => JSON.parse(v) as { id: string; name: string; created_at_ms: number; last_used_ms?: number; kind?: string; apps?: string[] | null })

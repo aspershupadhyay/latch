@@ -69,6 +69,17 @@ pub struct RefreshRecord {
     pub expires_at_ms: u64,
 }
 
+/// The owner key issued by a rotation (roadmap R19). It replaces
+/// `LATCH_ADMIN_TOKEN` only while that token is the one it was issued under,
+/// so changing `LATCH_ADMIN_TOKEN` is always the way back in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnerKeyRecord {
+    pub key_sha256: String,
+    /// SHA-256 of the `LATCH_ADMIN_TOKEN` in force when the key was issued.
+    pub admin_token_sha256: String,
+    pub rotated_at_ms: u64,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct StoreFile {
     version: u32,
@@ -83,6 +94,8 @@ struct StoreFile {
     oauth_clients: Vec<OAuthClient>,
     #[serde(default)]
     oauth_refresh: std::collections::BTreeMap<String, RefreshRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner_key: Option<OwnerKeyRecord>,
 }
 
 pub struct Store {
@@ -92,6 +105,7 @@ pub struct Store {
     skills: std::collections::BTreeMap<String, serde_json::Value>,
     oauth_clients: Vec<OAuthClient>,
     oauth_refresh: std::collections::BTreeMap<String, RefreshRecord>,
+    owner_key: Option<OwnerKeyRecord>,
 }
 
 impl Store {
@@ -115,6 +129,7 @@ impl Store {
             skills: file.skills,
             oauth_clients: file.oauth_clients,
             oauth_refresh: file.oauth_refresh,
+            owner_key: file.owner_key,
         })
     }
 
@@ -127,6 +142,7 @@ impl Store {
             skills: std::collections::BTreeMap::new(),
             oauth_clients: Vec::new(),
             oauth_refresh: std::collections::BTreeMap::new(),
+            owner_key: None,
         }
     }
 
@@ -141,6 +157,7 @@ impl Store {
             skills: self.skills.clone(),
             oauth_clients: self.oauth_clients.clone(),
             oauth_refresh: self.oauth_refresh.clone(),
+            owner_key: self.owner_key.clone(),
         })
         .map_err(io::Error::other)?;
         let tmp = self.path.with_extension("json.tmp");
@@ -309,6 +326,17 @@ impl Store {
         self.oauth_refresh.retain(|_, r| r.expires_at_ms > now_ms);
         self.save()?;
         Ok((record.expires_at_ms > now_ms).then_some(record))
+    }
+
+    pub fn owner_key(&self) -> Option<&OwnerKeyRecord> {
+        self.owner_key.as_ref()
+    }
+
+    /// Replaces (or with `None`, forgets) the rotated owner key. When it cannot
+    /// be saved, the key in force stays as it was.
+    pub fn set_owner_key(&mut self, record: Option<OwnerKeyRecord>) -> io::Result<()> {
+        let previous = std::mem::replace(&mut self.owner_key, record);
+        self.save().inspect_err(|_| self.owner_key = previous)
     }
 
     /// Remembers a phone's device key the first time it shows one; never replaces one.

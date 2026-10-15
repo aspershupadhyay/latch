@@ -272,7 +272,8 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     // AI apps waiting for approval, checked every few seconds while Latch is on screen.
     var requestsTick by remember { mutableIntStateOf(0) }
-    val requestsFlow = remember(pairing, isOwner, requestsTick) {
+    val ownerKeyVersion by app.settings.ownerKeyVersion.collectAsStateWithLifecycle()
+    val requestsFlow = remember(pairing, isOwner, ownerKeyVersion, requestsTick) {
         val owner = pairing?.let { p -> app.settings.ownerKey()?.let { OwnerClient(app.http, p.gatewayUrl, it) } }
         if (owner == null) {
             flowOf(emptyList<SignInRequest>())
@@ -608,7 +609,8 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val p = pairing ?: return
-    val owner = remember(p, isOwner) { app.settings.ownerKey()?.let { OwnerClient(app.http, p.gatewayUrl, it) } }
+    val ownerKeyVersion by app.settings.ownerKeyVersion.collectAsStateWithLifecycle()
+    val owner = remember(p, isOwner, ownerKeyVersion) { app.settings.ownerKey()?.let { OwnerClient(app.http, p.gatewayUrl, it) } }
 
     fun run(block: suspend (OwnerClient) -> Unit) {
         val o = owner ?: return
@@ -652,7 +654,23 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     val update by app.updater.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var keyRotation by remember { mutableStateOf<KeyRotation>(KeyRotation.Idle) }
     val p = pairing ?: return
+    fun rotateKey() {
+        val current = app.settings.ownerKey() ?: return
+        keyRotation = KeyRotation.Busy
+        scope.launch {
+            keyRotation = try {
+                val key = OwnerClient(app.http, p.gatewayUrl, current).rotateOwnerKey()
+                // The old key no longer works: if saving fails, the owner must copy the key from the dialog.
+                val saved = runCatching { app.settings.saveOwnerKey(key) }.isSuccess
+                KeyRotation.Done(key, saved)
+            } catch (e: SetupException) {
+                KeyRotation.Failed(e.message ?: "The relay did not answer.")
+            }
+        }
+    }
     SettingsScreen(
         gatewayUrl = p.gatewayUrl,
         deviceId = p.deviceId,
@@ -672,6 +690,10 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         reducedMotion = reducedMotion,
         onOpenGuide = openGuide,
         onOpenSource = { context.startActivity(Intent(Intent.ACTION_VIEW, SOURCE_CODE.toUri())) },
+        keyRotation = keyRotation,
+        onRotateKey = ::rotateKey,
+        onCopyNewKey = { copyToClipboard(context, "Owner key", it, sensitive = true) },
+        onDismissRotation = { keyRotation = KeyRotation.Idle },
     )
 }
 

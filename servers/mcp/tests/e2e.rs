@@ -28,6 +28,14 @@ async fn start_gateway() -> Gateway {
 }
 
 async fn start_gateway_with(adjust: impl FnOnce(&mut AppState)) -> Gateway {
+    start_gateway_on(ADMIN, Store::ephemeral(), adjust).await
+}
+
+async fn start_gateway_on(
+    admin_token: &str,
+    store: Store,
+    adjust: impl FnOnce(&mut AppState),
+) -> Gateway {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -35,13 +43,13 @@ async fn start_gateway_with(adjust: impl FnOnce(&mut AppState)) -> Gateway {
     let config = Config {
         bind: addr,
         data_dir: std::path::PathBuf::new(),
-        admin_token: ADMIN.into(),
+        admin_token: admin_token.into(),
         mcp_token: Some(MCP.into()),
         mcp_http: true,
         public_url: None,
         allowed_origins: vec!["https://allowed.example".into()],
     };
-    let mut state = AppState::new(config, Store::ephemeral());
+    let mut state = AppState::new(config, store);
     state.settle_ms = 0;
     // Answer with a transfer's progress at once, so transfer_status is exercised.
     state.transfer_budget_ms = 0;
@@ -2376,4 +2384,73 @@ async fn a_phone_from_before_signatures_still_connects() {
     let (is_error, text, _) = call(&gw, "observe", json!({"screenshot": false})).await;
     assert!(!is_error, "{text}");
     task.abort();
+}
+
+/// R19 (ADR-038): a rotation issues a new owner key once and the old one stops
+/// working; changing LATCH_ADMIN_TOKEN restores access after a restart.
+#[tokio::test]
+async fn the_owner_key_rotates_and_a_new_admin_token_recovers_access() {
+    let dir = std::env::temp_dir().join(format!("latch-owner-key-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let gw = start_gateway_on(ADMIN, Store::open(&dir).expect("store"), |_| {}).await;
+
+    let (status, _) = http(&gw, "POST", "/v1/admin/owner-key", None, None, &[]).await;
+    assert_eq!(status, 401);
+    let (status, _) = http(&gw, "POST", "/v1/admin/owner-key", Some(MCP), None, &[]).await;
+    assert_eq!(status, 401, "an AI app's key cannot rotate the owner key");
+
+    let (status, body) = http(&gw, "POST", "/v1/admin/owner-key", Some(ADMIN), None, &[]).await;
+    assert_eq!(status, 200);
+    let first = body["owner_key"].as_str().expect("owner_key").to_owned();
+    assert!(first.starts_with("lok_") && first.len() == 4 + 64);
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(ADMIN), None, &[]).await;
+    assert_eq!(
+        status, 401,
+        "LATCH_ADMIN_TOKEN stops working after a rotation"
+    );
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(&first), None, &[]).await;
+    assert_eq!(status, 200);
+
+    // Rotating again ends the key used to ask.
+    let (status, body) = http(&gw, "POST", "/v1/admin/owner-key", Some(&first), None, &[]).await;
+    assert_eq!(status, 200);
+    let second = body["owner_key"].as_str().expect("owner_key").to_owned();
+    assert_ne!(first, second);
+    for old in [first.as_str(), ADMIN] {
+        let (status, _) = http(&gw, "GET", "/v1/admin/clients", Some(old), None, &[]).await;
+        assert_eq!(status, 401);
+    }
+    let (status, _) = http(&gw, "GET", "/v1/admin/clients", Some(&second), None, &[]).await;
+    assert_eq!(status, 200);
+    // The new key is not on disk, only its hash.
+    let saved = std::fs::read_to_string(dir.join("devices.json")).expect("devices.json");
+    assert!(!saved.contains(&second) && !saved.contains(ADMIN));
+
+    // A restart with the same LATCH_ADMIN_TOKEN keeps the rotated key.
+    drop(gw);
+    let gw = start_gateway_on(ADMIN, Store::open(&dir).expect("store"), |_| {}).await;
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(ADMIN), None, &[]).await;
+    assert_eq!(status, 401);
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(&second), None, &[]).await;
+    assert_eq!(status, 200);
+
+    // Recovery: the owner lost the key and sets a new LATCH_ADMIN_TOKEN.
+    const NEW_ADMIN: &str = "recovered-admin-token-0123456789abcdef";
+    drop(gw);
+    let gw = start_gateway_on(NEW_ADMIN, Store::open(&dir).expect("store"), |_| {}).await;
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(&second), None, &[]).await;
+    assert_eq!(
+        status, 401,
+        "the rotated key ends with the token it was issued under"
+    );
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(NEW_ADMIN), None, &[]).await;
+    assert_eq!(status, 200);
+    // Going back to the old token later does not bring the rotated key back.
+    drop(gw);
+    let gw = start_gateway_on(ADMIN, Store::open(&dir).expect("store"), |_| {}).await;
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(&second), None, &[]).await;
+    assert_eq!(status, 401);
+    let (status, _) = http(&gw, "GET", "/v1/admin/devices", Some(ADMIN), None, &[]).await;
+    assert_eq!(status, 200);
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -13,7 +13,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::store::{ClientRecord, DeviceRecord};
+use crate::store::{ClientRecord, DeviceRecord, OwnerKeyRecord};
 use crate::{AppState, device_http, device_ws, mcp, now_ms, oauth, secret};
 
 const PAGE_HTML: &str = include_str!("page/index.html");
@@ -60,6 +60,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/admin/devices/{id}", delete(admin_revoke))
         .route("/v1/admin/pairings", post(admin_create_pairing))
         .route("/v1/admin/audit", get(admin_audit))
+        .route("/v1/admin/owner-key", post(admin_rotate_owner_key))
         .route(
             "/v1/admin/clients",
             get(admin_clients).post(admin_create_client),
@@ -371,9 +372,32 @@ fn unauthorized() -> Response {
     response
 }
 
+/// The owner key is `LATCH_ADMIN_TOKEN` until the owner rotates it (ADR-038).
+/// After a rotation only the issued key works, for as long as `LATCH_ADMIN_TOKEN`
+/// stays the token it was issued under; changing `LATCH_ADMIN_TOKEN` is the way
+/// back in, and its first use forgets the rotated key.
 fn is_admin(state: &AppState, headers: &HeaderMap) -> bool {
-    secret::bearer(headers.get(header::AUTHORIZATION))
-        .is_some_and(|t| secret::secrets_equal(t, &state.config.admin_token))
+    let Some(token) = secret::bearer(headers.get(header::AUTHORIZATION)) else {
+        return false;
+    };
+    let env = &state.config.admin_token;
+    let mut store = state.store();
+    match store.owner_key() {
+        Some(r) if secret::token_matches_hash(env, &r.admin_token_sha256) => {
+            secret::token_matches_hash(token, &r.key_sha256)
+        }
+        Some(_) => {
+            if !secret::secrets_equal(token, env) {
+                return false;
+            }
+            if let Err(e) = store.set_owner_key(None) {
+                tracing::error!(error = %e, "could not forget the rotated owner key");
+            }
+            tracing::info!("LATCH_ADMIN_TOKEN changed: the rotated owner key no longer works");
+            true
+        }
+        None => secret::secrets_equal(token, env),
+    }
 }
 
 /// Accepts the optional `LATCH_MCP_TOKEN` or any client token created in the console.
@@ -740,6 +764,38 @@ async fn admin_revoke(
     state.devices.kick(&id, "revoked by the gateway owner");
     tracing::info!(device_id = %id, "device revoked");
     StatusCode::NO_CONTENT.into_response()
+}
+
+/// Issues a new owner key, shown only in this answer; the key used to ask stops
+/// working at once (roadmap R19, ADR-038).
+async fn admin_rotate_owner_key(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    let key = secret::new_token("lok");
+    let rotated_at_ms = now_ms();
+    let record = OwnerKeyRecord {
+        key_sha256: secret::sha256_hex(&key),
+        admin_token_sha256: secret::sha256_hex(&state.config.admin_token),
+        rotated_at_ms,
+    };
+    if let Err(e) = state.store().set_owner_key(Some(record)) {
+        tracing::error!(error = %e, "could not save the new owner key");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not save the new owner key; the old one still works",
+        );
+    }
+    tracing::info!("owner key rotated");
+    let mut response =
+        Json(json!({ "owner_key": key, "rotated_at_ms": rotated_at_ms })).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn admin_audit(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {

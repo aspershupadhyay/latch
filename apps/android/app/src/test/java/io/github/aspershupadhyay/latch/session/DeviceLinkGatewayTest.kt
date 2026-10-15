@@ -332,6 +332,23 @@ class DeviceLinkGatewayTest(private val implementation: String) {
     }
 
     @Test
+    fun rotatingTheOwnerKeyEndsTheOldOne() = runBlocking {
+        startGateway()
+        val old = OwnerClient(http, base, ADMIN)
+        old.createClient("Before rotation")
+        val newKey = old.rotateOwnerKey()
+        assertTrue(newKey.startsWith("lok_"))
+        val refused = runCatching { old.clients() }.exceptionOrNull()
+        assertTrue(refused?.message ?: "", refused is SetupException && refused.message!!.contains("LATCH_ADMIN_TOKEN"))
+        // The new key reaches everything the old one did, and rotates again.
+        val owner = OwnerClient(http, base, newKey)
+        assertEquals(listOf("Before rotation"), owner.clients().map { it.name })
+        val newer = owner.rotateOwnerKey()
+        assertTrue(runCatching { owner.clients() }.exceptionOrNull() is SetupException)
+        assertEquals(1, OwnerClient(http, base, newer).clients().size)
+    }
+
+    @Test
     fun ownerApprovesAnAiAppSigningIn() = runBlocking {
         startGateway()
         val owner = OwnerClient(http, base, ADMIN)

@@ -239,3 +239,16 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Not covered:** a phone whose keystore is compromised; the first pairing itself (still the single-use code). WebSocket phones (the fake phone) sign the same way.
 **Reversal trigger:** keystore failures on real phones that the unsigned fallback cannot cover, or a measurable latency cost per message.
 
+
+## ADR-038 — Owner-key rotation from the app, recovery through LATCH_ADMIN_TOKEN
+**Status:** accepted (2026-10-15, roadmap R19, S5; owner: "finish R19: the owner-key rotation flow")
+**Problem:** the owner key (`LATCH_ADMIN_TOKEN`) controls pairing, revocation, and AI-app keys. Changing it meant editing the gateway's settings, redeploying, and pairing the phone again, so in practice nobody rotated it, even after it was copied somewhere it should not be.
+**Decision:**
+- `POST /v1/admin/owner-key` (owner key required) issues a new 256-bit key (`lok_…`), shown only in that answer (`cache-control: no-store`). From that moment only the new key opens `/v1/admin/*`; the key used to ask, `LATCH_ADMIN_TOKEN` included, is refused. Rotating again ends the previous issued key the same way.
+- The gateway keeps only `SHA-256(new key)`, `SHA-256(LATCH_ADMIN_TOKEN at the time)`, and the time (Rust: `devices.json`; Vercel: `latch:ownerkey` in Redis). It never stores either key.
+- **Recovery:** the issued key is honoured only while `LATCH_ADMIN_TOKEN` is the token it was issued under. An owner who lost the key sets a new `LATCH_ADMIN_TOKEN` and restarts or redeploys; the new token works, and its first use forgets the issued key, so returning to an old token later never brings an old key back. Whoever can change the gateway's environment already controls the gateway, so this grants nothing new.
+- Android: **Settings → Rotate owner key** (shown only on the phone that set the gateway up) confirms, rotates, and saves the new key in the keystore-backed vault; the owner can copy it once as a backup. If saving fails, the dialog says so and offers the key to copy, and the recovery path still applies.
+- Phones, AI-app keys, OAuth apps, and file links are unaffected (the Vercel gateway still derives link keys from `LATCH_ADMIN_TOKEN`, which a rotation does not change).
+**Checks:** e2e on both gateways (`the_owner_key_rotates_and_a_new_admin_token_recovers_access`, `servers/vercel/test/owner-key.test.ts`): refused without or with a non-owner key, old keys refused after each rotation, the new key survives a restart, only hashes on disk, recovery with a new token, no return of the old key; the app's `OwnerClient` against both gateways (`rotatingTheOwnerKeyEndsTheOldOne`).
+**Not covered:** a second phone that also holds the owner key keeps the old one and is refused until it connects again with the new key.
+**Reversal trigger:** owners locking themselves out without understanding the recovery step, or a platform where the environment cannot be changed by the owner.

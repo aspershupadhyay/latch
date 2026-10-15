@@ -199,7 +199,7 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
     private fun check(status: Int, ok: Int = 200) {
         when (status) {
             ok -> Unit
-            401 -> throw SetupException("The gateway did not accept the owner key. It must match LATCH_ADMIN_TOKEN in your gateway settings exactly.")
+            401 -> throw SetupException("The gateway did not accept the owner key. It must match LATCH_ADMIN_TOKEN in your gateway settings exactly, or be the newest key this app rotated to. Lost it? Set a new LATCH_ADMIN_TOKEN and redeploy.")
             503 -> throw SetupException("The gateway has no owner key yet. Add LATCH_ADMIN_TOKEN in your gateway settings and redeploy.")
             429 -> throw SetupException("Too many at once. Revoke unused keys or wait a minute.")
             else -> throw SetupException("The gateway answered with HTTP $status.")
@@ -230,6 +230,17 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
     suspend fun revokeClient(id: String) {
         val (status, _) = send("DELETE", "clients/${URLEncoder.encode(id, "UTF-8")}")
         check(status, ok = 204)
+    }
+
+    /**
+     * Asks the gateway for a new owner key (ADR-038). The key used to ask stops
+     * working at once, so the caller must save the returned key before anything else.
+     */
+    suspend fun rotateOwnerKey(): String {
+        val (status, body) = send("POST", "owner-key")
+        if (status == 404) throw SetupException("This relay cannot change its owner key yet. Update the relay first.")
+        check(status)
+        return Protocol.json.parseToJsonElement(body).jsonObject.getValue("owner_key").jsonPrimitive.content
     }
 
     /** AI apps waiting for the owner's approval. Empty on gateways without sign-in support. */
