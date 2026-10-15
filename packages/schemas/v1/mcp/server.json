@@ -1103,6 +1103,100 @@
         "idempotentHint": false,
         "openWorldHint": true,
         "readOnlyHint": false,
+        "title": "Change a phone setting"
+      },
+      "description": "Change the volume, play or pause media, set the screen brightness, switch the flashlight, or open the Wi-Fi or Bluetooth panel. Each needs its own switch, which the owner turns on in Latch. volume: a stream and either percent (0-100) or step (up, down, mute, unmute). media: action. brightness: percent, or auto true/false. flashlight: on. panel: wifi or bluetooth; Android does not let apps flip those switches, so the panel opens on screen and you tap the switch in it (the answer is the new screen).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "media: the key to press.",
+            "enum": [
+              "play_pause",
+              "play",
+              "pause",
+              "next",
+              "previous",
+              "stop"
+            ],
+            "type": "string"
+          },
+          "auto": {
+            "description": "brightness: automatic brightness on or off, instead of percent.",
+            "type": "boolean"
+          },
+          "control": {
+            "enum": [
+              "volume",
+              "media",
+              "brightness",
+              "flashlight",
+              "panel"
+            ],
+            "type": "string"
+          },
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          },
+          "on": {
+            "description": "flashlight: on or off.",
+            "type": "boolean"
+          },
+          "panel": {
+            "description": "panel: which one to open.",
+            "enum": [
+              "wifi",
+              "bluetooth"
+            ],
+            "type": "string"
+          },
+          "percent": {
+            "description": "volume or brightness: the new level.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "screenshot_after": {
+            "default": false,
+            "description": "Also return a screenshot of the screen after the action. Default false (element tree only).",
+            "type": "boolean"
+          },
+          "step": {
+            "description": "volume: instead of percent.",
+            "enum": [
+              "up",
+              "down",
+              "mute",
+              "unmute"
+            ],
+            "type": "string"
+          },
+          "stream": {
+            "description": "volume: which volume. Default media.",
+            "enum": [
+              "media",
+              "ring",
+              "notification",
+              "alarm"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "control"
+        ],
+        "type": "object"
+      },
+      "name": "phone_control",
+      "title": "Change a phone setting"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
         "title": "Save a skill"
       },
       "description": "Save a task you just did as a reusable skill on the owner's gateway, so next time it runs in one call with new inputs. Generalize it: turn what changes (products, quantities, names, messages) into params, use a list param with for_each for things that vary in number (a cart of 2 or 10 items), name elements by the words on them (target), use near to pick the right one among similar rows (\"ADD\" near \"{item.name}\"), and mark pop-ups optional. Never put passwords, PINs, codes, or card numbers in a skill. Saving under an existing name replaces it.",

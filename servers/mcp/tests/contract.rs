@@ -219,3 +219,36 @@ fn replay_rendering_matches() {
         .join("---\n");
     check("replay-expected.txt", text);
 }
+
+/// `phone_control` (protocol 1.11): argument parsing, the command it sends,
+/// and the answer text must agree word for word with servers/vercel.
+#[test]
+fn phone_control_matches() {
+    use latch_gateway::mcp::control;
+    let input: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir().join("control-input.json")).expect("input"),
+    )
+    .expect("json");
+    let cases: Vec<Value> = input["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .map(|c| match control::parse(&c["args"]) {
+            Ok(control) => {
+                let reading: Option<latch_protocol::ControlReading> =
+                    serde_json::from_value(c["reading"].clone()).expect("reading");
+                json!({
+                    "command": latch_protocol::Command::Control { control: control.clone() },
+                    "changes_screen": control.changes_screen(),
+                    "words": control.describe(),
+                    "answer": control::answer(&control, reading.as_ref()),
+                })
+            }
+            Err(e) => json!({ "error": e }),
+        })
+        .collect();
+    check(
+        "control-expected.json",
+        serde_json::to_string_pretty(&cases).expect("json") + "\n",
+    );
+}

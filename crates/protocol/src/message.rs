@@ -231,6 +231,9 @@ pub struct ActionResult {
     /// the phone after the screen settled. Absent from older apps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect: Option<ActionEffect>,
+    /// `control.set` only (since 1.11): the control's state after the change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control: Option<crate::ControlReading>,
 }
 
 /// What an action visibly did (since 1.9).

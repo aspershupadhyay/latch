@@ -438,6 +438,9 @@ fn assess(
             "Copy {} characters to the clipboard",
             text.chars().count()
         ))),
+        // Off-screen device state, like the clipboard; the owner switched
+        // each group on. A panel only shows switches the AI still has to tap.
+        Command::Control { control } => Ok(Assessment::medium(control.describe())),
         Command::MakeFolder { name, .. } => Ok(Assessment::medium(format!(
             "Create the folder “{}”",
             shorten(name)

@@ -48,10 +48,25 @@ pub enum Capability {
     /// did, what the owner was asked and answered). Never screen content.
     #[serde(rename = "activity.read")]
     ActivityRead,
+    /// Since 1.11: set or step a volume (media, ring, notification, alarm).
+    #[serde(rename = "control.volume")]
+    ControlVolume,
+    /// Since 1.11: play, pause, and skip in whichever app is playing.
+    #[serde(rename = "control.media")]
+    ControlMedia,
+    /// Since 1.11: screen brightness and automatic brightness.
+    #[serde(rename = "control.brightness")]
+    ControlBrightness,
+    /// Since 1.11: open the Wi-Fi and Bluetooth panels on screen.
+    #[serde(rename = "control.panels")]
+    ControlPanels,
+    /// Since 1.11: switch the flashlight on and off.
+    #[serde(rename = "control.flashlight")]
+    ControlFlashlight,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 12] = [
+    pub const ALL: [Capability; 17] = [
         Capability::DeviceInfo,
         Capability::UiObserve,
         Capability::ScreenCapture,
@@ -64,6 +79,11 @@ impl Capability {
         Capability::AppShare,
         Capability::ClipboardWrite,
         Capability::ActivityRead,
+        Capability::ControlVolume,
+        Capability::ControlMedia,
+        Capability::ControlBrightness,
+        Capability::ControlPanels,
+        Capability::ControlFlashlight,
     ];
 
     /// Stable wire identifier, e.g. `input.gesture`.
@@ -81,6 +101,11 @@ impl Capability {
             Capability::AppShare => "app.share",
             Capability::ClipboardWrite => "clipboard.write",
             Capability::ActivityRead => "activity.read",
+            Capability::ControlVolume => "control.volume",
+            Capability::ControlMedia => "control.media",
+            Capability::ControlBrightness => "control.brightness",
+            Capability::ControlPanels => "control.panels",
+            Capability::ControlFlashlight => "control.flashlight",
         }
     }
 
@@ -99,6 +124,11 @@ impl Capability {
             Capability::AppShare => "share files to an app",
             Capability::ClipboardWrite => "copy text to the clipboard",
             Capability::ActivityRead => "read Latch's activity log",
+            Capability::ControlVolume => "change the volume",
+            Capability::ControlMedia => "play, pause, and skip media",
+            Capability::ControlBrightness => "change the screen brightness",
+            Capability::ControlPanels => "open the Wi-Fi and Bluetooth panels",
+            Capability::ControlFlashlight => "switch the flashlight on and off",
         }
     }
 }

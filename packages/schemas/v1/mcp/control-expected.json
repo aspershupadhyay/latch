@@ -1,0 +1,178 @@
+[
+  {
+    "answer": "Done: set the media volume to 40%. It is at 40% now.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "volume",
+          "percent": 40,
+          "stream": "media"
+        }
+      }
+    },
+    "words": "Set the media volume to 40%"
+  },
+  {
+    "answer": "Done: mute the ring volume. It is muted now.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "volume",
+          "step": "mute",
+          "stream": "ring"
+        }
+      }
+    },
+    "words": "Mute the ring volume"
+  },
+  {
+    "answer": "Done: turn the alarm volume up.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "volume",
+          "step": "up",
+          "stream": "alarm"
+        }
+      }
+    },
+    "words": "Turn the alarm volume up"
+  },
+  {
+    "error": "volume takes either percent or step"
+  },
+  {
+    "error": "volume takes either percent or step"
+  },
+  {
+    "error": "percent must be an integer from 0 to 100"
+  },
+  {
+    "error": "stream must be one of media, ring, notification, alarm"
+  },
+  {
+    "answer": "Done: play or pause media. The key went to whichever app is playing; observe to check it.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "action": "play_pause",
+          "kind": "media"
+        }
+      }
+    },
+    "words": "Play or pause media"
+  },
+  {
+    "error": "media needs action"
+  },
+  {
+    "error": "media does not take on"
+  },
+  {
+    "answer": "Done: set the screen brightness to 30%. Brightness is at 30% now.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "brightness",
+          "percent": 30
+        }
+      }
+    },
+    "words": "Set the screen brightness to 30%"
+  },
+  {
+    "answer": "Done: turn automatic brightness on. Automatic brightness is on.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "auto": true,
+          "kind": "brightness"
+        }
+      }
+    },
+    "words": "Turn automatic brightness on"
+  },
+  {
+    "error": "auto must be true or false"
+  },
+  {
+    "answer": "Done: turn the flashlight on. The flashlight is on now.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "flashlight",
+          "on": true
+        }
+      }
+    },
+    "words": "Turn the flashlight on"
+  },
+  {
+    "answer": "Done: turn the flashlight off.",
+    "changes_screen": false,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "flashlight",
+          "on": false
+        }
+      }
+    },
+    "words": "Turn the flashlight off"
+  },
+  {
+    "error": "flashlight needs on"
+  },
+  {
+    "answer": "Done: open the Wi-Fi panel.",
+    "changes_screen": true,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "panel",
+          "panel": "wifi"
+        }
+      }
+    },
+    "words": "Open the Wi-Fi panel"
+  },
+  {
+    "answer": "Done: open the Bluetooth panel.",
+    "changes_screen": true,
+    "command": {
+      "name": "control.set",
+      "params": {
+        "control": {
+          "kind": "panel",
+          "panel": "bluetooth"
+        }
+      }
+    },
+    "words": "Open the Bluetooth panel"
+  },
+  {
+    "error": "panel must be one of wifi, bluetooth"
+  },
+  {
+    "error": "control must be one of volume, media, brightness, flashlight, panel"
+  },
+  {
+    "error": "control is required"
+  }
+]

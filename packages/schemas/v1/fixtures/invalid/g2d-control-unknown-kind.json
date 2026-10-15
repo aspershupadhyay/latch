@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0080", "deadline_ms": 20000, "command": { "name": "control.set", "params": { "control": { "kind": "wifi", "on": true } } } }

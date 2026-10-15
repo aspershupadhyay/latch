@@ -1072,6 +1072,31 @@
             "name",
             "params"
           ]
+        },
+        {
+          "description": "Since 1.11: one phone control (volume, media key, brightness, a\nsettings panel, the flashlight), each behind its own capability.\nAnswers with an [`crate::ActionResult`] whose `control` reads the\nstate after the change, when the phone can tell.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "control.set"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "control": {
+                  "$ref": "#/$defs/PhoneControl"
+                }
+              },
+              "required": [
+                "control"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
         }
       ]
     },
@@ -1214,6 +1239,18 @@
         "recents"
       ]
     },
+    "MediaAction": {
+      "description": "A media key, sent to whichever app is playing.",
+      "type": "string",
+      "enum": [
+        "play_pause",
+        "play",
+        "pause",
+        "next",
+        "previous",
+        "stop"
+      ]
+    },
     "ObserveAfter": {
       "description": "How to observe after an action (since 1.2). The phone applies the same\nrules as `ui.observe`: the `ui.observe` capability (and `screen.capture`\nfor a screenshot) must be enabled, and restricted screens are refused.",
       "type": "object",
@@ -1248,6 +1285,123 @@
         "settle_ms"
       ]
     },
+    "PhoneControl": {
+      "description": "One phone control. Serialized as `{\"kind\": \"...\", ...}`.",
+      "oneOf": [
+        {
+          "description": "Set `stream` to `percent` (0-100) or move it by `step`; exactly one of the two.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "volume"
+            },
+            "percent": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "step": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/VolumeStep"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "stream": {
+              "$ref": "#/$defs/VolumeStream"
+            }
+          },
+          "required": [
+            "kind",
+            "stream"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/MediaAction"
+            },
+            "kind": {
+              "type": "string",
+              "const": "media"
+            }
+          },
+          "required": [
+            "kind",
+            "action"
+          ]
+        },
+        {
+          "description": "Set the screen brightness to `percent` (0-100), or switch automatic\nbrightness on or off with `auto`; exactly one of the two.",
+          "type": "object",
+          "properties": {
+            "auto": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "brightness"
+            },
+            "percent": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "panel"
+            },
+            "panel": {
+              "$ref": "#/$defs/SettingsPanel"
+            }
+          },
+          "required": [
+            "kind",
+            "panel"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "flashlight"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "on"
+          ]
+        }
+      ]
+    },
     "Point": {
       "description": "A point in physical screen pixels of the observation it was taken from.",
       "type": "object",
@@ -1272,6 +1426,14 @@
         "low",
         "medium",
         "high"
+      ]
+    },
+    "SettingsPanel": {
+      "description": "A system settings panel the phone opens on screen. Android does not let\napps switch Wi-Fi or Bluetooth themselves; the panel shows the switch,\nwhich the AI can then tap like any other.",
+      "type": "string",
+      "enum": [
+        "wifi",
+        "bluetooth"
       ]
     },
     "Target": {
@@ -1304,6 +1466,38 @@
             "x",
             "y"
           ]
+        }
+      ]
+    },
+    "VolumeStep": {
+      "description": "A relative volume change: one step up or down, or mute and unmute.",
+      "type": "string",
+      "enum": [
+        "up",
+        "down",
+        "mute",
+        "unmute"
+      ]
+    },
+    "VolumeStream": {
+      "description": "Which volume `PhoneControl::Volume` changes.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "notification",
+            "alarm"
+          ]
+        },
+        {
+          "description": "Music, video, and games.",
+          "type": "string",
+          "const": "media"
+        },
+        {
+          "description": "Incoming calls.",
+          "type": "string",
+          "const": "ring"
         }
       ]
     }

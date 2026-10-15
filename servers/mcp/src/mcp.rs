@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::devices::{self, Output};
 
+pub mod control;
 pub mod diagnose;
 pub mod files;
 pub mod replay;
@@ -479,6 +480,7 @@ pub fn tool_definitions() -> Vec<Value> {
     ]
     .into_iter()
     .chain(files::definitions())
+    .chain([control::definition()])
     .chain(skills::definitions())
     .chain([{
             let mut answer = tool(
@@ -793,6 +795,27 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             "Copied {count} characters to the phone's clipboard. To paste, long-press the text box and tap Paste."
         )));
     }
+    if name == control::NAME {
+        let control =
+            control::parse(args).map_err(|e| ProtocolError::new(ErrorCode::InvalidRequest, e))?;
+        if !control.changes_screen() {
+            let output = devices::execute(
+                state,
+                &device_id,
+                Command::Control {
+                    control: control.clone(),
+                },
+            )
+            .await?;
+            let Output::Action(result) = output else {
+                return Err(unexpected());
+            };
+            return Ok(text_result(control::answer(
+                &control,
+                result.control.as_ref(),
+            )));
+        }
+    }
     if name == "get_activity" {
         return activity(state, args, &device_id).await;
     }
@@ -981,6 +1004,11 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
         },
         "ask_owner" => Command::AskOwner {
             message: req_str(args, "message").map_err(bad)?.to_owned(),
+        },
+        // A panel: it opens on screen, so the answer is the new screen.
+        control::NAME => Command::Control {
+            control: control::parse(args)
+                .map_err(|e| ProtocolError::new(ErrorCode::InvalidRequest, e))?,
         },
         _ => return Err(unexpected()),
     };

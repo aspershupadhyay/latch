@@ -341,6 +341,7 @@ async fn mcp_handshake_and_discovery() {
             "delete_file",
             "set_clipboard",
             "share_to_app",
+            "phone_control",
             "save_skill",
             "list_skills",
             "run_skill",
@@ -1233,7 +1234,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.10, 33 tools.",
+        lines[0], "Latch gateway, protocol 1.11, 34 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1977,4 +1978,89 @@ async fn starter_skills_are_listed_but_not_saved() {
     )
     .await;
     assert!(is_error && text.contains("no skill named"), "{text}");
+}
+
+#[tokio::test]
+async fn phone_controls_each_need_their_own_switch() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(
+        &gw,
+        &[
+            Capability::UiObserve,
+            Capability::ControlVolume,
+            Capability::ControlFlashlight,
+            Capability::ControlPanels,
+        ],
+    )
+    .await;
+
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "volume", "stream": "alarm", "percent": 70}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    assert_eq!(text, "Done: set the alarm volume to 70%. It is at 70% now.");
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "volume", "step": "mute"}),
+    )
+    .await;
+    assert_eq!(
+        (is_error, text.as_str()),
+        (false, "Done: mute the media volume. It is muted now.")
+    );
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "flashlight", "on": true}),
+    )
+    .await;
+    assert_eq!(
+        (is_error, text.as_str()),
+        (
+            false,
+            "Done: turn the flashlight on. The flashlight is on now."
+        )
+    );
+    {
+        let state = phone.state.lock().expect("lock");
+        assert_eq!(state.controls.volume[3], 70);
+        assert!(state.controls.muted[0] && state.controls.flashlight);
+    }
+
+    // Off by default: brightness and media were not switched on.
+    for args in [
+        json!({"control": "brightness", "percent": 20}),
+        json!({"control": "media", "action": "pause"}),
+    ] {
+        let (is_error, text, _) = call(&gw, "phone_control", args).await;
+        assert!(is_error && text.contains("permission_missing"), "{text}");
+    }
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "volume", "percent": 20, "step": "up"}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("either percent or step"),
+        "{text}"
+    );
+
+    // A panel opens on screen, so the answer is the new screen.
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "panel", "panel": "wifi"}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    assert!(text.contains("The screen after the action:"), "{text}");
+    assert!(text.contains("Wi-Fi"), "{text}");
+    let executed = phone.state.lock().expect("lock").executed.clone();
+    assert_eq!(executed.iter().filter(|c| *c == "control.set").count(), 4);
+    phone.task.abort();
 }

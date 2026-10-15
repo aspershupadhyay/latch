@@ -441,6 +441,7 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             }
             Ok(())
         }
+        Command::Control { control } => check_control(control),
         Command::DeviceInfo {} | Command::ListApps {} | Command::Global { .. } => Ok(()),
         Command::Observe { max_nodes, .. } => {
             if *max_nodes == 0 || *max_nodes > MAX_NODES {
@@ -533,6 +534,34 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
 
 /// Where `file.write` and `file.fetch` save: `folder` only in the picked
 /// folder, `subfolder` only in photos and Downloads.
+fn check_control(control: &crate::PhoneControl) -> Result<(), ProtocolError> {
+    use crate::PhoneControl;
+    let percent_ok = |p: &Option<u8>| p.is_none_or(|p| p <= 100);
+    match control {
+        PhoneControl::Volume { percent, step, .. } => {
+            if percent.is_some() == step.is_some() {
+                return Err(invalid("volume takes exactly one of percent and step"));
+            }
+            if !percent_ok(percent) {
+                return Err(invalid("percent must be between 0 and 100"));
+            }
+            Ok(())
+        }
+        PhoneControl::Brightness { percent, auto } => {
+            if percent.is_some() == auto.is_some() {
+                return Err(invalid("brightness takes exactly one of percent and auto"));
+            }
+            if !percent_ok(percent) {
+                return Err(invalid("percent must be between 0 and 100"));
+            }
+            Ok(())
+        }
+        PhoneControl::Media { .. }
+        | PhoneControl::Panel { .. }
+        | PhoneControl::Flashlight { .. } => Ok(()),
+    }
+}
+
 fn check_destination(
     location: crate::FileLocation,
     folder: &Option<String>,

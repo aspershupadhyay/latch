@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Capability, FileLink, FileLocation};
+use crate::{Capability, FileLink, FileLocation, PhoneControl};
 
 /// A point in physical screen pixels of the observation it was taken from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -323,6 +323,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         summary: Option<String>,
     },
+
+    /// Since 1.11: one phone control (volume, media key, brightness, a
+    /// settings panel, the flashlight), each behind its own capability.
+    /// Answers with an [`crate::ActionResult`] whose `control` reads the
+    /// state after the change, when the phone can tell.
+    #[serde(rename = "control.set")]
+    Control { control: PhoneControl },
 }
 
 fn default_activity_limit() -> u32 {
@@ -379,6 +386,7 @@ impl Command {
             Command::SetClipboard { .. } => "clipboard.set",
             Command::ListActivity { .. } => "activity.list",
             Command::TaskDone { .. } => "task.done",
+            Command::Control { .. } => "control.set",
         }
     }
 
@@ -422,6 +430,7 @@ impl Command {
             Command::ListActivity { .. } => vec![Capability::ActivityRead],
             // Only hides Latch's own cursor and writes a log line.
             Command::TaskDone { .. } => vec![],
+            Command::Control { control } => vec![control.capability()],
         }
     }
 
@@ -445,10 +454,14 @@ impl Command {
     }
 
     /// True for actions that change what is on screen, after which the old
-    /// observation is stale and a new one is worth returning. File changes
-    /// and the clipboard happen off screen.
+    /// observation is stale and a new one is worth returning. File changes,
+    /// the clipboard, and every phone control but a panel happen off screen.
     pub fn changes_screen(&self) -> bool {
-        self.is_action() && !self.is_file_change() && !matches!(self, Command::SetClipboard { .. })
+        match self {
+            Command::SetClipboard { .. } => false,
+            Command::Control { control } => control.changes_screen(),
+            _ => self.is_action() && !self.is_file_change(),
+        }
     }
 
     /// `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`.
@@ -496,6 +509,7 @@ impl Command {
             | Command::TransferStatus { .. }
             | Command::SetClipboard { .. } => 7,
             Command::ListActivity { .. } | Command::TaskDone { .. } => 8,
+            Command::Control { .. } => 11,
             _ => 0,
         }
     }

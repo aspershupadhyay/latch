@@ -240,6 +240,31 @@
           "description": "Since 1.8: read Latch's own activity log on the phone (what the AI\ndid, what the owner was asked and answered). Never screen content.",
           "type": "string",
           "const": "activity.read"
+        },
+        {
+          "description": "Since 1.11: set or step a volume (media, ring, notification, alarm).",
+          "type": "string",
+          "const": "control.volume"
+        },
+        {
+          "description": "Since 1.11: play, pause, and skip in whichever app is playing.",
+          "type": "string",
+          "const": "control.media"
+        },
+        {
+          "description": "Since 1.11: screen brightness and automatic brightness.",
+          "type": "string",
+          "const": "control.brightness"
+        },
+        {
+          "description": "Since 1.11: open the Wi-Fi and Bluetooth panels on screen.",
+          "type": "string",
+          "const": "control.panels"
+        },
+        {
+          "description": "Since 1.11: switch the flashlight on and off.",
+          "type": "string",
+          "const": "control.flashlight"
         }
       ]
     },

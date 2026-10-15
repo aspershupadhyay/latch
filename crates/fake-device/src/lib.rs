@@ -14,10 +14,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
     ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AppList,
-    Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor,
-    DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation,
-    Outcome, OwnerReply, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo,
-    Target, WaitResult, validate,
+    Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope, ControlReading,
+    DeviceDescriptor, DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello,
+    MediaAction, Observation, Outcome, OwnerReply, PROTOCOL_VERSION, PhoneControl, ProtocolError,
+    ScreenInfo, Screenshot, SessionInfo, Target, VolumeStep, VolumeStream, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -77,6 +77,8 @@ pub struct FakeState {
     pub clipboard: Vec<String>,
     /// Every `task.done` summary (empty when none was given).
     pub tasks_done: Vec<String>,
+    /// Volume, brightness, and flashlight (protocol 1.11).
+    pub controls: FakeControls,
     pub device_id: Option<String>,
     pub revoked: bool,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
@@ -117,6 +119,7 @@ impl FakeState {
             transfer_delay_ms: 0,
             clipboard: Vec::new(),
             tasks_done: Vec::new(),
+            controls: FakeControls::default(),
             device_id: None,
             revoked: false,
             latest: None,
@@ -527,6 +530,18 @@ pub fn handle(
             serde_json::to_value(ActionResult::default())
                 .map_err(|_| err(ErrorCode::Internal, "encode"))
         }
+        Command::Control { control } => {
+            let reading = state.controls.apply(control);
+            if control.changes_screen() {
+                // Both panels open the fake settings' network page, where Wi-Fi is.
+                state.phone.open(Screen::Network);
+                state.latest = None;
+            }
+            let mut value = done(state)?;
+            value["control"] =
+                serde_json::to_value(reading).map_err(|_| err(ErrorCode::Internal, "encode"))?;
+            Ok(value)
+        }
         Command::SetClipboard { text } => {
             state.clipboard.push(text.clone());
             state.executed.push("clipboard.set".into());
@@ -603,6 +618,97 @@ pub fn handle(
             state.phone.open(screen);
             state.latest = None;
             done(state)
+        }
+    }
+}
+
+/// The fake phone's controls (protocol 1.11). Volumes are indexed media,
+/// ring, notification, alarm; a step moves 10 points.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FakeControls {
+    pub volume: [u8; 4],
+    pub muted: [bool; 4],
+    pub brightness: u8,
+    pub auto_brightness: bool,
+    pub flashlight: bool,
+    /// Every media key pressed.
+    pub media: Vec<MediaAction>,
+}
+
+impl Default for FakeControls {
+    fn default() -> Self {
+        Self {
+            volume: [50; 4],
+            muted: [false; 4],
+            brightness: 50,
+            auto_brightness: true,
+            flashlight: false,
+            media: Vec::new(),
+        }
+    }
+}
+
+impl FakeControls {
+    /// Applies `control` and reads its state back, as a phone does.
+    pub fn apply(&mut self, control: &PhoneControl) -> ControlReading {
+        match control {
+            PhoneControl::Volume {
+                stream,
+                percent,
+                step,
+            } => {
+                let i = match stream {
+                    VolumeStream::Media => 0,
+                    VolumeStream::Ring => 1,
+                    VolumeStream::Notification => 2,
+                    VolumeStream::Alarm => 3,
+                };
+                match (percent, step) {
+                    (Some(p), _) => {
+                        self.volume[i] = *p;
+                        self.muted[i] = false;
+                    }
+                    (None, Some(VolumeStep::Up)) => {
+                        self.volume[i] = self.volume[i].saturating_add(10).min(100);
+                        self.muted[i] = false;
+                    }
+                    (None, Some(VolumeStep::Down)) => {
+                        self.volume[i] = self.volume[i].saturating_sub(10);
+                    }
+                    (None, Some(VolumeStep::Mute)) => self.muted[i] = true,
+                    (None, Some(VolumeStep::Unmute)) => self.muted[i] = false,
+                    (None, None) => {}
+                }
+                ControlReading {
+                    percent: Some(if self.muted[i] { 0 } else { self.volume[i] }),
+                    on: Some(self.muted[i]),
+                }
+            }
+            PhoneControl::Media { action } => {
+                self.media.push(*action);
+                ControlReading::default()
+            }
+            PhoneControl::Brightness { percent, auto } => {
+                if let Some(p) = percent {
+                    self.brightness = *p;
+                    self.auto_brightness = false;
+                }
+                if let Some(a) = auto {
+                    self.auto_brightness = *a;
+                }
+                ControlReading {
+                    percent: Some(self.brightness),
+                    on: Some(self.auto_brightness),
+                }
+            }
+            PhoneControl::Panel { .. } => ControlReading::default(),
+            PhoneControl::Flashlight { on } => {
+                self.flashlight = *on;
+                ControlReading {
+                    percent: None,
+                    on: Some(*on),
+                }
+            }
         }
     }
 }

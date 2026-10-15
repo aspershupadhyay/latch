@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0079", "deadline_ms": 20000, "command": { "name": "control.set", "params": { "control": { "kind": "brightness", "percent": 150 } } } }

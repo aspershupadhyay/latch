@@ -1,0 +1,25 @@
+{
+  "cases": [
+    { "args": { "control": "volume", "percent": 40 }, "reading": { "percent": 40, "on": false } },
+    { "args": { "control": "volume", "stream": "ring", "step": "mute" }, "reading": { "percent": 0, "on": true } },
+    { "args": { "control": "volume", "stream": "alarm", "step": "up" }, "reading": null },
+    { "args": { "control": "volume", "percent": 40, "step": "up" } },
+    { "args": { "control": "volume" } },
+    { "args": { "control": "volume", "percent": 101 } },
+    { "args": { "control": "volume", "stream": "call", "percent": 10 } },
+    { "args": { "control": "media", "action": "play_pause" }, "reading": {} },
+    { "args": { "control": "media" } },
+    { "args": { "control": "media", "action": "next", "on": true } },
+    { "args": { "control": "brightness", "percent": 30 }, "reading": { "percent": 30, "on": false } },
+    { "args": { "control": "brightness", "auto": true }, "reading": { "percent": 30, "on": true } },
+    { "args": { "control": "brightness", "auto": "yes" } },
+    { "args": { "control": "flashlight", "on": true }, "reading": { "on": true } },
+    { "args": { "control": "flashlight", "on": false }, "reading": null },
+    { "args": { "control": "flashlight" } },
+    { "args": { "control": "panel", "panel": "wifi" } },
+    { "args": { "control": "panel", "panel": "bluetooth" } },
+    { "args": { "control": "panel", "panel": "nfc" } },
+    { "args": { "control": "torch", "on": true } },
+    { "args": {} }
+  ]
+}
