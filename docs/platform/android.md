@@ -117,6 +117,18 @@ Run on at least two phones (for example a Pixel-class device on Android 16 and a
 12. Regression for the 2026-10-02 run: in WhatsApp, `type_text` then `tap` Send, and separately `type_text` with `submit` → each shows an approval card; tapping a contact's phone number or a SIM choice in the dialer → approval card.
 13. Approve with **Always in WhatsApp** → the same Send asks no more; **Access → Always allowed** lists it; Remove → it asks again. A *Pay* or *Install* button never offers "Always".
 14. Cursor on: the pointer glides to each target: a hand over buttons and links, a text cursor while typing, a grabbing hand on swipes, scrolls, and drags, two fingertips on a pinch, a filling ring on a long press. About 4 s after the AI's last action it fades away. It is absent from `observe` screenshots, and TalkBack does not announce it. Cursor off: no pointer.
-17. Gateway update warning: with a gateway older than the app (protocol below 1.3), Home shows **Update your gateway**; after updating it and starting a new session, the card is gone.
-15. Keep the screen on: the screen stays on for 5 minutes of an idle session; switched off, it times out normally.
-16. Speed: compare `_meta["latch/timing"]` for `tap` with the 2026-10-02 numbers; `wait_for`, `scroll_to` (Settings → "About phone"), `pinch` on Maps, double-tap, and a `hold_ms` drag on the home screen each work in one call.
+15. Gateway update warning: with a gateway older than the app (protocol below 1.3), Home shows **Update your gateway**; after updating it and starting a new session, the card is gone.
+16. Keep the screen on: the screen stays on for 5 minutes of an idle session; switched off, it times out normally.
+17. Speed: compare `_meta["latch/timing"]` for `tap` with the 2026-10-02 numbers; `wait_for`, `scroll_to` (Settings → "About phone"), `pinch` on Maps, double-tap, and a `hold_ms` drag on the home screen each work in one call.
+
+Added for the roadmap rows that wait on a phone (chapter 17 §10; each row says what is left):
+
+18. **Timing (R1, R7):** at least 10 calls each of `observe`, `tap`, `type_text`, `list_apps`, `launch_app`; record the median and p90 of `total_ms` and `phone_ms` from `_meta["latch/timing"]` in the R1 row.
+19. **Device keys (R19, ADR-037):** after pairing, the gateway's device list shows the phone and sessions work; uninstall and reinstall the app, pair again, and sessions work with the new phone's key (the gateway refuses the old entry's key from anyone else).
+20. **Owner key (R19, ADR-038):** Settings → **Rotate owner key** → the dialog says the key was saved; Connect still lists AI apps; the old key is refused by `curl -H "Authorization: Bearer <old key>" <gateway>/v1/admin/devices` (401).
+21. **Unlabeled buttons (R9):** in an app that is not switched on, an icon-only Send (WhatsApp's) asks for approval; note the APK size.
+22. **Screen changes and effects (R5, R11):** a tap that changes a switch returns only the changed lines; a tap on empty space says the screen did not visibly change.
+23. **Screenshots (R6):** an `observe` with `screenshot: true` returns WebP on a 1.10+ gateway; note size and encode time.
+24. **Starter skills and replay (R8, R14):** `list_skills {starters: true}` labels match the phone's apps; after a task, Activity → **By task** shows it with its steps.
+25. **Repeats (R12):** Google Maps search results are listed once each, and the Stop pill does not cover them.
+26. **Phone controls (R16):** each group stays refused until switched on in **Access → Phone controls**; volume, brightness (after "Modify system settings"), flashlight, and the Wi-Fi panel each work once.
