@@ -828,9 +828,12 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "list_skills",
             "List skills",
-            "List the skills saved on this gateway: name, what it does, and its params. Pass name to see one skill's full recipe (to fix or extend it with save_skill).",
+            "List the skills saved on this gateway: name, what it does, and its params. Pass name to see one skill's full recipe (to fix or extend it with save_skill), or starters: true for ready-made ones the user can ask you to save.",
             true,
-            json!({ "name": { "type": "string", "maxLength": 40, "description": "Show this skill's full recipe." } }),
+            json!({
+                "name": { "type": "string", "maxLength": 40, "description": "Show this skill's full recipe." },
+                "starters": { "type": "boolean", "description": "List the starter skills shipped with Latch (web, YouTube, Maps, and Settings search, a WhatsApp message) with their recipes, to save one with save_skill when the user asks." },
+            }),
             &[],
         ),
         tool(
@@ -878,6 +881,34 @@ pub fn definitions() -> Vec<Value> {
             &["name"],
         ),
     ]
+}
+
+/// Roadmap R8: ready-made recipes shipped with the gateway. Nothing runs
+/// until an AI saves one with save_skill at the owner's request.
+pub const STARTERS: &str = include_str!("../../../../packages/schemas/v1/skills/starters.json");
+
+/// The starter skills, validated like any saved skill.
+pub fn starters() -> Vec<Value> {
+    serde_json::from_str::<Vec<Value>>(STARTERS)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|s| validate(s).ok())
+        .collect()
+}
+
+pub fn starters_text() -> String {
+    let mut text = String::from(
+        "Starter skills shipped with Latch (not saved yet; none runs until you save it with save_skill, \
+         which you do only when the user asks). App labels on their phone may differ: if a run stops, \
+         do that step yourself and fix the skill with save_skill.\n",
+    );
+    for s in starters() {
+        text.push_str(&summary_line(&s));
+        text.push('\n');
+        text.push_str(&serde_json::to_string(&s).unwrap_or_default());
+        text.push('\n');
+    }
+    text
 }
 
 fn bad(message: impl Into<String>) -> ProtocolError {
@@ -945,6 +976,9 @@ pub fn run_store(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Valu
             )))
         }
         "list_skills" => {
+            if args.get("starters") == Some(&Value::Bool(true)) {
+                return Ok(text_result(starters_text()));
+            }
             let store = state.store();
             if let Some(one) = arg_str(args, "name").map_err(|e| bad(e.0))? {
                 let skill = store

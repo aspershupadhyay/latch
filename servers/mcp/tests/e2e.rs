@@ -1936,3 +1936,26 @@ async fn run_steps_does_several_steps_in_one_call_under_the_same_rules() {
     let (is_error, text, _) = call(&gw, "run_steps", json!({ "steps": [] })).await;
     assert!(is_error, "{text}");
 }
+
+/// Roadmap R8: starter skills are listed with their recipes but nothing is
+/// saved (or can run) until an AI saves one.
+#[tokio::test]
+async fn starter_skills_are_listed_but_not_saved() {
+    let gw = start_gateway().await;
+    let _phone = connect_phone(&gw, &Capability::ALL).await;
+    let (is_error, text, _) = call(&gw, "list_skills", json!({ "starters": true })).await;
+    assert!(
+        !is_error && text.contains("web_search") && text.contains("whatsapp_message"),
+        "{text}"
+    );
+    assert!(text.contains("none runs until you save it"), "{text}");
+    let (_, saved, _) = call(&gw, "list_skills", json!({})).await;
+    assert!(saved.starts_with("No skills saved yet"), "{saved}");
+    let (is_error, text, _) = call(
+        &gw,
+        "run_skill",
+        json!({ "name": "web_search", "params": { "query": "x" } }),
+    )
+    .await;
+    assert!(is_error && text.contains("no skill named"), "{text}");
+}

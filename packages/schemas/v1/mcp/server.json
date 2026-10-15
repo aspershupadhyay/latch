@@ -1123,7 +1123,7 @@
         "readOnlyHint": true,
         "title": "List skills"
       },
-      "description": "List the skills saved on this gateway: name, what it does, and its params. Pass name to see one skill's full recipe (to fix or extend it with save_skill).",
+      "description": "List the skills saved on this gateway: name, what it does, and its params. Pass name to see one skill's full recipe (to fix or extend it with save_skill), or starters: true for ready-made ones the user can ask you to save.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1131,6 +1131,10 @@
             "description": "Show this skill's full recipe.",
             "maxLength": 40,
             "type": "string"
+          },
+          "starters": {
+            "description": "List the starter skills shipped with Latch (web, YouTube, Maps, and Settings search, a WhatsApp message) with their recipes, to save one with save_skill when the user asks.",
+            "type": "boolean"
           }
         },
         "required": [],

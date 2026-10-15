@@ -5,7 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { expand, find, label, validate } from "../src/skills.js";
+import { expand, find, label, starters, startersText, validate } from "../src/skills.js";
+import { shared } from "./shared.js";
 import type { UiNode } from "../src/protocol.js";
 
 const dir = new URL("../../../packages/schemas/v1/skills/", import.meta.url);
@@ -37,4 +38,9 @@ test("matching words on the screen matches the Rust gateway", () => {
   const got = cases.find.map((c: { nodes: UiNode[]; target: string; near?: string; want: "tap" | "type" }) =>
     find(c.nodes, c.target, c.near, c.want) ?? null);
   assert.deepEqual(got, expected.find);
+});
+
+test("starter skills: all valid, same text as the Rust gateway byte for byte", () => {
+  assert.equal(starters().length, 5);
+  assert.equal(startersText(), shared("mcp/starters-expected.txt"));
 });
