@@ -7,9 +7,11 @@ import android.os.PowerManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.aspershupadhyay.latch.data.Pairing
+import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.session.deviceDescriptor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -161,8 +163,25 @@ class EmulatorGatewayTest {
         assertFalse(diagnosis.text, diagnosis.isError)
         assertTrue(diagnosis.text, ("battery optimisation" in diagnosis.text) == restricted)
 
-        // Open Settings, read it, tap into a page, and read the change.
+        // Default deny: until the owner switches capabilities on, the phone refuses.
+        val refused = call("launch_app", "package" to "com.android.settings")
+        assertTrue(refused.text, refused.isError)
+
+        // The owner switches on what the task needs (Access → Capabilities); screen capture stays off.
+        onMain {
+            app.settings.update {
+                it.copy(enabled = it.enabled + setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE, Capability.NAV_GLOBAL, Capability.APP_LAUNCH))
+            }
+        }
+
+        // Open Settings, read it, tap into a page, and read the change. The switch reaches
+        // the gateway with the phone's next state update, so the first try may still be refused.
         var screen = call("launch_app", "package" to "com.android.settings")
+        for (attempt in 1..10) {
+            if (!screen.isError) break
+            delay(500)
+            screen = call("launch_app", "package" to "com.android.settings")
+        }
         assertFalse(screen.text, screen.isError)
         if ("Network & internet" !in screen.text) screen = call("wait_for", "text" to "Network & internet")
         assertFalse(screen.text, screen.isError)

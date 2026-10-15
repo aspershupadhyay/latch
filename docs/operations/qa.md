@@ -54,7 +54,8 @@ starts a fresh container gateway, and runs `EmulatorGatewayTest`
 (`apps/android/app/src/androidTest`). The test pairs with the owner key,
 switches the service on as above, starts a session, and then acts as an AI
 client over MCP: `list_devices`, `diagnose` (it names battery optimisation
-exactly when Android applies it), `launch_app` Settings, `tap` into
+exactly when Android applies it), `launch_app` refused until the owner's
+capability switches are on, then `launch_app` Settings, `tap` into
 *Network & internet*, and `observe` after **Stop**, which must fail. Run it
 locally with the same script on a computer with `/dev/kvm`.
 
