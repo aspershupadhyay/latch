@@ -12,3 +12,4 @@ apps/android/.kotlin/
 *.jks
 .env
 servers/vercel/.smoke/
+__pycache__/

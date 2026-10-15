@@ -374,7 +374,7 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 
 - **Deploy from this page:** use the button in [Step 3](#step-3-paste-it-into-vercel-). Bring your own owner key if you skip the app: at least 32 random characters, e.g. `openssl rand -hex 32`, then in the app choose **Connect to a gateway → I own it**. Full guide: [docs/operations/vercel.md](docs/operations/vercel.md).
 - **Your own server:** a small container (`deploy/docker-compose.yml`). See [docs/operations/gateway.md](docs/operations/gateway.md).
-- **Try it with no phone at all** (needs Rust): `scripts/dev.sh` starts a gateway and a pretend phone.
+- **Try it with no phone at all** (needs Rust): `scripts/dev.sh` starts a gateway and a pretend phone. Emulators, several phones, and a Python client: [docs/operations/qa.md](docs/operations/qa.md).
 
 ### What's in this repo
 
@@ -386,6 +386,7 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `crates/protocol` | The phone ↔ gateway language (device protocol v1) |
 | `crates/policy` | The rules that decide what's allowed |
 | `crates/fake-device` | A pretend phone for tests and demos |
+| `adapters/python` | A one-file Python client for scripted QA, several phones in parallel ([docs/operations/qa.md](docs/operations/qa.md)) |
 | `packages/schemas/v1` | JSON Schemas and shared test examples |
 | `tests/interop` | Checks against the official MCP TypeScript client |
 | `handbook/` | The full product and engineering plan |
