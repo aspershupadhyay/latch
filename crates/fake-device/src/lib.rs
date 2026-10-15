@@ -22,6 +22,7 @@ use latch_protocol::{
 use screens::{Effect, Phone, Screen};
 
 pub mod files;
+pub mod signing;
 pub mod transfers;
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
 
@@ -79,6 +80,9 @@ pub struct FakeState {
     pub tasks_done: Vec<String>,
     /// Every `device.control` the phone carried out (protocol 1.11).
     pub controls: Vec<PhoneControl>,
+    /// Protocol 1.12: the key this phone signs every message with; `None`
+    /// behaves like a phone from before 1.12 (unsigned messages).
+    pub device_key: Option<signing::DeviceKey>,
     pub device_id: Option<String>,
     pub revoked: bool,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
@@ -120,6 +124,7 @@ impl FakeState {
             clipboard: Vec::new(),
             tasks_done: Vec::new(),
             controls: Vec::new(),
+            device_key: Some(signing::DeviceKey::generate()),
             device_id: None,
             revoked: false,
             latest: None,
@@ -954,9 +959,13 @@ pub async fn run(
             capabilities: s.capabilities.clone(),
             session: s.session,
             device_time_ms: Some(now_ms()),
+            device_key: s.device_key.as_ref().map(signing::DeviceKey::public_b64),
         })
     };
-    send(&mut sink, &hello).await?;
+    let key = lock(&state).device_key.clone();
+    // Signed messages are bound to the connection the welcome names ("" for hello).
+    let mut connection = String::new();
+    send(&mut sink, &encode(key.as_ref(), &connection, &hello)?).await?;
 
     loop {
         let frame = tokio::select! {
@@ -972,10 +981,11 @@ pub async fn run(
                                 device_time_ms: Some(now_ms()),
                             }
                         };
-                        send(&mut sink, &message).await?;
+                        send(&mut sink, &encode(key.as_ref(), &connection, &message)?).await?;
                     }
                     Some(Control::Stop) | None => {
-                        send(&mut sink, &DeviceToGateway::Bye { reason: "user_stopped".into() }).await?;
+                        let bye = DeviceToGateway::Bye { reason: "user_stopped".into() };
+                        send(&mut sink, &encode(key.as_ref(), &connection, &bye)?).await?;
                         let _ = sink.close().await;
                         return Ok(());
                     }
@@ -993,20 +1003,24 @@ pub async fn run(
         let message: GatewayToDevice = serde_json::from_str(&text)
             .map_err(|e| FakeError::Protocol(format!("bad gateway frame: {e}")))?;
         match message {
-            GatewayToDevice::Welcome { device_id, .. } => lock(&state).device_id = Some(device_id),
+            GatewayToDevice::Welcome {
+                device_id,
+                connection: named,
+                ..
+            } => {
+                connection = named.unwrap_or_default();
+                lock(&state).device_id = Some(device_id);
+            }
             GatewayToDevice::Command(envelope) => {
                 let outcome = match handle_async(&state, &envelope).await {
                     Ok(data) => Outcome::Ok { data },
                     Err(error) => Outcome::Error { error },
                 };
-                send(
-                    &mut sink,
-                    &DeviceToGateway::Result {
-                        id: envelope.id,
-                        outcome,
-                    },
-                )
-                .await?;
+                let result = DeviceToGateway::Result {
+                    id: envelope.id,
+                    outcome,
+                };
+                send(&mut sink, &encode(key.as_ref(), &connection, &result)?).await?;
             }
             GatewayToDevice::Cancel { .. } | GatewayToDevice::ApprovalAnswer { .. } => {}
             GatewayToDevice::Revoked { .. } => {
@@ -1035,9 +1049,11 @@ pub async fn run_poll(
             capabilities: s.capabilities.clone(),
             session: s.session,
             device_time_ms: Some(now_ms()),
+            device_key: s.device_key.as_ref().map(signing::DeviceKey::public_b64),
         })
     };
-    let hello = serde_json::to_string(&hello).map_err(protocol)?;
+    let key = lock(&state).device_key.clone();
+    let hello = encode(key.as_ref(), "", &hello)?;
     let (status, body) = http(
         base_url,
         "POST",
@@ -1070,8 +1086,9 @@ pub async fn run_poll(
     let post_path = format!("/v1/device/messages?connection={connection}");
     let post = |message: DeviceToGateway| {
         let post_path = post_path.clone();
+        let text = encode(key.as_ref(), &connection, &message);
         async move {
-            let text = serde_json::to_string(&message).map_err(protocol)?;
+            let text = text?;
             let (status, _) = http(base_url, "POST", &post_path, Some(token), Some(&text)).await?;
             if status == 204 {
                 Ok(())
@@ -1144,12 +1161,24 @@ pub async fn run_poll(
     }
 }
 
-async fn send<S>(sink: &mut S, message: &DeviceToGateway) -> Result<(), FakeError>
+/// A message as the phone sends it: signed when it has a device key (1.12).
+fn encode(
+    key: Option<&signing::DeviceKey>,
+    connection: &str,
+    message: &DeviceToGateway,
+) -> Result<String, FakeError> {
+    match key {
+        Some(key) => key.seal(connection, message),
+        None => serde_json::to_string(message),
+    }
+    .map_err(|e| FakeError::Protocol(e.to_string()))
+}
+
+async fn send<S>(sink: &mut S, text: &str) -> Result<(), FakeError>
 where
     S: SinkExt<Message> + Unpin,
 {
-    let text = serde_json::to_string(message).map_err(|e| FakeError::Protocol(e.to_string()))?;
-    sink.send(Message::Text(text.into()))
+    sink.send(Message::Text(text.to_owned().into()))
         .await
         .map_err(|_| FakeError::Connect("send failed".into()))
 }

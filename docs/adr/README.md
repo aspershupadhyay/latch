@@ -227,3 +227,15 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Not yet:** setting the limit from the Latch app (the owner API is ready; the app shows no editor yet).
 **Reversal trigger:** owners finding the limit confusing next to the phone's own switches, or a legitimate agent hitting the default budget in normal use.
 
+## ADR-037 — Device keys: every message from a phone is signed
+**Status:** accepted (2026-10-15, roadmap R19, S5; owner: "keep going with the next roadmap item") · **Amends:** ADR-014 ("Next step: device-held keys signing results") · **Protocol:** 1.12
+**Problem:** a phone proves itself with a bearer token over TLS. Anyone who copies that token (a backup, a leaked log, a compromised proxy) can speak for the phone: forge screens, results, and approval requests.
+**Decision:**
+- At first use of a pairing the app makes a P-256 key in the Android keystore (`KeystoreSigner`, alias per pairing, deleted when the pairing is forgotten). The private key never leaves the keystore.
+- Every message from a 1.12 phone travels as `{"type":"signed","payload":"<message JSON>","sig":"<base64 DER>"}`: ECDSA P-256 / SHA-256 over `latch-signed-v1\n<connection>\n<payload>`, where `<connection>` is the id the gateway named in its welcome (empty for `hello`). Signing the exact payload text avoids any JSON canonicalisation; binding the connection stops a message from being replayed into another connection.
+- The first signed `hello` carries `device_key` and registers it (trust on first use, inside the already authenticated channel). From then on the gateway refuses an unsigned message, a hello with a different key ("pair it again"), and any signature that does not verify. Phones before 1.12 keep working unsigned; the app signs only after `/v1/info` says the gateway speaks 1.12.
+- Standard primitives only: Android keystore + JCA on the phone, RustCrypto `p256` on the container gateway, Node's built-in crypto on Vercel. High- and low-S signatures both verify (the keystore does not normalise).
+**Checks:** the shared vector `packages/schemas/v1/signing/vectors.json` verifies in Rust, TS, and the Android JVM tests; e2e on both gateways refuses a stolen token alone, a thief's own key, a key without proof, an unsigned message, and a replay into another connection; the app's real `DeviceLink` runs signed against both gateways.
+**Not covered:** a phone whose keystore is compromised; the first pairing itself (still the single-use code). WebSocket phones (the fake phone) sign the same way.
+**Reversal trigger:** keystore failures on real phones that the unsigned fallback cannot cover, or a measurable latency cost per message.
+

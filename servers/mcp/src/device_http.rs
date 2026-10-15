@@ -24,7 +24,7 @@ use latch_protocol::{DeviceToGateway, GatewayToDevice, PROTOCOL_VERSION, validat
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::{AppState, now_ms, secret};
+use crate::{AppState, now_ms, secret, signing};
 
 const MAX_POLL_WAIT: Duration = Duration::from_secs(25);
 
@@ -72,9 +72,29 @@ pub async fn hello(
     let Some(device_id) = authenticate(&state, &headers) else {
         return unknown_device();
     };
-    let hello = match serde_json::from_slice::<DeviceToGateway>(&body) {
-        Ok(DeviceToGateway::Hello(hello)) => hello,
-        _ => return error(StatusCode::BAD_REQUEST, "expected a hello message"),
+    let registered = state
+        .store()
+        .get(&device_id)
+        .and_then(|d| d.device_key.clone());
+    let hello = match signing::open_hello(&body, registered.as_deref()) {
+        Ok((hello, new_key)) => {
+            if let Some(key) = new_key
+                && state.store().set_device_key(&device_id, key).is_err()
+            {
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "could not save the device key",
+                );
+            }
+            hello
+        }
+        Err(signing::Refused::Malformed) => {
+            return error(StatusCode::BAD_REQUEST, "expected a hello message");
+        }
+        Err(refused) => {
+            tracing::warn!(device_id, ?refused, "refused hello");
+            return error(StatusCode::UNAUTHORIZED, refused.message());
+        }
     };
     if let Err(e) = validate::hello(&hello) {
         tracing::warn!(device_id, code = %e.code, "rejected hello");
@@ -141,36 +161,50 @@ pub async fn messages(
     if !state.devices.touch(&device_id, conn_id) {
         return replaced();
     }
-    match serde_json::from_slice::<DeviceToGateway>(&body) {
-        Ok(DeviceToGateway::Result { id, outcome }) => {
+    let registered = state
+        .store()
+        .get(&device_id)
+        .and_then(|d| d.device_key.clone());
+    let message = match signing::open_message(&body, registered.as_deref(), &format!("k_{conn_id}"))
+    {
+        Ok(message) => message,
+        // Do not echo the body: it may contain screen content.
+        Err(signing::Refused::Malformed) => {
+            return error(StatusCode::BAD_REQUEST, "unparseable device message");
+        }
+        Err(refused) => {
+            tracing::warn!(device_id, ?refused, "refused device message");
+            return error(StatusCode::UNAUTHORIZED, refused.message());
+        }
+    };
+    match message {
+        DeviceToGateway::Result { id, outcome } => {
             state.devices.resolve(&device_id, conn_id, &id, outcome);
         }
-        Ok(DeviceToGateway::State {
+        DeviceToGateway::State {
             capabilities,
             session,
             device_time_ms,
-        }) => {
+        } => {
             state
                 .devices
                 .update_state(&device_id, conn_id, capabilities, session, device_time_ms);
         }
-        Ok(DeviceToGateway::Bye { .. }) => {
+        DeviceToGateway::Bye { .. } => {
             state.devices.unregister(&device_id, conn_id);
             state.store().touch(&device_id, now_ms());
             tracing::info!(device_id, "device said bye");
         }
-        Ok(DeviceToGateway::ApprovalRequest(request)) => {
+        DeviceToGateway::ApprovalRequest(request) => {
             if validate::approval_request(&request).is_ok() {
                 state
                     .devices
                     .approval_requested(&device_id, conn_id, &request.command_id);
             }
         }
-        Ok(DeviceToGateway::Hello(_)) => {
+        DeviceToGateway::Hello(_) | DeviceToGateway::Signed { .. } => {
             return error(StatusCode::BAD_REQUEST, "send hello to /v1/device/hello");
         }
-        // Do not echo the body: it may contain screen content.
-        Err(_) => return error(StatusCode::BAD_REQUEST, "unparseable device message"),
     }
     StatusCode::NO_CONTENT.into_response()
 }

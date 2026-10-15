@@ -16,7 +16,7 @@ use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{DeviceToGateway, GatewayToDevice, PROTOCOL_VERSION, validate};
 use tokio::sync::mpsc;
 
-use crate::{AppState, now_ms, secret};
+use crate::{AppState, now_ms, secret, signing};
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_EVERY: Duration = Duration::from_secs(20);
@@ -58,43 +58,74 @@ fn encode(message: &GatewayToDevice) -> Option<Message> {
 async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
     let (mut sink, mut stream) = socket.split();
 
+    let registered = state
+        .store()
+        .get(&device_id)
+        .and_then(|d| d.device_key.clone());
     let hello = match tokio::time::timeout(HELLO_TIMEOUT, stream.next()).await {
-        Ok(Some(Ok(Message::Text(text)))) => match serde_json::from_str::<DeviceToGateway>(&text) {
-            Ok(DeviceToGateway::Hello(hello)) => match validate::hello(&hello) {
-                Ok(()) => hello,
-                Err(e) => {
-                    tracing::warn!(device_id, code = %e.code, "rejected hello");
-                    let _ = sink.send(close(4002, "incompatible hello")).await;
+        Ok(Some(Ok(Message::Text(text)))) => {
+            match signing::open_hello(text.as_bytes(), registered.as_deref()) {
+                Ok((hello, new_key)) => match validate::hello(&hello) {
+                    Ok(()) => {
+                        if let Some(key) = new_key
+                            && state.store().set_device_key(&device_id, key).is_err()
+                        {
+                            let _ = sink
+                                .send(close(1011, "could not save the device key"))
+                                .await;
+                            return;
+                        }
+                        hello
+                    }
+                    Err(e) => {
+                        tracing::warn!(device_id, code = %e.code, "rejected hello");
+                        let _ = sink.send(close(4002, "incompatible hello")).await;
+                        return;
+                    }
+                },
+                Err(signing::Refused::Malformed) => {
+                    let _ = sink.send(close(4001, "expected hello")).await;
                     return;
                 }
-            },
-            _ => {
-                let _ = sink.send(close(4001, "expected hello")).await;
-                return;
+                Err(refused) => {
+                    tracing::warn!(device_id, ?refused, "refused hello");
+                    let _ = sink.send(close(4004, refused.message())).await;
+                    return;
+                }
             }
-        },
+        }
         _ => {
             let _ = sink.send(close(4001, "expected hello")).await;
             return;
         }
     };
 
+    // Register first so the welcome can name the connection that signed
+    // messages are bound to (1.12); commands wait in the channel until the
+    // writer starts after the welcome.
+    let (tx, mut rx) = mpsc::channel::<GatewayToDevice>(32);
+    let platform = hello.device.platform.clone();
+    let conn_id = state.devices.register(&device_id, hello, tx);
+    let connection = format!("w_{conn_id}");
     let welcome = GatewayToDevice::Welcome {
         protocol: PROTOCOL_VERSION.into(),
         device_id: device_id.clone(),
         server_time_ms: now_ms(),
-        connection: None,
+        connection: Some(connection.clone()),
     };
-    let Some(welcome) = encode(&welcome) else {
-        return;
+    let sent = match encode(&welcome) {
+        Some(welcome) => sink.send(welcome).await.is_ok(),
+        None => false,
     };
-    if sink.send(welcome).await.is_err() {
+    if !sent {
+        state.devices.unregister(&device_id, conn_id);
         return;
     }
-
-    let (tx, mut rx) = mpsc::channel::<GatewayToDevice>(32);
-    let platform = hello.device.platform.clone();
-    let conn_id = state.devices.register(&device_id, hello, tx);
+    // The key this phone signs with, if it has one (just registered or from before).
+    let key = state
+        .store()
+        .get(&device_id)
+        .and_then(|d| d.device_key.clone());
     state.store().touch(&device_id, now_ms());
     tracing::info!(device_id, platform, "device connected");
 
@@ -145,15 +176,23 @@ async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
                 break;
             }
         };
-        match serde_json::from_str::<DeviceToGateway>(&text) {
-            Ok(DeviceToGateway::Result { id, outcome }) => {
+        let message = match signing::open_message(text.as_bytes(), key.as_deref(), &connection) {
+            Ok(message) => message,
+            Err(refused) => {
+                // Do not echo the frame: it may contain screen content.
+                tracing::warn!(device_id, ?refused, "refused frame from device; closing");
+                break;
+            }
+        };
+        match message {
+            DeviceToGateway::Result { id, outcome } => {
                 state.devices.resolve(&device_id, conn_id, &id, outcome);
             }
-            Ok(DeviceToGateway::State {
+            DeviceToGateway::State {
                 capabilities,
                 session,
                 device_time_ms,
-            }) => {
+            } => {
                 state.devices.update_state(
                     &device_id,
                     conn_id,
@@ -162,24 +201,19 @@ async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
                     device_time_ms,
                 );
             }
-            Ok(DeviceToGateway::Bye { reason }) => {
+            DeviceToGateway::Bye { reason } => {
                 tracing::info!(device_id, reason = %reason.chars().take(32).collect::<String>(), "device said bye");
                 break;
             }
-            Ok(DeviceToGateway::ApprovalRequest(request)) => {
+            DeviceToGateway::ApprovalRequest(request) => {
                 if validate::approval_request(&request).is_ok() {
                     state
                         .devices
                         .approval_requested(&device_id, conn_id, &request.command_id);
                 }
             }
-            Ok(DeviceToGateway::Hello(_)) => {
+            DeviceToGateway::Hello(_) | DeviceToGateway::Signed { .. } => {
                 tracing::warn!(device_id, "duplicate hello; closing");
-                break;
-            }
-            Err(_) => {
-                // Do not echo the frame: it may contain screen content.
-                tracing::warn!(device_id, "unparseable frame from device; closing");
                 break;
             }
         }

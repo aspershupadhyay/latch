@@ -100,7 +100,12 @@ export interface ExecuteOptions {
 export interface DeviceRecord {
   id: string; name: string; model: string; platform: string;
   token_sha256: string; paired_at_ms: number; last_seen_ms?: number;
+  /** Since protocol 1.12 (ADR-037): the phone's device key, learned from its first signed hello. */
+  device_key?: string;
 }
+
+/** Who a device token belongs to, and the key its messages must be signed with (1.12). */
+export interface DeviceIdentity { id: string; key?: string }
 
 export interface Live {
   conn: string;
@@ -181,8 +186,24 @@ export class Devices {
     return true;
   }
 
-  async deviceForToken(sha: string): Promise<string | undefined> {
-    return (await this.store.get(K.deviceToken(sha))) ?? undefined;
+  /**
+   * The phone a token belongs to. Once the phone registered a device key, the
+   * token's entry holds it too, so checking a signature costs no extra round trip.
+   */
+  async deviceForToken(sha: string): Promise<DeviceIdentity | undefined> {
+    const value = await this.store.get(K.deviceToken(sha));
+    if (value === null) return undefined;
+    if (!value.startsWith("{")) return { id: value };
+    const parsed = JSON.parse(value) as DeviceIdentity;
+    return { id: parsed.id, ...(typeof parsed.key === "string" ? { key: parsed.key } : {}) };
+  }
+
+  /** Remembers a phone's device key the first time it shows one; never replaces one. */
+  async setDeviceKey(id: string, tokenSha: string, key: string): Promise<void> {
+    const record = await this.record(id);
+    if (!record || record.device_key !== undefined) return;
+    await this.store.hset(K.devices, id, JSON.stringify({ ...record, device_key: key }));
+    await this.store.set(K.deviceToken(tokenSha), JSON.stringify({ id, key }));
   }
 
   async touchRecord(id: string, now: number): Promise<void> {

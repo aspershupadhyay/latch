@@ -99,6 +99,27 @@
       "required": [
         "type"
       ]
+    },
+    {
+      "description": "Since 1.12 (ADR-037): another message, signed by the phone's device key.\n`payload` is that message's JSON text exactly as signed; `sig` is an\nECDSA P-256 / SHA-256 signature (DER, base64) over\n[`signing_input`]`(connection, payload)`. Never nested.",
+      "type": "object",
+      "properties": {
+        "payload": {
+          "type": "string"
+        },
+        "sig": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "signed"
+        }
+      },
+      "required": [
+        "type",
+        "payload",
+        "sig"
+      ]
     }
   ],
   "$defs": {
@@ -425,6 +446,13 @@
         },
         "device": {
           "$ref": "#/$defs/DeviceDescriptor"
+        },
+        "device_key": {
+          "description": "Since 1.12 (ADR-037): the phone's device key, a P-256 public key as\nbase64 SubjectPublicKeyInfo DER. Its private half never leaves the\nphone's keystore. A hello carrying it must arrive [`DeviceToGateway::Signed`]\nby that key; from then on every message from this phone must be signed.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "device_time_ms": {
           "description": "Device clock (Unix ms) when the message was sent, so the gateway can\ninterpret `session.expires_at_ms` despite clock skew.",

@@ -689,7 +689,39 @@ pub fn hello(hello: &Hello) -> Result<(), ProtocolError> {
     if hello.capabilities.len() > 64 {
         return Err(invalid("too many capabilities"));
     }
+    if let Some(key) = &hello.device_key
+        && !is_base64(key, MAX_DEVICE_KEY_CHARS)
+    {
+        return Err(invalid("device_key must be base64, at most 256 characters"));
+    }
     Ok(())
+}
+
+/// Since 1.12: the shape of a [`crate::DeviceToGateway::Signed`] envelope. The
+/// signature itself is checked by the receiver against the phone's key.
+pub fn signed(payload: &str, sig: &str) -> Result<(), ProtocolError> {
+    if payload.is_empty() || payload.len() > MAX_FRAME_BYTES {
+        return Err(invalid("payload must be 1 byte to 8 MiB"));
+    }
+    if !is_base64(sig, MAX_SIGNATURE_CHARS) {
+        return Err(invalid("sig must be base64, at most 128 characters"));
+    }
+    Ok(())
+}
+
+/// Upper bound for a base64 device key (a P-256 SPKI is 124 characters).
+pub const MAX_DEVICE_KEY_CHARS: usize = 256;
+/// Upper bound for a base64 signature (a DER P-256 signature is at most 96 characters).
+pub const MAX_SIGNATURE_CHARS: usize = 128;
+
+/// Standard base64 with padding, non-empty, at most `max` characters.
+pub fn is_base64(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && value.len().is_multiple_of(4)
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
 }
 
 pub fn observation(obs: &Observation, max_nodes: u32) -> Result<(), ProtocolError> {

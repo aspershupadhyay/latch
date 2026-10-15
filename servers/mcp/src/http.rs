@@ -594,6 +594,7 @@ async fn pair(State(state): State<Arc<AppState>>, Json(request): Json<PairReques
         token_sha256: secret::sha256_hex(&token),
         paired_at_ms: now,
         last_seen_ms: None,
+        device_key: None,
     };
     let device_id = record.id.clone();
     // A phone that pairs again (reinstalled app, cleared data) left its old

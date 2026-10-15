@@ -4,7 +4,8 @@
 // as the Rust gateway (servers/mcp/src/http.rs and device_http.rs), so the
 // phone app works against either. The page at "/" is static (public/).
 
-import { type DeviceRecord, Devices, type Timing } from "./devices.js";
+import { type DeviceIdentity, type DeviceRecord, Devices, type Timing } from "./devices.js";
+import { REFUSED, openHello, openMessage } from "./signing.js";
 import { MAX_TRANSFER_BYTES, Transfers, sizeText } from "./files.js";
 import { GATEWAY_LINK_BYTES, blobLinksFromEnv, type BlobLinks, Links } from "./links.js";
 import { type Elicit, type ElicitResult, askOwnerVia, handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
@@ -503,28 +504,41 @@ export class Gateway {
     return json(200, { device_id: record.id, name, token, protocol: PROTOCOL_VERSION, device_path: "/v1/device" });
   }
 
-  private async device(request: Request): Promise<string | undefined> {
+  private async device(request: Request): Promise<(DeviceIdentity & { tokenSha: string }) | undefined> {
     const token = bearer(request.headers.get("authorization"));
-    return token === undefined ? undefined : this.devices.deviceForToken(sha256(token));
+    if (token === undefined) return undefined;
+    const tokenSha = sha256(token);
+    const identity = await this.devices.deviceForToken(tokenSha);
+    return identity ? { ...identity, tokenSha } : undefined;
   }
 
   private async hello(request: Request): Promise<Response> {
-    const id = await this.device(request);
-    if (!id) return error(401, "unknown or revoked device credential");
-    const hello = (await readJson(request, 64 * 1024)) as Hello;
-    if (hello?.type !== "hello") return error(400, "expected a hello message");
+    const device = await this.device(request);
+    if (!device) return error(401, "unknown or revoked device credential");
+    const id = device.id;
+    let body: Record<string, unknown>;
+    try {
+      body = (await readJson(request, 64 * 1024)) as Record<string, unknown>;
+    } catch {
+      return error(400, "expected a hello message");
+    }
+    // Protocol 1.12 (ADR-037): signed by the phone's device key once it has one.
+    const opened = openHello(typeof body === "object" && body !== null ? body : {}, device.key);
+    if (!opened.ok) return opened.refused === "malformed" ? error(400, "expected a hello message") : error(401, REFUSED[opened.refused]);
+    const hello = opened.hello as unknown as Hello;
     try {
       validateHello(hello);
     } catch (e) {
       return error(422, (e as Error).message);
     }
+    if (opened.newKey !== undefined) await this.devices.setDeviceKey(id, device.tokenSha, opened.newKey);
     const now = Date.now();
     const connection = await this.devices.connect(id, hello, now);
     return json(200, { type: "welcome", protocol: PROTOCOL_VERSION, device_id: id, server_time_ms: now, connection });
   }
 
   private async poll(request: Request): Promise<Response> {
-    const id = await this.device(request);
+    const id = (await this.device(request))?.id;
     if (!id) return error(401, "unknown or revoked device credential");
     const url = new URL(request.url);
     const conn = url.searchParams.get("connection") ?? "";
@@ -539,17 +553,22 @@ export class Gateway {
   }
 
   private async messages(request: Request): Promise<Response> {
-    const id = await this.device(request);
-    if (!id) return error(401, "unknown or revoked device credential");
+    const device = await this.device(request);
+    if (!device) return error(401, "unknown or revoked device credential");
+    const id = device.id;
     const conn = new URL(request.url).searchParams.get("connection") ?? "";
     const replaced = () => error(409, "connection replaced or expired; send hello again");
-    let message: Record<string, unknown>;
+    let body: Record<string, unknown>;
     try {
-      message = (await readJson(request, LIMITS.maxMessageBytes)) as Record<string, unknown>;
+      body = (await readJson(request, LIMITS.maxMessageBytes)) as Record<string, unknown>;
     } catch {
       // Do not echo the body: it may contain screen content.
       return error(400, "unparseable device message");
     }
+    // Protocol 1.12 (ADR-037): signed by the phone's device key, bound to this connection.
+    const opened = openMessage(typeof body === "object" && body !== null ? body : {}, device.key, conn);
+    if (!opened.ok) return opened.refused === "malformed" ? error(400, "unparseable device message") : error(401, REFUSED[opened.refused]);
+    const message = opened.message;
     // Results are on every command's critical path: their presence check rides along in one batch.
     if (message?.type === "result") {
       if (typeof message.id !== "string" || typeof message.outcome !== "object") return error(400, "unparseable device message");

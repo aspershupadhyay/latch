@@ -856,7 +856,10 @@ async fn pause_stop_and_revoke_take_effect() {
     assert!(is_error && text.contains("device_unavailable"), "{text}");
 
     // Reconnect, then the gateway owner revokes the device.
-    let state: Shared = Arc::new(Mutex::new(FakeState::new(&Capability::ALL)));
+    // The same phone again: it keeps its device key, as a phone keeps its keystore key.
+    let mut same = FakeState::new(&Capability::ALL);
+    same.device_key = phone.state.lock().expect("lock").device_key.clone();
+    let state: Shared = Arc::new(Mutex::new(same));
     let (_tx, rx) = mpsc::channel(1);
     let url = format!("ws://{}/v1/device", gw.addr);
     let task = {
@@ -955,7 +958,10 @@ async fn poll_transport_honours_pause_stop_and_revoke() {
     assert!(is_error && text.contains("device_unavailable"), "{text}");
 
     // Reconnect over poll, then revoke: the phone learns it on its next poll.
-    let state: Shared = Arc::new(Mutex::new(FakeState::new(&Capability::ALL)));
+    // The same phone again: it keeps its device key, as a phone keeps its keystore key.
+    let mut same = FakeState::new(&Capability::ALL);
+    same.device_key = phone.state.lock().expect("lock").device_key.clone();
+    let state: Shared = Arc::new(Mutex::new(same));
     let (_tx, rx) = mpsc::channel(1);
     let base = format!("http://{}", gw.addr);
     let task = {
@@ -1239,7 +1245,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.11, 34 tools.",
+        lines[0], "Latch gateway, protocol 1.12, 34 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -2165,4 +2171,209 @@ async fn each_ai_app_has_its_own_budget_of_calls() {
     // Another AI app is not slowed down by the first.
     let (is_error, text, _) = call(&gw, "list_devices", json!({})).await;
     assert!(!is_error, "{text}");
+}
+
+/// A hello as a phone builds it, with or without a device key.
+fn hello_with(
+    key: Option<&latch_fake_device::signing::DeviceKey>,
+) -> latch_protocol::DeviceToGateway {
+    latch_protocol::DeviceToGateway::Hello(latch_protocol::Hello {
+        protocol: latch_protocol::PROTOCOL_VERSION.into(),
+        device: latch_protocol::DeviceDescriptor {
+            platform: "fake".into(),
+            os_version: "1".into(),
+            model: "Latch fake phone".into(),
+            app_version: "0.1.0".into(),
+        },
+        capabilities: vec![],
+        session: latch_protocol::SessionInfo {
+            expires_at_ms: latch_gateway::now_ms() + 60_000,
+            approve_every_action: false,
+            paused: false,
+            remote_approvals: false,
+        },
+        device_time_ms: None,
+        device_key: key.map(latch_fake_device::signing::DeviceKey::public_b64),
+    })
+}
+
+fn sealed(
+    key: &latch_fake_device::signing::DeviceKey,
+    connection: &str,
+    message: &latch_protocol::DeviceToGateway,
+) -> Value {
+    serde_json::from_str(&key.seal(connection, message).expect("seal")).expect("json")
+}
+
+#[tokio::test]
+async fn phones_sign_their_messages_and_a_stolen_token_is_not_enough() {
+    let gw = start_gateway().await;
+    let phone = connect_phone_with(&gw, &Capability::ALL, Transport::Poll).await;
+    let key = phone
+        .state
+        .lock()
+        .expect("lock")
+        .device_key
+        .clone()
+        .expect("key");
+    let id = phone
+        .state
+        .lock()
+        .expect("lock")
+        .device_id
+        .clone()
+        .expect("id");
+    // The gateway learned the phone's key from its first signed hello, and the phone works.
+    assert_eq!(
+        gw.state.store().get(&id).and_then(|d| d.device_key.clone()),
+        Some(key.public_b64())
+    );
+    let (is_error, text, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    assert!(!is_error, "{text}");
+
+    // A stolen token alone: an unsigned hello is refused.
+    let plain = serde_json::to_value(hello_with(None)).expect("json");
+    let (status, body) = http(
+        &gw,
+        "POST",
+        "/v1/device/hello",
+        Some(&phone.token),
+        Some(plain),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 401, "{body}");
+    assert!(body.to_string().contains("signs its messages"), "{body}");
+    // A stolen token with the thief's own key: refused as a changed key.
+    let thief = latch_fake_device::signing::DeviceKey::generate();
+    let (status, body) = http(
+        &gw,
+        "POST",
+        "/v1/device/hello",
+        Some(&phone.token),
+        Some(sealed(&thief, "", &hello_with(Some(&thief)))),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 401, "{body}");
+    assert!(body.to_string().contains("key changed"), "{body}");
+    // A key in an unsigned hello proves nothing.
+    let unproven = serde_json::to_value(hello_with(Some(&thief))).expect("json");
+    let (status, _) = http(
+        &gw,
+        "POST",
+        "/v1/device/hello",
+        Some(&phone.token),
+        Some(unproven),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 401);
+
+    // The real phone says hello again and gets a new connection.
+    let (status, welcome) = http(
+        &gw,
+        "POST",
+        "/v1/device/hello",
+        Some(&phone.token),
+        Some(sealed(&key, "", &hello_with(Some(&key)))),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200, "{welcome}");
+    let connection = welcome["connection"]
+        .as_str()
+        .expect("connection")
+        .to_owned();
+    let path = format!("/v1/device/messages?connection={connection}");
+    let state = latch_protocol::DeviceToGateway::State {
+        capabilities: vec![],
+        session: latch_protocol::SessionInfo {
+            expires_at_ms: latch_gateway::now_ms() + 60_000,
+            approve_every_action: false,
+            paused: false,
+            remote_approvals: false,
+        },
+        device_time_ms: None,
+    };
+    // Unsigned, or signed for another connection (a replay): refused.
+    let (status, _) = http(
+        &gw,
+        "POST",
+        &path,
+        Some(&phone.token),
+        Some(serde_json::to_value(&state).expect("json")),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 401);
+    let (status, _) = http(
+        &gw,
+        "POST",
+        &path,
+        Some(&phone.token),
+        Some(sealed(&key, "k_0", &state)),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 401);
+    // Signed for this connection: accepted.
+    let (status, body) = http(
+        &gw,
+        "POST",
+        &path,
+        Some(&phone.token),
+        Some(sealed(&key, &connection, &state)),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 204, "{body}");
+}
+
+#[tokio::test]
+async fn a_phone_from_before_signatures_still_connects() {
+    let gw = start_gateway().await;
+    let (_, body) = http(
+        &gw,
+        "POST",
+        "/v1/admin/pairings",
+        Some(ADMIN),
+        Some(json!({ "name": "Old app" })),
+        &[],
+    )
+    .await;
+    let code = body["code"].as_str().expect("code").to_owned();
+    let (_, token) = latch_fake_device::pair(&format!("http://{}", gw.addr), &code)
+        .await
+        .expect("pair");
+    let mut old = FakeState::new(&Capability::ALL);
+    old.device_key = None;
+    let state: Shared = Arc::new(Mutex::new(old));
+    let (_tx, rx) = mpsc::channel(1);
+    let task = {
+        let (state, base) = (state.clone(), format!("http://{}", gw.addr));
+        tokio::spawn(async move { latch_fake_device::run_poll(&base, &token, state, rx).await })
+    };
+    for _ in 0..200 {
+        if state.lock().expect("lock").device_id.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let id = state
+        .lock()
+        .expect("lock")
+        .device_id
+        .clone()
+        .expect("connected");
+    assert!(
+        gw.state
+            .store()
+            .get(&id)
+            .and_then(|d| d.device_key.clone())
+            .is_none()
+    );
+    let (is_error, text, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    assert!(!is_error, "{text}");
+    task.abort();
 }

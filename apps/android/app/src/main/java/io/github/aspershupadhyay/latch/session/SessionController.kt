@@ -181,6 +181,8 @@ class SessionController(
             },
             onCommand = ::runCommand,
             events = linkEvents,
+            // Protocol 1.12 (ADR-037): a keystore key for this pairing signs every message.
+            signer = KeystoreSigner.forPairing(pairing.deviceId),
         ).also { it.start() }
     }
 
@@ -216,6 +218,7 @@ class SessionController(
 
     fun forget() {
         stop(FORGOT)
+        settings.pairing.value?.let { KeystoreSigner.delete(it.deviceId) }
         settings.forgetPairing()
         grants.clearAll()
         _state.value = SessionState.Unpaired

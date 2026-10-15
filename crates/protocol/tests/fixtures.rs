@@ -42,6 +42,11 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
         let msg: DeviceToGateway = serde_json::from_str(json).map_err(|e| e.to_string())?;
         match &msg {
             DeviceToGateway::Hello(hello) => validate::hello(hello).map_err(err)?,
+            DeviceToGateway::Signed { payload, sig } => {
+                validate::signed(payload, sig).map_err(err)?;
+                // What is signed is itself a device message.
+                serde_json::from_str::<DeviceToGateway>(payload).map_err(|e| e.to_string())?;
+            }
             DeviceToGateway::ApprovalRequest(request) => {
                 validate::approval_request(request).map_err(err)?
             }
