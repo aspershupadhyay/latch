@@ -181,3 +181,21 @@ fn changes_rendering_matches() {
         .collect::<String>();
     check("changes-expected.txt", text);
 }
+
+/// Roadmap R8: every starter skill shipped with the gateways is a valid skill.
+#[test]
+fn starter_skills_are_valid() {
+    let raw: Vec<Value> = serde_json::from_str(mcp::skills::STARTERS).expect("starters.json");
+    assert!(!raw.is_empty());
+    for s in &raw {
+        if let Err(e) = mcp::skills::validate(s) {
+            panic!("starter {} is invalid: {e}", s["name"]);
+        }
+    }
+    assert_eq!(mcp::skills::starters().len(), raw.len());
+}
+
+#[test]
+fn starter_skills_text_matches() {
+    check("starters-expected.txt", mcp::skills::starters_text());
+}

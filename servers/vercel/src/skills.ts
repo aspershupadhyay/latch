@@ -5,6 +5,7 @@
 // Mirrors servers/mcp/src/mcp/skills.rs word for word; both pass the shared
 // cases in packages/schemas/v1/skills.
 
+import { STARTERS } from "./generated/starter-skills.js";
 import { ApprovalDeferred } from "./devices.js";
 import { type Observation, ProtocolError, type UiNode } from "./protocol.js";
 import { quote, textResult } from "./render.js";
@@ -444,6 +445,35 @@ export function find(nodes: UiNode[], target: string, near: string | undefined, 
 
 const bad = (message: string) => new ProtocolError("invalid_request", message);
 
+/** Roadmap R8: the starter skills shipped with the gateway, validated like any saved skill. */
+export function starters(): Obj[] {
+  return STARTERS.flatMap((raw) => {
+    try {
+      return [validate(raw)];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Same text as `starters_text` in skills.rs (JSON with sorted keys, as serde_json writes it). */
+export function startersText(): string {
+  let text = "Starter skills shipped with Latch (not saved yet; none runs until you save it with save_skill, " +
+    "which you do only when the user asks). App labels on their phone may differ: if a run stops, " +
+    "do that step yourself and fix the skill with save_skill.\n";
+  for (const s of starters()) text += `${summaryLine(s)}\n${sortedJson(s)}\n`;
+  return text;
+}
+
+function sortedJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(sortedJson).join(",")}]`;
+  if (v !== null && typeof v === "object") {
+    const o = v as Obj;
+    return `{${sortedKeys(o).map((k) => `${JSON.stringify(k)}:${sortedJson(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v);
+}
+
 function summaryLine(skill: Obj): string {
   const params = ((skill.params as Obj[]) ?? []).map((p) => {
     const name = p.name as string;
@@ -489,6 +519,7 @@ export async function runStore(store: Store, name: string, args: Record<string, 
     return textResult(`${replaced ? "Replaced" : "Saved"} skill ${quote(skillName, 40)} (${stepCount(skill)} steps). Run it with run_skill and new params.`);
   }
   if (name === "list_skills") {
+    if (args.starters === true) return textResult(startersText());
     const one = args.name;
     if (one !== undefined && one !== null) {
       if (typeof one !== "string") throw bad("name must be a string");

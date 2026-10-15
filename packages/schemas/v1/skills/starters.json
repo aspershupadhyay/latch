@@ -1,0 +1,59 @@
+[
+  {
+    "name": "web_search",
+    "description": "Search the web in Chrome",
+    "app": "Chrome",
+    "params": [{ "name": "query", "type": "text" }],
+    "steps": [
+      { "do": "launch_app", "package": "com.android.chrome" },
+      { "do": "tap", "target": "Search or type web address || Search or type URL || Search Google or type a URL", "note": "the address bar" },
+      { "do": "type", "text": "{query}", "submit": true }
+    ]
+  },
+  {
+    "name": "youtube_search",
+    "description": "Search YouTube",
+    "app": "YouTube",
+    "params": [{ "name": "query", "type": "text" }],
+    "steps": [
+      { "do": "launch_app", "package": "com.google.android.youtube" },
+      { "do": "tap", "target": "Search" },
+      { "do": "type", "text": "{query}", "submit": true }
+    ]
+  },
+  {
+    "name": "maps_search",
+    "description": "Find a place in Google Maps",
+    "app": "Google Maps",
+    "params": [{ "name": "place", "type": "text" }],
+    "steps": [
+      { "do": "launch_app", "package": "com.google.android.apps.maps" },
+      { "do": "tap", "target": "Search here || Search" },
+      { "do": "type", "text": "{place}", "submit": true }
+    ]
+  },
+  {
+    "name": "settings_search",
+    "description": "Find a setting in Android Settings",
+    "app": "Settings",
+    "params": [{ "name": "setting", "type": "text" }],
+    "steps": [
+      { "do": "launch_app", "package": "com.android.settings" },
+      { "do": "tap", "target": "Search settings || Search" },
+      { "do": "type", "text": "{setting}", "submit": true }
+    ]
+  },
+  {
+    "name": "whatsapp_message",
+    "description": "Send a WhatsApp message to a chat in the chat list; the phone still asks the owner before Send unless WhatsApp is switched on",
+    "app": "WhatsApp",
+    "params": [{ "name": "chat", "type": "text" }, { "name": "message", "type": "text" }],
+    "steps": [
+      { "do": "launch_app", "package": "com.whatsapp" },
+      { "do": "scroll_to", "text": "{chat}", "note": "the chat list, not the search box, so the name is not matched in what was typed" },
+      { "do": "tap", "target": "{chat}" },
+      { "do": "type", "text": "{message}", "note": "the message box is the only text field in a chat" },
+      { "do": "tap", "target": "Send" }
+    ]
+  }
+]
