@@ -44,7 +44,11 @@ done
   -Pandroid.testInstrumentationRunnerArguments.gateway=http://10.0.2.2:8787 \
   -Pandroid.testInstrumentationRunnerArguments.ownerKey="$LATCH_ADMIN_TOKEN" \
   -Pandroid.testInstrumentationRunnerArguments.mcpToken="$LATCH_MCP_TOKEN") || {
-  "$adb" logcat -d -t 400 >logcat.txt 2>/dev/null || true
+  "$adb" logcat -d >logcat.txt 2>/dev/null || true
+  echo "== Latch and test lines from logcat" >&2
+  grep -i -E "latch|TestRunner|AccessibilityManager|AndroidRuntime" logcat.txt | tail -80 >&2 || true
+  echo "== gateway log" >&2
+  tail -30 "$data/gateway.log" >&2 || true
   exit 1
 }
 echo "Emulator end-to-end passed."

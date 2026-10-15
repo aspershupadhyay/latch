@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 package io.github.aspershupadhyay.latch
 
+import android.app.UiAutomation
 import android.os.PowerManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -12,7 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -109,6 +110,10 @@ class EmulatorGatewayTest {
 
     private suspend fun <T> onMain(block: () -> T): T = withContext(Dispatchers.Main) { block() }
 
+    private suspend fun waitFor(what: String, block: suspend () -> Unit) {
+        withTimeoutOrNull(60_000) { block() } ?: throw AssertionError("Timed out waiting for $what")
+    }
+
     @Test
     fun anAiClientOperatesTheEmulatorThroughTheGatewayAndStopEndsIt(): Unit = runBlocking {
         assumeTrue("needs -e gateway, ownerKey, mcpToken (CI emulator job)", gateway != null && ownerKey != null && mcpToken != null)
@@ -126,13 +131,15 @@ class EmulatorGatewayTest {
         }
 
         // Throwaway emulator only: the owner's switch for the accessibility service.
+        // The default UiAutomation would suppress every other accessibility service, Latch's included.
+        val shell = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         val component = "${app.packageName}/io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService"
-        instrumentation.uiAutomation.executeShellCommand("settings put secure enabled_accessibility_services $component").close()
-        instrumentation.uiAutomation.executeShellCommand("settings put secure accessibility_enabled 1").close()
-        withTimeout(30_000) { app.bridge.service.first { it != null } }
+        shell.executeShellCommand("settings put secure enabled_accessibility_services $component").close()
+        shell.executeShellCommand("settings put secure accessibility_enabled 1").close()
+        waitFor("the accessibility service to start") { app.bridge.service.first { it != null } }
 
         onMain { app.session.start() }
-        withTimeout(30_000) { app.session.state.first { it is SessionState.Active } }
+        waitFor("the session to connect (now ${app.session.state.value})") { app.session.state.first { it is SessionState.Active } }
 
         rpc(
             "initialize",
