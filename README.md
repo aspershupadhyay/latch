@@ -328,6 +328,7 @@ We built Latch so the AI can't sneak around you:
 - **Your gateway keeps a short activity list:** what kind of action happened and whether it was allowed. No screen text, no pictures. It keeps the last 1,000 entries for up to 30 days.
 - **Keys are stored safely:** scrambled (as hashes) on the gateway, and encrypted on your phone.
 - **Nothing goes to us.** There's no Latch server, no tracking, and no analytics.
+- **Reading unlabeled buttons:** before the AI taps a button with no label (an icon-only Send or Pay), Latch reads the words on it on the phone with Google ML Kit so the button still asks you. The picture and the words never leave the phone, but ML Kit sends Google usage statistics (phone model, app version, speed). Switch it off in **Settings → Read unlabeled buttons**; then ML Kit never runs.
 - **One honest caveat:** whatever your AI sees is sent to that AI company (like Anthropic or OpenAI), because that's how it reads your screen. Their privacy rules apply. Only switch on what you're comfortable sharing.
 
 More detail: [SECURITY.md](SECURITY.md) and [handbook chapter 08](handbook/08-safety-privacy-security.md).

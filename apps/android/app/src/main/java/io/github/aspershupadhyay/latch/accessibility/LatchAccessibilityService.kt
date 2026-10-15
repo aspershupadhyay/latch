@@ -734,6 +734,59 @@ class LatchAccessibilityService : AccessibilityService() {
 
     private class ScreenshotError(val code: Int) : Exception()
 
+    /** Width and height of the screen in pixels, as observations report them. */
+    fun screenSize(): Pair<Int, Int> = screenInfo().let { it.width to it.height }
+
+    /**
+     * The pixels of [region] on the screen right now, without Latch's cursor
+     * or Stop pill, for reading the words on an unlabeled control (ADR-032).
+     * Stays on the phone. Null when the window is protected or capture fails.
+     */
+    suspend fun captureRegion(region: Rect): Bitmap? {
+        if (region.isEmpty) return null
+        return withoutCursor {
+            var attempt = 0
+            var bitmap: Bitmap? = null
+            while (attempt < 3) {
+                val result = suspendCancellableCoroutine { cont ->
+                    takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                        override fun onSuccess(screenshot: ScreenshotResult) = cont.resume(Result.success(screenshot))
+                        override fun onFailure(errorCode: Int) = cont.resume(Result.failure(ScreenshotError(errorCode)))
+                    })
+                }
+                val shot = result.getOrNull()
+                if (shot == null) {
+                    if ((result.exceptionOrNull() as? ScreenshotError)?.code != ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) break
+                    attempt++
+                    delay(400)
+                    continue
+                }
+                bitmap = crop(shot, region)
+                break
+            }
+            bitmap
+        }
+    }
+
+    private fun crop(shot: ScreenshotResult, region: Rect): Bitmap? {
+        val buffer = shot.hardwareBuffer
+        try {
+            val hardware = Bitmap.wrapHardwareBuffer(buffer, shot.colorSpace) ?: return null
+            // A software copy: text recognition reads pixels the CPU can access.
+            val software = hardware.copy(Bitmap.Config.ARGB_8888, false)
+            hardware.recycle()
+            val left = region.left.coerceIn(0, software.width - 1)
+            val top = region.top.coerceIn(0, software.height - 1)
+            val width = (region.right - left).coerceIn(1, software.width - left)
+            val height = (region.bottom - top).coerceIn(1, software.height - top)
+            val cropped = Bitmap.createBitmap(software, left, top, width, height)
+            if (cropped !== software) software.recycle()
+            return cropped
+        } finally {
+            buffer.close()
+        }
+    }
+
     /** The AI must see the app, not Latch's pointer or Stop pill. Views change only on the main thread. */
     private suspend fun <T> withoutCursor(block: suspend () -> T): T {
         val restore = withContext(Dispatchers.Main) {

@@ -17,6 +17,7 @@ import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import io.github.aspershupadhyay.latch.policy.Consequence
 import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.Judgement
+import io.github.aspershupadhyay.latch.policy.LabelReader
 import io.github.aspershupadhyay.latch.protocol.ActionResult
 import io.github.aspershupadhyay.latch.protocol.ActivityList
 import io.github.aspershupadhyay.latch.protocol.AppList
@@ -216,6 +217,8 @@ class CommandExecutor(
     private val files: PhoneFiles? = null,
     /** Whole files by encrypted link (protocol 1.7). */
     private val transfers: PhoneTransfers? = null,
+    /** Reads the words on unlabeled controls (ADR-032); null while the owner's switch is off. */
+    private val labelReader: () -> LabelReader? = { null },
 ) {
     /** How long a question waits for the owner, given the command's own deadline. */
     private fun approvalTimeout(deadlineMs: Long): Long {
@@ -671,11 +674,11 @@ class CommandExecutor(
     }
 
     /** The phone's own judgement of a tap or swipe, or null for other commands. */
-    private fun judge(command: Command): Judgement? {
+    private suspend fun judge(command: Command): Judgement? {
         val service = bridge.service.value ?: return null
         return when (command) {
             is Command.Tap -> service.tapContext(command.observationId, command.target)?.let {
-                consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double)
+                consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double, seen = readUnlabeled(service, it, command.target))
             }
             is Command.Swipe -> consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
             is Command.TypeText -> if (!command.submit) {
@@ -687,6 +690,22 @@ class CommandExecutor(
             }
             else -> null
         }
+    }
+
+    /**
+     * ADR-032: the words drawn on the tapped control when nothing it contains
+     * carries a label (an icon-only Send or Pay button), read on the phone.
+     * They only ever raise the judgement and go nowhere else.
+     */
+    private suspend fun readUnlabeled(service: LatchAccessibilityService, context: LatchAccessibilityService.TapContext, target: Target): String? {
+        val reader = labelReader() ?: return null
+        if (!consequences.needsReading(context.observation, context.node, context.live)) return null
+        val (x, y) = when (target) {
+            is Target.Point -> target.x to target.y
+            is Target.Element -> (context.node?.bounds ?: return null).let { it.centerX to it.centerY }
+        }
+        val (width, height) = service.screenSize()
+        return reader.read(Consequences.readRegion(context.node, x, y, width, height))
     }
 
     /**

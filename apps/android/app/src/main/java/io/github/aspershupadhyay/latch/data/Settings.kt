@@ -52,6 +52,8 @@ data class Preferences(
     /** Latch's own switch for photos; Android's photo permission is needed too. */
     val photosOn: Boolean = true,
     val theme: ThemeChoice = ThemeChoice.SYSTEM,
+    /** ADR-032: read the words on unlabeled buttons on the phone (Google ML Kit) so approvals see them. */
+    val readButtons: Boolean = true,
 )
 
 /**
@@ -91,6 +93,7 @@ class Settings(context: Context) {
             showCursor = prefs.getBoolean("show_cursor", true),
             keepAwake = prefs.getBoolean("keep_awake", true),
             checkUpdates = prefs.getBoolean("check_updates", true),
+            readButtons = prefs.getBoolean("read_buttons", true),
             remoteApprovals = prefs.getBoolean("remote_approvals", false),
             folders = readFolders(),
             photosOn = prefs.getBoolean("photos_on", true),
@@ -154,6 +157,7 @@ class Settings(context: Context) {
             putBoolean("show_cursor", next.showCursor)
             putBoolean("keep_awake", next.keepAwake)
             putBoolean("check_updates", next.checkUpdates)
+            putBoolean("read_buttons", next.readButtons)
             putBoolean("remote_approvals", next.remoteApprovals)
             putString("files_folders", next.folders.joinToString("\n") { "${it.uri}\t${it.name.replace('\t', ' ').replace('\n', ' ')}" })
             remove("files_folder")

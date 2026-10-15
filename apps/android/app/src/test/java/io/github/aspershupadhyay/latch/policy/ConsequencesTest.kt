@@ -122,4 +122,54 @@ class ConsequencesTest {
         // The phone also reads the app's name, which the gateway never sees.
         assertTrue(consequences.isSensitiveApp("com.sbi.lotus", "YONO SBI: Banking & Lifestyle"))
     }
+
+    // ADR-032: words read from the pixels of an unlabeled control.
+
+    private fun screen(vararg nodes: UiNode) = Observation("o_read", 0, "org.example.chat", ScreenInfo(1080, 2400), nodes.toList())
+
+    private val iconButton = UiNode(id = "n2", parent = "n1", role = "ImageButton", bounds = Rect(900, 2200, 1060, 2360), clickable = true)
+    private val row = UiNode(id = "n1", role = "LinearLayout", bounds = Rect(0, 2180, 1080, 2380))
+
+    @Test
+    fun unlabeledControlsNeedReadingAndLabeledOnesDoNot() {
+        assertTrue(consequences.needsReading(screen(row, iconButton), iconButton))
+        assertTrue("a tap on no element is read", consequences.needsReading(screen(row), null))
+        val labeled = iconButton.copy(description = "Send")
+        assertEquals(false, consequences.needsReading(screen(row, labeled), labeled))
+        // A label the gateway's copy lacks but the live screen shows counts too.
+        val live = listOf(UiNode(id = "live0", role = "View", text = "Send", bounds = Rect(0, 0, 0, 0)))
+        assertEquals(false, consequences.needsReading(screen(row, iconButton), iconButton, live))
+    }
+
+    @Test
+    fun wordsReadOnAnUnlabeledButtonRaiseTheJudgementButNeverNameIt() {
+        val obs = screen(row, iconButton)
+        val plain = consequences.judgeTap(obs, iconButton, longPress = false)
+        assertEquals(Consequence.NONE, plain.consequence)
+        val send = consequences.judgeTap(obs, iconButton, longPress = false, seen = "Send")
+        assertEquals(Consequence.CONSEQUENTIAL, send.consequence)
+        // What was read stays out of the title and the remember key (they reach logs and the AI).
+        assertEquals(plain.title, send.title)
+        assertEquals(plain.rememberKey, send.rememberKey)
+        assertEquals(Consequence.CRITICAL, consequences.judgeTap(obs, iconButton, longPress = false, seen = "Pay now").consequence)
+        assertEquals(Consequence.NONE, consequences.judgeTap(obs, iconButton, longPress = false, seen = "Photos").consequence)
+    }
+
+    @Test
+    fun wordsReadNeverLowerAJudgement() {
+        val labeled = iconButton.copy(description = "Delete")
+        val obs = screen(row, labeled)
+        val before = consequences.judgeTap(obs, labeled, longPress = false).consequence
+        assertEquals(before, consequences.judgeTap(obs, labeled, longPress = false, seen = "Photos").consequence)
+    }
+
+    @Test
+    fun theRegionReadIsTheControlOrASmallSquareNeverAPage() {
+        assertEquals(iconButton.bounds, Consequences.readRegion(iconButton, 980, 2280, 1080, 2400))
+        // A full-width row is too big: read a square around the tap instead.
+        val r = Consequences.readRegion(row, 980, 2280, 1080, 2400)
+        assertEquals(Rect(884, 2184, 1076, 2376), r)
+        // Clamped to the screen.
+        assertEquals(Rect(0, 0, 96, 96), Consequences.readRegion(null, 0, 0, 1080, 2400))
+    }
 }

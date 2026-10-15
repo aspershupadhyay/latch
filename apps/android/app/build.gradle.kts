@@ -123,6 +123,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    // ADR-032: reads the words on unlabeled buttons, on the phone, so approvals see them.
+    implementation(libs.mlkit.text.recognition)
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)

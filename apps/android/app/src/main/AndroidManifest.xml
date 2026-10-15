@@ -90,5 +90,12 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!-- ADR-032: ML Kit must not start (or report anything) when the app opens.
+             Latch starts it itself, only when the owner's "Read unlabeled buttons" is on
+             and a tap lands on a control with no label. -->
+        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            tools:node="remove" />
     </application>
 </manifest>
