@@ -237,7 +237,8 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
      * working at once, so the caller must save the returned key before anything else.
      */
     suspend fun rotateOwnerKey(): String {
-        val (status, body) = send("POST", "owner-key")
+        // OkHttp needs a body on POST; the gateways read none.
+        val (status, body) = send("POST", "owner-key", "{}")
         if (status == 404) throw SetupException("This relay cannot change its owner key yet. Update the relay first.")
         check(status)
         return Protocol.json.parseToJsonElement(body).jsonObject.getValue("owner_key").jsonPrimitive.content

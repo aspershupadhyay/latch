@@ -2399,7 +2399,16 @@ async fn the_owner_key_rotates_and_a_new_admin_token_recovers_access() {
     let (status, _) = http(&gw, "POST", "/v1/admin/owner-key", Some(MCP), None, &[]).await;
     assert_eq!(status, 401, "an AI app's key cannot rotate the owner key");
 
-    let (status, body) = http(&gw, "POST", "/v1/admin/owner-key", Some(ADMIN), None, &[]).await;
+    // The app sends `{}` (OkHttp needs a body on POST); curl sends none.
+    let (status, body) = http(
+        &gw,
+        "POST",
+        "/v1/admin/owner-key",
+        Some(ADMIN),
+        Some(json!({})),
+        &[],
+    )
+    .await;
     assert_eq!(status, 200);
     let first = body["owner_key"].as_str().expect("owner_key").to_owned();
     assert!(first.starts_with("lok_") && first.len() == 4 + 64);

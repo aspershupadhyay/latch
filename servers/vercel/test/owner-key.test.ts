@@ -13,8 +13,9 @@ const NEW_ADMIN = "recovered-admin-token-0123456789abcdef";
 function deploy(store: MemoryStore, admin: string) {
   const gw = new Gateway(store, configFromEnv({ LATCH_ADMIN_TOKEN: admin }));
   return async (method: string, path: string, token?: string) => {
-    const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
-    const res = await gw.fetch(new Request(`http://gw/v1/admin/${path}`, { method, headers }));
+    const headers: Record<string, string> = token ? { authorization: `Bearer ${token}`, "content-type": "application/json" } : {};
+    // Like the app: OkHttp needs a body on POST.
+    const res = await gw.fetch(new Request(`http://gw/v1/admin/${path}`, { method, headers, body: method === "POST" ? "{}" : undefined }));
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : null, cache: res.headers.get("cache-control") };
   };
