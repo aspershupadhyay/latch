@@ -139,3 +139,23 @@ fn skills_engine_matches() {
         "skills/expected.json is out of date; regenerate with LATCH_UPDATE_SCHEMAS=1"
     );
 }
+
+#[test]
+fn diagnosis_rendering_matches() {
+    let input: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir().join("diagnose-input.json")).expect("input"),
+    )
+    .expect("json");
+    let text = input["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .map(|case| {
+            let case: mcp::diagnose::DiagnosisInput =
+                serde_json::from_value(case.clone()).expect("case");
+            mcp::diagnose::render_diagnosis(&case)
+        })
+        .collect::<Vec<_>>()
+        .join("---\n");
+    check("diagnose-expected.txt", text);
+}

@@ -315,6 +315,7 @@ async fn mcp_handshake_and_discovery() {
         names,
         [
             "list_devices",
+            "diagnose",
             "observe",
             "tap",
             "type_text",
@@ -542,6 +543,23 @@ async fn agent_navigates_settings_and_toggles_wifi() {
 
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     assert!(devices.contains("connected"), "{devices}");
+
+    // Same text as the Vercel gateway (servers/vercel/test/e2e.test.ts).
+    let (is_error, diagnosis, _) = call(&gw, "diagnose", json!({})).await;
+    assert!(!is_error, "{diagnosis}");
+    assert!(
+        diagnosis.contains(": connected, app protocol "),
+        "{diagnosis}"
+    );
+    assert!(
+        diagnosis.ends_with("  Ready.\nVerdict: ready (1 phone usable).\n"),
+        "{diagnosis}"
+    );
+    let (is_error, unknown, _) = call(&gw, "diagnose", json!({"device_id": "d_nope"})).await;
+    assert!(
+        is_error && unknown.contains("no phone d_nope is paired"),
+        "{unknown}"
+    );
 
     let (is_error, screen, images) = call(&gw, "observe", json!({})).await;
     assert!(!is_error, "{screen}");
@@ -1179,7 +1197,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.8, 31 tools.",
+        lines[0], "Latch gateway, protocol 1.8, 32 tools.",
         "{devices}"
     );
     let lines = &lines[1..];

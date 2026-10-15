@@ -1,0 +1,26 @@
+Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
+- No phone is paired with this gateway. Fix: the owner opens the Latch app's Connect tab and connects the phone to this gateway.
+Verdict: not ready.
+---
+Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
+- d_ready "Pixel" (Pixel 8): connected, app protocol 1.8.
+  - Session: 24 min left.
+  Ready.
+- d_blocked "Old phone with a very long name that kee…" (realme RMX3710): connected, app protocol 1.3.
+  - The owner paused the session; every command is refused. Fix: tap Resume in the Latch app.
+  - Session: 1 min left.
+  - Switched on but Android has not allowed it: ui.observe, input.gesture. Fix: Android Settings → Accessibility → Latch → On (on Android 13+, first allow restricted settings in Latch's App info).
+  - Off: input.text, app.launch, so the AI cannot type or open apps. Fix: the owner switches them on in the Latch app's Access tab.
+  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings tab → Check for updates).
+  - Note: the owner approves every action, so each step waits for a tap on the phone.
+  Not ready until the fixes above are done.
+- d_expired "Tablet" (Galaxy Tab): connected, app protocol 1.8.
+  - The session has ended. Fix: the owner starts a new session in the Latch app.
+  - Off: ui.observe, so the AI cannot read the screen. Fix: the owner switches it on in the Latch app's Access tab.
+  Not ready until the fixes above are done.
+- d_offline "Spare" (Xiaomi 22041216I): not connected. Fix: open Latch on the phone and check that it says it is connected; keep the phone online, and set Latch's battery use to Unrestricted so Android does not stop it.
+Verdict: ready (1 phone usable).
+---
+Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
+- d_offline "Spare" (Xiaomi 22041216I): not connected. Fix: open Latch on the phone and check that it says it is connected; keep the phone online, and set Latch's battery use to Unrestricted so Android does not stop it.
+Verdict: not ready.

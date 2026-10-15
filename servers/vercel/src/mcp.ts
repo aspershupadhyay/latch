@@ -5,6 +5,7 @@
 // test/ hold both to packages/schemas/v1/mcp.
 
 import { SERVER } from "./generated/contract.js";
+import { renderDiagnosis } from "./diagnose.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
 import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
@@ -207,6 +208,7 @@ async function answerApproval(ctx: McpContext, args: Record<string, unknown>): P
 
 async function runTool(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === "list_devices") return textResult(await renderDevices(ctx.devices));
+  if (name === "diagnose") return textResult(await diagnosis(ctx.devices, argStr(args, "device_id")));
   if (name === "upload_link") {
     if (!ctx.transfers || !ctx.links || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
     // Phones on protocol 1.6 still save from the old, unencrypted links.
@@ -538,6 +540,26 @@ async function scrollCommand(ctx: McpContext, deviceId: string, observationId: s
 function appNote(protocol: string): string {
   if ((minorVersion(protocol) ?? 0) >= (minorVersion(PROTOCOL_VERSION) ?? 0)) return "";
   return `; Latch app speaks protocol ${truncate(protocol, 16)} (scroll_to, wait_for, pinch, double taps, drags, and type_text submit need an app update)`;
+}
+
+/** `diagnose`: the shared renderer over this gateway's state, plus the database check only this gateway has. */
+async function diagnosis(devices: Devices, only: string | undefined): Promise<string> {
+  const askedAt = Date.now();
+  const records = (await devices.records()).filter((d) => only === undefined || d.id === only);
+  const storeMs = Date.now() - askedAt;
+  if (only !== undefined && records.length === 0) throw bad(`no phone ${truncate(only, 40)} is paired; see list_devices`);
+  const online = await devices.online();
+  const live = (id: string) => online.find((o) => o.device_id === id);
+  const ordered = [...records].sort((a, b) => Number(!live(a.id)) - Number(!live(b.id)));
+  const text = renderDiagnosis({
+    gateway_protocol: PROTOCOL_VERSION,
+    now_ms: Date.now(),
+    phones: ordered.map((d) => {
+      const l = live(d.id);
+      return { id: d.id, name: d.name, model: d.model, live: l ? { protocol: l.protocol, capabilities: l.capabilities, session: l.session } : null };
+    }),
+  });
+  return text + slowStoreNote(storeMs);
 }
 
 export async function renderDevices(devices: Devices): Promise<string> {

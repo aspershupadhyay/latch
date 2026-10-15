@@ -50,7 +50,7 @@ State: the gateway persists only `devices.json` (ids, names, token hashes). Scre
 
 ## 3. MCP tool surface (stable names)
 
-`list_devices`, `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9), `ask_owner`, the file tools of ADR-026/027, `set_clipboard`, `get_activity`, `finish_task` (ADR-028), and the skill tools `save_skill`, `list_skills`, `run_skill`, `delete_skill` (ADR-031). No shell, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
+`list_devices`, `diagnose` (R13), `observe`, `tap`, `type_text`, `scroll_to`, `wait_for`, `scroll`, `swipe`, `pinch`, `press`, `list_apps`, `launch_app` (the 1.3 additions are described in §9), `ask_owner`, the file tools of ADR-026/027, `set_clipboard`, `get_activity`, `finish_task` (ADR-028), and the skill tools `save_skill`, `list_skills`, `run_skill`, `delete_skill` (ADR-031). No shell, notification, or credential tools exist. Every action returns the next observation, so the agent loop is *observe → act → read result → act*.
 
 ## 4. Revised delivery: slices and gates
 
@@ -253,7 +253,7 @@ Order: R1 → R2 → R3 → R10 → R9 → R4 → R13, then the rest top to bott
 | R11 | Effect report on every action: `effect: none / changed / navigated` | Protocol, fixtures, both gateways, e2e | TODO | Exists today only for submit and no-effect taps |
 | R12 | Repeated elements (Google Maps) listed once; Stop pill overlap | Unit test with a duplicate tree; *needs phone* look | TODO | §8 open TODO |
 | **C. Features** | | | | |
-| R13 | `diagnose` tool: pairing, accessibility service, battery optimisation, transport, clock skew, capabilities, with fix-it steps | Both gateways, fake phone e2e, no screen content in the answer | TODO | ARTEMIS `mobile_diagnose` |
+| R13 | `diagnose` tool: pairing, accessibility service, battery optimisation, transport, clock skew, capabilities, with fix-it steps | Both gateways, fake phone e2e, no screen content in the answer | IN_REVIEW | Both gateways render the same text from a pure function (`servers/mcp/src/mcp/diagnose.rs`, `servers/vercel/src/diagnose.ts`), pinned by `packages/schemas/v1/mcp/diagnose-{input.json,expected.txt}` (five situations); e2e on both with the fake phone. Covers pairing, connection (with the battery hint), paused/ended session, accessibility permission missing, core switches off, old app, approve-every-action; the Vercel gateway adds the database check (R3). Clock skew needs no check: gateways already convert the phone's clock (`to_gateway_clock`). Not yet: the phone's own battery-optimisation and accessibility-service state (needs a protocol field), a run from a real AI client. |
 | R14 | Session replay: step timeline of one AI session (action, decision, timing), on the phone only | Activity view + `get_activity` filter by task; no content stored | TODO | ADR-028 Activity |
 | R15 | Developer / QA mode: emulator support, Python client, parallel devices; opt-in profile | Docs + client tests against the container gateway | TODO | |
 | R16 | Phone controls: volume, media, brightness, Wi-Fi / Bluetooth panels, flashlight | One capability per group, off by default | TODO | Wave 3 |
