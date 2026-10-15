@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.11"
+    const val VERSION = "1.12"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -324,6 +324,8 @@ data class HelloMessage(
     val session: SessionInfo,
     @SerialName("device_time_ms") val deviceTimeMs: Long? = null,
     @EncodeDefault val type: String = "hello",
+    /** Since 1.12 (ADR-037): this phone's device key; a hello carrying it is signed by it. */
+    @SerialName("device_key") val deviceKey: String? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)

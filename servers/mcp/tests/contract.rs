@@ -219,3 +219,53 @@ fn replay_rendering_matches() {
         .join("---\n");
     check("replay-expected.txt", text);
 }
+
+/// Protocol 1.12 (ADR-037): a signature every implementation must accept,
+/// and the same message altered, or bound to another connection, that every
+/// implementation must refuse. The Vercel gateway and the Android app check
+/// the same file.
+#[test]
+fn device_signatures_verify_across_implementations() {
+    use latch_gateway::signing::verify;
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/schemas/v1/signing/vectors.json");
+    if std::env::var_os("LATCH_UPDATE_SCHEMAS").is_some() {
+        let key = latch_fake_device::signing::DeviceKey::generate();
+        let payload = r#"{"type":"result","id":"c_1","outcome":{"status":"ok","data":{}}}"#;
+        let envelope: Value = serde_json::from_str(
+            &key.seal(
+                "k_7",
+                &serde_json::from_str::<latch_protocol::DeviceToGateway>(payload).expect("message"),
+            )
+            .expect("seal"),
+        )
+        .expect("json");
+        let vectors = json!({
+            "description": "ECDSA P-256 / SHA-256 over \"latch-signed-v1\\n<connection>\\n<payload>\". Every implementation must accept `valid`, and refuse it with another connection, an altered payload, or a garbage signature.",
+            "device_key": key.public_b64(),
+            "valid": { "connection": "k_7", "payload": envelope["payload"], "sig": envelope["sig"] },
+        });
+        std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&vectors).expect("json") + "\n",
+        )
+        .expect("write");
+    }
+    let v: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("vectors")).expect("json");
+    let key = v["device_key"].as_str().expect("key");
+    let valid = &v["valid"];
+    let (conn, payload, sig) = (
+        valid["connection"].as_str().expect("connection"),
+        valid["payload"].as_str().expect("payload"),
+        valid["sig"].as_str().expect("sig"),
+    );
+    assert!(verify(key, conn, payload, sig));
+    assert!(!verify(key, "k_8", payload, sig), "bound to its connection");
+    assert!(
+        !verify(key, conn, &payload.replace("c_1", "c_2"), sig),
+        "covers the payload"
+    );
+    assert!(!verify(key, conn, payload, "AAAA"), "garbage signature");
+}

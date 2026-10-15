@@ -22,6 +22,7 @@ pub mod mcp;
 pub mod oauth;
 pub mod pairing;
 pub mod secret;
+pub mod signing;
 pub mod store;
 pub mod transfers;
 

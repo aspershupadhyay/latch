@@ -7,9 +7,11 @@ import io.github.aspershupadhyay.latch.protocol.CommandEnvelope
 import io.github.aspershupadhyay.latch.protocol.GatewayMessage
 import io.github.aspershupadhyay.latch.protocol.GatewayParser
 import io.github.aspershupadhyay.latch.protocol.HelloMessage
+import io.github.aspershupadhyay.latch.protocol.MessageSigner
 import io.github.aspershupadhyay.latch.protocol.Outgoing
 import io.github.aspershupadhyay.latch.protocol.Protocol
 import io.github.aspershupadhyay.latch.protocol.ProtocolException
+import io.github.aspershupadhyay.latch.protocol.Signing
 import io.github.aspershupadhyay.latch.protocol.StateMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +48,8 @@ class DeviceLink(
     private val hello: () -> HelloMessage,
     private val onCommand: suspend (CommandEnvelope) -> String,
     private val events: Events,
+    /** Protocol 1.12: signs every message with this phone's device key, if the gateway speaks 1.12. */
+    private val signer: MessageSigner? = null,
 ) {
     interface Events {
         /** Connected (also after an automatic reconnect). */
@@ -75,6 +79,12 @@ class DeviceLink(
     @Volatile private var activeCall: Call? = null
     /** When the last command arrived; polls say `hot=1` for a while after, so gateways check sooner. */
     @Volatile private var lastCommandAtMs = 0L
+    /** Whether this gateway takes signed messages (1.12+); learned before the first hello. */
+    @Volatile private var signing: Boolean? = null
+
+    /** A message as this phone sends it on [conn]: signed when the gateway takes signatures. */
+    private fun sealed(conn: String, body: String): String =
+        if (signing == true && signer != null) Signing.seal(signer, conn, body) else body
 
     fun start() {
         if (loop != null) return
@@ -104,7 +114,7 @@ class DeviceLink(
         loop = null
         if (sayBye && conn != null) {
             withContext(Dispatchers.IO) {
-                runCatching { send("/v1/device/messages?connection=$conn", Protocol.json.encodeToString(ByeMessage.serializer(), ByeMessage("user_stopped"))) }
+                runCatching { send("/v1/device/messages?connection=$conn", sealed(conn, Protocol.json.encodeToString(ByeMessage.serializer(), ByeMessage("user_stopped")))) }
             }
         }
         connection = null
@@ -123,9 +133,10 @@ class DeviceLink(
 
     private suspend fun post(body: String) = withContext(Dispatchers.IO) {
         val conn = connection ?: return@withContext
+        val signed = sealed(conn, body)
         // Results matter: retry briefly through a flaky network.
         repeat(3) { attempt ->
-            val status = runCatching { send("/v1/device/messages?connection=$conn", body) }.getOrNull()
+            val status = runCatching { send("/v1/device/messages?connection=$conn", signed) }.getOrNull()
             if (status != null && status != 500 && status != 502 && status != 503) return@withContext
             delay(500L * (attempt + 1))
         }
@@ -187,8 +198,24 @@ class DeviceLink(
         data class Incompatible(val version: String) : HelloResult
     }
 
+    /** Whether the gateway speaks 1.12 (signed messages), from its public `/v1/info`. */
+    private fun gatewaySigns(): Boolean {
+        val request = Request.Builder().url("$base/v1/info").get().build()
+        http.newCall(request).execute().use { response ->
+            if (response.code == 404) return false
+            if (!response.isSuccessful) throw IOException("info failed with HTTP ${response.code}")
+            val protocol = runCatching {
+                (Protocol.json.parseToJsonElement(response.body.string()) as kotlinx.serialization.json.JsonObject)["protocol"]
+                    ?.let { (it as kotlinx.serialization.json.JsonPrimitive).content }
+            }.getOrNull() ?: return false
+            return (Protocol.minorOf(protocol) ?: 0) >= SIGNING_MINOR
+        }
+    }
+
     private fun sayHello(): HelloResult {
-        val body = Protocol.json.encodeToString(HelloMessage.serializer(), hello())
+        if (signer != null && signing == null) signing = gatewaySigns()
+        val plain = hello().let { if (signing == true && signer != null) it.copy(deviceKey = signer.publicKey) else it }
+        val body = sealed("", Protocol.json.encodeToString(HelloMessage.serializer(), plain))
         val request = Request.Builder().url("$base/v1/device/hello").header("Authorization", "Bearer $token").post(body.toRequestBody(json)).build()
         http.newCall(request).execute().use { response ->
             when (response.code) {
@@ -262,5 +289,8 @@ class DeviceLink(
     private companion object {
         /** An agent loop sends its next command within seconds of reading a result. */
         const val HOT_WINDOW_MS = 60_000L
+
+        /** The first protocol minor that takes signed messages. */
+        const val SIGNING_MINOR = 12
     }
 }

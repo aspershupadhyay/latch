@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.11";
+export const PROTOCOL_VERSION = "1.12";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -97,6 +97,8 @@ export interface DeviceDescriptor { platform: string; os_version: string; model:
 export interface Hello {
   type: "hello"; protocol: string; device: DeviceDescriptor; capabilities: CapabilityState[];
   session: SessionInfo; device_time_ms?: number;
+  /** Since 1.12 (ADR-037): the phone's P-256 public key, base64 SPKI DER. */
+  device_key?: string;
 }
 export interface Rect { left: number; top: number; right: number; bottom: number }
 export interface UiNode {
@@ -753,6 +755,10 @@ export function validateHello(h: Hello): void {
   if (!Array.isArray(h.capabilities) || h.capabilities.length > 64) throw invalid("too many capabilities");
   const s = h.session;
   if (!s || !isInt(s.expires_at_ms)) throw invalid("session.expires_at_ms is required");
+  if (h.device_key !== undefined && (typeof h.device_key !== "string" || h.device_key.length === 0 || h.device_key.length > 256
+    || h.device_key.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(h.device_key))) {
+    throw invalid("device_key must be base64, at most 256 characters");
+  }
 }
 
 /** Fills protocol defaults and checks bounds on an observation from a phone. */

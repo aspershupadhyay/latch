@@ -88,7 +88,24 @@ pub struct Hello {
     /// interpret `session.expires_at_ms` despite clock skew.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_time_ms: Option<u64>,
+    /// Since 1.12 (ADR-037): the phone's device key, a P-256 public key as
+    /// base64 SubjectPublicKeyInfo DER. Its private half never leaves the
+    /// phone's keystore. A hello carrying it must arrive [`DeviceToGateway::Signed`]
+    /// by that key; from then on every message from this phone must be signed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_key: Option<String>,
 }
+
+/// Since 1.12: the text a phone signs for one message: a fixed context, the
+/// connection the gateway named in its welcome (empty for `hello`), and the
+/// exact message bytes, each on its own line. Binding the connection keeps a
+/// message from being replayed into another connection.
+pub fn signing_input(connection: &str, payload: &str) -> Vec<u8> {
+    format!("{SIGNING_CONTEXT}\n{connection}\n{payload}").into_bytes()
+}
+
+/// First line of every [`signing_input`].
+pub const SIGNING_CONTEXT: &str = "latch-signed-v1";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -121,6 +138,14 @@ pub enum DeviceToGateway {
     },
     /// Since 1.4: the phone is waiting for the owner's answer to an approval.
     ApprovalRequest(ApprovalRequest),
+    /// Since 1.12 (ADR-037): another message, signed by the phone's device key.
+    /// `payload` is that message's JSON text exactly as signed; `sig` is an
+    /// ECDSA P-256 / SHA-256 signature (DER, base64) over
+    /// [`signing_input`]`(connection, payload)`. Never nested.
+    Signed {
+        payload: String,
+        sig: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

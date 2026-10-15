@@ -227,6 +227,53 @@ class DeviceLinkGatewayTest(private val implementation: String) {
         link.stop(sayBye = false)
     }
 
+    /** A software P-256 key standing in for the keystore key (protocol 1.12, ADR-037). */
+    private class SoftwareSigner : io.github.aspershupadhyay.latch.protocol.MessageSigner {
+        private val pair = java.security.KeyPairGenerator.getInstance("EC").apply {
+            initialize(java.security.spec.ECGenParameterSpec("secp256r1"))
+        }.generateKeyPair()
+        override val publicKey: String = java.util.Base64.getEncoder().encodeToString(pair.public.encoded)
+        override fun sign(data: ByteArray): ByteArray = java.security.Signature.getInstance("SHA256withECDSA").run {
+            initSign(pair.private)
+            update(data)
+            sign()
+        }
+    }
+
+    @Test
+    fun signedLinkCarriesTheAgentLoopAndAStolenTokenIsNotEnough() = runBlocking {
+        startGateway()
+        val deviceToken = pair()
+        var connected = 0
+        val link = DeviceLink(
+            http = http,
+            gatewayUrl = base,
+            token = deviceToken,
+            scope = scope,
+            hello = ::hello,
+            onCommand = { envelope: CommandEnvelope ->
+                Outgoing.ok(envelope.id, Protocol.json.encodeToJsonElement(Observation.serializer(), observation))
+            },
+            events = object : DeviceLink.Events {
+                override fun connected() { connected++ }
+                override fun retrying(attempt: Int) = Unit
+                override fun rejected(revoked: Boolean) = Unit
+                override fun incompatible(gatewayVersion: String) = error("incompatible $gatewayVersion")
+                override fun cancel(commandId: String) = Unit
+            },
+            signer = SoftwareSigner(),
+        )
+        link.start()
+        waitUntil("connected") { connected > 0 }
+        // Every message, the result included, was signed and verified by the gateway.
+        val (isError, text) = callTool(mcpToken(), "observe", """{"screenshot":false}""")
+        assertTrue(text, !isError && text.contains("New note"))
+        // The same token without the phone's key: the gateway refuses it.
+        val plain = Protocol.json.encodeToString(HelloMessage.serializer(), hello())
+        assertEquals(401, post("/v1/device/hello", plain, deviceToken).first)
+        link.stop(sayBye = true)
+    }
+
     @Test
     fun stopSaysByeSoToolsFailFast() = runBlocking {
         startGateway()

@@ -23,6 +23,10 @@ pub struct DeviceRecord {
     pub paired_at_ms: u64,
     #[serde(default)]
     pub last_seen_ms: Option<u64>,
+    /// Since protocol 1.12 (ADR-037): the phone's device key (P-256 SPKI, base64),
+    /// learned from its first signed hello. From then on its messages must be signed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_key: Option<String>,
 }
 
 /// An AI app the owner allowed: a key made in the owner console, or an app
@@ -305,6 +309,19 @@ impl Store {
         self.oauth_refresh.retain(|_, r| r.expires_at_ms > now_ms);
         self.save()?;
         Ok((record.expires_at_ms > now_ms).then_some(record))
+    }
+
+    /// Remembers a phone's device key the first time it shows one; never replaces one.
+    pub fn set_device_key(&mut self, id: &str, key: String) -> io::Result<()> {
+        if let Some(d) = self
+            .devices
+            .iter_mut()
+            .find(|d| d.id == id && d.device_key.is_none())
+        {
+            d.device_key = Some(key);
+            self.save()?;
+        }
+        Ok(())
     }
 
     /// Updates the last-seen time in memory; persisted on the next write.

@@ -1,0 +1,9 @@
+{
+  "description": "ECDSA P-256 / SHA-256 over \"latch-signed-v1\\n<connection>\\n<payload>\". Every implementation must accept `valid`, and refuse it with another connection, an altered payload, or a garbage signature.",
+  "device_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+VX/1QTqi9NRnlBROy4hZALp6L9REfLvv2TCliQoFVIzoe2/QIs/x6x8Lx/7WJqdfOJm6Emj8L7AdFXbsz0FBQ==",
+  "valid": {
+    "connection": "k_7",
+    "payload": "{\"type\":\"result\",\"id\":\"c_1\",\"outcome\":{\"status\":\"ok\",\"data\":{}}}",
+    "sig": "MEUCIAJMDaktEOgeA0eyZVIUmUf4sqIMG5XUAwZZamm1hlynAiEApJiR6Os0gtVFp8E4nEuyFTg1A2iyUd+WhteHJlnFed8="
+  }
+}

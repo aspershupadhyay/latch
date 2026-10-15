@@ -14,6 +14,8 @@ name = "latch-fake-device"
 path = "src/main.rs"
 
 [dependencies]
+p256.workspace = true
+getrandom.workspace = true
 latch-protocol.workspace = true
 aes.workspace = true
 ctr.workspace = true
