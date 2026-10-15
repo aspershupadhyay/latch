@@ -395,6 +395,8 @@ class CommandExecutor(
                 var owner: String? = null
                 // What the screen looked like before, so settling can tell when the action took effect.
                 var before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
+                // Protocol 1.9 `effect`: the screen and app before anything happened, typing included.
+                val untouched = if (envelope.observeAfter != null) service.screenSignature() to service.currentPackage() else null
                 var expectChangeMs = EXPECT_CHANGE_MS
                 when (command) {
                     is Command.Tap -> {
@@ -425,7 +427,7 @@ class CommandExecutor(
                 }
                 note(ActivityKind.ACTION, judged ?: describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted, owner = owner)
-                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current) }
+                envelope.observeAfter?.let { result = observeAfter(command, service, it, before, expectChangeMs, result, current, untouched) }
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), result)
             }
         }
@@ -721,6 +723,7 @@ class CommandExecutor(
         expectChangeMs: Long,
         result: ActionResult,
         current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
+        untouched: Pair<Int, String?>? = null,
     ): ActionResult {
         val quiet = after.quietMs
         if (quiet == null) {
@@ -743,6 +746,16 @@ class CommandExecutor(
             )
         }
         service.cursorStatus("Reading the new screen")
+        val effected = untouched?.let { (signature, pkg) -> result.copy(effect = effectOf(signature, pkg, service.screenSignature(), service.currentPackage())) } ?: result
+        return observeSettled(service, after, effected, current)
+    }
+
+    private suspend fun observeSettled(
+        service: LatchAccessibilityService,
+        after: ObserveAfter,
+        result: ActionResult,
+        current: () -> Pair<SessionInfo, Map<Capability, CapabilityStatus>>,
+    ): ActionResult {
         val (session, capabilities) = current()
         val needed = if (after.includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
         val refusal = when {
@@ -772,4 +785,14 @@ class CommandExecutor(
             result.copy(observationError = ErrorBody(e.code.wire, e.message ?: e.code.wire))
         }
     }
+}
+
+/**
+ * Protocol 1.9: what an action visibly did, from the screen signature and app
+ * before it and after the screen settled. A signature of 0 means unreadable.
+ */
+internal fun effectOf(signatureBefore: Int, packageBefore: String?, signatureAfter: Int, packageAfter: String?): String = when {
+    packageBefore != null && packageAfter != null && packageAfter != packageBefore -> "new_app"
+    signatureBefore == 0 || signatureAfter == 0 || signatureAfter != signatureBefore -> "changed"
+    else -> "none"
 }

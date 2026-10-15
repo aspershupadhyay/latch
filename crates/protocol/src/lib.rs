@@ -33,7 +33,7 @@ pub use files::{
     TransferState,
 };
 pub use message::{
-    ActionResult, AppEntry, AppList, ApprovalChoice, ApprovalKind, ApprovalRequest,
+    ActionEffect, ActionResult, AppEntry, AppList, ApprovalChoice, ApprovalKind, ApprovalRequest,
     CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceToGateway, GatewayToDevice, Hello,
     ObserveAfter, Outcome, OwnerReply, SessionInfo, WaitResult,
 };
@@ -43,7 +43,7 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.8";
+pub const PROTOCOL_VERSION: &str = "1.9";
 
 /// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
 pub fn minor_version(version: &str) -> Option<u32> {

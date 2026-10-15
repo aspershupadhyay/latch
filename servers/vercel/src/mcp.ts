@@ -403,8 +403,10 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
   const found = (run.data as { found?: unknown }).found === true;
   const notSubmitted = (run.data as { submitted?: unknown }).submitted === false;
   const owner = (run.data as { owner?: unknown }).owner;
+  const effect = (run.data as { effect?: unknown }).effect;
+  const plainDone = effect === "none" ? NO_EFFECT : effect === "new_app" ? "Done; another app is now in front." : "Done.";
   const doneText = finding === undefined
-    ? owner !== undefined ? ownerSaid(owner) : notSubmitted ? NOT_SUBMITTED : "Done."
+    ? owner !== undefined ? ownerSaid(owner) : notSubmitted ? NOT_SUBMITTED : plainDone
     : found ? `Found ${quote(finding, 60)}.` : `Did not find ${quote(finding, 60)} after scrolling.`;
   const done = (result: ToolResult) => {
     result.content.unshift({ type: "text", text: `${doneText} The screen after the action:` });
@@ -434,6 +436,9 @@ function ownerSaid(reply: unknown): string {
   if (reply === "cant") return "The owner says they can't do it now. Do not ask again; tell the user and stop or find another way.";
   return "The owner did not answer within 2 minutes. Tell the user what you need from them.";
 }
+
+/** Said when the phone saw no change after an action (protocol 1.9 `effect: none`); same text as the Rust gateway. */
+const NO_EFFECT = "Done, but the screen did not visibly change: the action may have missed (a disabled control, the wrong spot) or the app is slow. Check the screen below before going on.";
 
 /** Said when the phone pressed Enter and nothing visibly happened. */
 const NOT_SUBMITTED = "Typed, but Enter did nothing visible: the text is still in the field. If the app has its own Send or Search button, tap it.";

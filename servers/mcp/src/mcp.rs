@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use latch_protocol::{
-    Command, Direction, ErrorCode, GlobalAction, Observation, ObserveAfter, OwnerReply, Point,
-    ProtocolError, Target, UiNode,
+    ActionEffect, Command, Direction, ErrorCode, GlobalAction, Observation, ObserveAfter,
+    OwnerReply, Point, ProtocolError, Target, UiNode,
 };
 use serde_json::{Value, json};
 
@@ -968,7 +968,11 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
         (Some(text), _) => format!("Did not find {} after scrolling.", quote(text, 60)),
         (None, _) if action.owner.is_some() => owner_said(action.owner).into(),
         (None, _) if action.submitted == Some(false) => NOT_SUBMITTED.into(),
-        (None, _) => "Done.".into(),
+        (None, _) => match action.effect {
+            Some(ActionEffect::None) => NO_EFFECT.into(),
+            Some(ActionEffect::NewApp) => "Done; another app is now in front.".into(),
+            _ => "Done.".into(),
+        },
     };
     let headline = format!("{done} The screen after the action:");
     if let Some(obs) = &action.observation {
@@ -1014,6 +1018,10 @@ fn owner_said(reply: Option<OwnerReply>) -> &'static str {
         _ => "The owner did not answer within 2 minutes. Tell the user what you need from them.",
     }
 }
+
+/// Said when the phone saw no change after an action (protocol 1.9 `effect: none`).
+const NO_EFFECT: &str = "Done, but the screen did not visibly change: the action may have missed \
+(a disabled control, the wrong spot) or the app is slow. Check the screen below before going on.";
 
 /// Said when the phone pressed Enter and nothing visibly happened.
 const NOT_SUBMITTED: &str = "Typed, but Enter did nothing visible: the text is still in the field. \

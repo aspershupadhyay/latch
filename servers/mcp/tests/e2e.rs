@@ -573,6 +573,11 @@ async fn agent_navigates_settings_and_toggles_wifi() {
     let (is_error, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Settings")})).await;
     assert!(!is_error, "{screen}");
     assert!(screen.contains("app com.android.settings"), "{screen}");
+    // Protocol 1.9 effect, same text as the Vercel gateway.
+    assert!(
+        screen.starts_with("Done; another app is now in front. The screen after the action:"),
+        "{screen}"
+    );
 
     let (_, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Network & internet")})).await;
     assert!(screen.contains("\"Wi-Fi\""), "{screen}");
@@ -1150,7 +1155,11 @@ async fn pinch_drag_and_double_tap_reach_the_phone() {
         json!({"observation_id": observation_id(&screen), "zoom": "in"}),
     )
     .await;
-    assert!(!is_error && screen.starts_with("Done."), "{screen}");
+    // Protocol 1.9: the fake launcher does not zoom, and the phone says so.
+    assert!(
+        !is_error && screen.starts_with("Done, but the screen did not visibly change"),
+        "{screen}"
+    );
     let (is_error, screen, _) = call(&gw, "swipe", json!({"observation_id": observation_id(&screen), "from_x": 500, "from_y": 400, "to_x": 500, "to_y": 900, "hold_ms": 600})).await;
     assert!(!is_error, "{screen}");
     let (is_error, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Chat"), "double": true})).await;
@@ -1198,7 +1207,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.8, 33 tools.",
+        lines[0], "Latch gateway, protocol 1.9, 33 tools.",
         "{devices}"
     );
     let lines = &lines[1..];

@@ -266,7 +266,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
 
 **Why:** the phone app updates when you install a new APK, but your gateway on Vercel only updates when Vercel deploys new code. The Deploy button makes a **copy** of Latch in your own GitHub (usually called `latch-gateway`), and that copy doesn't receive new versions by itself.
 
-1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.8"`. It also shows `commit` and `repository`.
+1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.9"`. It also shows `commit` and `repository`.
 2. **Update the code Vercel deploys.** Pick one:
    - **Follow Latch directly** (simplest; every Latch release reaches you automatically): Vercel → your project → **Settings → Git** → **Disconnect**, then **Connect Git Repository** → `aspershupadhyay/latch`. Then **Settings → Build and Deployment → Root Directory** → `servers/vercel` → **Save**. This means you trust each new Latch release as soon as it's published.
    - **Keep your own copy and review each version first:** when you want an update, download the newest Latch code (GitHub → **Code → Download ZIP** on `aspershupadhyay/latch`), replace the files in your copy with it, commit, and push. Vercel deploys your copy by itself.
@@ -278,7 +278,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Claude Code / Codex / other apps:** restart them.
 
    Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
-6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.8, 33 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.9, 33 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 
