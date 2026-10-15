@@ -1506,6 +1506,25 @@ async fn files_round_trip_between_phone_and_computer() {
         phone.state.lock().expect("lock").tasks_done,
         ["Copied a caption"]
     );
+    // Roadmap R14: the latest task as a timeline, ending at finish_task.
+    let (is_error, text, _) = call(&gw, "get_activity", json!({"task": "latest"})).await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.starts_with("Latest AI task on the phone, oldest first: finished, "),
+        "{text}"
+    );
+    assert!(text.contains("\n- +0.0 s "), "{text}");
+    assert!(text.ends_with(" task by AI: Ran task.done\n"), "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "get_activity",
+        json!({"task": "latest", "kinds": ["file"]}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("task cannot be combined"),
+        "{text}"
+    );
 
     // Inline text into Downloads/abc; the same name gets a free name.
     let (_, text, _) = call(

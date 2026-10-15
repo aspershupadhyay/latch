@@ -5,6 +5,7 @@ package io.github.aspershupadhyay.latch.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +43,10 @@ import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.data.ActivityActor
 import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.data.ActivityKind
+import io.github.aspershupadhyay.latch.data.TaskEnd
+import io.github.aspershupadhyay.latch.data.TaskRun
+import io.github.aspershupadhyay.latch.data.taskRuns
+import io.github.aspershupadhyay.latch.data.tenths
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import io.github.aspershupadhyay.latch.update.UpdateInfo
@@ -143,6 +149,8 @@ internal enum class ActivityFilter(val label: String, val kinds: Set<ActivityKin
     ALL("All", null),
     BY_AI("By AI", null, ActivityActor.AI),
     BY_YOU("By you", null, ActivityActor.OWNER),
+    /** Not a filter: the AI's tasks as timelines (roadmap R14). */
+    BY_TASK("By task", null),
     ACTIONS("Actions", setOf(ActivityKind.ACTION)),
     APPS("App access", setOf(ActivityKind.APP)),
     APPROVALS("Approvals", setOf(ActivityKind.APPROVAL)),
@@ -198,8 +206,11 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
     val format = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
     var filter by rememberSaveable { mutableStateOf(ActivityFilter.ALL) }
     var confirmClear by remember { mutableStateOf(false) }
-    val counts = remember(entries) { ActivityFilter.entries.associateWith { f -> entries.count(f::matches) } }
-    val shown = remember(entries, filter) { entries.filter(filter::matches) }
+    val runs = remember(entries) { taskRuns(entries) }
+    val counts = remember(entries, runs) {
+        ActivityFilter.entries.associateWith { f -> if (f == ActivityFilter.BY_TASK) runs.size else entries.count(f::matches) }
+    }
+    val shown = remember(entries, filter) { if (filter == ActivityFilter.BY_TASK) emptyList() else entries.filter(filter::matches) }
     val now = remember(entries) { System.currentTimeMillis() }
 
     LazyColumn(
@@ -230,7 +241,9 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
                 }
             }
         }
-        if (shown.isEmpty()) {
+        if (filter == ActivityFilter.BY_TASK) {
+            taskTimelines(runs.take(SHOWN_TASKS), format)
+        } else if (shown.isEmpty()) {
             item {
                 Card {
                     ListRow(
@@ -285,6 +298,60 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
 
 /** Lines drawn at once; the log keeps more, and the AI can read all of them. */
 private const val SHOWN_ENTRIES = 500
+
+/** Tasks drawn at once in "By task". */
+private const val SHOWN_TASKS = 30
+
+/**
+ * "By task": each AI task as a card with how it ended, how long it took, and
+ * what was decided, then its steps with seconds from the task's start.
+ */
+private fun LazyListScope.taskTimelines(runs: List<TaskRun>, format: DateFormat) {
+    if (runs.isEmpty()) {
+        item { Card { ListRow(LatchIcons.Pulse, "No AI task yet", "A task starts when the AI acts and ends when it says it is done.") } }
+        return
+    }
+    runs.forEachIndexed { t, run ->
+        item(key = "task-${run.startMs}-$t") {
+            val signal = LocalSignal.current
+            val ended = when (run.end) {
+                TaskEnd.FINISHED -> "Finished"
+                TaskEnd.SESSION_ENDED -> "Cut short when the session ended"
+                TaskEnd.OPEN -> "Still going"
+            }
+            Card {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "$ended · ${tenths(run.durationMs)} · started ${format.format(Date(run.startMs))}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = signal.text,
+                    )
+                    Text(
+                        "Actions ${run.count(ActivityKind.ACTION)} · approvals ${run.count(ActivityKind.APPROVAL)} · refused ${run.count(ActivityKind.REFUSAL)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = signal.text2,
+                    )
+                    run.entries.forEach { e ->
+                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                "+${tenths(e.atMs - run.startMs)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = signal.text2,
+                                modifier = Modifier.width(64.dp),
+                            )
+                            Text(
+                                listOfNotNull(e.summary, e.app?.let { "· $it" }).joinToString(" "),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (e.kind == ActivityKind.REFUSAL) signal.danger else signal.text,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun SettingsScreen(

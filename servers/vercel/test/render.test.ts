@@ -6,6 +6,8 @@ import { type DiagnosisInput, renderDiagnosis } from "../src/diagnose.js";
 import { SENSITIVE_APP_NOTE, renderChanges, renderObservation, toolError } from "../src/render.js";
 import { ProtocolError, normalizeObservation } from "../src/protocol.js";
 import { shared } from "./shared.js";
+import { renderLatestTask } from "../src/replay.js";
+import type { ActivityList } from "../src/protocol.js";
 
 test("observation rendering matches the Rust gateway byte for byte", () => {
   const input = JSON.parse(shared("mcp/render-input.json"));
@@ -52,4 +54,9 @@ test("screenshots may be JPEG, PNG, or (since 1.10) WebP, nothing else", () => {
   });
   for (const ok of ["image/jpeg", "image/png", "image/webp"]) assert.equal(normalizeObservation(obs(ok), 10).screenshot?.mime, ok);
   assert.throws(() => normalizeObservation(obs("image/gif"), 10), /image\/webp/);
+});
+
+test("task replay text matches the Rust gateway byte for byte", () => {
+  const input = JSON.parse(shared("mcp/replay-input.json")) as { cases: ActivityList[] };
+  assert.equal(input.cases.map(renderLatestTask).join("---\n"), shared("mcp/replay-expected.txt"));
 });

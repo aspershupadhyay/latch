@@ -364,7 +364,7 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `get_file_link`, `upload_link` | Private, encrypted 15-minute links to copy whole files (up to 2 GB) between your computer and the phone (openssl + curl) |
 | `transfer_status` | Waits for a big file that is still moving |
 | `set_clipboard` | Puts text on the phone's clipboard to paste (never reads it) |
-| `get_activity` | Reads the phone's Activity log (apps, actions, approvals, refusals, files, and who did each: AI, you, or Latch), if you switch it on |
+| `get_activity` | Reads the phone's Activity log (apps, actions, approvals, refusals, files, and who did each: AI, you, or Latch), if you switch it on. With `task: "latest"` it replays the latest AI task as a timeline (seconds from the start, approvals and refusals); the app's Activity tab shows the same under **By task** |
 | `finish_task` | The AI says it is done: the cursor disappears at once and its summary goes into Activity |
 | `diagnose` | Checks whether each phone is ready (connected, session running, app up to date, switches on) and says what you need to fix on the phone |
 | `write_file`, `create_folder`, `rename_file`, `delete_file` | Save and organise files; replacing and deleting ask you unless Auto mode is on |

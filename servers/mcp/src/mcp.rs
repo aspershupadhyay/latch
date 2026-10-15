@@ -19,6 +19,7 @@ use crate::devices::{self, Output};
 
 pub mod diagnose;
 pub mod files;
+pub mod replay;
 pub mod skills;
 
 /// Newest first. We answer with the client's version when we support it.
@@ -445,7 +446,9 @@ pub fn tool_definitions() -> Vec<Value> {
              action it took, what the owner was asked and answered, what was refused, and the \
              files and folders it touched. Each line says who did it: the AI, the owner (their \
              own taps and answers), or Latch. Use it when the user asks what happened on the \
-             phone. Entries never hold screen content or typed text. Needs the owner's activity switch.",
+             phone. With task \"latest\" it replays the latest AI task instead: every step from \
+             first to last with seconds from the start, and the approvals and refusals on the way. \
+             Entries never hold screen content or typed text. Needs the owner's activity switch.",
             true,
             json!({
                 "device_id": device_id_schema(),
@@ -456,6 +459,7 @@ pub fn tool_definitions() -> Vec<Value> {
                     "description": "Only these kinds, e.g. [\"approval\", \"refusal\"]. Default: all."
                 },
                 "since_ms": { "type": "integer", "minimum": 0, "description": "Only entries at or after this Unix time in milliseconds." },
+                "task": { "type": "string", "enum": ["latest"], "description": "\"latest\": a timeline of the latest AI task (oldest first, seconds from its start) instead of the plain log. Not combined with kinds or since_ms." },
             }),
             &[],
         ),
@@ -523,6 +527,39 @@ async fn activity(
     device_id: &str,
 ) -> Result<Value, ProtocolError> {
     let bad = |e: ArgError| ProtocolError::new(ErrorCode::InvalidRequest, e.0);
+    match arg_str(args, "task").map_err(bad)? {
+        None => {}
+        Some("latest") => {
+            let filtered = ["kinds", "since_ms"]
+                .iter()
+                .any(|k| !matches!(args.get(*k), None | Some(Value::Null)));
+            if filtered {
+                return Err(ProtocolError::new(
+                    ErrorCode::InvalidRequest,
+                    "task cannot be combined with kinds or since_ms",
+                ));
+            }
+            // The whole recent log: a task is cut from every kind of entry.
+            let command = Command::ListActivity {
+                limit: latch_protocol::validate::MAX_ACTIVITY_ENTRIES,
+                kinds: Vec::new(),
+                since_ms: None,
+            };
+            let Output::Activity(list) = devices::execute(state, device_id, command).await? else {
+                return Err(ProtocolError::new(
+                    ErrorCode::Internal,
+                    "unexpected answer from the phone",
+                ));
+            };
+            return Ok(text_result(replay::render_latest_task(&list)));
+        }
+        Some(_) => {
+            return Err(ProtocolError::new(
+                ErrorCode::InvalidRequest,
+                "task must be \"latest\"",
+            ));
+        }
+    }
     let limit = arg_int(args, "limit").map_err(bad)?.unwrap_or(50);
     let limit = u32::try_from(limit)
         .map_err(|_| ProtocolError::new(ErrorCode::InvalidRequest, "limit must be positive"))?;
