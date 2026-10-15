@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+# One line ending everywhere, so scripts run and fixtures hash the same on every OS.
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.jpg binary
+*.jar binary
+*.zip binary
+# Generated files: collapsed in pull request diffs.
+packages/schemas/v1/*.schema.json linguist-generated=true
+servers/vercel/src/generated/** linguist-generated=true
+# Windows scripts need CRLF; vendored files stay byte for byte as published.
+*.bat text eol=crlf
+apps/android/third_party/** -text
