@@ -438,6 +438,13 @@
       "description": "First message on every device connection.",
       "type": "object",
       "properties": {
+        "battery_restricted": {
+          "description": "Since 1.13 (roadmap R13): true when Android's battery optimisation\napplies to the app, so Android may stop it in the background and the\nphone drops off mid-task. Absent when the phone does not say.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "capabilities": {
           "type": "array",
           "items": {

@@ -94,6 +94,11 @@ pub struct Hello {
     /// by that key; from then on every message from this phone must be signed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_key: Option<String>,
+    /// Since 1.13 (roadmap R13): true when Android's battery optimisation
+    /// applies to the app, so Android may stop it in the background and the
+    /// phone drops off mid-task. Absent when the phone does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery_restricted: Option<bool>,
 }
 
 /// Since 1.12: the text a phone signs for one message: a fixed context, the

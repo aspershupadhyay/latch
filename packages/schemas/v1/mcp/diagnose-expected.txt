@@ -5,6 +5,7 @@ Verdict: not ready.
 Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
 - d_ready "Pixel" (Pixel 8): connected, app protocol 1.8.
   - Session: 24 min left.
+  - Android's battery optimisation is on for Latch, so Android may stop it in the background and the phone drops off mid-task. Fix: Android Settings → Apps → Latch → Battery → Unrestricted.
   Ready.
 - d_blocked "Old phone with a very long name that kee…" (realme RMX3710): connected, app protocol 1.3.
   - The owner paused the session; every command is refused. Fix: tap Resume in the Latch app.

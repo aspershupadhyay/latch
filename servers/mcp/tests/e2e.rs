@@ -252,6 +252,16 @@ async fn connect_phone_named(
     transport: Transport,
     name: &str,
 ) -> Phone {
+    connect_phone_as(gw, FakeState::new(enabled), transport, name).await
+}
+
+/// Pairs and connects a fake phone whose state was set up by the test.
+async fn connect_phone_as(
+    gw: &Gateway,
+    fake: FakeState,
+    transport: Transport,
+    name: &str,
+) -> Phone {
     let (status, body) = http(
         gw,
         "POST",
@@ -266,7 +276,7 @@ async fn connect_phone_named(
     let (_, token) = latch_fake_device::pair(&format!("http://{}", gw.addr), &code)
         .await
         .expect("pair");
-    let state: Shared = Arc::new(Mutex::new(FakeState::new(enabled)));
+    let state: Shared = Arc::new(Mutex::new(fake));
     let (control, rx) = mpsc::channel(4);
     let task = {
         let state = state.clone();
@@ -1253,7 +1263,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.12, 34 tools.",
+        lines[0], "Latch gateway, protocol 1.13, 34 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -2202,6 +2212,7 @@ fn hello_with(
         },
         device_time_ms: None,
         device_key: key.map(latch_fake_device::signing::DeviceKey::public_b64),
+        battery_restricted: None,
     })
 }
 
@@ -2476,4 +2487,26 @@ async fn the_owner_api_reports_no_database_round_trip() {
         body,
         json!({ "store_ms": 0, "slow_ms": 150, "slow": false, "region": null })
     );
+}
+
+/// R13 (protocol 1.13): a phone that says Android's battery optimisation is on
+/// gets the fix in `diagnose`; one that says nothing does not.
+#[tokio::test]
+async fn diagnose_names_battery_optimisation_from_the_hello() {
+    let gw = start_gateway().await;
+    let mut restricted = FakeState::new(&Capability::ALL);
+    restricted.battery_restricted = Some(true);
+    let _a = connect_phone_as(&gw, restricted, Transport::Poll, "Restricted").await;
+    let (is_error, text, _) = call(&gw, "diagnose", json!({})).await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.contains("battery optimisation is on for Latch"),
+        "{text}"
+    );
+    assert!(text.contains("Ready."), "a warning, not a blocker: {text}");
+
+    let gw = start_gateway().await;
+    let _b = connect_phone(&gw, &Capability::ALL).await;
+    let (_, text, _) = call(&gw, "diagnose", json!({})).await;
+    assert!(!text.contains("battery optimisation"), "{text}");
 }

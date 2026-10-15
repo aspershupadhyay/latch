@@ -52,6 +52,11 @@ class ProtocolFixturesTest {
         assertEquals("needs_permission", hello.capabilities.last().status)
         val reencoded = Protocol.json.decodeFromString(HelloMessage.serializer(), Protocol.json.encodeToString(HelloMessage.serializer(), hello))
         assertEquals(hello, reencoded)
+        // Protocol 1.13: the phone says whether Android may stop Latch in the background.
+        assertEquals(null, hello.batteryRestricted)
+        val battery = Protocol.json.decodeFromString(HelloMessage.serializer(), all.getValue("d2g-hello-battery.json"))
+        assertEquals(true, battery.batteryRestricted)
+        assertTrue(Protocol.json.encodeToString(HelloMessage.serializer(), battery).contains("\"battery_restricted\":true"))
 
         val state = Protocol.json.decodeFromString(StateMessage.serializer(), all.getValue("d2g-state.json"))
         assertTrue(state.session.paused)

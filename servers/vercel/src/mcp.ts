@@ -603,7 +603,7 @@ async function diagnosis(devices: Devices, only: string | undefined): Promise<st
     now_ms: Date.now(),
     phones: ordered.map((d) => {
       const l = live(d.id);
-      return { id: d.id, name: d.name, model: d.model, live: l ? { protocol: l.protocol, capabilities: l.capabilities, session: l.session } : null };
+      return { id: d.id, name: d.name, model: d.model, live: l ? { protocol: l.protocol, capabilities: l.capabilities, session: l.session, battery_restricted: l.battery_restricted } : null };
     }),
   });
   return text + slowStoreNote(storeMs);

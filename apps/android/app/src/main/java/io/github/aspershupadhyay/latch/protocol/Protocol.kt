@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.12"
+    const val VERSION = "1.13"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -326,6 +326,8 @@ data class HelloMessage(
     @EncodeDefault val type: String = "hello",
     /** Since 1.12 (ADR-037): this phone's device key; a hello carrying it is signed by it. */
     @SerialName("device_key") val deviceKey: String? = null,
+    /** Since 1.13 (R13): Android's battery optimisation applies to Latch, so it may be stopped in the background. */
+    @SerialName("battery_restricted") val batteryRestricted: Boolean? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)

@@ -35,6 +35,9 @@ pub struct LiveState {
     pub capabilities: Vec<CapabilityState>,
     /// Expiry already on the gateway clock.
     pub session: SessionInfo,
+    /// Since protocol 1.13: Android may stop the app in the background.
+    #[serde(default)]
+    pub battery_restricted: Option<bool>,
 }
 
 /// What an agent needs for ordinary screen work, and what each one lets it do.
@@ -143,6 +146,9 @@ pub fn render_diagnosis(input: &DiagnosisInput) -> String {
                 out,
                 "  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings tab → Check for updates)."
             );
+        }
+        if live.battery_restricted == Some(true) {
+            out.push_str("  - Android's battery optimisation is on for Latch, so Android may stop it in the background and the phone drops off mid-task. Fix: Android Settings → Apps → Latch → Battery → Unrestricted.\n");
         }
         if live.session.approve_every_action {
             out.push_str("  - Note: the owner approves every action, so each step waits for a tap on the phone.\n");

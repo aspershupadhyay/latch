@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.12";
+export const PROTOCOL_VERSION = "1.13";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -99,6 +99,8 @@ export interface Hello {
   session: SessionInfo; device_time_ms?: number;
   /** Since 1.12 (ADR-037): the phone's P-256 public key, base64 SPKI DER. */
   device_key?: string;
+  /** Since 1.13 (R13): Android may stop the app in the background (battery optimisation). */
+  battery_restricted?: boolean | null;
 }
 export interface Rect { left: number; top: number; right: number; bottom: number }
 export interface UiNode {
@@ -758,6 +760,9 @@ export function validateHello(h: Hello): void {
   if (h.device_key !== undefined && (typeof h.device_key !== "string" || h.device_key.length === 0 || h.device_key.length > 256
     || h.device_key.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(h.device_key))) {
     throw invalid("device_key must be base64, at most 256 characters");
+  }
+  if (h.battery_restricted !== undefined && h.battery_restricted !== null && typeof h.battery_restricted !== "boolean") {
+    throw invalid("battery_restricted must be true or false");
   }
 }
 
