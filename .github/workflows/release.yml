@@ -5,9 +5,22 @@ name: Release
 # Tag vX.Y.Z on main to publish. Produces: gateway binary, container image on
 # GHCR, Android APK (signed when the signing secrets exist), SHA256SUMS, an
 # SPDX SBOM, and build-provenance attestations for every artifact.
+# Run it by hand (Actions -> Release -> Run workflow) for a dry run: everything
+# is built, tested, signed, summed, and given an SBOM, but nothing is pushed,
+# attested, or released; the files are kept as a workflow artifact for a week.
+# See docs/operations/release.md.
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to number the dry-run build with (X.Y.Z)"
+        default: "0.1.0"
+
+env:
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+  TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
 permissions:
   contents: write
@@ -55,9 +68,10 @@ jobs:
         run: |
           # vX.Y.Z -> X*1000000 + Y*1000 + Z, so every release is newer than the last
           # and the in-app updater can compare them.
-          IFS=. read -r major minor patch <<< "${GITHUB_REF_NAME#v}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then echo "not a version: $TAG" >&2; exit 1; fi
+          IFS=. read -r major minor patch <<< "${TAG#v}"
           echo "LATCH_VERSION_CODE=$(( major * 1000000 + minor * 1000 + ${patch%%[!0-9]*} ))" >> "$GITHUB_ENV"
-          echo "LATCH_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "LATCH_VERSION_NAME=${TAG#v}" >> "$GITHUB_ENV"
       - working-directory: apps/android
         env:
           LATCH_KEYSTORE_PASSWORD: ${{ secrets.LATCH_KEYSTORE_PASSWORD }}
@@ -67,15 +81,15 @@ jobs:
       - run: |
           mkdir dist
           for f in apps/android/app/build/outputs/apk/release/*.apk; do
-            cp "$f" "dist/latch-android-${GITHUB_REF_NAME}$( [[ $f == *unsigned* ]] && echo -unsigned ).apk"
+            cp "$f" "dist/latch-android-${TAG}$( [[ $f == *unsigned* ]] && echo -unsigned ).apk"
           done
           # What the app's updater reads from the newest published release; only a signed APK can update.
-          apk="dist/latch-android-${GITHUB_REF_NAME}.apk"
+          apk="dist/latch-android-${TAG}.apk"
           if [ -f "$apk" ]; then
             jq -n \
               --argjson code "$LATCH_VERSION_CODE" \
               --arg name "$LATCH_VERSION_NAME" \
-              --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/latch-android-$GITHUB_REF_NAME.apk" \
+              --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/latch-android-$TAG.apk" \
               --arg sha "$(sha256sum "$apk" | cut -d' ' -f1)" \
               --argjson size "$(stat -c %s "$apk")" \
               --arg commit "${GITHUB_SHA::7}" \
@@ -91,6 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: env.DRY_RUN != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -98,11 +113,12 @@ jobs:
       - id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          push: true
+          push: ${{ env.DRY_RUN != 'true' }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/latch-gateway:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/latch-gateway:${{ env.TAG }}
             ghcr.io/${{ github.repository_owner }}/latch-gateway:latest
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        if: env.DRY_RUN != 'true'
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/latch-gateway
           subject-digest: ${{ steps.push.outputs.digest }}
@@ -123,9 +139,15 @@ jobs:
           output-file: dist/latch-sbom.spdx.json
       - run: cd dist && sha256sum * > SHA256SUMS
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        if: env.DRY_RUN != 'true'
         with:
           subject-path: dist/*
+      - name: Keep the dry run's files
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with: { name: release-dry-run, path: dist/*, retention-days: 7 }
       - name: Create draft release
+        if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
