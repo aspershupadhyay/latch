@@ -19,6 +19,7 @@ pub mod devices;
 mod http;
 pub mod links;
 pub mod mcp;
+pub mod oauth;
 pub mod pairing;
 pub mod secret;
 pub mod store;
@@ -44,6 +45,8 @@ pub struct AppState {
     pub settle_ms: u64,
     /// How long one tool call follows a file transfer before answering with its progress.
     pub transfer_budget_ms: u64,
+    /// OAuth sign-in requests, codes, and access tokens (roadmap R17).
+    oauth: Mutex<oauth::OAuth>,
 }
 
 impl AppState {
@@ -58,6 +61,7 @@ impl AppState {
             links: links::Links::from_env(),
             settle_ms: 600,
             transfer_budget_ms: mcp::files::TRANSFER_TOOL_BUDGET_MS,
+            oauth: Mutex::new(oauth::OAuth::default()),
         }
     }
 
@@ -71,6 +75,10 @@ impl AppState {
 
     pub fn store(&self) -> MutexGuard<'_, store::Store> {
         self.store.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn oauth(&self) -> MutexGuard<'_, oauth::OAuth> {
+        self.oauth.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub(crate) fn pairings(&self) -> MutexGuard<'_, pairing::Pairings> {

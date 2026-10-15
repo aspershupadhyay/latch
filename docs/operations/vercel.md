@@ -39,7 +39,7 @@ Without the app, use the button: [![Deploy with Vercel](https://vercel.com/butto
 
 The secret link is a password in URL form: anyone who has it can use your phone within what you allowed. Revoke the key if it leaks. Some apps' connector features depend on their plan and settings (for example ChatGPT's developer mode); check the app's current documentation.
 
-The container gateway (`servers/mcp`) supports keys and secret links; OAuth there is planned.
+The container gateway (`servers/mcp`) supports the same sign-in with only the URL, keys, and secret links (see [gateway.md](gateway.md)).
 
 ## Settings
 

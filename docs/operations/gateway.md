@@ -23,7 +23,8 @@ Generate tokens with `latch-gateway gen-token` (or `openssl rand -hex 32`).
 
 | Path | Who | Auth |
 |---|---|---|
-| `POST /mcp` | MCP clients (Streamable HTTP, JSON responses) | `Authorization: Bearer $LATCH_MCP_TOKEN` |
+| `POST /mcp` | MCP clients (Streamable HTTP, JSON responses) | OAuth access token, a key from the app, or `Authorization: Bearer $LATCH_MCP_TOKEN` |
+| `/.well-known/oauth-*`, `/oauth/*` | MCP clients signing in (roadmap R17) | none to start; the owner approves each app in the Latch app |
 | `GET /v1/device` | Phones (WebSocket) | per-phone token issued at pairing |
 | `POST /v1/pair` | Phones, once | single-use pairing code |
 | `/v1/admin/*` | You, from the Latch app (or curl) | `LATCH_ADMIN_TOKEN` |
@@ -49,7 +50,9 @@ docker compose up -d
 
 ## Connect an AI client
 
-Claude Code:
+**Just the URL (recommended).** Add `https://latch.example.com/mcp` as a remote MCP server in any MCP client. The client finds the sign-in on its own (MCP authorization: OAuth 2.1 with PKCE, through `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`), registers itself, and opens a Latch page in your browser. Approve it in the Latch app (**Connect** tab; check the 4-character code matches). The page can only deny: it never asks for your owner key. The app then appears in your list of AI apps; revoke it there and its access stops at once. Set `LATCH_PUBLIC_URL` so the sign-in addresses are your public `https://` address. Registrations and refresh tokens (as hashes) are kept in `devices.json`, so a restart does not sign apps out; access tokens last an hour and are refreshed. Unlike the Vercel gateway, this one does not fetch client ID metadata documents (it never fetches URLs a client names); clients register instead.
+
+**With a key.** Claude Code:
 
 ```sh
 claude mcp add --transport http latch https://latch.example.com/mcp \
@@ -68,3 +71,4 @@ Other clients: Streamable HTTP URL `https://latch.example.com/mcp` with header `
 - **Emergency stop for everything:** stop the gateway process. Phones show "Connection lost" and run nothing; their own Stop button also always works.
 - **Upgrade:** pull the new image and restart. `devices.json` is forward compatible; phones reconnect automatically.
 - **Back up:** copy `devices.json` (it holds only hashes, but treat it as sensitive).
+- **Sign an AI app out:** revoke it in the app's **Connect** tab (or `curl -X DELETE …/v1/admin/clients/<id>`): its OAuth tokens stop at once.

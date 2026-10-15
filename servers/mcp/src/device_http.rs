@@ -185,6 +185,7 @@ pub async fn info() -> Response {
         "protocol": PROTOCOL_VERSION,
         "transports": ["poll", "websocket"],
         "mcp_path": "/mcp",
+        "mcp_auth": ["oauth", "bearer", "secret_link"],
     }))
     .into_response()
 }

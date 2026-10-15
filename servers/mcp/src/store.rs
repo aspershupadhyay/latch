@@ -25,15 +25,40 @@ pub struct DeviceRecord {
     pub last_seen_ms: Option<u64>,
 }
 
-/// An MCP client credential created in the owner console.
+/// An AI app the owner allowed: a key made in the owner console, or an app
+/// that signed in with OAuth and was approved on the phone (no key of its own).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientRecord {
     pub id: String,
     pub name: String,
+    /// Empty for OAuth apps, which hold tokens instead.
     pub token_sha256: String,
     pub created_at_ms: u64,
     #[serde(default)]
     pub last_used_ms: Option<u64>,
+    /// `oauth` for an app that signed in with the MCP URL; absent for a key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_client_id: Option<String>,
+}
+
+/// An app that registered for OAuth (RFC 7591). Registration alone grants nothing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthClient {
+    pub client_id: String,
+    pub client_name: String,
+    pub redirect_uris: Vec<String>,
+    pub created_at_ms: u64,
+}
+
+/// A live OAuth refresh token, stored under its SHA-256.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefreshRecord {
+    pub client_id: String,
+    /// The approved app ([`ClientRecord::id`]); revoking the app ends the token.
+    pub app_id: String,
+    pub expires_at_ms: u64,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -45,6 +70,11 @@ struct StoreFile {
     /// Saved skills (ADR-031), by name.
     #[serde(default)]
     skills: std::collections::BTreeMap<String, serde_json::Value>,
+    /// OAuth registrations and refresh tokens (roadmap R17), so a restart does not sign apps out.
+    #[serde(default)]
+    oauth_clients: Vec<OAuthClient>,
+    #[serde(default)]
+    oauth_refresh: std::collections::BTreeMap<String, RefreshRecord>,
 }
 
 pub struct Store {
@@ -52,6 +82,8 @@ pub struct Store {
     devices: Vec<DeviceRecord>,
     clients: Vec<ClientRecord>,
     skills: std::collections::BTreeMap<String, serde_json::Value>,
+    oauth_clients: Vec<OAuthClient>,
+    oauth_refresh: std::collections::BTreeMap<String, RefreshRecord>,
 }
 
 impl Store {
@@ -73,6 +105,8 @@ impl Store {
             devices: file.devices,
             clients: file.clients,
             skills: file.skills,
+            oauth_clients: file.oauth_clients,
+            oauth_refresh: file.oauth_refresh,
         })
     }
 
@@ -83,6 +117,8 @@ impl Store {
             devices: Vec::new(),
             clients: Vec::new(),
             skills: std::collections::BTreeMap::new(),
+            oauth_clients: Vec::new(),
+            oauth_refresh: std::collections::BTreeMap::new(),
         }
     }
 
@@ -95,6 +131,8 @@ impl Store {
             devices: self.devices.clone(),
             clients: self.clients.clone(),
             skills: self.skills.clone(),
+            oauth_clients: self.oauth_clients.clone(),
+            oauth_refresh: self.oauth_refresh.clone(),
         })
         .map_err(io::Error::other)?;
         let tmp = self.path.with_extension("json.tmp");
@@ -188,14 +226,67 @@ impl Store {
         self.save()
     }
 
+    /// Revokes an AI app; an OAuth app's refresh tokens go with it.
     pub fn remove_client(&mut self, id: &str) -> io::Result<bool> {
         let before = self.clients.len();
         self.clients.retain(|c| c.id != id);
         if self.clients.len() == before {
             return Ok(false);
         }
+        self.oauth_refresh.retain(|_, r| r.app_id != id);
         self.save()?;
         Ok(true)
+    }
+
+    /// Marks an approved app as used; false when the owner revoked it.
+    pub fn use_client(&mut self, id: &str, now_ms: u64) -> bool {
+        match self.clients.iter_mut().find(|c| c.id == id) {
+            Some(c) => {
+                c.last_used_ms = Some(now_ms);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn client_exists(&self, id: &str) -> bool {
+        self.clients.iter().any(|c| c.id == id)
+    }
+
+    // ---- OAuth (roadmap R17) ----
+
+    pub fn oauth_client(&self, client_id: &str) -> Option<OAuthClient> {
+        self.oauth_clients
+            .iter()
+            .find(|c| c.client_id == client_id)
+            .cloned()
+    }
+
+    /// Registers an app, making room by dropping the oldest registrations
+    /// beyond `max`: registration is open to anyone, so a full list must not
+    /// lock new apps out. Approved apps keep their tokens.
+    pub fn register_oauth_client(&mut self, client: OAuthClient, max: usize) -> io::Result<()> {
+        self.oauth_clients.sort_by_key(|c| c.created_at_ms);
+        let excess = (self.oauth_clients.len() + 1).saturating_sub(max);
+        self.oauth_clients
+            .drain(..excess.min(self.oauth_clients.len()));
+        self.oauth_clients.push(client);
+        self.save()
+    }
+
+    pub fn put_refresh(&mut self, sha256: String, record: RefreshRecord) -> io::Result<()> {
+        self.oauth_refresh.insert(sha256, record);
+        self.save()
+    }
+
+    /// Takes a refresh token out (single use), if it is live.
+    pub fn take_refresh(&mut self, sha256: &str, now_ms: u64) -> io::Result<Option<RefreshRecord>> {
+        let Some(record) = self.oauth_refresh.remove(sha256) else {
+            return Ok(None);
+        };
+        self.oauth_refresh.retain(|_, r| r.expires_at_ms > now_ms);
+        self.save()?;
+        Ok((record.expires_at_ms > now_ms).then_some(record))
     }
 
     /// Updates the last-seen time in memory; persisted on the next write.
@@ -203,5 +294,87 @@ impl Store {
         if let Some(d) = self.devices.iter_mut().find(|d| d.id == id) {
             d.last_seen_ms = Some(now_ms);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(secret::new_id("latch-store-test"));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn app(id: &str) -> ClientRecord {
+        ClientRecord {
+            id: id.into(),
+            name: "SDK test app".into(),
+            token_sha256: String::new(),
+            created_at_ms: 1,
+            last_used_ms: None,
+            kind: Some("oauth".into()),
+            oauth_client_id: Some("lc_1".into()),
+        }
+    }
+
+    fn refresh(app_id: &str, expires_at_ms: u64) -> RefreshRecord {
+        RefreshRecord {
+            client_id: "lc_1".into(),
+            app_id: app_id.into(),
+            expires_at_ms,
+        }
+    }
+
+    #[test]
+    fn oauth_registrations_and_refresh_tokens_survive_a_restart() {
+        let dir = temp_dir();
+        {
+            let mut store = Store::open(&dir).expect("open");
+            store.insert_client(app("m_1")).expect("app");
+            let client = OAuthClient {
+                client_id: "lc_1".into(),
+                client_name: "SDK test app".into(),
+                redirect_uris: vec!["http://127.0.0.1:1/cb".into()],
+                created_at_ms: 1,
+            };
+            store.register_oauth_client(client, 200).expect("register");
+            store
+                .put_refresh("h1".into(), refresh("m_1", 100))
+                .expect("refresh");
+        }
+        let mut store = Store::open(&dir).expect("reopen");
+        assert!(store.oauth_client("lc_1").is_some());
+        // Single use, and an expired token is never handed back.
+        assert!(store.take_refresh("h1", 50).expect("take").is_some());
+        assert!(store.take_refresh("h1", 50).expect("take").is_none());
+        store
+            .put_refresh("h2".into(), refresh("m_1", 100))
+            .expect("refresh");
+        assert!(store.take_refresh("h2", 100).expect("take").is_none());
+        // Revoking the app removes its refresh tokens.
+        store
+            .put_refresh("h3".into(), refresh("m_1", 100))
+            .expect("refresh");
+        assert!(store.remove_client("m_1").expect("remove"));
+        assert!(store.take_refresh("h3", 50).expect("take").is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_full_registration_list_drops_the_oldest() {
+        let mut store = Store::ephemeral();
+        for i in 0..5u64 {
+            let client = OAuthClient {
+                client_id: format!("lc_{i}"),
+                client_name: "x".into(),
+                redirect_uris: vec![],
+                created_at_ms: i,
+            };
+            store.register_oauth_client(client, 3).expect("register");
+        }
+        assert!(store.oauth_client("lc_1").is_none());
+        assert!(store.oauth_client("lc_2").is_some() && store.oauth_client("lc_4").is_some());
     }
 }

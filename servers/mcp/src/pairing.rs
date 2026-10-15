@@ -42,7 +42,7 @@ fn normalize(code: &str) -> String {
 }
 
 /// Rejection sampling: `byte % 31` would make some letters likelier than others.
-fn random_code(length: usize) -> String {
+pub(crate) fn random_code(length: usize) -> String {
     let limit = 256 - (256 % ALPHABET.len());
     let mut code = String::with_capacity(length);
     while code.len() < length {
