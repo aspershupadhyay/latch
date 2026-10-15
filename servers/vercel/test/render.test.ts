@@ -44,3 +44,12 @@ test("changes-since text matches the Rust gateway byte for byte", () => {
   }).join("");
   assert.equal(text, shared("mcp/changes-expected.txt"));
 });
+
+test("screenshots may be JPEG, PNG, or (since 1.10) WebP, nothing else", () => {
+  const obs = (mime: string) => ({
+    observation_id: "o_1", captured_at_ms: 0, screen: { width: 10, height: 10, rotation: 0 }, nodes: [],
+    screenshot: { mime, width: 10, height: 10, data_base64: "AAAA" }, redacted_count: 0, truncated: false,
+  });
+  for (const ok of ["image/jpeg", "image/png", "image/webp"]) assert.equal(normalizeObservation(obs(ok), 10).screenshot?.mime, ok);
+  assert.throws(() => normalizeObservation(obs("image/gif"), 10), /image\/webp/);
+});

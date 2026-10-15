@@ -264,6 +264,7 @@ class SessionController(
 
         override fun gatewayProtocol(version: String) {
             gatewayMinor = Protocol.minorOf(version) ?: 0
+            bridge.gatewayMinor = gatewayMinor
             val behind = Protocol.minorOf(version)?.let { it < Protocol.MINOR } ?: false
             scope.launch { _outdatedGateway.value = if (behind) version else null }
         }

@@ -14,6 +14,9 @@ class DeviceBridge {
     /** Tells the owner's own taps from the AI's (Activity "You" / "AI"). */
     val touches = TouchAttribution()
 
+    /** Minor protocol version of the connected gateway; 1.10+ takes WebP screenshots (roadmap R6). */
+    @Volatile var gatewayMinor = 0
+
     private val _service = MutableStateFlow<LatchAccessibilityService?>(null)
     val service: StateFlow<LatchAccessibilityService?> = _service.asStateFlow()
 
