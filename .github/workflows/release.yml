@@ -112,6 +112,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        env:
+          # No build-record artifact: it is not a release file.
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           push: ${{ env.DRY_RUN != 'true' }}
           tags: |
@@ -129,8 +132,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # Only the release files: the run also holds docker's build record, which
+      # does not extract (first dry run, 2026-10-15).
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
-        with: { path: dist, merge-multiple: true }
+        with: { path: dist, pattern: "{gateway,android}", merge-multiple: true }
       - name: SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
