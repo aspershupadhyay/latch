@@ -2510,3 +2510,74 @@ async fn diagnose_names_battery_optimisation_from_the_hello() {
     let (_, text, _) = call(&gw, "diagnose", json!({})).await;
     assert!(!text.contains("battery optimisation"), "{text}");
 }
+
+/// A redeploy restarts the gateway: paired phones come back with their saved
+/// credential, and AI apps the owner added keep working, without pairing again.
+#[tokio::test]
+async fn phones_and_ai_apps_survive_a_gateway_restart() {
+    let dir = std::env::temp_dir().join(format!("latch-restart-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let gw = start_gateway_on(ADMIN, Store::open(&dir).expect("store"), |_| {}).await;
+    let phone = connect_phone_with(&gw, &Capability::ALL, Transport::Poll).await;
+    let device_id = phone
+        .state
+        .lock()
+        .expect("lock")
+        .device_id
+        .clone()
+        .expect("id");
+    let (status, client) = http(
+        &gw,
+        "POST",
+        "/v1/admin/clients",
+        Some(ADMIN),
+        Some(json!({ "name": "Desktop AI" })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200, "{client}");
+    let client_token = client["token"].as_str().expect("token").to_owned();
+    phone.task.abort();
+
+    // The same data directory, a new process.
+    let gw = start_gateway_on(ADMIN, Store::open(&dir).expect("store"), |_| {}).await;
+    // The phone keeps its token and its signing key (ADR-037), like the app's keystore.
+    let mut fake = FakeState::new(&Capability::ALL);
+    fake.device_key = phone.state.lock().expect("lock").device_key.take();
+    let state: Shared = Arc::new(Mutex::new(fake));
+    let (_control, rx) = mpsc::channel(4);
+    let task = {
+        let (state, token, base) = (
+            state.clone(),
+            phone.token.clone(),
+            format!("http://{}", gw.addr),
+        );
+        tokio::spawn(async move { latch_fake_device::run_poll(&base, &token, state, rx).await })
+    };
+    for _ in 0..100 {
+        if state.lock().expect("lock").device_id.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!task.is_finished(), "the phone could not reconnect");
+    assert_eq!(
+        state.lock().expect("lock").device_id.as_deref(),
+        Some(device_id.as_str())
+    );
+    let (is_error, text, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    assert!(!is_error, "{text}");
+
+    let (status, body) = http(
+        &gw,
+        "POST",
+        "/mcp",
+        Some(&client_token),
+        Some(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})),
+        &[("MCP-Protocol-Version", "2025-06-18")],
+    )
+    .await;
+    assert_eq!(status, 200, "the AI app's key still works: {body}");
+    task.abort();
+    let _ = std::fs::remove_dir_all(&dir);
+}
