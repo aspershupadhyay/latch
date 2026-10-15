@@ -66,6 +66,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
     var name by rememberSaveable { mutableStateOf("") }
     var showKeys by rememberSaveable { mutableStateOf(false) }
     var limiting by rememberSaveable { mutableStateOf<String?>(null) }
+    var removing by rememberSaveable { mutableStateOf<String?>(null) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -180,6 +181,47 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                         )
                     }
                 }
+            }
+            if (state.otherPhones.isNotEmpty()) {
+                val format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                SectionCaption("Other phones on this relay")
+                Card {
+                    state.otherPhones.forEachIndexed { index, phone ->
+                        if (index > 0) RowDivider()
+                        val seen = when {
+                            phone.connected -> "Connected now"
+                            phone.lastSeenMs != null -> "Last seen ${format.format(Date(phone.lastSeenMs))}"
+                            else -> "Paired ${format.format(Date(phone.pairedAtMs))}, never connected"
+                        }
+                        ListRow(
+                            LatchIcons.Phone,
+                            phone.name,
+                            if (phone.model.isNotBlank() && phone.model != phone.name) "${phone.model} · $seen" else seen,
+                            tint = if (phone.connected) signal.success else signal.text2,
+                            trailing = {
+                                IconButton(onClick = { removing = phone.id }) {
+                                    Icon(LatchIcons.Trash, contentDescription = "Remove ${phone.name}", tint = signal.danger, modifier = Modifier.size(20.dp))
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+            state.otherPhones.firstOrNull { it.id == removing }?.let { phone ->
+                AlertDialog(
+                    onDismissRequest = { removing = null },
+                    title = { Text("Remove ${phone.name}?") },
+                    text = {
+                        Text(
+                            "AI apps can no longer reach it" + (if (phone.connected) ", and its session ends now" else "") +
+                                ". To use it again, pair it again.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { actions.removePhone(phone.id); removing = null }) { Text("Remove", color = signal.danger) }
+                    },
+                    dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
+                )
             }
             state.clients.firstOrNull { it.id == limiting }?.let { client ->
                 LimitAppsDialog(client, state.phoneApps, onDismiss = { limiting = null }) { apps ->

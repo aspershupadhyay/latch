@@ -69,6 +69,7 @@ import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
 import io.github.aspershupadhyay.latch.session.GatewaySetup
 import io.github.aspershupadhyay.latch.session.McpClient
+import io.github.aspershupadhyay.latch.session.RelayPhone
 import io.github.aspershupadhyay.latch.session.NewMcpClient
 import io.github.aspershupadhyay.latch.session.OwnerClient
 import io.github.aspershupadhyay.latch.session.Paired
@@ -614,6 +615,7 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     var clients by remember { mutableStateOf<List<McpClient>>(emptyList()) }
+    var phones by remember { mutableStateOf<List<RelayPhone>>(emptyList()) }
     var created by remember { mutableStateOf<NewMcpClient?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -635,21 +637,26 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
             }
         }
     }
-    LaunchedEffect(owner, requests.size) { run { clients = it.clients() } }
+    suspend fun reload(o: OwnerClient) {
+        clients = o.clients()
+        phones = o.phones().filter { it.id != p.deviceId }
+    }
+    LaunchedEffect(owner, requests.size) { run { reload(it) } }
     // R18: the phone's apps, offered when the owner limits an AI app.
     val phoneApps by produceState(app.cachedApps().orEmpty().map { PhoneApp(it.packageName, it.label) }, isOwner) {
         if (isOwner) value = withContext(Dispatchers.IO) { runCatching { app.launchableApps() }.getOrDefault(emptyList()) }.map { PhoneApp(it.packageName, it.label) }
     }
 
     ConnectScreen(
-        ConnectState("${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests, phoneApps),
+        ConnectState("${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests, phoneApps, phones),
         ConnectActions(
             create = { name -> run { created = it.createClient(name); clients = it.clients() } },
             revoke = { id -> run { it.revokeClient(id); clients = it.clients() } },
             dismissCreated = { created = null },
             copy = { label, value, sensitive -> copyToClipboard(context, label, value, sensitive) },
-            refresh = { run { clients = it.clients() } },
+            refresh = { run { reload(it) } },
             limit = { id, apps -> run { it.limitClient(id, apps); clients = it.clients() } },
+            removePhone = { id -> run { it.removePhone(id); reload(it) } },
             answer = { id, approve ->
                 run {
                     it.answerSignIn(id, approve)

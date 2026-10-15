@@ -221,7 +221,19 @@ class SessionController(
 
     fun forget() {
         stop(FORGOT)
-        settings.pairing.value?.let { KeystoreSigner.delete(it.deviceId) }
+        val pairing = settings.pairing.value
+        // The relay would keep this phone's entry, still counted as connected for
+        // a short while, so pairing again at once left duplicates in list_devices.
+        // An owner's phone removes its own entry; otherwise the next pairing of
+        // this phone replaces it.
+        settings.ownerKey()?.let { key ->
+            if (pairing != null) {
+                scope.launch {
+                    runCatching { OwnerClient(http, pairing.gatewayUrl, key).removePhone(pairing.deviceId) }
+                }
+            }
+        }
+        pairing?.let { KeystoreSigner.delete(it.deviceId) }
         settings.forgetPairing()
         grants.clearAll()
         _state.value = SessionState.Unpaired

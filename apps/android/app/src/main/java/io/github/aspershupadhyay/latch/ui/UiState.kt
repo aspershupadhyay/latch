@@ -7,6 +7,7 @@ import io.github.aspershupadhyay.latch.update.UpdateState
 import io.github.aspershupadhyay.latch.data.ActivityEntry
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.McpClient
+import io.github.aspershupadhyay.latch.session.RelayPhone
 import io.github.aspershupadhyay.latch.session.NewMcpClient
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.PendingApproval
@@ -71,6 +72,8 @@ data class ConnectState(
     val requests: List<SignInRequest> = emptyList(),
     /** R18: this phone's apps, offered when limiting an AI app; empty until read. */
     val phoneApps: List<PhoneApp> = emptyList(),
+    /** The relay's other paired phones, so the owner can remove old or lost ones. */
+    val otherPhones: List<RelayPhone> = emptyList(),
 )
 
 /** An app on this phone, by package name and the label the owner sees. */
@@ -85,6 +88,7 @@ class ConnectActions(
     val answer: (id: String, approve: Boolean) -> Unit = { _, _ -> },
     /** R18: limit an AI app to some phone apps (package names), or null for any app switched on. */
     val limit: (id: String, apps: List<String>?) -> Unit = { _, _ -> },
+    val removePhone: (id: String) -> Unit = {},
 )
 
 data class CreateGatewayState(
