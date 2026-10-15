@@ -7,6 +7,7 @@
 import { SERVER } from "./generated/contract.js";
 import { renderLatestTask } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
+import { ControlError, type ControlReading, type PhoneControl, controlAnswer, controlChangesScreen, parseControlArgs } from "./control.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
 import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
@@ -249,6 +250,13 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       `Copied ${[...text].length} characters to the phone's clipboard. To paste, long-press the text box and tap Paste.`,
     ), run.timing);
   }
+  if (name === "phone_control") {
+    const control = phoneControl(args);
+    if (!controlChangesScreen(control)) {
+      const run = await execute(ctx, deviceId, { name: "control.set", params: { control } });
+      return withTiming(textResult(controlAnswer(control, (run.data as { control?: ControlReading }).control)), run.timing);
+    }
+  }
   if (name === "get_activity") {
     const task = args.task;
     if (task !== undefined && task !== null) {
@@ -397,6 +405,10 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       break;
     case "ask_owner":
       command = { name: "owner.ask", params: { message: reqStr(args, "message") } };
+      break;
+    // A panel: it opens on screen, so the answer is the new screen.
+    case "phone_control":
+      command = { name: "control.set", params: { control: phoneControl(args) } };
       break;
     default:
       throw new ProtocolError("internal", "unexpected result type from the phone");
@@ -641,4 +653,13 @@ export function renderActivity(list: ActivityList, limit: number): string {
     out += `- ${at} ${String(e.kind)}${by}${app}: ${[...String(e.summary)].slice(0, 300).join("")}\n`;
   }
   return out;
+}
+
+function phoneControl(args: Record<string, unknown>): PhoneControl {
+  try {
+    return parseControlArgs(args);
+  } catch (e) {
+    if (e instanceof ControlError) throw new ProtocolError("invalid_request", e.message);
+    throw e;
+  }
 }

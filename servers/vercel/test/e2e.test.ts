@@ -139,7 +139,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const tools = (await client.listTools()).tools.map((t) => t.name);
   assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
-    "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
+    "set_clipboard", "share_to_app", "phone_control", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
     "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
@@ -264,6 +264,16 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   // The clipboard takes a caption to paste.
   const copied = await client.callTool({ name: "set_clipboard", arguments: { text: "Hello from Latch" } });
   assert.match(text(copied), /^Copied 16 characters to the phone's clipboard\./);
+  // Protocol 1.11 (R16): phone controls, same words as the Rust gateway.
+  const volume = await client.callTool({ name: "phone_control", arguments: { control: "volume", stream: "alarm", percent: 70 } });
+  assert.equal(text(volume).split("\n")[0], "Done: set the alarm volume to 70%. It is at 70% now.");
+  const torch = await client.callTool({ name: "phone_control", arguments: { control: "flashlight", on: true } });
+  assert.equal(text(torch).split("\n")[0], "Done: turn the flashlight on. The flashlight is on now.");
+  const both = await client.callTool({ name: "phone_control", arguments: { control: "volume", percent: 20, step: "up" } });
+  assert.ok(both.isError && /either percent or step/.test(text(both)), text(both));
+  const panel = text(await client.callTool({ name: "phone_control", arguments: { control: "panel", panel: "wifi" } }));
+  assert.match(panel, /The screen after the action:/);
+  assert.match(panel, /Wi-Fi/);
   // Protocol 1.8: the phone's activity log, filtered by kind, and the end of a task.
   const activity = text(await client.callTool({ name: "get_activity", arguments: { limit: 2, kinds: ["file"] } }));
   assert.match(activity, /^Activity on the phone, newest first \(2 of \d+\)\./);

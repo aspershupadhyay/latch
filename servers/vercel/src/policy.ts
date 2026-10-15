@@ -4,6 +4,7 @@
 // every case in packages/schemas/v1/policy/cases.json (see test/policy.test.ts).
 // Screen content is untrusted: it may only raise scrutiny, never lower it.
 
+import { describeControl } from "./control.js";
 import { WORDS } from "./generated/policy-words.js";
 import {
   CAPABILITY_DESCRIPTIONS, MAX_REMEMBER_CHARS, type CapabilityState, type Command, type ConfirmRequest, type FileLocation, type Observation,
@@ -183,6 +184,8 @@ function assess(command: Command, observation: Observation | undefined): Assessm
     case "file.transfer": return low(command.params.cancel === true ? "Stop a file transfer" : "Check a file transfer");
     case "activity.list": return low("Read Latch's activity log");
     case "task.done": return low("Say the task is done");
+    // Off-screen device state, like the clipboard; the owner switched each group on.
+    case "control.set": return medium(describeControl(command.params.control));
     case "clipboard.set": return medium(`Copy ${[...command.params.text].length} characters to the clipboard`);
     case "file.mkdir": return medium(`Create the folder “${shorten(command.params.name)}”`);
     case "file.rename": return medium(`Rename a file to “${shorten(command.params.name)}”`);

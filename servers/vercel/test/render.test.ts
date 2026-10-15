@@ -7,6 +7,7 @@ import { SENSITIVE_APP_NOTE, renderChanges, renderObservation, toolError } from 
 import { ProtocolError, normalizeObservation } from "../src/protocol.js";
 import { shared } from "./shared.js";
 import { renderLatestTask } from "../src/replay.js";
+import { ControlError, controlAnswer, controlChangesScreen, describeControl, parseControlArgs } from "../src/control.js";
 import type { ActivityList } from "../src/protocol.js";
 
 test("observation rendering matches the Rust gateway byte for byte", () => {
@@ -59,4 +60,24 @@ test("screenshots may be JPEG, PNG, or (since 1.10) WebP, nothing else", () => {
 test("task replay text matches the Rust gateway byte for byte", () => {
   const input = JSON.parse(shared("mcp/replay-input.json")) as { cases: ActivityList[] };
   assert.equal(input.cases.map(renderLatestTask).join("---\n"), shared("mcp/replay-expected.txt"));
+});
+
+test("phone_control parses and answers like the Rust gateway (protocol 1.11)", () => {
+  const input = JSON.parse(shared("mcp/control-input.json")) as { cases: { args: Record<string, unknown>; reading?: unknown }[] };
+  const expected = JSON.parse(shared("mcp/control-expected.json"));
+  const got = input.cases.map((c) => {
+    try {
+      const control = parseControlArgs(c.args);
+      return {
+        command: { name: "control.set", params: { control } },
+        changes_screen: controlChangesScreen(control),
+        words: describeControl(control),
+        answer: controlAnswer(control, c.reading as never),
+      };
+    } catch (e) {
+      if (e instanceof ControlError) return { error: e.message };
+      throw e;
+    }
+  });
+  assert.deepEqual(got, expected);
 });

@@ -4,7 +4,9 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.10";
+import { CONTROL_CAPABILITY, ControlError, type PhoneControl, controlChangesScreen, validateControl } from "./control.js";
+
+export const PROTOCOL_VERSION = "1.11";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -47,6 +49,7 @@ export class ProtocolError extends Error {
 export const CAPABILITIES = [
   "device.info", "ui.observe", "screen.capture", "input.gesture", "input.text", "nav.global", "app.launch",
   "file.read", "file.write", "app.share", "clipboard.write", "activity.read",
+  "control.volume", "control.media", "control.brightness", "control.panels", "control.flashlight",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type CapabilityStatus = "enabled" | "disabled" | "needs_permission" | "unsupported";
@@ -65,6 +68,11 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "app.share": "share files to an app",
   "clipboard.write": "copy text to the clipboard",
   "activity.read": "read Latch's activity log",
+  "control.volume": "change the volume",
+  "control.media": "play, pause, and skip media",
+  "control.brightness": "change the screen brightness",
+  "control.panels": "open the Wi-Fi and Bluetooth panels",
+  "control.flashlight": "switch the flashlight on and off",
 };
 
 export interface SessionInfo {
@@ -151,7 +159,9 @@ export type Command =
   | { name: "clipboard.set"; params: { text: string } }
   // Since 1.8: the phone's activity log, and the end of a task.
   | { name: "activity.list"; params: { limit: number; kinds?: ActivityKind[]; since_ms?: number } }
-  | { name: "task.done"; params: { summary?: string } };
+  | { name: "task.done"; params: { summary?: string } }
+  // Since 1.11: one phone control, each group behind its own capability.
+  | { name: "control.set"; params: { control: PhoneControl } };
 
 /** Since 1.8: what an activity log entry is about. */
 export const ACTIVITY_KINDS = ["session", "connection", "screen", "action", "app", "approval", "refusal", "file", "folder", "task"] as const;
@@ -216,6 +226,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   if (c.name === "owner.ask") return 5;
+  if (c.name === "control.set") return 11;
   if (c.name === "activity.list" || c.name === "task.done") return 8;
   if (c.name === "file.fetch" || c.name === "file.push" || c.name === "file.transfer" || c.name === "clipboard.set") return 7;
   if (c.name.startsWith("file.") || c.name === "app.share") return 6;
@@ -248,6 +259,7 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "activity.list": return ["activity.read"];
     // Only hides Latch's own cursor and writes a log line.
     case "task.done": return [];
+    case "control.set": return [CONTROL_CAPABILITY[c.params.control.kind]];
   }
 }
 
@@ -258,8 +270,9 @@ export const isAction = (c: Command) =>
 /** `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
 export const isFileChange = (c: Command) => ["file.write", "file.fetch", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
 
-/** Actions after which the old observation is stale and a new one is worth returning (files and the clipboard are off screen). */
-export const changesScreen = (c: Command) => isAction(c) && !isFileChange(c) && c.name !== "clipboard.set";
+/** Actions after which the old observation is stale and a new one is worth returning (files, the clipboard, and every control but a panel are off screen). */
+export const changesScreen = (c: Command) =>
+  c.name === "control.set" ? controlChangesScreen(c.params.control) : isAction(c) && !isFileChange(c) && c.name !== "clipboard.set";
 
 /** Actions the owner approves under "Ask me before every action"; asking the owner is already a question. */
 export const needsOwnerApprovalWhenStrict = (c: Command) =>
@@ -495,6 +508,14 @@ export function validateCommand(c: Command): void {
       if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(s)) throw invalid("summary must not contain control characters");
       return;
     }
+    case "control.set":
+      try {
+        validateControl(c.params.control);
+      } catch (e) {
+        if (e instanceof ControlError) throw invalid(e.message);
+        throw e;
+      }
+      return;
     case "clipboard.set": {
       const n = [...c.params.text].length;
       if (n === 0 || n > LIMITS.maxClipboardChars) throw invalid(`text must be 1-${LIMITS.maxClipboardChars} characters`);
@@ -645,6 +666,13 @@ export function parseCommand(raw: unknown): Command {
       };
     }
     case "task.done": return { name, params: p.summary !== undefined ? { summary: str("summary") } : {} };
+    case "control.set":
+      try {
+        return { name, params: { control: validateControl(p.control) } };
+      } catch (e) {
+        if (e instanceof ControlError) throw invalid(e.message);
+        throw e;
+      }
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
 }
