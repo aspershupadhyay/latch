@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Interop check: the official MCP TypeScript SDK client drives a fresh gateway
-# and fake phone through observe -> launch -> tap; then the Python client
+# and fake phone through observe -> launch -> tap, and signs in with OAuth
+# (roadmap R17); then the Python client
 # (adapters/python, roadmap R15) drives two fake phones in parallel.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -30,7 +31,7 @@ connected() {
 $bin/latch-fake-device "$base" "$(pair Interop)" 2>/dev/null &
 fake=$!
 connected 1
-(cd tests/interop && npm ci --silent --no-audit --no-fund && LATCH_URL="$base" node mcp-sdk-client.mjs)
+(cd tests/interop && npm ci --silent --no-audit --no-fund && LATCH_URL="$base" node mcp-sdk-client.mjs && LATCH_URL="$base" node oauth-sdk-client.mjs)
 $bin/latch-fake-device "$base" "$(pair 'Interop two')" 2>/dev/null &
 fake2=$!
 connected 2

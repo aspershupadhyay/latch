@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::store::{ClientRecord, DeviceRecord};
-use crate::{AppState, device_http, device_ws, mcp, now_ms, secret};
+use crate::{AppState, device_http, device_ws, mcp, now_ms, oauth, secret};
 
 const PAGE_HTML: &str = include_str!("page/index.html");
 const PAGE_CSS: &str = include_str!("page/gateway.css");
@@ -65,6 +65,39 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(admin_clients).post(admin_create_client),
         )
         .route("/v1/admin/clients/{id}", delete(admin_revoke_client))
+        .route("/v1/admin/oauth/requests", get(admin_oauth_requests))
+        .route("/v1/admin/oauth/requests/{id}", post(admin_oauth_decide))
+        // OAuth for MCP clients (roadmap R17): sign in with only the URL, approved on the phone.
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(oauth::protected_resource).options(oauth::preflight),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(oauth::protected_resource).options(oauth::preflight),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(oauth::authorization_server).options(oauth::preflight),
+        )
+        .route(
+            "/.well-known/openid-configuration",
+            get(oauth::authorization_server).options(oauth::preflight),
+        )
+        .route(
+            "/oauth/register",
+            post(oauth::register).options(oauth::preflight),
+        )
+        .route("/oauth/authorize", get(oauth::authorize))
+        .route("/oauth/token", post(oauth::token).options(oauth::preflight))
+        .route(
+            "/oauth/revoke",
+            post(oauth::revoke).options(oauth::preflight),
+        )
+        .route(
+            "/oauth/requests/{id}",
+            get(oauth::request_status).post(oauth::decide_in_browser),
+        )
         .layer(DefaultBodyLimit::max(256 * 1024))
         .layer(axum::middleware::map_response(private_headers))
         .with_state(state)
@@ -350,8 +383,15 @@ fn is_mcp_client(state: &AppState, token: Option<&str>) -> bool {
         .mcp_token
         .as_deref()
         .is_some_and(|expected| secret::secrets_equal(token, expected));
-    let by_client = state.store().authenticate_client(token, now_ms()).is_some();
-    by_env || by_client
+    if by_env {
+        return true;
+    }
+    // OAuth access tokens; revoking the app in the owner list ends them at once.
+    if token.starts_with("lat_") {
+        let app = state.oauth().access_app(token, now_ms());
+        return app.is_some_and(|app| state.store().use_client(&app, now_ms()));
+    }
+    state.store().authenticate_client(token, now_ms()).is_some()
 }
 
 // ---- The public page: static, no scripts, no forms ----
@@ -442,7 +482,7 @@ async fn mcp_serve(
         }
     }
     if !is_mcp_client(state, token) {
-        return unauthorized();
+        return oauth::mcp_unauthorized(state, headers, token.is_some());
     }
     if let Some(version) = headers.get("mcp-protocol-version") {
         let version = version.to_str().unwrap_or_default();
@@ -691,10 +731,46 @@ async fn admin_clients(State(state): State<Arc<AppState>>, headers: HeaderMap) -
                 "name": c.name,
                 "created_at_ms": c.created_at_ms,
                 "last_used_ms": c.last_used_ms,
+                "kind": c.kind.as_deref().unwrap_or("key"),
             })
         })
         .collect();
     Json(json!({ "clients": clients })).into_response()
+}
+
+/// AI apps waiting for the owner's approval in the Latch app (OAuth sign-in).
+async fn admin_oauth_requests(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    Json(oauth::owner_requests(&state)).into_response()
+}
+
+#[derive(Deserialize)]
+struct OAuthDecision {
+    approve: bool,
+}
+
+async fn admin_oauth_decide(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Response {
+    if !is_admin(&state, &headers) {
+        return unauthorized();
+    }
+    let Ok(decision) = serde_json::from_slice::<OAuthDecision>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "approve must be true or false");
+    };
+    if oauth::owner_decide(&state, &id, decision.approve) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        error(
+            StatusCode::NOT_FOUND,
+            "that request expired or was already decided",
+        )
+    }
 }
 
 /// Creates an MCP client token. The token is returned exactly once.
@@ -722,6 +798,8 @@ async fn admin_create_client(
         token_sha256: secret::sha256_hex(&token),
         created_at_ms: now_ms(),
         last_used_ms: None,
+        kind: None,
+        oauth_client_id: None,
     };
     let id = record.id.clone();
     if let Err(e) = state.store().insert_client(record) {
