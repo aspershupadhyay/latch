@@ -1,0 +1,1903 @@
+{
+  "device_id": "d_fixture",
+  "cases": [
+    {
+      "name": "one switch toggled",
+      "base": {
+        "observation_id": "o_1",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      },
+      "now": {
+        "observation_id": "o_2",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": true
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      }
+    },
+    {
+      "name": "nothing changed",
+      "base": {
+        "observation_id": "o_1",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      },
+      "now": {
+        "observation_id": "o_3",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      }
+    },
+    {
+      "name": "a toast appeared and a row left",
+      "base": {
+        "observation_id": "o_1",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      },
+      "now": {
+        "observation_id": "o_4",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          },
+          {
+            "id": "n30",
+            "role": "Toast",
+            "bounds": {
+              "left": 300,
+              "top": 2250,
+              "right": 780,
+              "bottom": 2330
+            },
+            "text": "Saved"
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      }
+    },
+    {
+      "name": "another app",
+      "base": {
+        "observation_id": "o_1",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      },
+      "now": {
+        "observation_id": "o_5",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.chrome",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      }
+    },
+    {
+      "name": "too much changed",
+      "base": {
+        "observation_id": "o_1",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n4",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 520,
+              "right": 1040,
+              "bottom": 650
+            },
+            "parent": "n1",
+            "text": "Apps",
+            "clickable": true
+          },
+          {
+            "id": "n5",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 670,
+              "right": 1040,
+              "bottom": 800
+            },
+            "parent": "n1",
+            "text": "Notifications",
+            "clickable": true
+          },
+          {
+            "id": "n6",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 820,
+              "right": 1040,
+              "bottom": 950
+            },
+            "parent": "n1",
+            "text": "Battery",
+            "clickable": true
+          },
+          {
+            "id": "n7",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 970,
+              "right": 1040,
+              "bottom": 1100
+            },
+            "parent": "n1",
+            "text": "Storage",
+            "clickable": true
+          },
+          {
+            "id": "n8",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1120,
+              "right": 1040,
+              "bottom": 1250
+            },
+            "parent": "n1",
+            "text": "Sound & vibration",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      },
+      "now": {
+        "observation_id": "o_6",
+        "captured_at_ms": 1800000000000,
+        "package": "com.android.settings",
+        "screen": {
+          "width": 1080,
+          "height": 2400,
+          "rotation": 0
+        },
+        "nodes": [
+          {
+            "id": "n1",
+            "role": "RecyclerView",
+            "bounds": {
+              "left": 0,
+              "top": 200,
+              "right": 1080,
+              "bottom": 2400
+            },
+            "scrollable": true
+          },
+          {
+            "id": "n2",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 220,
+              "right": 1040,
+              "bottom": 350
+            },
+            "parent": "n1",
+            "text": "Network & internet",
+            "clickable": true
+          },
+          {
+            "id": "n3",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 370,
+              "right": 1040,
+              "bottom": 500
+            },
+            "parent": "n1",
+            "text": "Connected devices",
+            "clickable": true
+          },
+          {
+            "id": "n9",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1270,
+              "right": 1040,
+              "bottom": 1400
+            },
+            "parent": "n1",
+            "text": "Display",
+            "clickable": true
+          },
+          {
+            "id": "n10",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1420,
+              "right": 1040,
+              "bottom": 1550
+            },
+            "parent": "n1",
+            "text": "Wallpaper",
+            "clickable": true
+          },
+          {
+            "id": "n11",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1570,
+              "right": 1040,
+              "bottom": 1700
+            },
+            "parent": "n1",
+            "text": "Accessibility",
+            "clickable": true
+          },
+          {
+            "id": "n12",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1720,
+              "right": 1040,
+              "bottom": 1850
+            },
+            "parent": "n1",
+            "text": "Security & privacy",
+            "clickable": true
+          },
+          {
+            "id": "n13",
+            "role": "TextView",
+            "bounds": {
+              "left": 40,
+              "top": 1870,
+              "right": 1040,
+              "bottom": 2000
+            },
+            "parent": "n1",
+            "text": "Location",
+            "clickable": true
+          },
+          {
+            "id": "n20",
+            "role": "Switch",
+            "bounds": {
+              "left": 40,
+              "top": 2100,
+              "right": 1040,
+              "bottom": 2200
+            },
+            "parent": "n1",
+            "text": "Wi-Fi",
+            "clickable": true,
+            "checked": false
+          }
+        ],
+        "redacted_count": 0,
+        "truncated": false
+      }
+    }
+  ]
+}

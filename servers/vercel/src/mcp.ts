@@ -8,7 +8,7 @@ import { SERVER } from "./generated/contract.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
 import { ACTIVITY_KINDS, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
-import { quote, renderObservation, textResult, toolError, truncate } from "./render.js";
+import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
 import { type RunContext, SKILL_TOOLS, runSkill, runSteps, runStore } from "./skills.js";
@@ -414,7 +414,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
   };
   const failedObserve = (err: ProtocolError) =>
     textResult(`${doneText} Could not observe the screen afterwards (${err.code}: ${err.message}). Call observe.`);
-  if (run.observation) return withTiming(done(observationResult(deviceId, run.observation, screenshotAfter && !screenshotAllowed(live))), run.timing);
+  if (run.observation) return withTiming(done(await shown(ctx, deviceId, live, run.observation, screenshotAfter && !screenshotAllowed(live), true)), run.timing);
   if (run.observationError) return withTiming(failedObserve(run.observationError), run.timing);
   // Older phones: settle here, then observe with a second command.
   await new Promise((r) => setTimeout(r, ctx.settleMs));
@@ -459,7 +459,7 @@ async function waitFor(ctx: McpContext, deviceId: string, live: Live, command: E
   // A wait never carries a screenshot; take one only when asked and allowed.
   const result = wantScreenshot && screenshotAllowed(live)
     ? await observe(ctx, deviceId, live, true, 400)
-    : withTiming(observationResult(deviceId, run.observation!, wantScreenshot), run.timing);
+    : withTiming(await shown(ctx, deviceId, live, run.observation!, wantScreenshot, true), run.timing);
   result.content.unshift({ type: "text", text: headline });
   return result;
 }
@@ -475,8 +475,27 @@ function withTiming<T extends object>(result: T, timing: CommandTiming): T {
 // still works with the default arguments.
 const screenshotAllowed = (live: Live) => live.capabilities.some((c) => c.capability === "screen.capture" && c.status === "enabled");
 
+/**
+ * The screen for the AI: as the changes since the last full screen it was
+ * shown when `changes` allows and they are few (R5), otherwise in full, which
+ * then becomes the new base. Same behaviour as `shown` in the Rust gateway.
+ */
+async function shown(ctx: McpContext, deviceId: string, live: Live, obs: Observation, screenshotWithheld: boolean, changes: boolean): Promise<ToolResult> {
+  if (changes) {
+    const base = await ctx.devices.shownBase(deviceId, live.conn);
+    const partial = base ? renderChanges(deviceId, obs, base, screenshotWithheld) : undefined;
+    if (partial !== undefined) return withScreenshot(partial, obs);
+  }
+  await ctx.devices.setShownBase(deviceId, live.conn, obs);
+  return observationResult(deviceId, obs, screenshotWithheld);
+}
+
 function observationResult(deviceId: string, obs: Observation, screenshotWithheld: boolean): ToolResult {
-  const content: ToolResult["content"] = [{ type: "text", text: renderObservation(deviceId, obs, screenshotWithheld) }];
+  return withScreenshot(renderObservation(deviceId, obs, screenshotWithheld), obs);
+}
+
+function withScreenshot(text: string, obs: Observation): ToolResult {
+  const content: ToolResult["content"] = [{ type: "text", text }];
   if (obs.screenshot) content.push({ type: "image", data: obs.screenshot.data_base64, mimeType: obs.screenshot.mime });
   return { content };
 }
@@ -487,7 +506,7 @@ async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreen
     name: "ui.observe",
     params: { include_screenshot: wantScreenshot && allowed, max_nodes: maxNodes },
   });
-  return withTiming(observationResult(deviceId, run.data as Observation, wantScreenshot && !allowed), run.timing);
+  return withTiming(await shown(ctx, deviceId, live, run.data as Observation, wantScreenshot && !allowed, false), run.timing);
 }
 
 /**

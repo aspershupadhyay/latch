@@ -164,9 +164,12 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Settings") } });
   // Protocol 1.9 effect, same text as the Rust gateway: the app changed, then a tap that does nothing says so.
   assert.ok(text(screen).startsWith("Done; another app is now in front. The screen after the action:"), text(screen));
-  screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Display") } });
+  const full = text(screen);
+  screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(full), element_id: element(full, "Display") } });
   assert.ok(text(screen).startsWith("Done, but the screen did not visibly change"), text(screen));
-  screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(text(screen), "Network & internet") } });
+  // R5, same text as the Rust gateway: the changes since the full screen, and unchanged elements keep their ids.
+  assert.ok(text(screen).includes(`Changes since observation ${obsId(full)}: elements not listed here are unchanged and keep their ids.\n(no element changed)\n`), text(screen));
+  screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(full, "Network & internet") } });
   assert.match(text(screen), /\[tap,checked\]/);
   const before = obsId(text(screen));
   screen = await client.callTool({ name: "tap", arguments: { observation_id: before, element_id: element(text(screen), "Wi-Fi") } });
