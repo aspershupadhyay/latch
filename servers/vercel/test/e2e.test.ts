@@ -137,7 +137,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
+  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task", "phone_control",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
     "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
     "answer_approval"]);
@@ -279,6 +279,18 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.ok(replay.endsWith(" task by AI: Ran task.done\n"), replay);
   const mixed = await client.callTool({ name: "get_activity", arguments: { task: "latest", kinds: ["file"] } });
   assert.ok(mixed.isError && /task cannot be combined/.test(text(mixed)), text(mixed));
+  // Roadmap R16: phone controls (same texts as the Rust gateway).
+  assert.equal(text(await client.callTool({ name: "phone_control", arguments: { control: "volume", percent: 40 } })), "Done: Set the media volume to 40%.");
+  const panel = await client.callTool({ name: "phone_control", arguments: { control: "panel", panel: "wifi" } });
+  assert.ok(!panel.isError && text(panel).includes("app com.android.settings"), text(panel));
+  for (const [args, says] of [
+    [{ control: "brightness", percent: 101 }, "percent must be 0-100"],
+    [{ control: "flashlight" }, "on must be true or false"],
+    [{ control: "airplane_mode" }, "control must be"],
+  ] as const) {
+    const r = await client.callTool({ name: "phone_control", arguments: args });
+    assert.ok(r.isError && text(r).includes(says), text(r));
+  }
   const note = text(await client.callTool({ name: "write_file", arguments: { location: "downloads", subfolder: "abc", name: "todo.txt", text: "milk" } }));
   assert.match(note, /^Saved "todo\.txt" to Downloads \("abc"\) \(4 B\)\./);
   const shared = await client.callTool({ name: "share_to_app", arguments: { package: "com.linkedin.android", file_ids: [clip], text: "New video" } });

@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.10";
+export const PROTOCOL_VERSION = "1.11";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -47,6 +47,7 @@ export class ProtocolError extends Error {
 export const CAPABILITIES = [
   "device.info", "ui.observe", "screen.capture", "input.gesture", "input.text", "nav.global", "app.launch",
   "file.read", "file.write", "app.share", "clipboard.write", "activity.read",
+  "control.sound", "control.brightness", "control.flashlight", "control.panels",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type CapabilityStatus = "enabled" | "disabled" | "needs_permission" | "unsupported";
@@ -65,6 +66,10 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "app.share": "share files to an app",
   "clipboard.write": "copy text to the clipboard",
   "activity.read": "read Latch's activity log",
+  "control.sound": "set volumes and play or pause media",
+  "control.brightness": "set the screen brightness",
+  "control.flashlight": "turn the flashlight on or off",
+  "control.panels": "open the Wi-Fi, internet, Bluetooth, and volume panels",
 };
 
 export interface SessionInfo {
@@ -151,7 +156,41 @@ export type Command =
   | { name: "clipboard.set"; params: { text: string } }
   // Since 1.8: the phone's activity log, and the end of a task.
   | { name: "activity.list"; params: { limit: number; kinds?: ActivityKind[]; since_ms?: number } }
-  | { name: "task.done"; params: { summary?: string } };
+  | { name: "task.done"; params: { summary?: string } }
+  // Since 1.11: phone controls, one owner switch per group.
+  | { name: "device.control"; params: { control: PhoneControl } };
+
+/** Since 1.11: one phone control; the same shapes as crates/protocol's `PhoneControl`. */
+export const VOLUME_STREAMS = ["media", "ring", "notification", "alarm"] as const;
+export const MEDIA_ACTIONS = ["play_pause", "next", "previous"] as const;
+export const SETTINGS_PANELS = ["wifi", "internet", "bluetooth", "volume"] as const;
+export type PhoneControl =
+  | { kind: "volume"; stream: (typeof VOLUME_STREAMS)[number]; percent: number }
+  | { kind: "media"; action: (typeof MEDIA_ACTIONS)[number] }
+  | { kind: "brightness"; percent: number }
+  | { kind: "flashlight"; on: boolean }
+  | { kind: "panel"; panel: (typeof SETTINGS_PANELS)[number] };
+
+/** The owner switch for a group of controls. */
+export function controlCapability(c: PhoneControl): Capability {
+  switch (c.kind) {
+    case "volume": case "media": return "control.sound";
+    case "brightness": return "control.brightness";
+    case "flashlight": return "control.flashlight";
+    case "panel": return "control.panels";
+  }
+}
+
+/** What a control does, in the owner's words; the same text as `PhoneControl::describe` in Rust. */
+export function describeControl(c: PhoneControl): string {
+  switch (c.kind) {
+    case "volume": return `Set the ${c.stream} volume to ${c.percent}%`;
+    case "media": return { play_pause: "Play or pause media", next: "Skip to the next track", previous: "Go back a track" }[c.action];
+    case "brightness": return `Set the screen brightness to ${c.percent}%`;
+    case "flashlight": return `Turn the flashlight ${c.on ? "on" : "off"}`;
+    case "panel": return `Open the ${{ wifi: "Wi-Fi", internet: "internet", bluetooth: "Bluetooth", volume: "volume" }[c.panel]} panel`;
+  }
+}
 
 /** Since 1.8: what an activity log entry is about. */
 export const ACTIVITY_KINDS = ["session", "connection", "screen", "action", "app", "approval", "refusal", "file", "folder", "task"] as const;
@@ -216,6 +255,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   if (c.name === "owner.ask") return 5;
+  if (c.name === "device.control") return 11;
   if (c.name === "activity.list" || c.name === "task.done") return 8;
   if (c.name === "file.fetch" || c.name === "file.push" || c.name === "file.transfer" || c.name === "clipboard.set") return 7;
   if (c.name.startsWith("file.") || c.name === "app.share") return 6;
@@ -248,6 +288,7 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "activity.list": return ["activity.read"];
     // Only hides Latch's own cursor and writes a log line.
     case "task.done": return [];
+    case "device.control": return [controlCapability(c.params.control)];
   }
 }
 
@@ -258,8 +299,9 @@ export const isAction = (c: Command) =>
 /** `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
 export const isFileChange = (c: Command) => ["file.write", "file.fetch", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
 
-/** Actions after which the old observation is stale and a new one is worth returning (files and the clipboard are off screen). */
-export const changesScreen = (c: Command) => isAction(c) && !isFileChange(c) && c.name !== "clipboard.set";
+/** Actions after which the old observation is stale and a new one is worth returning (files, the clipboard, and controls other than a panel are off screen). */
+export const changesScreen = (c: Command) => isAction(c) && !isFileChange(c) && c.name !== "clipboard.set"
+  && !(c.name === "device.control" && c.params.control.kind !== "panel");
 
 /** Actions the owner approves under "Ask me before every action"; asking the owner is already a question. */
 export const needsOwnerApprovalWhenStrict = (c: Command) =>
@@ -495,6 +537,11 @@ export function validateCommand(c: Command): void {
       if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(s)) throw invalid("summary must not contain control characters");
       return;
     }
+    case "device.control": {
+      const k = c.params.control;
+      if ((k.kind === "volume" || k.kind === "brightness") && (!isInt(k.percent) || k.percent < 0 || k.percent > 100)) throw invalid("percent must be 0-100");
+      return;
+    }
     case "clipboard.set": {
       const n = [...c.params.text].length;
       if (n === 0 || n > LIMITS.maxClipboardChars) throw invalid(`text must be 1-${LIMITS.maxClipboardChars} characters`);
@@ -511,6 +558,25 @@ export function validateCommand(c: Command): void {
       if (/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(c.params.message)) throw invalid("message must not contain control characters");
       return;
     }
+  }
+}
+
+/** Parses an untrusted phone control; unknown kinds and values are refused. */
+export function parseControl(raw: unknown): PhoneControl {
+  if (typeof raw !== "object" || raw === null) throw invalid("control must be an object");
+  const c = raw as Record<string, unknown>;
+  const oneOf = <T extends string>(k: string, values: readonly T[]): T => {
+    if (!values.includes(c[k] as T)) throw invalid(`${k} must be ${values.join(", ")}`);
+    return c[k] as T;
+  };
+  const percent = () => { if (!isInt(c.percent)) throw invalid("percent must be an integer"); return c.percent; };
+  switch (c.kind) {
+    case "volume": return { kind: "volume", stream: oneOf("stream", VOLUME_STREAMS), percent: percent() };
+    case "media": return { kind: "media", action: oneOf("action", MEDIA_ACTIONS) };
+    case "brightness": return { kind: "brightness", percent: percent() };
+    case "flashlight": if (typeof c.on !== "boolean") throw invalid("on must be a boolean"); return { kind: "flashlight", on: c.on };
+    case "panel": return { kind: "panel", panel: oneOf("panel", SETTINGS_PANELS) };
+    default: throw invalid("unknown control");
   }
 }
 
@@ -645,6 +711,7 @@ export function parseCommand(raw: unknown): Command {
       };
     }
     case "task.done": return { name, params: p.summary !== undefined ? { summary: str("summary") } : {} };
+    case "device.control": return { name, params: { control: parseControl(p.control) } };
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
 }

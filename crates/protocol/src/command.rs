@@ -32,6 +32,102 @@ pub enum GlobalAction {
     Recents,
 }
 
+/// Since 1.11: which sound a volume control sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VolumeStream {
+    Media,
+    Ring,
+    Notification,
+    Alarm,
+}
+
+/// Since 1.11: a media key, sent to whatever app is playing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaAction {
+    PlayPause,
+    Next,
+    Previous,
+}
+
+/// Since 1.11: an Android settings panel, shown over the current app. What
+/// is tapped inside it is an ordinary action under the usual rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SettingsPanel {
+    Wifi,
+    Internet,
+    Bluetooth,
+    Volume,
+}
+
+/// Since 1.11: one phone control. Each group has its own capability, off
+/// by default (see [`PhoneControl::capability`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PhoneControl {
+    /// Set a stream's volume, 0-100 % of its range.
+    Volume { stream: VolumeStream, percent: u8 },
+    /// Play/pause, next, or previous in the app that is playing.
+    Media { action: MediaAction },
+    /// Set the screen brightness, 0-100 % (turns adaptive brightness off).
+    Brightness { percent: u8 },
+    /// Turn the flashlight on or off.
+    Flashlight { on: bool },
+    /// Open a settings panel.
+    Panel { panel: SettingsPanel },
+}
+
+impl PhoneControl {
+    /// The capability the owner switches on for this group of controls.
+    pub fn capability(&self) -> Capability {
+        match self {
+            PhoneControl::Volume { .. } | PhoneControl::Media { .. } => Capability::ControlSound,
+            PhoneControl::Brightness { .. } => Capability::ControlBrightness,
+            PhoneControl::Flashlight { .. } => Capability::ControlFlashlight,
+            PhoneControl::Panel { .. } => Capability::ControlPanels,
+        }
+    }
+
+    /// What this control does, in the owner's words, e.g. "Set the media volume to 40%".
+    /// The gateways and the phone's approval card use the same text.
+    pub fn describe(&self) -> String {
+        match self {
+            PhoneControl::Volume { stream, percent } => {
+                let stream = match stream {
+                    VolumeStream::Media => "media",
+                    VolumeStream::Ring => "ring",
+                    VolumeStream::Notification => "notification",
+                    VolumeStream::Alarm => "alarm",
+                };
+                format!("Set the {stream} volume to {percent}%")
+            }
+            PhoneControl::Media { action } => match action {
+                MediaAction::PlayPause => "Play or pause media",
+                MediaAction::Next => "Skip to the next track",
+                MediaAction::Previous => "Go back a track",
+            }
+            .into(),
+            PhoneControl::Brightness { percent } => {
+                format!("Set the screen brightness to {percent}%")
+            }
+            PhoneControl::Flashlight { on } => {
+                format!("Turn the flashlight {}", if *on { "on" } else { "off" })
+            }
+            PhoneControl::Panel { panel } => format!(
+                "Open the {} panel",
+                match panel {
+                    SettingsPanel::Wifi => "Wi-Fi",
+                    SettingsPanel::Internet => "internet",
+                    SettingsPanel::Bluetooth => "Bluetooth",
+                    SettingsPanel::Volume => "volume",
+                }
+            ),
+        }
+    }
+}
+
 /// Scroll direction, named after the content being revealed: `down` shows
 /// what is further down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -323,6 +419,12 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         summary: Option<String>,
     },
+
+    /// Since 1.11: a phone control: volume, a media key, brightness, the
+    /// flashlight, or a settings panel. Answers with an
+    /// [`crate::ActionResult`]; a panel also brings the screen back.
+    #[serde(rename = "device.control")]
+    DeviceControl { control: PhoneControl },
 }
 
 fn default_activity_limit() -> u32 {
@@ -379,6 +481,7 @@ impl Command {
             Command::SetClipboard { .. } => "clipboard.set",
             Command::ListActivity { .. } => "activity.list",
             Command::TaskDone { .. } => "task.done",
+            Command::DeviceControl { .. } => "device.control",
         }
     }
 
@@ -422,6 +525,7 @@ impl Command {
             Command::ListActivity { .. } => vec![Capability::ActivityRead],
             // Only hides Latch's own cursor and writes a log line.
             Command::TaskDone { .. } => vec![],
+            Command::DeviceControl { control } => vec![control.capability()],
         }
     }
 
@@ -445,10 +549,22 @@ impl Command {
     }
 
     /// True for actions that change what is on screen, after which the old
-    /// observation is stale and a new one is worth returning. File changes
-    /// and the clipboard happen off screen.
+    /// observation is stale and a new one is worth returning. File changes,
+    /// the clipboard, and phone controls other than a settings panel happen
+    /// off screen.
     pub fn changes_screen(&self) -> bool {
-        self.is_action() && !self.is_file_change() && !matches!(self, Command::SetClipboard { .. })
+        self.is_action()
+            && !self.is_file_change()
+            && !matches!(
+                self,
+                Command::SetClipboard { .. }
+                    | Command::DeviceControl {
+                        control: PhoneControl::Volume { .. }
+                            | PhoneControl::Media { .. }
+                            | PhoneControl::Brightness { .. }
+                            | PhoneControl::Flashlight { .. }
+                    }
+            )
     }
 
     /// `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`.
@@ -496,6 +612,7 @@ impl Command {
             | Command::TransferStatus { .. }
             | Command::SetClipboard { .. } => 7,
             Command::ListActivity { .. } | Command::TaskDone { .. } => 8,
+            Command::DeviceControl { .. } => 11,
             _ => 0,
         }
     }

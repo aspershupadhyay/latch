@@ -330,6 +330,7 @@ async fn mcp_handshake_and_discovery() {
             "ask_owner",
             "get_activity",
             "finish_task",
+            "phone_control",
             "list_files",
             "read_file",
             "get_file_link",
@@ -1233,7 +1234,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.10, 33 tools.",
+        lines[0], "Latch gateway, protocol 1.11, 34 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1524,6 +1525,47 @@ async fn files_round_trip_between_phone_and_computer() {
     assert!(
         is_error && text.contains("task cannot be combined"),
         "{text}"
+    );
+
+    // Roadmap R16: phone controls. Off-screen ones answer in words; a panel brings the screen.
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "volume", "percent": 40}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    assert_eq!(text, "Done: Set the media volume to 40%.");
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "panel", "panel": "wifi"}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    assert!(text.contains("app com.android.settings"), "{text}");
+    for (args, says) in [
+        (
+            json!({"control": "brightness", "percent": 101}),
+            "percent must be 0-100",
+        ),
+        (json!({"control": "flashlight"}), "on must be true or false"),
+        (json!({"control": "airplane_mode"}), "control must be"),
+    ] {
+        let (is_error, text, _) = call(&gw, "phone_control", args).await;
+        assert!(is_error && text.contains(says), "{text}");
+    }
+    assert_eq!(
+        phone.state.lock().expect("lock").controls,
+        [
+            latch_protocol::PhoneControl::Volume {
+                stream: latch_protocol::VolumeStream::Media,
+                percent: 40
+            },
+            latch_protocol::PhoneControl::Panel {
+                panel: latch_protocol::SettingsPanel::Wifi
+            },
+        ]
     );
 
     // Inline text into Downloads/abc; the same name gets a free name.

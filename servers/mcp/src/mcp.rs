@@ -476,6 +476,28 @@ pub fn tool_definitions() -> Vec<Value> {
             }),
             &[],
         ),
+        tool(
+            "phone_control",
+            "Control volume, media, brightness, flashlight, or a settings panel",
+            "One phone control per call, each behind its own owner switch (off by default): \
+             volume (a stream to 0-100 %) and media keys (play_pause, next, previous) need Sound; \
+             brightness (0-100 %, turns adaptive brightness off) needs Brightness; flashlight on \
+             or off needs Flashlight; panel opens the Wi-Fi, internet, Bluetooth, or volume panel \
+             over the current app and returns the screen, where you continue with tap (Panels). \
+             Needs Latch 1.11 on the phone.",
+            false,
+            json!({
+                "device_id": device_id_schema(),
+                "control": { "type": "string", "enum": ["volume", "media", "brightness", "flashlight", "panel"] },
+                "stream": { "type": "string", "enum": ["media", "ring", "notification", "alarm"], "default": "media", "description": "For volume." },
+                "percent": { "type": "integer", "minimum": 0, "maximum": 100, "description": "For volume and brightness." },
+                "action": { "type": "string", "enum": ["play_pause", "next", "previous"], "description": "For media." },
+                "on": { "type": "boolean", "description": "For flashlight." },
+                "panel": { "type": "string", "enum": ["wifi", "internet", "bluetooth", "volume"], "description": "For panel." },
+                "screenshot_after": screenshot_after_schema(),
+            }),
+            &["control"],
+        ),
     ]
     .into_iter()
     .chain(files::definitions())
@@ -655,6 +677,73 @@ fn utc_time(ms: u64) -> String {
 
 // ---- Tool execution ----
 
+/// `phone_control` arguments as a [`latch_protocol::PhoneControl`].
+fn phone_control(args: &Value) -> Result<latch_protocol::PhoneControl, ProtocolError> {
+    use latch_protocol::{MediaAction, PhoneControl, SettingsPanel, VolumeStream};
+    let bad = |e: ArgError| ProtocolError::new(ErrorCode::InvalidRequest, e.0);
+    let invalid = |m: &str| ProtocolError::new(ErrorCode::InvalidRequest, m);
+    let percent = || -> Result<u8, ProtocolError> {
+        let p = arg_int(args, "percent")
+            .map_err(bad)?
+            .ok_or_else(|| invalid("percent is required (0-100)"))?;
+        u8::try_from(p)
+            .ok()
+            .filter(|p| *p <= 100)
+            .ok_or_else(|| invalid("percent must be 0-100"))
+    };
+    Ok(match req_str(args, "control").map_err(bad)? {
+        "volume" => PhoneControl::Volume {
+            stream: match arg_str(args, "stream").map_err(bad)?.unwrap_or("media") {
+                "media" => VolumeStream::Media,
+                "ring" => VolumeStream::Ring,
+                "notification" => VolumeStream::Notification,
+                "alarm" => VolumeStream::Alarm,
+                _ => {
+                    return Err(invalid(
+                        "stream must be media, ring, notification, or alarm",
+                    ));
+                }
+            },
+            percent: percent()?,
+        },
+        "media" => PhoneControl::Media {
+            action: match arg_str(args, "action").map_err(bad)? {
+                Some("play_pause") => MediaAction::PlayPause,
+                Some("next") => MediaAction::Next,
+                Some("previous") => MediaAction::Previous,
+                _ => return Err(invalid("action must be play_pause, next, or previous")),
+            },
+        },
+        "brightness" => PhoneControl::Brightness {
+            percent: percent()?,
+        },
+        "flashlight" => PhoneControl::Flashlight {
+            on: match args.get("on") {
+                Some(Value::Bool(on)) => *on,
+                _ => return Err(invalid("on must be true or false")),
+            },
+        },
+        "panel" => PhoneControl::Panel {
+            panel: match arg_str(args, "panel").map_err(bad)? {
+                Some("wifi") => SettingsPanel::Wifi,
+                Some("internet") => SettingsPanel::Internet,
+                Some("bluetooth") => SettingsPanel::Bluetooth,
+                Some("volume") => SettingsPanel::Volume,
+                _ => {
+                    return Err(invalid(
+                        "panel must be wifi, internet, bluetooth, or volume",
+                    ));
+                }
+            },
+        },
+        _ => {
+            return Err(invalid(
+                "control must be volume, media, brightness, flashlight, or panel",
+            ));
+        }
+    })
+}
+
 #[derive(Debug)]
 struct ArgError(String);
 
@@ -792,6 +881,13 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
         return Ok(text_result(format!(
             "Copied {count} characters to the phone's clipboard. To paste, long-press the text box and tap Paste."
         )));
+    }
+    if name == "phone_control" {
+        let control = phone_control(args)?;
+        if !matches!(control, latch_protocol::PhoneControl::Panel { .. }) {
+            devices::execute(state, &device_id, Command::DeviceControl { control }).await?;
+            return Ok(text_result(format!("Done: {}.", control.describe())));
+        }
     }
     if name == "get_activity" {
         return activity(state, args, &device_id).await;
@@ -981,6 +1077,10 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
         },
         "ask_owner" => Command::AskOwner {
             message: req_str(args, "message").map_err(bad)?.to_owned(),
+        },
+        // A panel opens over the app: the screen comes back like any action's.
+        "phone_control" => Command::DeviceControl {
+            control: phone_control(args)?,
         },
         _ => return Err(unexpected()),
     };

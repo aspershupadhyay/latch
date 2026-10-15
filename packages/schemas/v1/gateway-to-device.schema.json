@@ -1072,6 +1072,31 @@
             "name",
             "params"
           ]
+        },
+        {
+          "description": "Since 1.11: a phone control: volume, a media key, brightness, the\nflashlight, or a settings panel. Answers with an\n[`crate::ActionResult`]; a panel also brings the screen back.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "device.control"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "control": {
+                  "$ref": "#/$defs/PhoneControl"
+                }
+              },
+              "required": [
+                "control"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
         }
       ]
     },
@@ -1214,6 +1239,15 @@
         "recents"
       ]
     },
+    "MediaAction": {
+      "description": "Since 1.11: a media key, sent to whatever app is playing.",
+      "type": "string",
+      "enum": [
+        "play_pause",
+        "next",
+        "previous"
+      ]
+    },
     "ObserveAfter": {
       "description": "How to observe after an action (since 1.2). The phone applies the same\nrules as `ui.observe`: the `ui.observe` capability (and `screen.capture`\nfor a screenshot) must be enabled, and restricted screens are refused.",
       "type": "object",
@@ -1248,6 +1282,106 @@
         "settle_ms"
       ]
     },
+    "PhoneControl": {
+      "description": "Since 1.11: one phone control. Each group has its own capability, off\nby default (see [`PhoneControl::capability`]).",
+      "oneOf": [
+        {
+          "description": "Set a stream's volume, 0-100 % of its range.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "volume"
+            },
+            "percent": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "stream": {
+              "$ref": "#/$defs/VolumeStream"
+            }
+          },
+          "required": [
+            "kind",
+            "stream",
+            "percent"
+          ]
+        },
+        {
+          "description": "Play/pause, next, or previous in the app that is playing.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/MediaAction"
+            },
+            "kind": {
+              "type": "string",
+              "const": "media"
+            }
+          },
+          "required": [
+            "kind",
+            "action"
+          ]
+        },
+        {
+          "description": "Set the screen brightness, 0-100 % (turns adaptive brightness off).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "brightness"
+            },
+            "percent": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "percent"
+          ]
+        },
+        {
+          "description": "Turn the flashlight on or off.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "flashlight"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "on"
+          ]
+        },
+        {
+          "description": "Open a settings panel.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "panel"
+            },
+            "panel": {
+              "$ref": "#/$defs/SettingsPanel"
+            }
+          },
+          "required": [
+            "kind",
+            "panel"
+          ]
+        }
+      ]
+    },
     "Point": {
       "description": "A point in physical screen pixels of the observation it was taken from.",
       "type": "object",
@@ -1272,6 +1406,16 @@
         "low",
         "medium",
         "high"
+      ]
+    },
+    "SettingsPanel": {
+      "description": "Since 1.11: an Android settings panel, shown over the current app. What\nis tapped inside it is an ordinary action under the usual rules.",
+      "type": "string",
+      "enum": [
+        "wifi",
+        "internet",
+        "bluetooth",
+        "volume"
       ]
     },
     "Target": {
@@ -1305,6 +1449,16 @@
             "y"
           ]
         }
+      ]
+    },
+    "VolumeStream": {
+      "description": "Since 1.11: which sound a volume control sets.",
+      "type": "string",
+      "enum": [
+        "media",
+        "ring",
+        "notification",
+        "alarm"
       ]
     }
   }

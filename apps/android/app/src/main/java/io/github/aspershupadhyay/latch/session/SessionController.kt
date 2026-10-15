@@ -126,7 +126,8 @@ class SessionController(
                 capability == Capability.DEVICE_INFO -> CapabilityStatus.ENABLED
                 capability !in prefs.enabled -> CapabilityStatus.DISABLED
                 !serviceOn -> CapabilityStatus.NEEDS_PERMISSION
-                else -> CapabilityStatus.ENABLED
+                // Brightness needs Android's "Modify system settings"; some phones have no flashlight.
+                else -> bridge.service.value?.let { PhoneControls.limit(it, capability) } ?: CapabilityStatus.ENABLED
             }
         }
     }

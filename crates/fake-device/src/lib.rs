@@ -16,8 +16,8 @@ use latch_protocol::{
     ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AppList,
     Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor,
     DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation,
-    Outcome, OwnerReply, PROTOCOL_VERSION, ProtocolError, ScreenInfo, Screenshot, SessionInfo,
-    Target, WaitResult, validate,
+    Outcome, OwnerReply, PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo, Screenshot,
+    SessionInfo, Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -77,6 +77,8 @@ pub struct FakeState {
     pub clipboard: Vec<String>,
     /// Every `task.done` summary (empty when none was given).
     pub tasks_done: Vec<String>,
+    /// Every `device.control` the phone carried out (protocol 1.11).
+    pub controls: Vec<PhoneControl>,
     pub device_id: Option<String>,
     pub revoked: bool,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
@@ -117,6 +119,7 @@ impl FakeState {
             transfer_delay_ms: 0,
             clipboard: Vec::new(),
             tasks_done: Vec::new(),
+            controls: Vec::new(),
             device_id: None,
             revoked: false,
             latest: None,
@@ -524,6 +527,18 @@ pub fn handle(
         Command::TaskDone { summary } => {
             state.tasks_done.push(summary.clone().unwrap_or_default());
             state.executed.push("task.done".into());
+            serde_json::to_value(ActionResult::default())
+                .map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::DeviceControl { control } => {
+            state.controls.push(*control);
+            state.executed.push("device.control".into());
+            if let PhoneControl::Panel { .. } = control {
+                // The fake phone shows its network page as every panel.
+                state.phone.screen = Screen::Network;
+                state.latest = None;
+                return done(state);
+            }
             serde_json::to_value(ActionResult::default())
                 .map_err(|_| err(ErrorCode::Internal, "encode"))
         }
