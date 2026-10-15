@@ -139,7 +139,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const tools = (await client.listTools()).tools.map((t) => t.name);
   assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
-    "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "delete_skill",
+    "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
     "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).

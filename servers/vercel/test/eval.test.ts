@@ -142,6 +142,21 @@ const TASKS: Task[] = [
       assert.match(s.text, /app org\.latch\.demo\.shop/, s.text);
     },
   },
+  {
+    // Roadmap R4: the same chat task as F3 in one call; the owner is still asked before Send.
+    id: "F7 send a chat message in one call", budget: 1, run: async (r) => {
+      const since = Date.now();
+      const s = await r.call("run_steps", { steps: [
+        { do: "launch_app", package: "org.latch.demo.chat" },
+        { do: "type", target: "Message", text: "Be there soon" },
+        { do: "tap", target: "Send" },
+      ] });
+      assert.ok(!s.isError && s.text.includes("Ran your steps: all 3 steps done."), s.text);
+      assert.match(s.text, /"Be there soon"/, s.text);
+      const events = (await admin("/v1/admin/audit")).events.filter((e: { at_ms: number }) => e.at_ms >= since);
+      assert.ok(events.some((e: { command: string; decision: string }) => e.command === "input.tap" && e.decision === "confirm"), JSON.stringify(events));
+    },
+  },
 ];
 
 const report: string[] = [];

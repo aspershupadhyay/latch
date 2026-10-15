@@ -164,6 +164,7 @@ After your AI does a task (say, filling a grocery cart), ask it to **save it as 
 - It finds buttons by their words, picks the **ADD** next to the right product even when similar items are listed, and skips pop-ups.
 - If something is different (an item is out of stock, a new screen), it stops and your AI handles that step, then carries on.
 - Payments, sends, and anything that needs your OK still ask you, exactly as before. Skills live on **your** gateway.
+- Even without a saved skill, your AI can send a few predictable steps together (open an app, search, tap a result) with `run_steps`, so it doesn't stop to think between each one. Every step still follows the same rules.
 
 ### Step 8: Start a session and try it 🚀
 
@@ -277,7 +278,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Claude Code / Codex / other apps:** restart them.
 
    Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
-6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.8, 32 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.8, 33 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 

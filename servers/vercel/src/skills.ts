@@ -14,7 +14,7 @@ type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 type Obj = { [k: string]: Json };
 type ToolResult = { content: { type: string; text?: string }[] } & Record<string, unknown>;
 
-export const SKILL_TOOLS = ["save_skill", "list_skills", "run_skill", "delete_skill"] as const;
+export const SKILL_TOOLS = ["save_skill", "list_skills", "run_skill", "run_steps", "delete_skill"] as const;
 export const MAX_SKILLS = 50;
 const MAX_PARAMS = 10;
 const MAX_FIELDS = 6;
@@ -533,6 +533,13 @@ const firstText = (v: ToolResult) => v.content?.[0]?.text ?? "";
 const timedOut = (t: string) => t.includes(" did not appear within ") || t.includes(" was still on screen after ");
 const isHeadline = (part: { text?: string }) => typeof part.text === "string" && part.text.endsWith("The screen after the action:");
 
+/** What is being run, for the answer's wording (`Run` in skills.rs). */
+interface Run {
+  what: string;
+  again: (from: number) => string;
+  differs: string;
+}
+
 /** run_skill: executes the steps through the ordinary tools. */
 export async function runSkill(ctx: RunContext, args: Record<string, unknown>): Promise<ToolResult> {
   const skillName = args.name;
@@ -540,6 +547,29 @@ export async function runSkill(ctx: RunContext, args: Record<string, unknown>): 
   const skill = await oneSkill(ctx.store, skillName);
   if (!skill) throw bad(`no skill named ${quote(skillName, 40)}; see list_skills`);
   const steps = asProtocol(() => expand(skill, args.params));
+  return executeSteps(ctx, args, steps, {
+    what: quote(skillName, 40),
+    again: (from) => `run_skill with from_step ${from} and the same params`,
+    differs: "The screen may differ from when the skill was saved (another product, a new pop-up).",
+  });
+}
+
+/**
+ * run_steps (roadmap R4): steps written for this call, in a skill's format,
+ * run in one call without saving anything; validated and expanded by the
+ * same engine, so the same limits and rules apply.
+ */
+export async function runSteps(ctx: RunContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const skill = asProtocol(() => validate({ name: "steps", description: "steps for this call", steps: args.steps ?? null }));
+  const steps = asProtocol(() => expand(skill, null));
+  return executeSteps(ctx, args, steps, {
+    what: "your steps",
+    again: (from) => `run_steps with from_step ${from} and the same steps`,
+    differs: "The screen did not look as the steps expected.",
+  });
+}
+
+async function executeSteps(ctx: RunContext, args: Record<string, unknown>, steps: Obj[], run: Run): Promise<ToolResult> {
   const fromArg = args.from_step ?? 1;
   if (!isInt(fromArg) || fromArg < 1 || fromArg > steps.length) throw bad(`from_step must be 1 to ${steps.length}`);
   const from = fromArg;
@@ -672,25 +702,24 @@ export async function runSkill(ctx: RunContext, args: Record<string, unknown>): 
   }
 
   const total = steps.length;
-  const nameQ = quote(skillName, 40);
+  const nameQ = run.what;
   const remaining = (f: number) => steps.slice(f - 1, f - 1 + 12).map((st) => `${st.n as number}. ${label(st)}`).join("\n");
   let head: string;
   switch (stop.kind) {
     case "done": head = `Ran ${nameQ}: all ${total} steps done.`; break;
     case "help":
-      head = `Ran ${nameQ} up to step ${stop.n} of ${total} and stopped: ${stop.why}. The screen may differ from when the skill was saved ` +
-        `(another product, a new pop-up). Look at the screen below, do step ${stop.n} yourself with the normal tools (or skip it if ` +
-        `it no longer applies), then call run_skill with from_step ${stop.n + 1} and the same params.\nSteps from here:\n${remaining(stop.n)}`;
+      head = `Ran ${nameQ} up to step ${stop.n} of ${total} and stopped: ${stop.why}. ${run.differs} Look at the screen below, do step ${stop.n} yourself with the ` +
+        `normal tools (or skip it if it no longer applies), then call ${run.again(stop.n + 1)}.\nSteps from here:\n${remaining(stop.n)}`;
       break;
     case "failed":
       head = `Ran ${nameQ} up to step ${stop.n} of ${total} and stopped: ${stop.error.code}: ${stop.error.message}. Tell the user; if they want to continue, fix the cause and ` +
-        `call run_skill with from_step ${stop.n}.`;
+        `call ${run.again(stop.n)}.`;
       break;
     case "paused":
-      head = `Ran ${nameQ} up to step ${Math.max(stop.n - 1, 0)} of ${total} and paused to keep this call short. Call run_skill with from_step ${stop.n} and the same params to continue.`;
+      head = `Ran ${nameQ} up to step ${Math.max(stop.n - 1, 0)} of ${total} and paused to keep this call short. Call ${run.again(stop.n)} to continue.`;
       break;
     case "waiting":
-      head = `Ran ${nameQ} up to step ${stop.n} of ${total}; that step waits for the owner. After answer_approval finishes it, call run_skill with from_step ${stop.n + 1} and the same params.`;
+      head = `Ran ${nameQ} up to step ${stop.n} of ${total}; that step waits for the owner. After answer_approval finishes it, call ${run.again(stop.n + 1)}.`;
       break;
   }
   if (lines.length > 0) head += `\nDone in this call:\n${lines.join("\n")}`;
