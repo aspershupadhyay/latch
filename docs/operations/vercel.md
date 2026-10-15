@@ -110,6 +110,7 @@ Everything else needs a credential: an MCP key or OAuth token for `/mcp`, the ph
 ## Operate
 
 - **Revoke a phone or an AI key:** in the phone app. Effective immediately.
-- **Rotate the owner key:** change `LATCH_ADMIN_TOKEN` in Vercel → redeploy → on the phone, Settings → Forget this gateway → Connect again with the new key.
+- **Rotate the owner key:** in the app, Settings → **Rotate owner key** (ADR-038). The app saves the new key and the old one, `LATCH_ADMIN_TOKEN` included, stops working at once; leave `LATCH_ADMIN_TOKEN` in Vercel as it is.
+- **Lost the owner key:** change `LATCH_ADMIN_TOKEN` in Vercel → redeploy. The new token works and the rotated key stops working for good; phones and AI apps stay connected. To use it from the phone: Settings → Disconnect from this relay → connect again with the new key.
 - **Stop everything:** pause or delete the Vercel project. Phones show "Reconnecting" and run nothing.
 - **Update:** Vercel redeploys when you sync your fork or press Redeploy.

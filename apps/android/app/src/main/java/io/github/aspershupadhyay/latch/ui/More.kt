@@ -377,6 +377,15 @@ private fun LazyListScope.taskTimelines(runs: List<TaskRun>, format: DateFormat)
     }
 }
 
+/** Where the owner-key rotation in Settings stands (ADR-038). */
+sealed interface KeyRotation {
+    data object Idle : KeyRotation
+    data object Busy : KeyRotation
+    /** [saved] is false when the gateway changed the key but this phone could not store it. */
+    data class Done(val key: String, val saved: Boolean) : KeyRotation
+    data class Failed(val message: String) : KeyRotation
+}
+
 @Composable
 fun SettingsScreen(
     gatewayUrl: String,
@@ -397,9 +406,14 @@ fun SettingsScreen(
     reducedMotion: Boolean = false,
     onOpenGuide: () -> Unit = {},
     onOpenSource: () -> Unit = {},
+    keyRotation: KeyRotation = KeyRotation.Idle,
+    onRotateKey: () -> Unit = {},
+    onCopyNewKey: (String) -> Unit = {},
+    onDismissRotation: () -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var confirmForget by remember { mutableStateOf(false) }
+    var confirmRotate by remember { mutableStateOf(false) }
     ScreenColumn {
         ScreenTitle("Settings")
         Card {
@@ -478,6 +492,18 @@ fun SettingsScreen(
                 onClickLabel = "Open the source code",
             )
         }
+        if (isOwner) {
+            Card {
+                ListRow(
+                    LatchIcons.Key,
+                    "Rotate owner key",
+                    if (keyRotation == KeyRotation.Busy) "Changing the key\u2026" else "Makes a new secret key for your relay and saves it on this phone. The old key stops working at once.",
+                    tint = signal.accent2,
+                    onClick = { if (keyRotation != KeyRotation.Busy) confirmRotate = true },
+                    onClickLabel = "Rotate the owner key",
+                )
+            }
+        }
         Card {
             ListRow(
                 LatchIcons.Leave,
@@ -497,6 +523,46 @@ fun SettingsScreen(
                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, signal.border, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
+    }
+    if (confirmRotate) {
+        AlertDialog(
+            onDismissRequest = { confirmRotate = false },
+            title = { Text("Make a new owner key?") },
+            text = {
+                Text(
+                    "Your relay makes a new secret key and this phone saves it. The current key stops working everywhere at once, " +
+                        "including the LATCH_ADMIN_TOKEN in your relay settings; leave that setting as it is. " +
+                        "If you ever lose the key, set a new LATCH_ADMIN_TOKEN in your relay settings and redeploy to get back in.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmRotate = false; onRotateKey() }) { Text("Make new key") } },
+            dismissButton = { TextButton(onClick = { confirmRotate = false }) { Text("Cancel") } },
+        )
+    }
+    when (keyRotation) {
+        is KeyRotation.Done -> AlertDialog(
+            onDismissRequest = onDismissRotation,
+            title = { Text(if (keyRotation.saved) "New owner key saved" else "Copy your new key now") },
+            text = {
+                Text(
+                    if (keyRotation.saved) {
+                        "This phone uses the new key from now on, and the old one no longer works. You can copy it to keep a backup somewhere safe; it is not shown again."
+                    } else {
+                        "Your relay changed the key, but this phone could not save it. Copy it now and keep it safe: it is not shown again. " +
+                            "If it is lost, set a new LATCH_ADMIN_TOKEN in your relay settings and redeploy."
+                    },
+                )
+            },
+            confirmButton = { TextButton(onClick = { onCopyNewKey(keyRotation.key) }) { Text("Copy key") } },
+            dismissButton = { TextButton(onClick = onDismissRotation) { Text("Done") } },
+        )
+        is KeyRotation.Failed -> AlertDialog(
+            onDismissRequest = onDismissRotation,
+            title = { Text("The key was not changed") },
+            text = { Text(keyRotation.message) },
+            confirmButton = { TextButton(onClick = onDismissRotation) { Text("OK") } },
+        )
+        else -> Unit
     }
     if (confirmForget) {
         AlertDialog(

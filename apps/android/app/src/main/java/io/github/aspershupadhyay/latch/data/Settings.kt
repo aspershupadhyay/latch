@@ -68,6 +68,9 @@ class Settings(context: Context) {
 
     private val _isOwner = MutableStateFlow(ownerVault.load() != null)
     val isOwner: StateFlow<Boolean> = _isOwner.asStateFlow()
+    private val _ownerKeyVersion = MutableStateFlow(0)
+    /** Changes whenever a new owner key is saved, so screens drop clients holding the old one. */
+    val ownerKeyVersion: StateFlow<Int> = _ownerKeyVersion.asStateFlow()
 
     private val _pairing = MutableStateFlow(readPairing())
     val pairing: StateFlow<Pairing?> = _pairing.asStateFlow()
@@ -131,6 +134,7 @@ class Settings(context: Context) {
     fun saveOwnerKey(key: String) {
         ownerVault.store(key)
         _isOwner.value = true
+        _ownerKeyVersion.value += 1
     }
 
     fun forgetPairing() {
