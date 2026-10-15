@@ -114,6 +114,36 @@ val catalog = mapOf(
         "Let the AI read Latch's activity log, so it can tell you what it did and what you approved or refused.",
         "low", LatchIcons.Pulse,
     ),
+    Capability.CONTROL_VOLUME to CapabilityCopy(
+        "Volume", "Media, ring, notification, and alarm volume.",
+        "The volume it just set.",
+        "Set or step a volume, or mute it. You see the volume bar each time.",
+        "low", LatchIcons.Bell,
+    ),
+    Capability.CONTROL_MEDIA to CapabilityCopy(
+        "Play and pause", "Media keys for whatever is playing.",
+        "Nothing extra.",
+        "Play, pause, skip, or stop whatever app is playing music or video.",
+        "low", LatchIcons.Play,
+    ),
+    Capability.CONTROL_BRIGHTNESS to CapabilityCopy(
+        "Brightness", "Screen brightness and auto brightness.",
+        "The brightness it just set.",
+        "Set the screen brightness or switch automatic brightness. Android asks you once to let Latch modify system settings.",
+        "low", LatchIcons.Eye,
+    ),
+    Capability.CONTROL_PANELS to CapabilityCopy(
+        "Wi-Fi and Bluetooth panels", "Opens them; the AI taps the switch.",
+        "The panel, like any screen.",
+        "Open the Wi-Fi or Bluetooth panel. Android does not let apps flip those switches, so the AI taps them like you would.",
+        "medium", LatchIcons.Sliders,
+    ),
+    Capability.CONTROL_FLASHLIGHT to CapabilityCopy(
+        "Flashlight", "Switch it on and off.",
+        "Nothing extra.",
+        "Turn the flashlight on or off. It never uses the camera itself.",
+        "low", LatchIcons.Sparkle,
+    ),
 )
 
 @Composable

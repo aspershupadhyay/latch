@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- In-app updates of Latch itself from its GitHub releases; Android asks the owner once. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Phone controls (protocol 1.11): brightness writes the system setting, which
+         Android lets the owner grant once ("Modify system settings"). Only asked for
+         when the owner switches brightness on. Volume, media keys, the flashlight, and
+         the settings panels need no permission. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- Files (protocol 1.6, ADR-026): photos and videos the owner allows, all or selected ones.
          Saving to Pictures and Download needs no permission; the picked folder uses

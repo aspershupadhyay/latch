@@ -73,6 +73,7 @@ import io.github.aspershupadhyay.latch.session.NewMcpClient
 import io.github.aspershupadhyay.latch.session.OwnerClient
 import io.github.aspershupadhyay.latch.session.Paired
 import io.github.aspershupadhyay.latch.session.Pairing
+import io.github.aspershupadhyay.latch.session.PhoneControls
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.session.SetupException
 import io.github.aspershupadhyay.latch.session.SignInRequest
@@ -582,7 +583,13 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         enabled = prefs.enabled,
         accessibilityOn = service != null,
         approveEveryAction = prefs.approveEveryAction,
-        onToggle = { c, on -> app.settings.update { p -> p.copy(enabled = if (on) p.enabled + c else p.enabled - c) } },
+        onToggle = { c, on ->
+            app.settings.update { p -> p.copy(enabled = if (on) p.enabled + c else p.enabled - c) }
+            // Brightness also needs Android's "Modify system settings"; ask for it right away.
+            if (on && c == Capability.CONTROL_BRIGHTNESS && !PhoneControls.canWriteSettings(context)) {
+                runCatching { context.startActivity(PhoneControls.writeSettingsIntent(context)) }
+            }
+        },
         onApproveEveryAction = { v -> app.settings.update { it.copy(approveEveryAction = v) } },
         onOpenSetup = openSetup,
         showCursor = prefs.showCursor,

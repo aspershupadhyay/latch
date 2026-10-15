@@ -66,7 +66,8 @@ enum class AccessPreset(val title: String, val note: String, val icon: ImageVect
         "Everything",
         "Also screenshots and typing. Risky actions still ask you.",
         LatchIcons.Sparkle,
-        Capability.entries.toSet() - Capability.DEVICE_INFO,
+        // Phone controls stay off until the owner switches each one on (R16).
+        Capability.entries.toSet() - Capability.DEVICE_INFO - AccessGroup.PHONE.capabilities.toSet(),
     ),
     ;
 

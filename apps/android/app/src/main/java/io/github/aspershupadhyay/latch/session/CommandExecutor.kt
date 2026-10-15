@@ -44,6 +44,7 @@ import io.github.aspershupadhyay.latch.protocol.ScreenInfo
 import io.github.aspershupadhyay.latch.protocol.SessionInfo
 import io.github.aspershupadhyay.latch.protocol.Target
 import io.github.aspershupadhyay.latch.protocol.WaitResult
+import io.github.aspershupadhyay.latch.protocol.describe
 import io.github.aspershupadhyay.latch.protocol.isFileChange
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
@@ -101,6 +102,7 @@ fun describe(command: Command): String = when (command) {
     is Command.SetClipboard -> "Copy ${command.text.codePointCount(0, command.text.length)} characters to the clipboard"
     is Command.ListActivity -> "Read Latch's activity log"
     is Command.TaskDone -> "Say the task is done"
+    is Command.Control -> command.control.describe()
 }
 
 private fun where(location: FileLocation) = when (location) {
@@ -137,6 +139,7 @@ private fun cursorLabel(command: Command): String? = when (command) {
     is Command.DeleteFile -> "Deleting a file"
     is Command.Share -> "Opening a share screen"
     is Command.SetClipboard -> "Copying text"
+    is Command.Control -> if (command.control.changesScreen) "Opening a settings panel" else "Changing a phone setting"
     is Command.Global -> when (command.action) {
         GlobalAction.BACK -> "Going back"
         GlobalAction.HOME -> "Going home"
@@ -151,7 +154,7 @@ private fun worksOnScreen(command: Command): Boolean = when (command) {
     is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
     is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share,
     is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
-    is Command.ListActivity, is Command.TaskDone -> false
+    is Command.ListActivity, is Command.TaskDone, is Command.Control -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
 }
@@ -311,6 +314,15 @@ class CommandExecutor(
             ?: throw ProtocolException(ErrorCode.PERMISSION_MISSING, "the Latch accessibility service is switched off")
 
         val action = ActionResult()
+        // Protocol 1.11: controls that stay off screen answer at once with what they read back.
+        if (command is Command.Control && !command.control.changesScreen) {
+            val reading = PhoneControls(service).apply(command.control)
+            note(ActivityKind.ACTION, judged ?: describe(command))
+            return Protocol.json.encodeToJsonElement(
+                ActionResult.serializer(),
+                action.copy(`package` = service.currentPackage(), control = reading),
+            )
+        }
         fun files() = files ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot use files")
         fun transfers() = transfers ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot move whole files")
         return when (command) {
@@ -429,6 +441,11 @@ class CommandExecutor(
                     is Command.Share -> files().share(service, command.packageName, command.ids, command.text)
                     is Command.ScrollTo ->
                         found = service.scrollTo(command.observationId, command.text, command.direction, command.container, command.maxSwipes)
+                    // A settings panel slides in over the app, like opening one.
+                    is Command.Control -> {
+                        PhoneControls(service).apply(command.control)
+                        expectChangeMs = CHOOSER_EXPECT_CHANGE_MS
+                    }
                 }
                 note(ActivityKind.ACTION, judged ?: describe(command))
                 var result = action.copy(`package` = service.currentPackage(), found = found, submitted = submitted, owner = owner)
@@ -626,7 +643,7 @@ class CommandExecutor(
         is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
         is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile,
         is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
-        is Command.ListActivity, is Command.TaskDone -> null
+        is Command.ListActivity, is Command.TaskDone, is Command.Control -> null
         is Command.LaunchApp -> command.packageName
         // Sharing opens that app: only apps the owner allowed (or Auto mode).
         is Command.Share -> command.packageName
@@ -750,7 +767,7 @@ class CommandExecutor(
         } else {
             // Opening an app or going home starts with an animation that sends few events.
             val opening = (command as? Command.LaunchApp)?.packageName ?: (command as? Command.Share)?.packageName
-            val floor = if (opening != null || command is Command.Global) TRANSITION_FLOOR_MS else 0L
+            val floor = if (opening != null || command is Command.Global || command is Command.Control) TRANSITION_FLOOR_MS else 0L
             // An app that is still starting would be observed as the previous app: wait for it first.
             val waited = if (opening != null) service.awaitForeground(opening, after.settleMs.toLong()) else 0L
             // Then wait for the screen to change and hold still: a new page slides in silently,

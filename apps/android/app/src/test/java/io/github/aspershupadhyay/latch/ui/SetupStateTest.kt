@@ -54,7 +54,10 @@ class SetupStateTest {
     @Test fun presetsMatchExactlyAndNeverIncludeDeviceInfoAlone() {
         assertNull(AccessPreset.matching(setOf(Capability.DEVICE_INFO)))
         assertEquals(AccessPreset.LOOK, AccessPreset.matching(setOf(Capability.DEVICE_INFO, Capability.UI_OBSERVE)))
-        assertEquals(AccessPreset.EVERYTHING, AccessPreset.matching(Capability.entries.toSet()))
+        // "Everything" leaves the phone controls off; each is switched on by itself (R16).
+        val controls = AccessGroup.PHONE.capabilities.toSet()
+        assertEquals(AccessPreset.EVERYTHING, AccessPreset.matching(Capability.entries.toSet() - controls))
+        assertTrue(AccessPreset.EVERYTHING.capabilities.none { it in controls })
         assertNull(AccessPreset.matching(setOf(Capability.UI_OBSERVE, Capability.INPUT_TEXT)))
         AccessPreset.entries.forEach { assertTrue(Capability.UI_OBSERVE in it.capabilities) }
     }

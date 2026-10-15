@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.10"
+    const val VERSION = "1.11"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -85,6 +85,16 @@ enum class Capability(val wire: String) {
     CLIPBOARD_WRITE("clipboard.write"),
     /** Since 1.8: read Latch's own activity log (never screen content). */
     ACTIVITY_READ("activity.read"),
+    /** Since 1.11: set or step a volume. */
+    CONTROL_VOLUME("control.volume"),
+    /** Since 1.11: play, pause, and skip in whichever app is playing. */
+    CONTROL_MEDIA("control.media"),
+    /** Since 1.11: screen brightness; Android asks the owner once for "Modify system settings". */
+    CONTROL_BRIGHTNESS("control.brightness"),
+    /** Since 1.11: open the Wi-Fi and Bluetooth panels on screen. */
+    CONTROL_PANELS("control.panels"),
+    /** Since 1.11: switch the flashlight on and off. */
+    CONTROL_FLASHLIGHT("control.flashlight"),
     ;
 
     companion object {
@@ -199,6 +209,8 @@ data class ActionResult(
     val owner: String? = null,
     /** Since 1.9, with observe_after: none, changed, or new_app, judged after the screen settled. */
     val effect: String? = null,
+    /** `control.set` only (since 1.11): the control's state after the change. */
+    val control: ControlReading? = null,
 )
 
 // ---- Files (since 1.6, ADR-026) ----
@@ -593,6 +605,12 @@ sealed interface Command {
         override val requiredCapabilities = emptyList<Capability>()
         override val isAction = false
     }
+
+    /** Since 1.11: one phone control, behind its own capability. */
+    data class Control(val control: PhoneControl) : Command {
+        override val name = "control.set"
+        override val requiredCapabilities = listOf(control.capability)
+    }
 }
 
 /** Saving, renaming, and deleting files: changes made off screen. */
@@ -833,6 +851,7 @@ object GatewayParser {
                 if (params.containsKey("since_ms")) params.long("since_ms") else null,
             )
             "task.done" -> Command.TaskDone(params.optStr("summary"))
+            "control.set" -> Command.Control(PhoneControl.parse(params.obj("control")))
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
         }
     }
@@ -1060,6 +1079,7 @@ object Validation {
                 if (s.codePointCount(0, s.length) > Limits.MAX_TASK_SUMMARY_CHARS) invalid("summary too long")
                 if (s.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
+            is Command.Control -> PhoneControl.validate(command.control)
             is Command.SetClipboard -> {
                 val n = command.text.codePointCount(0, command.text.length)
                 if (n !in 1..Limits.MAX_CLIPBOARD_CHARS) invalid("text must be 1-${Limits.MAX_CLIPBOARD_CHARS} characters")

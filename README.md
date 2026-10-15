@@ -123,6 +123,7 @@ On the same tab, under **While the AI works**:
 - **Replacing or deleting a file asks you on the phone**, unless Auto mode is on. **Ask me before every action** asks for every change.
 - **Share to apps** opens any app's Share screen (Instagram, YouTube, X, LinkedIn, WhatsApp, Gmail…) with the files, only for apps you switched on. Posting or sending is still a tap under your app rules.
 - **Copy to clipboard** (off by default) lets the AI put text on your clipboard, for example a caption to paste into an app that ignores shared text. Latch never reads your clipboard.
+- **Phone controls** (each off by default, under Access → Phone controls): volume, play and pause, brightness, the flashlight, and the Wi-Fi and Bluetooth panels. Android does not let apps flip Wi-Fi or Bluetooth, so the AI opens the panel and taps the switch like you would. Brightness asks you once to let Latch modify system settings.
 
 Things you can then ask your AI:
 
@@ -267,7 +268,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
 
 **Why:** the phone app updates when you install a new APK, but your gateway on Vercel only updates when Vercel deploys new code. The Deploy button makes a **copy** of Latch in your own GitHub (usually called `latch-gateway`), and that copy doesn't receive new versions by itself.
 
-1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.10"`. It also shows `commit` and `repository`.
+1. **Check what you run:** open `https://<your-address>/healthz` in a browser. Up to date means `"protocol": "1.11"`. It also shows `commit` and `repository`.
 2. **Update the code Vercel deploys.** Pick one:
    - **Follow Latch directly** (simplest; every Latch release reaches you automatically): Vercel → your project → **Settings → Git** → **Disconnect**, then **Connect Git Repository** → `aspershupadhyay/latch`. Then **Settings → Build and Deployment → Root Directory** → `servers/vercel` → **Save**. This means you trust each new Latch release as soon as it's published.
    - **Keep your own copy and review each version first:** when you want an update, download the newest Latch code (GitHub → **Code → Download ZIP** on `aspershupadhyay/latch`), replace the files in your copy with it, commit, and push. Vercel deploys your copy by itself.
@@ -279,7 +280,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Claude Code / Codex / other apps:** restart them.
 
    Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
-6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.10, 33 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.11, 34 tools.` If the AI still can't see `get_activity` or `finish_task` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 
@@ -364,6 +365,7 @@ Not yet, and not in the same way. Apple doesn't let any app read or tap other ap
 | `get_file_link`, `upload_link` | Private, encrypted 15-minute links to copy whole files (up to 2 GB) between your computer and the phone (openssl + curl) |
 | `transfer_status` | Waits for a big file that is still moving |
 | `set_clipboard` | Puts text on the phone's clipboard to paste (never reads it) |
+| `phone_control` | Volume, play/pause/skip, brightness, flashlight, or opens the Wi-Fi or Bluetooth panel; each needs its own switch |
 | `get_activity` | Reads the phone's Activity log (apps, actions, approvals, refusals, files, and who did each: AI, you, or Latch), if you switch it on. With `task: "latest"` it replays the latest AI task as a timeline (seconds from the start, approvals and refusals); the app's Activity tab shows the same under **By task** |
 | `finish_task` | The AI says it is done: the cursor disappears at once and its summary goes into Activity |
 | `diagnose` | Checks whether each phone is ready (connected, session running, app up to date, switches on) and says what you need to fix on the phone |

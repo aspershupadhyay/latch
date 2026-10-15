@@ -405,4 +405,9 @@ fun shortName(c: Capability) = when (c) {
     Capability.APP_SHARE -> "Share"
     Capability.CLIPBOARD_WRITE -> "Clipboard"
     Capability.ACTIVITY_READ -> "Activity log"
+    Capability.CONTROL_VOLUME -> "Volume"
+    Capability.CONTROL_MEDIA -> "Media"
+    Capability.CONTROL_BRIGHTNESS -> "Brightness"
+    Capability.CONTROL_PANELS -> "Wi-Fi/Bluetooth"
+    Capability.CONTROL_FLASHLIGHT -> "Flashlight"
 }

@@ -22,6 +22,7 @@ import io.github.aspershupadhyay.latch.policy.PolicyWords
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.session.ApprovalBroker
 import io.github.aspershupadhyay.latch.session.Pairing
+import io.github.aspershupadhyay.latch.session.PhoneControls
 import io.github.aspershupadhyay.latch.session.GatewaySetup
 import io.github.aspershupadhyay.latch.session.SessionController
 import io.github.aspershupadhyay.latch.session.SessionState
@@ -103,7 +104,10 @@ class LatchApp : Application() {
             photosOn = { settings.preferences.value.photosOn },
         )
         transfers = PhoneTransfers(files, http) { settings.pairing.value?.gatewayUrl }
-        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers)
+        session = SessionController(
+            scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers,
+            canWriteSettings = { PhoneControls.canWriteSettings(this) },
+        )
         setup = GatewaySetup(http)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()

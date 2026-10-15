@@ -88,6 +88,14 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
         "Share, clipboard & log", LatchIcons.Share, listOf(Capability.APP_SHARE, Capability.CLIPBOARD_WRITE, Capability.ACTIVITY_READ),
         "With this on, the AI can hand files to an app's share screen, put text on the clipboard, and read Latch's activity log when you ask what happened. It never reads the clipboard.",
     ),
+    PHONE(
+        "Phone controls", LatchIcons.Sliders,
+        listOf(
+            Capability.CONTROL_VOLUME, Capability.CONTROL_MEDIA, Capability.CONTROL_BRIGHTNESS,
+            Capability.CONTROL_PANELS, Capability.CONTROL_FLASHLIGHT,
+        ),
+        "With this on, the AI can change the volume, play and pause media, set the brightness, switch the flashlight, and open the Wi-Fi and Bluetooth panels. Each one has its own switch.",
+    ),
     WORKING(
         "While the AI works", LatchIcons.Phone, emptyList(),
         "What you see on the phone while a session runs. None of this gives the AI anything.",
@@ -100,6 +108,7 @@ private fun Signal.hueOf(group: AccessGroup) = when (group) {
     AccessGroup.SCREEN -> mint
     AccessGroup.FILES -> warning
     AccessGroup.SHARING -> accent2
+    AccessGroup.PHONE -> mint
     AccessGroup.WORKING -> text2
 }
 
@@ -108,6 +117,7 @@ private fun Signal.colorOf(group: AccessGroup) = when (group) {
     AccessGroup.SCREEN -> sage
     AccessGroup.FILES -> butter
     AccessGroup.SHARING -> pool
+    AccessGroup.PHONE -> sage
     AccessGroup.WORKING -> surface
 }
 
@@ -193,7 +203,7 @@ fun CapabilitiesScreen(
                         CapabilityList(current, enabled, onToggle)
                         FilePlaces(folders, photosAllowed, onPickFolder, onForgetFolder, onAllowPhotos, photosOn, onPhotosOn)
                     }
-                    AccessGroup.SHARING -> CapabilityList(current, enabled, onToggle)
+                    AccessGroup.SHARING, AccessGroup.PHONE -> CapabilityList(current, enabled, onToggle)
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
                 }
             }
@@ -251,6 +261,17 @@ private fun AccessOverview(
         BentoRow {
             GroupTile(AccessGroup.FILES, statusOf(AccessGroup.FILES, enabled), enabled, { toggleGroup(AccessGroup.FILES, it) }) { open(AccessGroup.FILES) }
             GroupTile(AccessGroup.SHARING, statusOf(AccessGroup.SHARING, enabled), enabled, { toggleGroup(AccessGroup.SHARING, it) }) { open(AccessGroup.SHARING) }
+        }
+
+        Card {
+            ListRow(
+                AccessGroup.PHONE.icon,
+                AccessGroup.PHONE.title,
+                statusOf(AccessGroup.PHONE, enabled),
+                tint = signal.mint,
+                onClick = { open(AccessGroup.PHONE) },
+                onClickLabel = "Open ${AccessGroup.PHONE.title}",
+            )
         }
 
         Card {

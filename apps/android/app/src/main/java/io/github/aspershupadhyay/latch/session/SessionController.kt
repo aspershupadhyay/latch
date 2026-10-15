@@ -71,6 +71,8 @@ class SessionController(
     private val autonomy: Autonomy? = null,
     private val files: PhoneFiles? = null,
     private val transfers: PhoneTransfers? = null,
+    /** Brightness (protocol 1.11) also needs Android's "Modify system settings" grant. */
+    private val canWriteSettings: () -> Boolean = { true },
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -126,6 +128,7 @@ class SessionController(
                 capability == Capability.DEVICE_INFO -> CapabilityStatus.ENABLED
                 capability !in prefs.enabled -> CapabilityStatus.DISABLED
                 !serviceOn -> CapabilityStatus.NEEDS_PERMISSION
+                capability == Capability.CONTROL_BRIGHTNESS && !canWriteSettings() -> CapabilityStatus.NEEDS_PERMISSION
                 else -> CapabilityStatus.ENABLED
             }
         }
