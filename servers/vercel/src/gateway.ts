@@ -12,6 +12,7 @@ import { type Elicit, type ElicitResult, askOwnerVia, handle as handleMcp, SUPPO
 import { type ApprovalRequest, type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, isValidMime, parseApprovalRequest, validateHello } from "./protocol.js";
 import { OAuth } from "./oauth.js";
 import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret.js";
+import { SealedStore, storeKey } from "./sealed.js";
 import type { Store } from "./store.js";
 
 export interface GatewayConfig {
@@ -133,7 +134,12 @@ export class Gateway {
   /** When this instance last wrote `last_used_ms` per MCP client. */
   private readonly lastUsedWrites = new Map<string, number>();
 
-  constructor(private readonly store: Store, private readonly config: GatewayConfig) {
+  private readonly store: Store;
+
+  constructor(store: Store, private readonly config: GatewayConfig) {
+    // R20 (ADR-039): screen content reaches the database only sealed.
+    if (config.adminToken !== undefined && config.adminToken.length >= 32) store = new SealedStore(store, storeKey(config.adminToken));
+    this.store = store;
     this.devices = new Devices(store, config.timing);
     this.transfers = new Transfers(store);
     this.links = new Links(store, config.adminToken ?? "", config.blob);

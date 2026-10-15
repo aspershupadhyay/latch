@@ -99,7 +99,7 @@ Since protocol 1.2 the phone returns the screen after an action in the same answ
 
 Files moved by link never pass through your functions or Redis in readable form: Vercel Blob (or Redis, for small files without Blob) holds only ciphertext whose key it never sees.
 
-Screen content passes through your Vercel functions and, briefly, your Redis (the latest element list for 2 minutes, command results for 1 minute; screenshots are never cached). Vercel and Upstash are therefore processors of that data under your accounts. If that is not acceptable, run the Docker gateway on hardware you control instead.
+Screen content passes through your Vercel functions, which makes Vercel a processor of that data under your account. It also passes briefly through your Redis (the latest element list for 2 minutes, command results for 1 minute, the last full screen for 10 minutes), but only sealed: the gateway encrypts it with AES-256-GCM under a key derived from `LATCH_ADMIN_TOKEN` before it leaves the function, so Upstash and anyone holding the Redis token see ciphertext (ADR-039). Changing `LATCH_ADMIN_TOKEN` makes those few seconds of data unreadable, which at worst times out a running command. If the gateway itself must not see screens, run the Docker gateway on hardware you control instead.
 
 ## Private by default
 

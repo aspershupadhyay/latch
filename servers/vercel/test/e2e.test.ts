@@ -19,6 +19,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { Gateway, configFromEnv } from "../src/gateway.js";
 import { MemoryStore, type Store, UpstashStore } from "../src/store.js";
 import { startLocal } from "../src/local.js";
+import { isSealedKey } from "../src/sealed.js";
 
 const ADMIN = "admin-token-0123456789abcdef0123456789";
 const FAKE = fileURLToPath(new URL("../../../target/debug/latch-fake-device", import.meta.url));
@@ -45,6 +46,26 @@ function testStore(): Store {
   return url && token ? new UpstashStore(url, token) : new MemoryStore();
 }
 
+/** Every value written to the database, to check what it ever held (R20). */
+const written: { key: string; value: string }[] = [];
+function recording(inner: Store): Store {
+  return new Proxy(inner, {
+    get(target, prop, receiver) {
+      const f = Reflect.get(target, prop, receiver);
+      if (typeof f !== "function") return f;
+      return (...args: unknown[]) => {
+        if (prop === "set" || prop === "lpush") written.push({ key: args[0] as string, value: args[1] as string });
+        if (prop === "batch") {
+          for (const o of args[0] as { op: string; key: string; value?: string }[]) {
+            if ((o.op === "set" || o.op === "lpush") && o.value !== undefined) written.push({ key: o.key, value: o.value });
+          }
+        }
+        return f.apply(target, args);
+      };
+    },
+  });
+}
+
 before(async () => {
   assert.ok(existsSync(FAKE), "build the fake phone first: cargo build -p latch-fake-device");
   if (process.env.LATCH_TEST_UPSTASH_URL) {
@@ -55,7 +76,7 @@ before(async () => {
       body: JSON.stringify(["FLUSHDB"]),
     });
   }
-  server = await startLocal(new Gateway(testStore(), config()), 0);
+  server = await startLocal(new Gateway(recording(testStore()), config()), 0);
   const address = server.address();
   base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
 });
@@ -358,4 +379,12 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   await assert.rejects(client.listTools());
   assert.equal((await fetch(`${base}/mcp/${created.body.token}`, { method: "POST", body: ping })).status, 401);
   await client.close();
+});
+
+test("screen content and typed text reach the database only sealed (R20)", () => {
+  const content = written.filter((w) => isSealedKey(w.key));
+  assert.ok(content.some((w) => w.key.startsWith("latch:obs:")) && content.some((w) => w.key.startsWith("latch:q:")), "the session above wrote screens and commands");
+  for (const w of content) assert.match(w.value, /^s1:[A-Za-z0-9+/=]+$/, w.key);
+  const everything = written.map((w) => w.value).join("\n");
+  assert.doesNotMatch(everything, /Wi-Fi|hello from vercel|hunter2|alice/, "no screen text or typed text in any stored value");
 });
