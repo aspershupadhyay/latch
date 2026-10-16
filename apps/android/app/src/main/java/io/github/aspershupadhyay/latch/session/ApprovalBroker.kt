@@ -12,7 +12,8 @@ import java.security.SecureRandom
 /** The owner's answer. SESSION and ALWAYS are only possible when the request was rememberable. */
 enum class ApprovalChoice { DENY, ONCE, SESSION, ALWAYS }
 
-enum class ApprovalOutcome { APPROVED_ONCE, APPROVED_SESSION, APPROVED_ALWAYS, DENIED, EXPIRED }
+/** CANCELLED: Latch withdrew the question (pause, Stop, reconnect, gateway cancel); the owner said nothing. */
+enum class ApprovalOutcome { APPROVED_ONCE, APPROVED_SESSION, APPROVED_ALWAYS, DENIED, EXPIRED, CANCELLED }
 
 /**
  * An action to approve, an app the AI wants to use (answered "this session"
@@ -78,7 +79,11 @@ class ApprovalBroker {
         _pending.value = PendingApproval(nonce, title, detail, risk, System.currentTimeMillis() + timeoutMs, rememberable, appName, kind, commandId)
         _pending.value?.let { p -> onRequested?.invoke(p) }
         try {
-            val choice = withTimeoutOrNull(timeoutMs) { deferred.await() }
+            val choice = try {
+                withTimeoutOrNull(timeoutMs) { deferred.await() }
+            } catch (_: Withdrawn) {
+                return ApprovalOutcome.CANCELLED
+            }
             return when (choice) {
                 null -> ApprovalOutcome.EXPIRED
                 ApprovalChoice.DENY -> ApprovalOutcome.DENIED
@@ -120,10 +125,13 @@ class ApprovalBroker {
 
     fun answer(nonce: String, approve: Boolean) = answer(nonce, if (approve) ApprovalChoice.ONCE else ApprovalChoice.DENY)
 
-    /** Treats any outstanding request as denied (stop, pause, disconnect, cancel). */
+    /** Withdraws any outstanding request (stop, pause, disconnect, cancel); it is not the owner's no. */
     fun cancel() {
-        answer?.complete(ApprovalChoice.DENY)
+        answer?.completeExceptionally(Withdrawn())
         answer = null
         _pending.value = null
     }
 }
+
+/** Completes a question that Latch, not the owner, ended. */
+private class Withdrawn : Exception("withdrawn")

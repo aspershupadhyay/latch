@@ -129,6 +129,11 @@ tokio::task_local! {
     pub static CALLER: Caller;
 }
 
+/// The current caller's key (empty in stdio mode, where there is one caller).
+pub fn caller_key() -> String {
+    CALLER.try_with(|c| c.key.clone()).unwrap_or_default()
+}
+
 /// The phone apps the current caller may use (`None`: no limit, or no caller, as in stdio mode).
 pub fn caller_apps() -> Option<Vec<String>> {
     CALLER.try_with(|c| c.apps.clone()).ok().flatten()

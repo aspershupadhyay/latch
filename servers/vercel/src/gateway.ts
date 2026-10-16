@@ -71,6 +71,21 @@ const BUILD = process.env.VERCEL_GIT_COMMIT_SHA
   : {};
 
 const PAIR_TTL_MS = 10 * 60 * 1000;
+/**
+ * A path segment, decoded. Malformed percent-encoding (`/mcp/%ZZ`) becomes a
+ * value no token or id ever matches, so it answers 401 or 404 like the Rust
+ * gateway instead of a 500.
+ */
+const decodePath = (segment: string): string => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return "\u0000";
+  }
+};
+
+/** When each MCP client was last used, apart from its record (see `mcpCaller`). */
+const CLIENT_USED = "latch:clientused";
 /** `last_used_ms` of an MCP client is a hint for the owner; writing it on every call costs a round trip. */
 const LAST_USED_WRITE_MS = 60_000;
 const MAX_PAIR_FAILURES_PER_MINUTE = 20;
@@ -217,7 +232,7 @@ export class Gateway {
     if (path === "/mcp" || path.startsWith("/mcp/")) {
       if (m !== "POST") return json(405, { error: "this server does not offer a server-to-client stream; use POST" }, { allow: "POST" });
       // `/mcp/<client token>` is the secret-link form for clients that accept only a URL.
-      const linkToken = path.startsWith("/mcp/") ? decodeURIComponent(path.slice("/mcp/".length)) : undefined;
+      const linkToken = path.startsWith("/mcp/") ? decodePath(path.slice("/mcp/".length)) : undefined;
       return this.mcp(request, linkToken ?? bearer(request.headers.get("authorization")));
     }
     if (path === "/v1/pair" && m === "POST") return this.pair(request);
@@ -242,7 +257,7 @@ export class Gateway {
   // ---- File links (protocol 1.6) ----
 
   private async fileDownload(token: string): Promise<Response> {
-    const file = await this.transfers.download(decodeURIComponent(token));
+    const file = await this.transfers.download(decodePath(token));
     if (!file) return error(404, "this link has expired or never existed");
     // The name came from the phone: keep only safe characters in the header.
     const safe = [...file.name].map((c) => (/[A-Za-z0-9 ._()-]/.test(c) ? c : "_")).join("");
@@ -263,9 +278,9 @@ export class Gateway {
     const declared = Number(request.headers.get("content-length") ?? "0");
     if (declared > MAX_TRANSFER_BYTES) return error(413, "the file is larger than 4 MB");
     // Read no body for a link that does not exist.
-    if (!(await this.transfers.uploadOpen(decodeURIComponent(token)))) return error(404, "this link has expired or never existed");
+    if (!(await this.transfers.uploadOpen(decodePath(token)))) return error(404, "this link has expired or never existed");
     const bytes = Buffer.from(await request.arrayBuffer());
-    const result = await this.transfers.putUpload(decodeURIComponent(token), bytes);
+    const result = await this.transfers.putUpload(decodePath(token), bytes);
     if (result === "too_large") return error(413, "the file is larger than 4 MB");
     if (result === "used") return error(409, "this upload link was already used; ask for a new one");
     if (result === "unknown") return error(404, "this link has expired or never existed");
@@ -273,7 +288,7 @@ export class Gateway {
   }
 
   private async linkDownload(token: string): Promise<Response> {
-    const bytes = await this.links.getBytes(decodeURIComponent(token));
+    const bytes = await this.links.getBytes(decodePath(token));
     if (!bytes) return error(404, "this link has expired, never existed, or nothing was uploaded to it yet");
     // Ciphertext only; never a page of this gateway.
     return new Response(new Uint8Array(bytes), {
@@ -291,8 +306,8 @@ export class Gateway {
     const declared = Number(request.headers.get("content-length") ?? "0");
     if (declared > GATEWAY_LINK_BYTES) return error(413, `the file is larger than ${sizeText(GATEWAY_LINK_BYTES)}; connect a Vercel Blob store for bigger files`);
     // Read no body for a link that does not exist.
-    if (!(await this.links.record(decodeURIComponent(token)))) return error(404, "this link has expired or never existed");
-    const result = await this.links.putBytes(decodeURIComponent(token), Buffer.from(await request.arrayBuffer()));
+    if (!(await this.links.record(decodePath(token)))) return error(404, "this link has expired or never existed");
+    const result = await this.links.putBytes(decodePath(token), Buffer.from(await request.arrayBuffer()));
     if (result === "too_large") return error(413, `the file is larger than ${sizeText(GATEWAY_LINK_BYTES)}; connect a Vercel Blob store for bigger files`);
     if (result === "used") return error(409, "this link was already used; ask for a new one");
     if (result === "unknown") return error(404, "this link has expired or never existed");
@@ -341,7 +356,7 @@ export class Gateway {
     if (path === "/oauth/token" && m === "POST") return this.oauth.token(request);
     if (path === "/oauth/revoke" && m === "POST") return this.oauth.revoke(request);
     if (path.startsWith("/oauth/requests/")) {
-      const id = decodeURIComponent(path.slice("/oauth/requests/".length));
+      const id = decodePath(path.slice("/oauth/requests/".length));
       if (m === "GET") return this.oauth.requestStatus(id);
       if (m === "POST") return this.oauth.decideInBrowser(request, id);
     }
@@ -372,7 +387,8 @@ export class Gateway {
     const now = Date.now();
     if (now - (this.lastUsedWrites.get(id) ?? 0) > LAST_USED_WRITE_MS) {
       this.lastUsedWrites.set(id, now);
-      await this.store.hset("latch:clients", id, JSON.stringify({ ...JSON.parse(raw), last_used_ms: now }));
+      // Its own hash: rewriting the client record here could bring back one the owner just revoked.
+      await this.store.hset(CLIENT_USED, id, String(now));
     }
     return { key: id, ...(Array.isArray(record.apps) ? { apps: record.apps } : {}) };
   }
@@ -412,13 +428,13 @@ export class Gateway {
     // Clients that can show questions get the tool call as an event stream, so an
     // approval the phone waits on can be asked in the AI app as well.
     if (m.method === "tools/call" && (request.headers.get("accept") ?? "").includes("text/event-stream") && (await this.canElicit(client))) {
-      return this.streamToolCall(client, message, this.baseUrl(request), caller.apps);
+      return this.streamToolCall(client, message, this.baseUrl(request), caller.apps, caller.key);
     }
     // Without elicitation, a question the phone asks pauses the call so the AI can ask in the chat.
     const reply = await handleMcp(
       {
         devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links,
-        baseUrl: this.baseUrl(request), skills: this.store, allowedApps: caller.apps,
+        baseUrl: this.baseUrl(request), skills: this.store, allowedApps: caller.apps, callerKey: caller.key,
       },
       message,
     );
@@ -453,10 +469,10 @@ export class Gateway {
     await this.store.set(`latch:elicit:${m.id}`, JSON.stringify(result).slice(0, 4096), { px: 60_000 });
   }
 
-  private streamToolCall(client: string, message: unknown, baseUrl: string, allowedApps: string[] | undefined): Response {
+  private streamToolCall(client: string, message: unknown, baseUrl: string, allowedApps: string[] | undefined, callerKey: string): Response {
     const encoder = new TextEncoder();
     const store = this.store;
-    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl, skills: this.store, allowedApps };
+    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl, skills: this.store, allowedApps, callerKey };
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         let open = true;
@@ -647,7 +663,7 @@ export class Gateway {
       return json(200, { devices, server_time_ms: Date.now() });
     }
     if (path.startsWith("devices/") && method === "DELETE") {
-      return (await this.devices.revoke(decodeURIComponent(path.slice("devices/".length)))) ? noContent() : error(404, "no such device");
+      return (await this.devices.revoke(decodePath(path.slice("devices/".length)))) ? noContent() : error(404, "no such device");
     }
     if (path === "pairings" && method === "POST") {
       const body = (await readJson(request, 4096)) as Record<string, unknown>;
@@ -673,10 +689,16 @@ export class Gateway {
       return json(200, { owner_key: ownerKey, rotated_at_ms: record.rotated_at_ms });
     }
     if (path === "clients" && method === "GET") {
+      const used = await this.store.hgetall(CLIENT_USED);
       const clients = Object.values(await this.store.hgetall("latch:clients"))
         .map((v) => JSON.parse(v) as { id: string; name: string; created_at_ms: number; last_used_ms?: number; kind?: string; apps?: string[] | null })
         .sort((a, b) => a.created_at_ms - b.created_at_ms)
-        .map((c) => ({ id: c.id, name: c.name, created_at_ms: c.created_at_ms, last_used_ms: c.last_used_ms ?? null, kind: c.kind ?? "key", apps: c.apps ?? null }));
+        .map((c) => ({
+          id: c.id, name: c.name, created_at_ms: c.created_at_ms,
+          // Older records kept it inside; newer ones in CLIENT_USED.
+          last_used_ms: used[c.id] !== undefined ? Number(used[c.id]) : c.last_used_ms ?? null,
+          kind: c.kind ?? "key", apps: c.apps ?? null,
+        }));
       return json(200, { clients });
     }
     if (path === "clients" && method === "POST") {
@@ -695,7 +717,7 @@ export class Gateway {
     }
     // R18: limit an AI app to some phone apps, or lift the limit with null.
     if (path.startsWith("clients/") && method === "PATCH") {
-      const id = decodeURIComponent(path.slice("clients/".length));
+      const id = decodePath(path.slice("clients/".length));
       const body = (await readJson(request, 16 * 1024)) as Record<string, unknown>;
       if (typeof body !== "object" || body === null || Object.keys(body).some((k) => k !== "apps") || !appsOk(body.apps)) return error(400, APPS_INVALID);
       const raw = await this.store.hget("latch:clients", id);
@@ -705,10 +727,11 @@ export class Gateway {
       return noContent();
     }
     if (path.startsWith("clients/") && method === "DELETE") {
-      const id = decodeURIComponent(path.slice("clients/".length));
+      const id = decodePath(path.slice("clients/".length));
       const raw = (await this.store.hgetall("latch:clients"))[id];
       if (!raw) return error(404, "no such client");
       await this.store.hdel("latch:clients", id);
+      await this.store.hdel(CLIENT_USED, id);
       const sha = (JSON.parse(raw) as { token_sha256?: string }).token_sha256;
       if (sha) await this.store.del(`latch:clienttoken:${sha}`);
       return noContent();
@@ -723,7 +746,7 @@ export class Gateway {
     if (path.startsWith("oauth/requests/") && method === "POST") {
       const body = (await readJson(request, 1024)) as Record<string, unknown>;
       if (typeof body?.approve !== "boolean") return error(400, "approve must be true or false");
-      const ok = await this.oauth.decideAsOwner(decodeURIComponent(path.slice("oauth/requests/".length)), body.approve);
+      const ok = await this.oauth.decideAsOwner(decodePath(path.slice("oauth/requests/".length)), body.approve);
       return ok ? noContent() : error(404, "that request expired or was already decided");
     }
     return error(404, "not found");

@@ -62,6 +62,11 @@ impl Transfers {
         slots
     }
 
+    /// Drops expired files (run every minute).
+    pub fn sweep(&self) {
+        drop(self.lock());
+    }
+
     fn room_for(slots: &HashMap<String, (Slot, u64)>, bytes: usize) -> Result<(), TransferError> {
         if bytes > MAX_TRANSFER_BYTES {
             return Err(TransferError::TooLarge);
@@ -99,6 +104,12 @@ impl Transfers {
         self.lock()
             .insert(token.clone(), (Slot::Upload(None), now_ms() + LINK_TTL_MS));
         token
+    }
+
+    /// Whether `token` is an upload slot still waiting for its bytes. Checked
+    /// before a body is read, so nobody without a link makes the gateway hold one.
+    pub fn upload_open(&self, token: &str) -> bool {
+        matches!(self.lock().get(token), Some((Slot::Upload(None), _)))
     }
 
     /// Fills an upload slot once.

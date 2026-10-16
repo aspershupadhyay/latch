@@ -144,7 +144,7 @@ export const K = {
   lock: (id: string) => `latch:lock:${id}`,
   observation: (id: string) => `latch:obs:${id}`,
   /** The last screen the AI was shown in full (roadmap R5). */
-  base: (id: string) => `latch:base:${id}`,
+  base: (id: string, caller: string) => `latch:base:${id}:${caller}`,
   audit: "latch:audit",
 };
 
@@ -353,17 +353,17 @@ export class Devices {
   }
 
   /** The last screen the AI was shown in full on this connection (R5). One round trip. */
-  async shownBase(id: string, conn: string): Promise<Observation | undefined> {
-    const v = await this.store.get(K.base(id));
+  async shownBase(id: string, conn: string, caller = ""): Promise<Observation | undefined> {
+    const v = await this.store.get(K.base(id, caller));
     if (!v) return undefined;
     const record = JSON.parse(v) as { conn: string; observation: Observation };
     return record.conn === conn ? record.observation : undefined;
   }
 
   /** Remembers `obs` (without its screenshot) as the screen the AI was shown in full. */
-  async setShownBase(id: string, conn: string, obs: Observation): Promise<void> {
+  async setShownBase(id: string, conn: string, obs: Observation, caller = ""): Promise<void> {
     const { screenshot: _drop, ...withoutScreenshot } = obs;
-    await this.store.set(K.base(id), JSON.stringify({ conn, observation: withoutScreenshot }), { px: BASE_TTL_MS });
+    await this.store.set(K.base(id, caller), JSON.stringify({ conn, observation: withoutScreenshot }), { px: BASE_TTL_MS });
   }
 
   async latestObservation(id: string): Promise<Observation | undefined> {
@@ -519,6 +519,9 @@ export class Devices {
       if (!approvalSeen && approval) {
         approvalSeen = true;
         waitUntil = Math.max(waitUntil, Date.now() + CONFIRM_DEADLINE_MS + 3_000);
+        // The wait now ends later than the phone's lock would: keep it, so no other
+        // command reaches this phone while the owner decides.
+        await this.store.pexpire(K.lock(id), waitUntil - Date.now() + 15_000);
         const request = JSON.parse(approval) as ApprovalRequest;
         if (request.remote && !options.askOwner && options.deferWhenAsked) {
           // The AI asks the user in the chat; answer_approval resumes this command.

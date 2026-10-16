@@ -97,6 +97,18 @@ async fn main() -> ExitCode {
     tracing::info!(%bind, mode, "latch gateway listening");
 
     let app = router(state.clone());
+    // Expired file links lose their keys and stored bytes within a minute, even when idle.
+    let sweeper = {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                state.links.sweep();
+                state.transfers.sweep();
+            }
+        })
+    };
     let wifi = match state.config.wifi_bind {
         Some(addr) => match start_wifi(&state, addr, app.clone()).await {
             Ok(task) => Some(task),
@@ -116,12 +128,14 @@ async fn main() -> ExitCode {
         if let Some(wifi) = wifi {
             wifi.abort();
         }
+        sweeper.abort();
         return ExitCode::SUCCESS;
     }
     let result = server.await;
     if let Some(wifi) = wifi {
         wifi.abort();
     }
+    sweeper.abort();
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

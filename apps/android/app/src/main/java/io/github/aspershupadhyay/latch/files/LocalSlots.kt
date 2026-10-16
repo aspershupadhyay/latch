@@ -154,14 +154,17 @@ class LocalSlots(
 
     /** One HTTP/1.1 request; true when it completed the slot's transfer. */
     private fun handle(slot: Slot, socket: Socket): Boolean {
-        socket.soTimeout = READ_TIMEOUT_MS
+        // The request line and headers must arrive quickly, so a device on the same
+        // Wi-Fi that trickles bytes cannot hold the address; the body may take longer.
+        socket.soTimeout = HEAD_TIMEOUT_MS
         val input = socket.getInputStream().buffered()
         val out = socket.getOutputStream()
         fun respond(status: String, length: Long = 0) {
             out.write("HTTP/1.1 $status\r\nContent-Length: $length\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
             out.flush()
         }
-        val head = readHead(input) ?: return false
+        val head = readHead(input, System.currentTimeMillis() + HEAD_TIMEOUT_MS) ?: return false
+        socket.soTimeout = READ_TIMEOUT_MS
         val requestLine = head.first().split(' ')
         if (requestLine.size != 3 || !requestLine[2].startsWith("HTTP/1.")) {
             respond("400 Bad Request")
@@ -250,14 +253,14 @@ class LocalSlots(
     }
 
     /** The request line and header lines, or null for a request that is malformed or too large. */
-    private fun readHead(input: InputStream): List<String>? {
+    private fun readHead(input: InputStream, deadlineMs: Long): List<String>? {
         val lines = ArrayList<String>()
         val line = StringBuilder()
         var total = 0
         while (true) {
             val b = input.read()
             if (b < 0) return null
-            if (++total > MAX_HEAD_BYTES) return null
+            if (++total > MAX_HEAD_BYTES || System.currentTimeMillis() > deadlineMs) return null
             when (b) {
                 '\r'.code -> Unit
                 '\n'.code -> {
@@ -277,6 +280,7 @@ class LocalSlots(
         private const val BACKLOG = 4
         private const val ACCEPT_POLL_MS = 1_000
         private const val READ_TIMEOUT_MS = 30_000
+        private const val HEAD_TIMEOUT_MS = 5_000
         private const val MAX_HEAD_BYTES = 8 * 1024
         private const val BLOCK_BYTES = 256 * 1024
         private const val FREE_SPACE_MARGIN_BYTES = 200L * 1024 * 1024

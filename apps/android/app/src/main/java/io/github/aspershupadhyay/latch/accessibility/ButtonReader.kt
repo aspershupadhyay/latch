@@ -52,6 +52,13 @@ class ButtonReader(
         }
     }
 
+    /** Frees ML Kit's native resources; a later [read] starts it again. */
+    @Synchronized
+    fun close() {
+        recognizer?.close()
+        recognizer = null
+    }
+
     private companion object {
         const val READ_TIMEOUT_MS = 1_500L
         const val MAX_CHARS = 200

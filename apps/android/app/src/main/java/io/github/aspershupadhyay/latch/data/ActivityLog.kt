@@ -70,6 +70,11 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
     val entries: StateFlow<List<ActivityEntry>> = _entries.asStateFlow()
     private val writer = file?.let { Executors.newSingleThreadExecutor { r -> Thread(r, "latch-activity").apply { isDaemon = true } } }
     private var appendsSinceCompact = 0
+    /** Each entry's number, taken together with the list update, so a rewrite knows what it holds. */
+    private val lock = Any()
+    private var lastSeq = 0L
+    /** Entries up to this number are in the file already (writer thread only). */
+    private var writtenUpTo = 0L
 
     init {
         writer?.execute(::load)
@@ -77,10 +82,20 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
 
     fun add(kind: ActivityKind, summary: String, app: String? = null, by: ActivityActor = ActivityActor.LATCH) {
         val entry = ActivityEntry(now(), kind, summary.take(MAX_SUMMARY_CHARS), app?.take(MAX_APP_CHARS), by)
-        _entries.update { (listOf(entry) + it).take(CAPACITY) }
+        val seq = synchronized(lock) {
+            // One copy per line, newest first, never more than CAPACITY.
+            _entries.update { old ->
+                ArrayList<ActivityEntry>(minOf(old.size + 1, CAPACITY)).apply {
+                    add(entry)
+                    addAll(if (old.size >= CAPACITY) old.subList(0, CAPACITY - 1) else old)
+                }
+            }
+            ++lastSeq
+        }
         writer?.execute {
             runCatching {
-                file!!.appendText(encode(entry) + "\n")
+                // A rewrite since this line was added already holds it.
+                if (seq > writtenUpTo) file!!.appendText(encode(entry) + "\n")
                 if (++appendsSinceCompact >= COMPACT_EVERY) compact()
             }
         }
@@ -124,7 +139,7 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
             }.filter { it.atMs >= cutoff }.take(CAPACITY).toList()
         }.getOrDefault(emptyList())
         // Lines added while loading come first; both lists are newest first.
-        _entries.update { (it + saved).sortedByDescending(ActivityEntry::atMs).take(CAPACITY) }
+        synchronized(lock) { _entries.update { (it + saved).sortedByDescending(ActivityEntry::atMs).take(CAPACITY) } }
         compact()
     }
 
@@ -133,11 +148,12 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
         val f = file ?: return
         appendsSinceCompact = 0
         val cutoff = now() - RETENTION_MS
-        val kept = _entries.value.filter { it.atMs >= cutoff }.asReversed()
+        val (snapshot, upTo) = synchronized(lock) { _entries.value to lastSeq }
+        val kept = snapshot.filter { it.atMs >= cutoff }.asReversed()
         runCatching {
             val tmp = File(f.parentFile, f.name + ".tmp")
             tmp.writeText(kept.joinToString("") { encode(it) + "\n" })
-            if (!tmp.renameTo(f)) tmp.delete()
+            if (tmp.renameTo(f)) writtenUpTo = upTo else tmp.delete()
         }
     }
 

@@ -967,11 +967,14 @@ async fn write_file(
                 transfer_command(state, device_id, fetch(link, record.size)).await?
             }
         };
+        // The record as it is now: an upload that arrived meanwhile (the Wi-Fi
+        // fallback above) set its size, which the disk limit and a retry need.
+        let current = state.links.record(upload).unwrap_or(record);
         let started = Record {
             used: true,
             place: Some(place),
             asked_name: Some(name),
-            ..record
+            ..current
         };
         state.links.save(upload, started.clone());
         let t = follow(state, device_id, first).await?;

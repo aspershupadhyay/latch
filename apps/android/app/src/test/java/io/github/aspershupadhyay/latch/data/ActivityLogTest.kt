@@ -36,6 +36,27 @@ class ActivityLogTest {
     }
 
     @Test
+    fun linesAddedWhileLoadingOrCompactingAreKeptOnce() {
+        val file = File(dir(), "activity.jsonl")
+        var now = 1_000_000_000_000L
+        // Logged before the file finished loading (e.g. a crash notice at start), then a
+        // burst past the compaction point: each line must reach the file exactly once.
+        val log = ActivityLog(file) { now++ }
+        log.add(ActivityKind.REFUSAL, "Latch closed unexpectedly last time")
+        repeat(1_200) { log.add(ActivityKind.ACTION, "Tap $it") }
+        log.flush()
+        val lines = file.readLines()
+        assertEquals("no duplicates in the file", lines.size, lines.toSet().size)
+        assertEquals(1_201, lines.size)
+
+        val reloaded = ActivityLog(file) { now }
+        reloaded.flush()
+        val summaries = reloaded.entries.value.map { it.summary }
+        assertEquals(summaries.size, summaries.toSet().size)
+        assertEquals(1_201, summaries.size)
+    }
+
+    @Test
     fun queryFiltersByKindAndTimeNewestFirst() {
         var now = 10_000L
         val log = ActivityLog(null) { now }

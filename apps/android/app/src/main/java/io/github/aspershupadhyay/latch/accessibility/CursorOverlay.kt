@@ -167,6 +167,10 @@ class CursorOverlay(private val context: Context) {
         private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) }
         private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
+        // Reused on every frame: drawing allocates nothing while the pointer moves.
+        private val loc = IntArray(2)
+        private val oval = RectF()
+        private var shortened: Triple<String, Float, String>? = null
 
         // ---- State (screen pixels, uptime ms) ----
         private var x = -1f
@@ -338,7 +342,7 @@ class CursorOverlay(private val context: Context) {
         override fun onDraw(canvas: Canvas) {
             if (x < 0) return
             val t = now()
-            val loc = IntArray(2).also(::getLocationOnScreen)
+            getLocationOnScreen(loc)
             canvas.save()
             canvas.translate(-loc[0].toFloat(), -loc[1].toFloat())
             // Shown while the AI works; once it stops acting the pointer fades away.
@@ -425,7 +429,8 @@ class CursorOverlay(private val context: Context) {
         private fun progressRing(canvas: Canvas, cx: Float, cy: Float, fraction: Float) {
             val r = (FINGER_DP + 6) * density
             ring.alpha = 255
-            canvas.drawArc(RectF(cx - r, cy - r, cx + r, cy + r), -90f, 360f * fraction.coerceIn(0f, 1f), false, ring)
+            oval.set(cx - r, cy - r, cx + r, cy + r)
+            canvas.drawArc(oval, -90f, 360f * fraction.coerceIn(0f, 1f), false, ring)
         }
 
         private fun drawArrow(canvas: Canvas, px: Float, py: Float, alpha: Float, scale: Float) {
@@ -459,14 +464,16 @@ class CursorOverlay(private val context: Context) {
             val gap = 8 * density
             val margin = 8 * density
             // This view covers the whole screen; the canvas is in screen pixels.
-            val loc = IntArray(2).also(::getLocationOnScreen)
+            getLocationOnScreen(loc)
             val screenW = (loc[0] + width).toFloat()
             val screenH = (loc[1] + height).toFloat()
             val chrome = padX * 2 + dotR * 2 + gap
             // Long words (a file name) are shortened so the label always fits on the screen.
-            val text = android.text.TextUtils.ellipsize(
-                "Latch · ${labelText(t)}", label, (screenW - margin * 2 - chrome).coerceAtLeast(0f), android.text.TextUtils.TruncateAt.END,
-            ).toString()
+            val full = "Latch · ${labelText(t)}"
+            val room = (screenW - margin * 2 - chrome).coerceAtLeast(0f)
+            val text = shortened?.takeIf { it.first == full && it.second == room }?.third
+                ?: android.text.TextUtils.ellipsize(full, label, room, android.text.TextUtils.TruncateAt.END).toString()
+                    .also { shortened = Triple(full, room, it) }
             val w = chrome + label.measureText(text)
             var left = px + 22 * density
             var top = py + 26 * density
@@ -474,7 +481,7 @@ class CursorOverlay(private val context: Context) {
             if (top + h > screenH - margin) top = py - h - 10 * density
             left = left.coerceIn(margin, (screenW - w - margin).coerceAtLeast(margin))
             top = top.coerceIn(margin, (screenH - h - margin).coerceAtLeast(margin))
-            val box = RectF(left, top, left + w, top + h)
+            val box = oval.apply { set(left, top, left + w, top + h) }
             val a = alpha.coerceIn(0f, 1f)
             pill.alpha = (225 * a).toInt()
             pillEdge.alpha = (70 * a).toInt()
@@ -496,8 +503,10 @@ class CursorOverlay(private val context: Context) {
                 track.alpha = (60 * a).toInt()
                 bar.alpha = (255 * a).toInt()
                 val r = 2f * density
-                canvas.drawRoundRect(RectF(textLeft, barTop, barRight, barTop + 4 * density), r, r, track)
-                canvas.drawRoundRect(RectF(textLeft, barTop, textLeft + (barRight - textLeft) * fraction.coerceIn(0f, 1f), barTop + 4 * density), r, r, bar)
+                oval.set(textLeft, barTop, barRight, barTop + 4 * density)
+                canvas.drawRoundRect(oval, r, r, track)
+                oval.set(textLeft, barTop, textLeft + (barRight - textLeft) * fraction.coerceIn(0f, 1f), barTop + 4 * density)
+                canvas.drawRoundRect(oval, r, r, bar)
             }
         }
 
