@@ -18,6 +18,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### New for owners
 
+- **Activity → Export a PDF report**: every step the AI took, what it asked you and how you answered, and what was refused, for the latest task, today, the last 24 hours, or the whole week; saved to Downloads and ready to share, with a fingerprint that changes if any line does (R25).
 - More of what ADB test agents do, without ADB: lock screen, screenshot, split screen, and arrow keys; open a link straight in an app (payment links always ask, message links ask); start an app fresh; read battery, network, and storage with `device_status`; set the ringer, Do Not Disturb, rotation, and screen timeout; nine more settings pages (R25, protocol 1.15).
 - `diagnose` checks each phone and names the fix, including Android's battery optimisation (R13, protocol 1.13).
 - Phone controls: volume, media, brightness, flashlight, and the Wi-Fi, internet, Bluetooth, and volume panels, each off until switched on (R16, protocol 1.11).

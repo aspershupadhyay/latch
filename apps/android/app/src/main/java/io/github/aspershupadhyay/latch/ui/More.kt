@@ -48,6 +48,7 @@ import io.github.aspershupadhyay.latch.data.TaskRun
 import io.github.aspershupadhyay.latch.data.taskRuns
 import io.github.aspershupadhyay.latch.data.tenths
 import io.github.aspershupadhyay.latch.protocol.Capability
+import io.github.aspershupadhyay.latch.report.ReportPeriod
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import io.github.aspershupadhyay.latch.update.UpdateInfo
 import io.github.aspershupadhyay.latch.update.UpdateState
@@ -225,11 +226,12 @@ private fun dayLabel(atMs: Long, nowMs: Long): String {
  * kind. Kept on this phone for a week; never screen or typed text.
  */
 @Composable
-fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
+fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: (ReportPeriod) -> Unit = {}) {
     val signal = LocalSignal.current
     val format = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
     var filter by rememberSaveable { mutableStateOf(ActivityFilter.ALL) }
     var confirmClear by remember { mutableStateOf(false) }
+    var choosePeriod by remember { mutableStateOf(false) }
     val runs = remember(entries) { taskRuns(entries) }
     val counts = remember(entries, runs) {
         ActivityFilter.entries.associateWith { f -> if (f == ActivityFilter.BY_TASK) runs.size else entries.count(f::matches) }
@@ -243,6 +245,20 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item { ScreenTitle("Activity", "What the AI did, what you did, and what Latch did. Kept on this phone for 7 days. Never screen text or typed text.") }
+        if (entries.isNotEmpty()) {
+            item {
+                Card {
+                    ListRow(
+                        LatchIcons.Share,
+                        "Export a PDF report",
+                        "Every step the AI took, what it asked, and what you answered, for a task or a period. Saved to Downloads.",
+                        tint = signal.accent,
+                        onClick = { choosePeriod = true },
+                        onClickLabel = "Choose what the report covers",
+                    )
+                }
+            }
+        }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(ActivityFilter.entries.filter { it == ActivityFilter.ALL || counts[it] != 0 || it == filter }, key = { it.name }) { f ->
@@ -308,6 +324,35 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit) {
         if (entries.isNotEmpty()) {
             item { TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth()) { Text("Clear activity", color = signal.danger) } }
         }
+    }
+    if (choosePeriod) {
+        AlertDialog(
+            onDismissRequest = { choosePeriod = false },
+            title = { Text("What should the report cover?") },
+            text = {
+                Column {
+                    Text(
+                        "The PDF lists every line of Latch's log for that time, oldest first, with a summary and the AI's tasks. " +
+                            "It never holds screen text, typed text, passwords, or the clipboard.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = signal.text2,
+                    )
+                    ReportPeriod.entries.forEach { period ->
+                        TextButton(
+                            onClick = {
+                                choosePeriod = false
+                                onExport(period)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(period.label, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosePeriod = false }) { Text("Cancel") } },
+        )
     }
     if (confirmClear) {
         AlertDialog(
