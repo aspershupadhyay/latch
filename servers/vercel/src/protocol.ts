@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.13";
+export const PROTOCOL_VERSION = "1.14";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -157,6 +157,8 @@ export type Command =
   }
   | { name: "file.push"; params: { id: string; link: FileLink; max_bytes: number } }
   | { name: "file.transfer"; params: { transfer: string; wait_ms?: number; cancel?: boolean } }
+  // Since 1.14 (ADR-041): a one-transfer address on the phone's Wi-Fi.
+  | { name: "file.local"; params: { direction: LocalDirection; max_bytes: number } }
   | { name: "clipboard.set"; params: { text: string } }
   // Since 1.8: the phone's activity log, and the end of a task.
   | { name: "activity.list"; params: { limit: number; kinds?: ActivityKind[]; since_ms?: number } }
@@ -210,6 +212,27 @@ export interface ActivityList { entries: ActivityEntry[]; total: number }
  * encrypted under a key made for this transfer that never goes to the storage.
  */
 export interface FileLink { url: string; headers?: Record<string, string>; key_hex: string; iv_hex: string }
+
+/** Since 1.14 (ADR-041): which way a same-Wi-Fi transfer goes, seen from the phone. */
+export type LocalDirection = "receive" | "send";
+/** Since 1.14: answer to `file.local`, a one-transfer address on the phone's Wi-Fi. */
+export interface LocalSlot { url: string; expires_at_ms: number }
+
+/**
+ * A slot from a phone must be plain HTTP to a private, loopback, or link-local
+ * IPv4 address, a port above 1023, and a 64-hex path, so a phone cannot point
+ * the AI's computer at an address on the internet. Matches `validate::local_slot`.
+ */
+export function isLocalSlotUrl(url: unknown): boolean {
+  const m = /^http:\/\/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):([1-9]\d{0,4})\/([0-9a-f]{64})$/.exec(String(url));
+  if (!m) return false;
+  const octets = m.slice(1, 5);
+  if (octets.some((o) => (o.length > 1 && o.startsWith("0")) || Number(o) > 255)) return false;
+  const [a, b] = octets.map(Number) as [number, number];
+  const port = Number(m[5]);
+  const isPrivate = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 127 || (a === 169 && b === 254);
+  return isPrivate && port >= 1024 && port <= 65535;
+}
 export type TransferState = "running" | "done";
 export interface FileTransfer {
   id: string; state: TransferState; done_bytes: number; total_bytes?: number; item?: FileItem; sha256?: string;
@@ -259,6 +282,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   if (c.name === "owner.ask") return 5;
+  if (c.name === "file.local") return 14;
   if (c.name === "device.control") return 11;
   if (c.name === "activity.list" || c.name === "task.done") return 8;
   if (c.name === "file.fetch" || c.name === "file.push" || c.name === "file.transfer" || c.name === "clipboard.set") return 7;
@@ -286,6 +310,8 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "app.share": return ["app.share"];
     case "file.fetch": return ["file.write"];
     case "file.push": return ["file.read"];
+    // The same capability the transfer it prepares needs.
+    case "file.local": return [c.params.direction === "send" ? "file.read" : "file.write"];
     // Follows a transfer that already passed its own checks.
     case "file.transfer": return [];
     case "clipboard.set": return ["clipboard.write"];
@@ -298,7 +324,7 @@ export function requiredCapabilities(c: Command): Capability[] {
 
 /** Asking the owner counts as an action: the owner changes the screen while answering. */
 export const isAction = (c: Command) =>
-  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read", "file.push", "file.transfer", "activity.list", "task.done"].includes(c.name);
+  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read", "file.push", "file.transfer", "file.local", "activity.list", "task.done"].includes(c.name);
 
 /** `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
 export const isFileChange = (c: Command) => ["file.write", "file.fetch", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
@@ -521,6 +547,12 @@ export function validateCommand(c: Command): void {
         throw invalid(`max_bytes must be between 1 and ${LIMITS.maxLinkFileBytes}`);
       }
       return;
+    case "file.local":
+      if (c.params.direction !== "receive" && c.params.direction !== "send") throw invalid("direction must be receive or send");
+      if (!isInt(c.params.max_bytes) || c.params.max_bytes < 1 || c.params.max_bytes > LIMITS.maxLinkFileBytes) {
+        throw invalid(`max_bytes must be between 1 and ${LIMITS.maxLinkFileBytes}`);
+      }
+      return;
     case "file.transfer":
       id("transfer", c.params.transfer);
       if ((c.params.wait_ms ?? 0) > LIMITS.maxWaitMs) throw invalid(`wait_ms must be at most ${LIMITS.maxWaitMs}`);
@@ -702,6 +734,7 @@ export function parseCommand(raw: unknown): Command {
       name,
       params: { transfer: str("transfer"), wait_ms: p.wait_ms === undefined ? 0 : int(p.wait_ms, "wait_ms"), cancel: bool("cancel", false) },
     };
+    case "file.local": return { name, params: { direction: str("direction") as LocalDirection, max_bytes: int(p.max_bytes, "max_bytes") } };
     case "clipboard.set": return { name, params: { text: str("text") } };
     case "activity.list": {
       if (p.kinds !== undefined && (!Array.isArray(p.kinds) || p.kinds.some((k) => typeof k !== "string"))) throw invalid("kinds must be a list of strings");

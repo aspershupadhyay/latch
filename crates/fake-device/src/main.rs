@@ -5,6 +5,7 @@
 //!     latch-fake-device http://127.0.0.1:8787 ABCD-EFGH [--poll]
 //!
 //! `--poll` uses the HTTP long-poll transport (required by serverless gateways).
+//! `--local-transfers` switches on same-Wi-Fi transfers (protocol 1.14), served on 127.0.0.1.
 //!
 //! Pairs with the code, enables every capability except screenshots-of-real-pixels
 //! (it sends a 1x1 placeholder), and serves commands until stopped.
@@ -19,9 +20,12 @@ use latch_protocol::Capability;
 async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let poll = args.iter().any(|a| a == "--poll");
+    let local_transfers = args.iter().any(|a| a == "--local-transfers");
     let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
     let [base, code] = positional.as_slice() else {
-        eprintln!("usage: latch-fake-device <http://gateway:port> <PAIRING-CODE> [--poll]");
+        eprintln!(
+            "usage: latch-fake-device <http://gateway:port> <PAIRING-CODE> [--poll] [--local-transfers]"
+        );
         return ExitCode::from(2);
     };
     let (device_id, token) = match pair(base, code).await {
@@ -32,7 +36,9 @@ async fn main() -> ExitCode {
         }
     };
     eprintln!("paired as {device_id}; serving commands (Ctrl-C to stop)");
-    let state = Arc::new(Mutex::new(FakeState::new(&Capability::ALL)));
+    let mut fake = FakeState::new(&Capability::ALL);
+    fake.local_transfers = local_transfers;
+    let state = Arc::new(Mutex::new(fake));
     let ws = format!(
         "{}/v1/device",
         base.replacen("http://", "ws://", 1).trim_end_matches('/')

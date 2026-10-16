@@ -51,6 +51,8 @@ export interface LinkRecord {
   sha256?: string;
   place?: string;
   asked_name?: string;
+  /** Since 1.14 (ADR-041): the phone and its same-Wi-Fi address that carry this transfer instead. */
+  local?: { device: string; url: string };
 }
 
 const recordKey = (token: string) => `latch:link:${token}`;

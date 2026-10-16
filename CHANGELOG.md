@@ -34,6 +34,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 - The phone learns how long each app takes to settle (R7).
 - Every action reports whether it changed the screen, opened another app, or did nothing (R11, protocol 1.9).
 - Repeated elements, such as map results, are listed once (R12).
+- Both gateways can move whole files straight between your computer and the phone on the same Wi-Fi, falling back to the encrypted cloud link; the app side follows (R23, protocol 1.14).
 
 ### Fixes
 

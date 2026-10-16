@@ -634,6 +634,9 @@ pub fn local_slot(slot: &crate::LocalSlot) -> Result<(), ProtocolError> {
     let (host_port, path) = rest.split_once('/').ok_or_else(bad)?;
     let (host, port) = host_port.split_once(':').ok_or_else(bad)?;
     let ip: std::net::Ipv4Addr = host.parse().map_err(|_| bad())?;
+    if port.starts_with('0') || !port.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad());
+    }
     let port: u16 = port.parse().map_err(|_| bad())?;
     let private = ip.is_private() || ip.is_loopback() || ip.is_link_local();
     if !private || port < 1024 || !is_hex(path, 64) {
@@ -926,6 +929,9 @@ mod tests {
             "http://192.168.1.20:41234/short".to_owned(),
             format!("http://192.168.1.20:41234/{}", "AB".repeat(32)),
             format!("http://[fe80::1]:41234/{path}"),
+            format!("http://192.168.1.20:+4123/{path}"),
+            format!("http://192.168.1.20:01234/{path}"),
+            format!("http://192.168.01.20:41234/{path}"),
         ] {
             assert!(local_slot(&slot(bad.clone())).is_err(), "{bad}");
         }

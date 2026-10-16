@@ -13,7 +13,7 @@ What an AI app can call once it is connected. Every call goes through the same r
 | `list_apps`, `launch_app` | See and open installed apps |
 | `ask_owner` | Asks you to do a step only a person should do (log in, unlock, a code); waits for **Done** |
 | `list_files`, `read_file` | List photos you allowed, Downloads, or the folders you share; look at a text file or picture |
-| `get_file_link`, `upload_link` | Private, encrypted 15-minute links to copy whole files (up to 2 GB) between your computer and the phone (openssl + curl) |
+| `get_file_link`, `upload_link` | Private, encrypted 15-minute links to copy whole files (up to 2 GB) between your computer and the phone (openssl + curl). With fast transfers on and both on the same Wi-Fi, the file goes straight between them; `get_file_link` with `lane: "cloud"` always uses the gateway |
 | `transfer_status` | Waits for a big file that is still moving |
 | `set_clipboard` | Puts text on the phone's clipboard to paste (never reads it) |
 | `phone_control` | Sets a volume, plays or pauses media, sets the brightness, turns the flashlight on or off, or opens the Wi-Fi, internet, Bluetooth, or volume panel; each group is its own switch in **Access → Phone controls**, off until you turn it on |
