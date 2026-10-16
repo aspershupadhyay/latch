@@ -159,6 +159,35 @@ class Consequences(private val words: PolicyWords) {
         const val MAX_SCOPE_NODES = 64
         const val MAX_KEY_CHARS = 160
 
+        private val PAYMENT_LINK_SCHEMES = setOf("upi", "paytmmp", "phonepe", "tez", "gpay")
+        private val MESSAGE_LINK_SCHEMES = setOf("tel", "sms", "smsto", "mms", "mmsto", "mailto", "whatsapp")
+
+        /**
+         * Opening a link in [packageName] (protocol 1.15), the twin of
+         * `latch_policy::link_consequence`: payment links ask every time; call,
+         * message, and mail links ask and may be remembered; the rest is null.
+         */
+        fun judgeLink(url: String, packageName: String): Judgement? {
+            val scheme = url.substringBefore(':', "")
+            val consequence = when (scheme) {
+                in PAYMENT_LINK_SCHEMES -> Consequence.CRITICAL
+                in MESSAGE_LINK_SCHEMES -> Consequence.CONSEQUENTIAL
+                else -> return null
+            }
+            return Judgement(consequence, "Open ${shortenLink(url)} in $packageName", "link|$packageName|$scheme".take(MAX_KEY_CHARS))
+        }
+
+        /** A link as the owner reads it: scheme and host of a web address, else the first 60 characters. */
+        fun shortenLink(url: String): String {
+            val web = Regex("^(https?)://([^/?#]*)").find(url)
+            val short = web?.let { "${it.groupValues[1]}://${it.groupValues[2]}" } ?: url
+            return if (short.codePointCount(0, short.length) > 60) {
+                short.substring(0, short.offsetByCodePoints(0, 59)) + "…"
+            } else {
+                short
+            }
+        }
+
         /** The tapped node, what is drawn inside it, and if none is labeled, the nearest labeled ancestor. */
         fun scopeOf(nodes: List<UiNode>, node: UiNode): List<UiNode> {
             val scope = mutableListOf(node)

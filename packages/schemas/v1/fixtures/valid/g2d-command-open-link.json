@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0153", "deadline_ms": 15000, "command": { "name": "app.open_link", "params": { "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "package": "com.google.android.youtube" } } }

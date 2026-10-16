@@ -68,6 +68,14 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
                     validate::observation(obs, validate::MAX_NODES).map_err(err)?;
                 }
             }
+            DeviceToGateway::Result {
+                outcome: Outcome::Ok { data },
+                ..
+            } if data.get("capabilities").is_some() && data.get("session").is_some() => {
+                // A device.info answer, with its 1.15 status when present.
+                serde_json::from_value::<latch_protocol::DeviceInfo>(data.clone())
+                    .map_err(|e| e.to_string())?;
+            }
             _ => {}
         }
         let reparsed: DeviceToGateway =

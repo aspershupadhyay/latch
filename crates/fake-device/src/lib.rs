@@ -15,9 +15,9 @@ use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
     ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AppList,
     Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor,
-    DeviceInfo, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello, Observation,
-    Outcome, OwnerReply, PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo, Screenshot,
-    SessionInfo, Target, WaitResult, validate,
+    DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello,
+    NetworkKind, Observation, Orientation, Outcome, OwnerReply, PROTOCOL_VERSION, PhoneControl,
+    ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -80,6 +80,11 @@ pub struct FakeState {
     pub tasks_done: Vec<String>,
     /// Every `device.control` the phone carried out (protocol 1.11).
     pub controls: Vec<PhoneControl>,
+    /// Since 1.15: system buttons pressed, links opened (url, package), and
+    /// apps launched from their first screen, in order.
+    pub pressed: Vec<GlobalAction>,
+    pub links: Vec<(String, String)>,
+    pub fresh_launches: Vec<String>,
     /// Protocol 1.12: the key this phone signs every message with; `None`
     /// behaves like a phone from before 1.12 (unsigned messages).
     pub device_key: Option<signing::DeviceKey>,
@@ -131,6 +136,9 @@ impl FakeState {
             clipboard: Vec::new(),
             tasks_done: Vec::new(),
             controls: Vec::new(),
+            pressed: Vec::new(),
+            links: Vec::new(),
+            fresh_launches: Vec::new(),
             device_key: Some(signing::DeviceKey::generate()),
             battery_restricted: None,
             local_transfers: false,
@@ -291,6 +299,20 @@ pub fn handle(
             package: Some(screens::package_of(&state.phone.screen).into()),
             capabilities: state.capabilities.clone(),
             session: state.session,
+            status: Some(DeviceStatus {
+                battery_percent: Some(81),
+                charging: Some(false),
+                network: Some(NetworkKind::Wifi),
+                free_storage_mb: Some(12_000),
+                orientation: Some(Orientation::Portrait),
+                locked: Some(state.pressed.last() == Some(&GlobalAction::LockScreen)),
+                do_not_disturb: Some(
+                    state.controls.iter().rev().find_map(|c| match c {
+                        PhoneControl::DoNotDisturb { on } => Some(*on),
+                        _ => None,
+                    }) == Some(true),
+                ),
+            }),
         })
         .map_err(|_| err(ErrorCode::Internal, "encode")),
         Command::Observe {
@@ -623,9 +645,12 @@ pub fn handle(
             done(state)
         }
         Command::Global { action } => {
+            state.pressed.push(*action);
             match action {
                 GlobalAction::Back => state.phone.back(),
                 GlobalAction::Home | GlobalAction::Recents => state.phone.home(),
+                // The fake phone has no shade, lock screen, or gallery: the screen stays.
+                _ => {}
             }
             state.latest = None;
             done(state)
@@ -661,7 +686,26 @@ pub fn handle(
             apps: screens::apps(),
         })
         .map_err(|_| err(ErrorCode::Internal, "encode")),
-        Command::LaunchApp { package } => {
+        Command::OpenLink { url, package } => {
+            let screen = screens::APPS
+                .iter()
+                .find(|(p, _, _)| p == package)
+                .map(|(_, _, s)| s.clone())
+                .ok_or_else(|| {
+                    err(
+                        ErrorCode::TargetNotFound,
+                        "no app on the phone opens that link",
+                    )
+                })?;
+            state.links.push((url.clone(), package.clone()));
+            state.phone.open(screen);
+            state.latest = None;
+            done(state)
+        }
+        Command::LaunchApp { package, fresh } => {
+            if *fresh {
+                state.fresh_launches.push(package.clone());
+            }
             let screen = screens::APPS
                 .iter()
                 .find(|(p, _, _)| p == package)

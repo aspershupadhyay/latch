@@ -26,10 +26,91 @@ pub enum Target {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+///
+/// The notification shade and quick settings are not offered: the shade
+/// shows one-time codes and message previews, and system UI stays off limits
+/// to agents (chapter 08).
 pub enum GlobalAction {
     Back,
     Home,
     Recents,
+    /// Since 1.15: lock the screen (the owner unlocks it).
+    LockScreen,
+    /// Since 1.15: take a screenshot the way the owner would; Android saves
+    /// it to the phone's gallery. The AI does not receive it.
+    Screenshot,
+    /// Since 1.15: split the screen between the current app and another.
+    SplitScreen,
+    /// Since 1.15: the arrow keys and the centre key of a D-pad, for TV-style
+    /// and keyboard-driven screens (Android 13+).
+    DpadUp,
+    DpadDown,
+    DpadLeft,
+    DpadRight,
+    DpadCenter,
+}
+
+impl GlobalAction {
+    /// The wire name, e.g. `lock_screen`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            GlobalAction::Back => "back",
+            GlobalAction::Home => "home",
+            GlobalAction::Recents => "recents",
+            GlobalAction::LockScreen => "lock_screen",
+            GlobalAction::Screenshot => "screenshot",
+            GlobalAction::SplitScreen => "split_screen",
+            GlobalAction::DpadUp => "dpad_up",
+            GlobalAction::DpadDown => "dpad_down",
+            GlobalAction::DpadLeft => "dpad_left",
+            GlobalAction::DpadRight => "dpad_right",
+            GlobalAction::DpadCenter => "dpad_center",
+        }
+    }
+
+    /// Every action, in the order tools list them.
+    pub const ALL: [GlobalAction; 11] = [
+        GlobalAction::Back,
+        GlobalAction::Home,
+        GlobalAction::Recents,
+        GlobalAction::LockScreen,
+        GlobalAction::Screenshot,
+        GlobalAction::SplitScreen,
+        GlobalAction::DpadUp,
+        GlobalAction::DpadDown,
+        GlobalAction::DpadLeft,
+        GlobalAction::DpadRight,
+        GlobalAction::DpadCenter,
+    ];
+
+    pub fn parse(name: &str) -> Option<GlobalAction> {
+        GlobalAction::ALL.into_iter().find(|a| a.as_str() == name)
+    }
+
+    /// What the owner reads, e.g. "Press Back" or "Lock the screen".
+    pub fn describe(&self) -> &'static str {
+        match self {
+            GlobalAction::Back => "Press Back",
+            GlobalAction::Home => "Press Home",
+            GlobalAction::Recents => "Show recent apps",
+            GlobalAction::LockScreen => "Lock the screen",
+            GlobalAction::Screenshot => "Take a screenshot (saved to the gallery)",
+            GlobalAction::SplitScreen => "Split the screen",
+            GlobalAction::DpadUp => "Press the up arrow",
+            GlobalAction::DpadDown => "Press the down arrow",
+            GlobalAction::DpadLeft => "Press the left arrow",
+            GlobalAction::DpadRight => "Press the right arrow",
+            GlobalAction::DpadCenter => "Press the centre (select) key",
+        }
+    }
+
+    /// Back, home, and recents are understood by every phone; the rest since 1.15.
+    pub fn min_minor_version(&self) -> u32 {
+        match self {
+            GlobalAction::Back | GlobalAction::Home | GlobalAction::Recents => 0,
+            _ => 15,
+        }
+    }
 }
 
 /// Since 1.11: which sound a volume control sets.
@@ -60,7 +141,97 @@ pub enum SettingsPanel {
     Internet,
     Bluetooth,
     Volume,
+    /// Since 1.15: the NFC panel and the settings pages below.
+    Nfc,
+    AirplaneMode,
+    Location,
+    Display,
+    Battery,
+    Sound,
+    Notifications,
+    Storage,
+    DateTime,
 }
+
+impl SettingsPanel {
+    pub const ALL: [SettingsPanel; 13] = [
+        SettingsPanel::Wifi,
+        SettingsPanel::Internet,
+        SettingsPanel::Bluetooth,
+        SettingsPanel::Volume,
+        SettingsPanel::Nfc,
+        SettingsPanel::AirplaneMode,
+        SettingsPanel::Location,
+        SettingsPanel::Display,
+        SettingsPanel::Battery,
+        SettingsPanel::Sound,
+        SettingsPanel::Notifications,
+        SettingsPanel::Storage,
+        SettingsPanel::DateTime,
+    ];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SettingsPanel::Wifi => "wifi",
+            SettingsPanel::Internet => "internet",
+            SettingsPanel::Bluetooth => "bluetooth",
+            SettingsPanel::Volume => "volume",
+            SettingsPanel::Nfc => "nfc",
+            SettingsPanel::AirplaneMode => "airplane_mode",
+            SettingsPanel::Location => "location",
+            SettingsPanel::Display => "display",
+            SettingsPanel::Battery => "battery",
+            SettingsPanel::Sound => "sound",
+            SettingsPanel::Notifications => "notifications",
+            SettingsPanel::Storage => "storage",
+            SettingsPanel::DateTime => "date_time",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<SettingsPanel> {
+        SettingsPanel::ALL.into_iter().find(|p| p.as_str() == name)
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            SettingsPanel::Wifi => "Wi-Fi",
+            SettingsPanel::Internet => "internet",
+            SettingsPanel::Bluetooth => "Bluetooth",
+            SettingsPanel::Volume => "volume",
+            SettingsPanel::Nfc => "NFC",
+            SettingsPanel::AirplaneMode => "airplane mode",
+            SettingsPanel::Location => "location",
+            SettingsPanel::Display => "display",
+            SettingsPanel::Battery => "battery",
+            SettingsPanel::Sound => "sound",
+            SettingsPanel::Notifications => "notifications",
+            SettingsPanel::Storage => "storage",
+            SettingsPanel::DateTime => "date and time",
+        }
+    }
+}
+
+/// Since 1.15: how the screen turns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RotationMode {
+    Auto,
+    Portrait,
+    Landscape,
+}
+
+/// Since 1.15: the ringer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RingerMode {
+    Normal,
+    Vibrate,
+    Silent,
+}
+
+/// Shortest and longest screen timeout `device.control` sets, in seconds.
+pub const MIN_SCREEN_TIMEOUT_S: u32 = 15;
+pub const MAX_SCREEN_TIMEOUT_S: u32 = 1800;
 
 /// Since 1.11: one phone control. Each group has its own capability, off
 /// by default (see [`PhoneControl::capability`]).
@@ -75,16 +246,30 @@ pub enum PhoneControl {
     Brightness { percent: u8 },
     /// Turn the flashlight on or off.
     Flashlight { on: bool },
-    /// Open a settings panel.
+    /// Open a settings panel or page.
     Panel { panel: SettingsPanel },
+    /// Since 1.15: auto-rotate, or lock the screen to portrait or landscape (Screen switch).
+    Rotation { mode: RotationMode },
+    /// Since 1.15: how long the screen stays on without a touch, 15-1800 s (Screen switch).
+    ScreenTimeout { seconds: u32 },
+    /// Since 1.15: ring, vibrate, or silent (Sound switch; Android asks the
+    /// owner once for Do Not Disturb access).
+    Ringer { mode: RingerMode },
+    /// Since 1.15: Do Not Disturb on or off (Sound switch, same access).
+    DoNotDisturb { on: bool },
 }
 
 impl PhoneControl {
     /// The capability the owner switches on for this group of controls.
     pub fn capability(&self) -> Capability {
         match self {
-            PhoneControl::Volume { .. } | PhoneControl::Media { .. } => Capability::ControlSound,
-            PhoneControl::Brightness { .. } => Capability::ControlBrightness,
+            PhoneControl::Volume { .. }
+            | PhoneControl::Media { .. }
+            | PhoneControl::Ringer { .. }
+            | PhoneControl::DoNotDisturb { .. } => Capability::ControlSound,
+            PhoneControl::Brightness { .. }
+            | PhoneControl::Rotation { .. }
+            | PhoneControl::ScreenTimeout { .. } => Capability::ControlBrightness,
             PhoneControl::Flashlight { .. } => Capability::ControlFlashlight,
             PhoneControl::Panel { .. } => Capability::ControlPanels,
         }
@@ -115,16 +300,60 @@ impl PhoneControl {
             PhoneControl::Flashlight { on } => {
                 format!("Turn the flashlight {}", if *on { "on" } else { "off" })
             }
-            PhoneControl::Panel { panel } => format!(
-                "Open the {} panel",
-                match panel {
-                    SettingsPanel::Wifi => "Wi-Fi",
-                    SettingsPanel::Internet => "internet",
-                    SettingsPanel::Bluetooth => "Bluetooth",
-                    SettingsPanel::Volume => "volume",
+            PhoneControl::Panel { panel } => match panel {
+                SettingsPanel::Wifi
+                | SettingsPanel::Internet
+                | SettingsPanel::Bluetooth
+                | SettingsPanel::Volume
+                | SettingsPanel::Nfc => format!("Open the {} panel", panel.label()),
+                _ => format!("Open the {} settings", panel.label()),
+            },
+            PhoneControl::Rotation { mode } => match mode {
+                RotationMode::Auto => "Turn auto-rotate on".into(),
+                RotationMode::Portrait => "Lock the screen to portrait".into(),
+                RotationMode::Landscape => "Lock the screen to landscape".into(),
+            },
+            PhoneControl::ScreenTimeout { seconds } => {
+                if seconds % 60 == 0 {
+                    format!("Set the screen timeout to {} min", seconds / 60)
+                } else {
+                    format!("Set the screen timeout to {seconds} s")
                 }
-            ),
+            }
+            PhoneControl::Ringer { mode } => match mode {
+                RingerMode::Normal => "Set the ringer to ring".into(),
+                RingerMode::Vibrate => "Set the ringer to vibrate".into(),
+                RingerMode::Silent => "Silence the ringer".into(),
+            },
+            PhoneControl::DoNotDisturb { on } => {
+                format!("Turn Do Not Disturb {}", if *on { "on" } else { "off" })
+            }
         }
+    }
+
+    /// Volume, brightness, flashlight, and the first four panels are
+    /// understood since 1.11; the rest since 1.15.
+    pub fn min_minor_version(&self) -> u32 {
+        match self {
+            PhoneControl::Volume { .. }
+            | PhoneControl::Media { .. }
+            | PhoneControl::Brightness { .. }
+            | PhoneControl::Flashlight { .. }
+            | PhoneControl::Panel {
+                panel:
+                    SettingsPanel::Wifi
+                    | SettingsPanel::Internet
+                    | SettingsPanel::Bluetooth
+                    | SettingsPanel::Volume,
+            } => 11,
+            _ => 15,
+        }
+    }
+
+    /// True when this control shows something over the current app (a panel
+    /// or settings page), so the screen comes back like an action's.
+    pub fn shows_screen(&self) -> bool {
+        matches!(self, PhoneControl::Panel { .. })
     }
 }
 
@@ -247,7 +476,20 @@ pub enum Command {
     ListApps {},
 
     #[serde(rename = "app.launch")]
-    LaunchApp { package: String },
+    LaunchApp {
+        package: String,
+        /// Since 1.15: start the app from its first screen, closing the
+        /// screens it had open (its saved data stays).
+        #[serde(default, skip_serializing_if = "is_false")]
+        fresh: bool,
+    },
+
+    /// Since 1.15: open `url` (a web address or an app link such as
+    /// `geo:0,0?q=coffee`) in the app `package`, the way a tapped link
+    /// would. Only screens an app offers to links open. Answers with an
+    /// [`crate::ActionResult`].
+    #[serde(rename = "app.open_link")]
+    OpenLink { url: String, package: String },
 
     /// Since 1.5: ask the owner to do something only a person should do (log
     /// in, unlock, type a code, choose). The phone shows `message` on a card
@@ -475,6 +717,7 @@ impl Command {
             Command::Global { .. } => "nav.global",
             Command::ListApps {} => "app.list",
             Command::LaunchApp { .. } => "app.launch",
+            Command::OpenLink { .. } => "app.open_link",
             Command::WaitFor { .. } => "ui.wait",
             Command::ScrollTo { .. } => "ui.scroll_to",
             Command::Pinch { .. } => "input.pinch",
@@ -516,7 +759,9 @@ impl Command {
             }
             Command::TypeText { .. } => vec![Capability::InputText],
             Command::Global { .. } => vec![Capability::NavGlobal],
-            Command::ListApps {} | Command::LaunchApp { .. } => vec![Capability::AppLaunch],
+            Command::ListApps {} | Command::LaunchApp { .. } | Command::OpenLink { .. } => {
+                vec![Capability::AppLaunch]
+            }
             Command::WaitFor { .. } => vec![Capability::UiObserve],
             Command::ScrollTo { .. } => vec![Capability::UiObserve, Capability::InputGesture],
             // Only shows the owner a question; the owner does the rest.
@@ -582,6 +827,10 @@ impl Command {
                             | PhoneControl::Media { .. }
                             | PhoneControl::Brightness { .. }
                             | PhoneControl::Flashlight { .. }
+                            | PhoneControl::Rotation { .. }
+                            | PhoneControl::ScreenTimeout { .. }
+                            | PhoneControl::Ringer { .. }
+                            | PhoneControl::DoNotDisturb { .. }
                     }
             )
     }
@@ -631,8 +880,10 @@ impl Command {
             | Command::TransferStatus { .. }
             | Command::SetClipboard { .. } => 7,
             Command::ListActivity { .. } | Command::TaskDone { .. } => 8,
-            Command::DeviceControl { .. } => 11,
+            Command::DeviceControl { control } => control.min_minor_version(),
             Command::OpenLocal { .. } => 14,
+            Command::Global { action } => action.min_minor_version(),
+            Command::LaunchApp { fresh: true, .. } | Command::OpenLink { .. } => 15,
             _ => 0,
         }
     }
@@ -680,4 +931,70 @@ pub struct ConfirmRequest {
     /// exact key and may still ignore it after its own live check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remember: Option<String>,
+}
+
+#[cfg(test)]
+mod r25_tests {
+    use super::*;
+
+    #[test]
+    fn new_commands_go_only_to_phones_that_understand_them() {
+        let global = |action| Command::Global { action };
+        assert_eq!(global(GlobalAction::Back).min_minor_version(), 0);
+        assert_eq!(global(GlobalAction::SplitScreen).min_minor_version(), 15);
+        let launch = |fresh| Command::LaunchApp {
+            package: "com.example".into(),
+            fresh,
+        };
+        assert_eq!(launch(false).min_minor_version(), 0);
+        assert_eq!(launch(true).min_minor_version(), 15);
+        let control = |control| Command::DeviceControl { control };
+        assert_eq!(
+            control(PhoneControl::Panel {
+                panel: SettingsPanel::Wifi
+            })
+            .min_minor_version(),
+            11
+        );
+        assert_eq!(
+            control(PhoneControl::Panel {
+                panel: SettingsPanel::Battery
+            })
+            .min_minor_version(),
+            15
+        );
+        assert_eq!(
+            control(PhoneControl::Ringer {
+                mode: RingerMode::Silent
+            })
+            .min_minor_version(),
+            15
+        );
+        // Off-screen controls do not bring a screen back; a settings page does.
+        assert!(!control(PhoneControl::DoNotDisturb { on: true }).changes_screen());
+        assert!(
+            control(PhoneControl::Panel {
+                panel: SettingsPanel::Location
+            })
+            .changes_screen()
+        );
+    }
+
+    #[test]
+    fn every_name_parses_back() {
+        for action in GlobalAction::ALL {
+            assert_eq!(GlobalAction::parse(action.as_str()), Some(action));
+            assert_eq!(
+                serde_json::to_value(action).expect("json"),
+                serde_json::Value::String(action.as_str().into())
+            );
+        }
+        for panel in SettingsPanel::ALL {
+            assert_eq!(SettingsPanel::parse(panel.as_str()), Some(panel));
+            assert_eq!(
+                serde_json::to_value(panel).expect("json"),
+                serde_json::Value::String(panel.as_str().into())
+            );
+        }
+    }
 }

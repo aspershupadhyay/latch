@@ -27,6 +27,7 @@ import io.github.aspershupadhyay.latch.protocol.Command
 import io.github.aspershupadhyay.latch.protocol.CommandEnvelope
 import io.github.aspershupadhyay.latch.protocol.DeviceDescriptor
 import io.github.aspershupadhyay.latch.protocol.DeviceInfo
+import io.github.aspershupadhyay.latch.protocol.DeviceStatus
 import io.github.aspershupadhyay.latch.protocol.ErrorBody
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
 import io.github.aspershupadhyay.latch.protocol.FileChunk
@@ -79,13 +80,10 @@ fun describe(command: Command): String = when (command) {
         "Type ${command.text.codePointCount(0, command.text.length)} characters" + if (command.submit) " and press Enter" else ""
     is Command.WaitFor -> if (command.gone) "Wait for text to disappear" else "Wait for text to appear"
     is Command.ScrollTo -> "Scroll to text"
-    is Command.Global -> when (command.action) {
-        GlobalAction.BACK -> "Press Back"
-        GlobalAction.HOME -> "Press Home"
-        GlobalAction.RECENTS -> "Open Recents"
-    }
+    is Command.Global -> command.action.description
     Command.ListApps -> "List installed apps"
-    is Command.LaunchApp -> "Open ${command.packageName}"
+    is Command.LaunchApp -> if (command.fresh) "Open ${command.packageName} from its first screen" else "Open ${command.packageName}"
+    is Command.OpenLink -> "Open ${Consequences.shortenLink(command.url)} in ${command.packageName}"
     is Command.AskOwner -> "Ask you to do something"
     is Command.ListFiles -> "List files in ${where(command.location)}"
     is Command.PreviewFile -> "Look at a file"
@@ -131,6 +129,7 @@ private fun cursorLabel(command: Command): String? = when (command) {
     is Command.WaitFor -> "Waiting for the screen"
     Command.ListApps -> "Looking at your apps"
     is Command.LaunchApp -> "Opening an app"
+    is Command.OpenLink -> "Opening a link"
     is Command.AskOwner -> "Waiting for you"
     is Command.ListFiles, is Command.PreviewFile -> "Looking at files"
     is Command.ReadFile, is Command.PushFile -> "Copying a file"
@@ -142,17 +141,13 @@ private fun cursorLabel(command: Command): String? = when (command) {
     is Command.Share -> "Opening a share screen"
     is Command.SetClipboard -> "Copying text"
     is Command.DeviceControl -> if (command.control is PhoneControl.Panel) "Opening a settings panel" else "Adjusting the phone"
-    is Command.Global -> when (command.action) {
-        GlobalAction.BACK -> "Going back"
-        GlobalAction.HOME -> "Going home"
-        GlobalAction.RECENTS -> "Opening Recents"
-    }
+    is Command.Global -> command.action.cursor
     else -> null
 }
 
 /** Commands that read or act on the screen in front, as opposed to opening an app or going home. */
 private fun worksOnScreen(command: Command): Boolean = when (command) {
-    Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.AskOwner,
+    Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.OpenLink, is Command.AskOwner,
     is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
     is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share,
     is Command.FetchFile, is Command.PushFile, is Command.OpenLocal, is Command.TransferStatus, is Command.SetClipboard,
@@ -224,6 +219,8 @@ class CommandExecutor(
     private val transfers: PhoneTransfers? = null,
     /** Reads the words on unlabeled controls (ADR-032); null while the owner's switch is off. */
     private val labelReader: () -> LabelReader? = { null },
+    /** Battery, network, storage, and screen state for `device.info` (protocol 1.15). */
+    private val status: () -> DeviceStatus? = { null },
 ) {
     private val settle = SettleStats()
 
@@ -312,6 +309,7 @@ class CommandExecutor(
                     `package` = service?.currentPackage(),
                     capabilities = capabilities.map { (c, s) -> io.github.aspershupadhyay.latch.protocol.CapabilityState(c.wire, s.wire) },
                     session = session,
+                    status = status(),
                 ),
             )
         }
@@ -457,7 +455,8 @@ class CommandExecutor(
                         expectChangeMs = if (typed.submitted == false) 0L else TYPE_EXPECT_CHANGE_MS
                     }
                     is Command.Global -> service.global(command.action)
-                    is Command.LaunchApp -> service.launch(command.packageName)
+                    is Command.LaunchApp -> service.launch(command.packageName, command.fresh)
+                    is Command.OpenLink -> service.openLink(command.url, command.packageName)
                     is Command.DeviceControl -> (command.control as? PhoneControl.Panel)?.let { service.openPanel(PhoneControls.panelIntent(it.panel)) }
                     is Command.AskOwner -> owner = askOwner(command, envelope)
                     is Command.Share -> files().share(service, command.packageName, command.ids, command.text)
@@ -509,7 +508,8 @@ class CommandExecutor(
         // asking and are logged. Critical ones ask too, unless the owner opted in to
         // trusting those as well (ADR-022), which also covers Android's permission and
         // install dialogs. "Ask me before every action" overrides both.
-        val inApp = bridge.service.value?.currentPackage()
+        // A link works in the app it opens, not in the one in front.
+        val inApp = (command as? Command.OpenLink)?.packageName ?: bridge.service.value?.currentPackage()
         val trustCritical = autonomy?.state?.value?.trustsCritical == true
         val appOn = inApp != null && !exempt(inApp) && autonomy?.decide(inApp) == AppDecision.ALLOWED
         val systemDialog = inApp != null && consequences.isCriticalPackage(inApp)
@@ -672,10 +672,14 @@ class CommandExecutor(
         is Command.FetchFile, is Command.PushFile, is Command.OpenLocal, is Command.TransferStatus, is Command.SetClipboard,
         is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl -> null
         is Command.LaunchApp -> command.packageName
+        // A link opens in that app: only apps the owner allowed (or Auto mode).
+        is Command.OpenLink -> command.packageName
         // Sharing opens that app: only apps the owner allowed (or Auto mode).
         is Command.Share -> command.packageName
         // Going home leaves an app; it never works in one.
-        is Command.Global -> if (command.action == GlobalAction.HOME) null else bridge.service.value?.currentPackage()
+        // Going home or locking the phone leaves an app; neither works in one.
+        is Command.Global ->
+            if (command.action == GlobalAction.HOME || command.action == GlobalAction.LOCK_SCREEN) null else bridge.service.value?.currentPackage()
         else -> bridge.service.value?.currentPackage()
     }
 
@@ -746,6 +750,8 @@ class CommandExecutor(
                 consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double, seen = readUnlabeled(service, it, command.target))
             }
             is Command.Swipe -> consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
+            // Payment links ask every time; call, message, and mail links ask (protocol 1.15).
+            is Command.OpenLink -> Consequences.judgeLink(command.url, command.packageName)
             is Command.TypeText -> if (!command.submit) {
                 null
             } else {
@@ -795,6 +801,7 @@ class CommandExecutor(
         } else {
             // Opening an app or going home starts with an animation that sends few events.
             val opening = (command as? Command.LaunchApp)?.packageName ?: (command as? Command.Share)?.packageName
+                ?: (command as? Command.OpenLink)?.packageName
             val floor = if (opening != null || command is Command.Global) TRANSITION_FLOOR_MS else 0L
             // An app that is still starting would be observed as the previous app: wait for it first.
             val waited = if (opening != null) service.awaitForeground(opening, after.settleMs.toLong()) else 0L

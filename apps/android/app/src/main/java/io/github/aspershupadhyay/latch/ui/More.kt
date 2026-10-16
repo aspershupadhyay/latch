@@ -115,15 +115,15 @@ val catalog = mapOf(
         "low", LatchIcons.Pulse,
     ),
     Capability.CONTROL_SOUND to CapabilityCopy(
-        "Volume and media", "Set volumes; play, pause, skip.",
+        "Sound", "Volumes, media, ringer, Do Not Disturb.",
         "Nothing.",
-        "Set the media, ring, notification, or alarm volume, and play, pause, or skip in the app that is playing.",
+        "Set the media, ring, notification, or alarm volume; play, pause, or skip in the app that is playing; set the ringer to ring, vibrate, or silent; and turn Do Not Disturb on or off (Android asks you once for Do Not Disturb access).",
         "low", LatchIcons.Play,
     ),
     Capability.CONTROL_BRIGHTNESS to CapabilityCopy(
-        "Brightness", "Needs Android's \"Modify system settings\".",
+        "Screen", "Brightness, rotation, timeout.",
         "Nothing.",
-        "Set the screen brightness (adaptive brightness turns off). Android asks you once to let Latch change system settings.",
+        "Set the screen brightness (adaptive brightness turns off), auto-rotate or a fixed portrait or landscape, and how long the screen stays on. Android asks you once to let Latch change system settings.",
         "low", LatchIcons.Sliders,
     ),
     Capability.CONTROL_FLASHLIGHT to CapabilityCopy(
@@ -133,9 +133,9 @@ val catalog = mapOf(
         "low", LatchIcons.Sparkle,
     ),
     Capability.CONTROL_PANELS to CapabilityCopy(
-        "Wi-Fi and Bluetooth panels", "Opens them; taps inside follow your rules.",
-        "What the panel shows, like any screen.",
-        "Open the Wi-Fi, internet, Bluetooth, or volume panel over the app. What it taps there is an ordinary action: the Settings app must be switched on, and risky buttons ask you.",
+        "Settings panels and pages", "Opens them; taps inside follow your rules.",
+        "What the page shows, like any screen.",
+        "Open the Wi-Fi, internet, Bluetooth, volume, or NFC panel, or the airplane mode, location, display, battery, sound, notification, storage, or date and time settings. What it taps there is an ordinary action: the Settings app must be switched on, and risky buttons ask you. The notification shade itself stays off limits.",
         "medium", LatchIcons.Cloud,
     ),
 )

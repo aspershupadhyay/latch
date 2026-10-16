@@ -387,12 +387,18 @@ pub fn tool_definitions() -> Vec<Value> {
         ),
         tool(
             "press",
-            "Press button",
-            "Press the system back, home, or recents button. Returns the new observation.",
+            "Press a system button",
+            "Press a system button or key: back, home, recents; lock_screen locks the phone \
+             (only the owner unlocks it); screenshot saves a screenshot to the phone's gallery \
+             (you do not receive it; use observe to see the screen); split_screen; dpad_up, \
+             dpad_down, dpad_left, dpad_right, dpad_center move focus and select on TV-style or \
+             keyboard-driven screens (Android 13+). The notification shade and quick settings \
+             stay off limits. Everything but back, home, and recents needs Latch 1.15 on the \
+             phone. Returns the new observation.",
             false,
             json!({
                 "device_id": device_id_schema(),
-                "button": { "type": "string", "enum": ["back", "home", "recents"] },
+                "button": { "type": "string", "enum": GlobalAction::ALL.map(|a| a.as_str()) },
                 "screenshot_after": screenshot_after_schema(),
             }),
             &["button"],
@@ -415,14 +421,48 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "launch_app",
             "Open app",
-            "Open an installed app by package name (from list_apps). Returns the new observation.",
+            "Open an installed app by package name (from list_apps). With fresh=true the app \
+             starts from its first screen, closing the screens it had open (its data stays), \
+             which gets a stuck or unfamiliar app to a known place. Returns the new observation.",
             false,
             json!({
                 "device_id": device_id_schema(),
                 "package": { "type": "string", "description": "Application id, e.g. com.android.settings." },
+                "fresh": { "type": "boolean", "default": false, "description": "Start from the app's first screen (Latch 1.15 on the phone)." },
                 "screenshot_after": screenshot_after_schema(),
             }),
             &["package"],
+        ),
+        tool(
+            "open_link",
+            "Open a link in an app",
+            "Open a web address or app link directly in one app, the way a tapped link would, \
+             instead of tapping your way there: https://www.youtube.com/watch?v=... in \
+             com.google.android.youtube, geo:0,0?q=coffee in Maps, or an app's own link. Only \
+             screens the app offers to links open; intent:, file:, content:, and javascript: \
+             links are refused. The same app rules as launch_app apply; call, message, and mail \
+             links ask the owner, and payment links always do. Needs Latch 1.15 on the phone. \
+             Returns the new observation.",
+            false,
+            json!({
+                "device_id": device_id_schema(),
+                "url": { "type": "string", "maxLength": latch_protocol::validate::MAX_LINK_CHARS, "description": "The link, e.g. https://maps.google.com/?q=Eiffel+Tower." },
+                "package": { "type": "string", "description": "The app to open it in (from list_apps), e.g. com.google.android.apps.maps." },
+                "screenshot_after": screenshot_after_schema(),
+            }),
+            &["url", "package"],
+        ),
+        tool(
+            "device_status",
+            "Read the phone's status",
+            "Read the phone's battery level and charging, network type (wifi, cellular, \
+             ethernet, none), free storage, orientation, whether the lock screen is showing, \
+             Do Not Disturb, the app in front, and the screen size. Holds no personal data. \
+             Useful before a long task or a big file transfer. Needs Latch 1.15 on the phone \
+             for everything but the app and screen size.",
+            true,
+            json!({ "device_id": device_id_schema() }),
+            &[],
         ),
         tool(
             "ask_owner",
@@ -478,22 +518,29 @@ pub fn tool_definitions() -> Vec<Value> {
         ),
         tool(
             "phone_control",
-            "Control volume, media, brightness, flashlight, or a settings panel",
-            "One phone control per call, each behind its own owner switch (off by default): \
-             volume (a stream to 0-100 %) and media keys (play_pause, next, previous) need Sound; \
-             brightness (0-100 %, turns adaptive brightness off) needs Brightness; flashlight on \
-             or off needs Flashlight; panel opens the Wi-Fi, internet, Bluetooth, or volume panel \
-             over the current app and returns the screen, where you continue with tap (Panels). \
-             Needs Latch 1.11 on the phone.",
+            "Control sound, screen, flashlight, or open a settings page",
+            "One phone control per call, each group behind its own owner switch (off by \
+             default). Sound: volume (a stream to 0-100 %), media keys (play_pause, next, \
+             previous), ringer (normal, vibrate, silent), do_not_disturb (on). Screen: \
+             brightness (0-100 %, turns adaptive brightness off), rotation (auto, portrait, \
+             landscape), screen_timeout (15-1800 seconds). Flashlight: on or off. Panels: panel \
+             opens a settings panel or page over the current app (wifi, internet, bluetooth, \
+             volume, nfc, airplane_mode, location, display, battery, sound, notifications, \
+             storage, date_time) and returns the screen, where you continue with tap. Ringer \
+             and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. \
+             Needs Latch 1.11 on the phone; ringer, do_not_disturb, rotation, screen_timeout, \
+             and the panels after volume need 1.15.",
             false,
             json!({
                 "device_id": device_id_schema(),
-                "control": { "type": "string", "enum": ["volume", "media", "brightness", "flashlight", "panel"] },
+                "control": { "type": "string", "enum": ["volume", "media", "ringer", "do_not_disturb", "brightness", "rotation", "screen_timeout", "flashlight", "panel"] },
                 "stream": { "type": "string", "enum": ["media", "ring", "notification", "alarm"], "default": "media", "description": "For volume." },
                 "percent": { "type": "integer", "minimum": 0, "maximum": 100, "description": "For volume and brightness." },
                 "action": { "type": "string", "enum": ["play_pause", "next", "previous"], "description": "For media." },
-                "on": { "type": "boolean", "description": "For flashlight." },
-                "panel": { "type": "string", "enum": ["wifi", "internet", "bluetooth", "volume"], "description": "For panel." },
+                "mode": { "type": "string", "enum": ["normal", "vibrate", "silent", "auto", "portrait", "landscape"], "description": "For ringer (normal, vibrate, silent) and rotation (auto, portrait, landscape)." },
+                "seconds": { "type": "integer", "minimum": latch_protocol::MIN_SCREEN_TIMEOUT_S, "maximum": latch_protocol::MAX_SCREEN_TIMEOUT_S, "description": "For screen_timeout." },
+                "on": { "type": "boolean", "description": "For flashlight and do_not_disturb." },
+                "panel": { "type": "string", "enum": latch_protocol::SettingsPanel::ALL.map(|p| p.as_str()), "description": "For panel." },
                 "screenshot_after": screenshot_after_schema(),
             }),
             &["control"],
@@ -679,7 +726,9 @@ fn utc_time(ms: u64) -> String {
 
 /// `phone_control` arguments as a [`latch_protocol::PhoneControl`].
 fn phone_control(args: &Value) -> Result<latch_protocol::PhoneControl, ProtocolError> {
-    use latch_protocol::{MediaAction, PhoneControl, SettingsPanel, VolumeStream};
+    use latch_protocol::{
+        MediaAction, PhoneControl, RingerMode, RotationMode, SettingsPanel, VolumeStream,
+    };
     let bad = |e: ArgError| ProtocolError::new(ErrorCode::InvalidRequest, e.0);
     let invalid = |m: &str| ProtocolError::new(ErrorCode::InvalidRequest, m);
     let percent = || -> Result<u8, ProtocolError> {
@@ -691,6 +740,11 @@ fn phone_control(args: &Value) -> Result<latch_protocol::PhoneControl, ProtocolE
             .filter(|p| *p <= 100)
             .ok_or_else(|| invalid("percent must be 0-100"))
     };
+    let on = |what: &str| match args.get("on") {
+        Some(Value::Bool(on)) => Ok(*on),
+        _ => Err(invalid(&format!("on must be true or false for {what}"))),
+    };
+    let mode = || arg_str(args, "mode").map_err(bad);
     Ok(match req_str(args, "control").map_err(bad)? {
         "volume" => PhoneControl::Volume {
             stream: match arg_str(args, "stream").map_err(bad)?.unwrap_or("media") {
@@ -714,31 +768,56 @@ fn phone_control(args: &Value) -> Result<latch_protocol::PhoneControl, ProtocolE
                 _ => return Err(invalid("action must be play_pause, next, or previous")),
             },
         },
+        "ringer" => PhoneControl::Ringer {
+            mode: match mode()? {
+                Some("normal") => RingerMode::Normal,
+                Some("vibrate") => RingerMode::Vibrate,
+                Some("silent") => RingerMode::Silent,
+                _ => return Err(invalid("mode must be normal, vibrate, or silent")),
+            },
+        },
+        "do_not_disturb" => PhoneControl::DoNotDisturb {
+            on: on("do_not_disturb")?,
+        },
         "brightness" => PhoneControl::Brightness {
             percent: percent()?,
         },
-        "flashlight" => PhoneControl::Flashlight {
-            on: match args.get("on") {
-                Some(Value::Bool(on)) => *on,
-                _ => return Err(invalid("on must be true or false")),
+        "rotation" => PhoneControl::Rotation {
+            mode: match mode()? {
+                Some("auto") => RotationMode::Auto,
+                Some("portrait") => RotationMode::Portrait,
+                Some("landscape") => RotationMode::Landscape,
+                _ => return Err(invalid("mode must be auto, portrait, or landscape")),
             },
         },
+        "screen_timeout" => PhoneControl::ScreenTimeout {
+            seconds: arg_int(args, "seconds")
+                .map_err(bad)?
+                .and_then(|s| u32::try_from(s).ok())
+                .filter(|s| {
+                    (latch_protocol::MIN_SCREEN_TIMEOUT_S..=latch_protocol::MAX_SCREEN_TIMEOUT_S)
+                        .contains(s)
+                })
+                .ok_or_else(|| invalid("seconds must be between 15 and 1800"))?,
+        },
+        "flashlight" => PhoneControl::Flashlight {
+            on: on("flashlight")?,
+        },
         "panel" => PhoneControl::Panel {
-            panel: match arg_str(args, "panel").map_err(bad)? {
-                Some("wifi") => SettingsPanel::Wifi,
-                Some("internet") => SettingsPanel::Internet,
-                Some("bluetooth") => SettingsPanel::Bluetooth,
-                Some("volume") => SettingsPanel::Volume,
-                _ => {
-                    return Err(invalid(
-                        "panel must be wifi, internet, bluetooth, or volume",
-                    ));
-                }
-            },
+            panel: arg_str(args, "panel")
+                .map_err(bad)?
+                .and_then(SettingsPanel::parse)
+                .ok_or_else(|| {
+                    invalid(&format!(
+                        "panel must be one of {}",
+                        SettingsPanel::ALL.map(|p| p.as_str()).join(", ")
+                    ))
+                })?,
         },
         _ => {
             return Err(invalid(
-                "control must be volume, media, brightness, flashlight, or panel",
+                "control must be volume, media, ringer, do_not_disturb, brightness, rotation, \
+                 screen_timeout, flashlight, or panel",
             ));
         }
     })
@@ -885,13 +964,22 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
     }
     if name == "phone_control" {
         let control = phone_control(args)?;
-        if !matches!(control, latch_protocol::PhoneControl::Panel { .. }) {
+        if !control.shows_screen() {
             devices::execute(state, &device_id, Command::DeviceControl { control }).await?;
             return Ok(text_result(format!("Done: {}.", control.describe())));
         }
     }
     if name == "get_activity" {
         return activity(state, args, &device_id).await;
+    }
+    if name == "device_status" {
+        return match devices::execute(state, &device_id, Command::DeviceInfo {}).await? {
+            Output::Info(info) => Ok(text_result(render_status(&device_id, &info))),
+            _ => Err(ProtocolError::new(
+                ErrorCode::Internal,
+                "the phone answered device.info with something else",
+            )),
+        };
     }
     if name == "finish_task" {
         let summary = arg_str(args, "summary")
@@ -1060,20 +1148,24 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             scroll_command(state, &device_id, observation_id, direction, element)?
         }
         "press" => {
-            let action = match req_str(args, "button").map_err(bad)? {
-                "back" => GlobalAction::Back,
-                "home" => GlobalAction::Home,
-                "recents" => GlobalAction::Recents,
-                _ => {
-                    return Err(ProtocolError::new(
+            let action =
+                GlobalAction::parse(req_str(args, "button").map_err(bad)?).ok_or_else(|| {
+                    ProtocolError::new(
                         ErrorCode::InvalidRequest,
-                        "button must be back, home, or recents",
-                    ));
-                }
-            };
+                        format!(
+                            "button must be one of {}",
+                            GlobalAction::ALL.map(|a| a.as_str()).join(", ")
+                        ),
+                    )
+                })?;
             Command::Global { action }
         }
         "launch_app" => Command::LaunchApp {
+            package: req_str(args, "package").map_err(bad)?.to_owned(),
+            fresh: arg_bool(args, "fresh", false).map_err(bad)?,
+        },
+        "open_link" => Command::OpenLink {
+            url: req_str(args, "url").map_err(bad)?.to_owned(),
             package: req_str(args, "package").map_err(bad)?.to_owned(),
         },
         "ask_owner" => Command::AskOwner {
@@ -1680,6 +1772,76 @@ fn diagnosis(state: &AppState, only: Option<&str>) -> Result<Value, ProtocolErro
             .collect(),
     };
     Ok(text_result(diagnose::render_diagnosis(&input)))
+}
+
+/// `device_status`'s answer: one fact per line, in the same words on both gateways.
+pub fn render_status(device_id: &str, info: &latch_protocol::DeviceInfo) -> String {
+    use latch_protocol::{NetworkKind, Orientation};
+    let mut lines = vec![format!("Status of {device_id}:")];
+    let status = info.status.clone().unwrap_or_default();
+    if let Some(percent) = status.battery_percent {
+        let charging = match status.charging {
+            Some(true) => ", charging",
+            Some(false) => ", not charging",
+            None => "",
+        };
+        lines.push(format!("- battery: {percent}%{charging}"));
+    }
+    if let Some(network) = status.network {
+        lines.push(format!(
+            "- network: {}",
+            match network {
+                NetworkKind::Wifi => "Wi-Fi",
+                NetworkKind::Cellular => "mobile data",
+                NetworkKind::Ethernet => "ethernet",
+                NetworkKind::None => "none (offline)",
+            }
+        ));
+    }
+    if let Some(mb) = status.free_storage_mb {
+        lines.push(if mb >= 1024 {
+            format!("- free storage: {:.1} GB", mb as f64 / 1024.0)
+        } else {
+            format!("- free storage: {mb} MB")
+        });
+    }
+    if let Some(orientation) = status.orientation {
+        lines.push(format!(
+            "- orientation: {}",
+            match orientation {
+                Orientation::Portrait => "portrait",
+                Orientation::Landscape => "landscape",
+            }
+        ));
+    }
+    if let Some(locked) = status.locked {
+        lines.push(if locked {
+            "- lock screen: showing (only the owner can unlock; use ask_owner)".into()
+        } else {
+            "- lock screen: unlocked".into()
+        });
+    }
+    if let Some(dnd) = status.do_not_disturb {
+        lines.push(format!(
+            "- do not disturb: {}",
+            if dnd { "on" } else { "off" }
+        ));
+    }
+    if let Some(package) = &info.package {
+        let package: String = package.chars().take(200).collect();
+        lines.push(format!("- app in front: {package}"));
+    }
+    lines.push(format!(
+        "- screen: {}x{} px",
+        info.screen.width, info.screen.height
+    ));
+    if info.status.is_none() {
+        lines.push(
+            "The phone's Latch is older than 1.15 and does not report battery, network, or storage."
+                .into(),
+        );
+    }
+    lines.join("\n")
 }
 
 fn render_devices(state: &AppState) -> String {

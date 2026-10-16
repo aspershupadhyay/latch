@@ -158,7 +158,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "ask_owner", "get_activity", "finish_task", "phone_control",
+  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "open_link", "device_status", "ask_owner", "get_activity", "finish_task", "phone_control",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
     "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
     "answer_approval"]);
@@ -312,6 +312,40 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     const r = await client.callTool({ name: "phone_control", arguments: args });
     assert.ok(r.isError && text(r).includes(says), text(r));
   }
+  // Roadmap R25 (protocol 1.15): more buttons, links, status, and controls (same texts as the Rust gateway).
+  for (const button of ["split_screen", "dpad_down"]) {
+    const r = await client.callTool({ name: "press", arguments: { button } });
+    assert.ok(!r.isError && text(r).includes("observation_id"), text(r));
+  }
+  for (const button of ["power_off", "notifications"]) {
+    const r = await client.callTool({ name: "press", arguments: { button } });
+    assert.ok(r.isError && text(r).includes("button must be one of back, home"), text(r));
+  }
+  const status = text(await client.callTool({ name: "device_status", arguments: {} }));
+  for (const line of ["- battery: 81%, not charging", "- network: Wi-Fi", "- free storage: 11.7 GB", "- lock screen: unlocked", "- screen: 1080x2400 px"]) {
+    assert.ok(status.includes(line), `${line} in ${status}`);
+  }
+  const opened = await client.callTool({ name: "open_link", arguments: { url: "https://shop.example/item/42", package: "org.latch.demo.shop" } });
+  assert.ok(!opened.isError && text(opened).includes("app org.latch.demo.shop"), text(opened));
+  const fresh = await client.callTool({ name: "launch_app", arguments: { package: "org.latch.demo.chat", fresh: true } });
+  assert.ok(!fresh.isError && text(fresh).includes("app org.latch.demo.chat"), text(fresh));
+  for (const [url, says] of [["intent://x#Intent;end", "intent: links cannot be opened"], ["https://a.example/a b", "printable ASCII"]] as const) {
+    const r = await client.callTool({ name: "open_link", arguments: { url, package: "org.latch.demo.shop" } });
+    assert.ok(r.isError && text(r).includes(says), text(r));
+  }
+  for (const [args, says] of [
+    [{ control: "ringer", mode: "vibrate" }, "Done: Set the ringer to vibrate."],
+    [{ control: "do_not_disturb", on: true }, "Done: Turn Do Not Disturb on."],
+    [{ control: "rotation", mode: "portrait" }, "Done: Lock the screen to portrait."],
+    [{ control: "screen_timeout", seconds: 600 }, "Done: Set the screen timeout to 10 min."],
+  ] as const) {
+    assert.equal(text(await client.callTool({ name: "phone_control", arguments: args })), says);
+  }
+  const page = await client.callTool({ name: "phone_control", arguments: { control: "panel", panel: "battery" } });
+  assert.ok(!page.isError && text(page).includes("observation_id"), text(page));
+  const short = await client.callTool({ name: "phone_control", arguments: { control: "screen_timeout", seconds: 5 } });
+  assert.ok(short.isError && text(short).includes("seconds must be between 15 and 1800"), text(short));
+  assert.match(text(await client.callTool({ name: "device_status", arguments: {} })), /- do not disturb: on/);
   const note = text(await client.callTool({ name: "write_file", arguments: { location: "downloads", subfolder: "abc", name: "todo.txt", text: "milk" } }));
   assert.match(note, /^Saved "todo\.txt" to Downloads \("abc"\) \(4 B\)\./);
   const shared = await client.callTool({ name: "share_to_app", arguments: { package: "com.linkedin.android", file_ids: [clip], text: "New video" } });

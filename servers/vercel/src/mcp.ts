@@ -8,7 +8,7 @@ import { SERVER } from "./generated/contract.js";
 import { renderLatestTask } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
-import { ACTIVITY_KINDS, MEDIA_ACTIONS, type PhoneControl, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
@@ -294,6 +294,10 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     });
     return withTiming(textResult(renderActivity(run.data as ActivityList, limit)), run.timing);
   }
+  if (name === "device_status") {
+    const run = await execute(ctx, deviceId, { name: "device.info", params: {} });
+    return withTiming(textResult(renderStatus(deviceId, run.data as DeviceInfo)), run.timing);
+  }
   if (name === "phone_control") {
     const control = phoneControl(args);
     if (control.kind !== "panel") {
@@ -411,13 +415,18 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       command = await scrollCommand(ctx, deviceId, reqStr(args, "observation_id"), reqStr(args, "direction"), argStr(args, "element_id"));
       break;
     case "press": {
-      const button = reqStr(args, "button");
-      if (button !== "back" && button !== "home" && button !== "recents") throw bad("button must be back, home, or recents");
+      const button = reqStr(args, "button") as GlobalAction;
+      if (!GLOBAL_ACTIONS.includes(button)) throw bad(`button must be one of ${GLOBAL_ACTIONS.join(", ")}`);
       command = { name: "nav.global", params: { action: button } };
       break;
     }
     case "launch_app":
-      command = { name: "app.launch", params: { package: reqStr(args, "package") } };
+      command = argBool(args, "fresh", false)
+        ? { name: "app.launch", params: { package: reqStr(args, "package"), fresh: true } }
+        : { name: "app.launch", params: { package: reqStr(args, "package") } };
+      break;
+    case "open_link":
+      command = { name: "app.open_link", params: { url: reqStr(args, "url"), package: reqStr(args, "package") } };
       break;
     case "ask_owner":
       command = { name: "owner.ask", params: { message: reqStr(args, "message") } };
@@ -677,9 +686,47 @@ function phoneControl(args: Record<string, unknown>): PhoneControl {
     case "flashlight":
       if (typeof args.on !== "boolean") throw bad("on must be true or false");
       return { kind: "flashlight", on: args.on };
-    case "panel": return { kind: "panel", panel: pick("panel", SETTINGS_PANELS, "panel must be wifi, internet, bluetooth, or volume") };
-    default: throw bad("control must be volume, media, brightness, flashlight, or panel");
+    case "ringer": return { kind: "ringer", mode: pick("mode", RINGER_MODES, "mode must be normal, vibrate, or silent") };
+    case "do_not_disturb":
+      if (typeof args.on !== "boolean") throw bad("on must be true or false for do_not_disturb");
+      return { kind: "do_not_disturb", on: args.on };
+    case "rotation": return { kind: "rotation", mode: pick("mode", ROTATION_MODES, "mode must be auto, portrait, or landscape") };
+    case "screen_timeout": {
+      const seconds = argInt(args, "seconds");
+      if (seconds === undefined || seconds < MIN_SCREEN_TIMEOUT_S || seconds > MAX_SCREEN_TIMEOUT_S) throw bad("seconds must be between 15 and 1800");
+      return { kind: "screen_timeout", seconds };
+    }
+    case "panel": return { kind: "panel", panel: pick("panel", SETTINGS_PANELS, `panel must be one of ${SETTINGS_PANELS.join(", ")}`) };
+    default:
+      throw bad("control must be volume, media, ringer, do_not_disturb, brightness, rotation, screen_timeout, flashlight, or panel");
   }
+}
+
+/** `device_status`'s answer: the same lines as `render_status` in the Rust gateway. */
+export function renderStatus(deviceId: string, info: DeviceInfo): string {
+  const lines = [`Status of ${deviceId}:`];
+  const s = info?.status ?? {};
+  if (typeof s.battery_percent === "number") {
+    const charging = s.charging === true ? ", charging" : s.charging === false ? ", not charging" : "";
+    lines.push(`- battery: ${s.battery_percent}%${charging}`);
+  }
+  if (s.network !== undefined) {
+    lines.push(`- network: ${{ wifi: "Wi-Fi", cellular: "mobile data", ethernet: "ethernet", none: "none (offline)" }[s.network] ?? "unknown"}`);
+  }
+  if (typeof s.free_storage_mb === "number") {
+    lines.push(s.free_storage_mb >= 1024 ? `- free storage: ${(s.free_storage_mb / 1024).toFixed(1)} GB` : `- free storage: ${s.free_storage_mb} MB`);
+  }
+  if (s.orientation !== undefined) lines.push(`- orientation: ${s.orientation === "landscape" ? "landscape" : "portrait"}`);
+  if (typeof s.locked === "boolean") {
+    lines.push(s.locked ? "- lock screen: showing (only the owner can unlock; use ask_owner)" : "- lock screen: unlocked");
+  }
+  if (typeof s.do_not_disturb === "boolean") lines.push(`- do not disturb: ${s.do_not_disturb ? "on" : "off"}`);
+  if (typeof info?.package === "string") lines.push(`- app in front: ${[...info.package].slice(0, 200).join("")}`);
+  lines.push(`- screen: ${Number(info?.screen?.width)}x${Number(info?.screen?.height)} px`);
+  if (info?.status === undefined) {
+    lines.push("The phone's Latch is older than 1.15 and does not report battery, network, or storage.");
+  }
+  return lines.join("\n");
 }
 
 /** `get_activity`: one line per entry, the same text as the Rust gateway's. Phone text is bounded. */

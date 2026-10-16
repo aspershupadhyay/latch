@@ -13,7 +13,7 @@
 
 use latch_protocol::{
     CapabilityState, CapabilityStatus, Command, ConfirmRequest, ErrorCode, FileLocation,
-    Observation, ProtocolError, RiskLevel, SessionInfo, Target, UiNode, validate,
+    GlobalAction, Observation, ProtocolError, RiskLevel, SessionInfo, Target, UiNode, validate,
 };
 
 /// Actions must be planned against an observation at most this old.
@@ -159,9 +159,9 @@ pub fn evaluate(command: &Command, ctx: &DeviceContext<'_>) -> Decision {
 
     // R18: launching, sharing to, or acting in an app outside this AI app's limit.
     let target = match command {
-        Command::LaunchApp { package } | Command::Share { package, .. } => {
-            Some(Some(package.as_str()))
-        }
+        Command::LaunchApp { package, .. }
+        | Command::OpenLink { package, .. }
+        | Command::Share { package, .. } => Some(Some(package.as_str())),
         _ => observation.map(|o| o.package.as_deref()),
     };
     if let Some(package) = target
@@ -284,8 +284,27 @@ fn assess(
             "Read the screen".into()
         })),
         Command::ListApps {} => Ok(low("List installed apps".into())),
-        Command::Global { action } => Ok(low(format!("Press {action:?}"))),
-        Command::LaunchApp { package } => Ok(Assessment::medium(format!("Open {package}"))),
+        Command::Global { action } => match action {
+            // Both leave something behind: a picture in the gallery, a locked phone.
+            GlobalAction::Screenshot | GlobalAction::LockScreen => {
+                Ok(Assessment::medium(action.describe().into()))
+            }
+            _ => Ok(low(action.describe().into())),
+        },
+        Command::LaunchApp { package, fresh } => Ok(Assessment::medium(if *fresh {
+            format!("Open {package} from its first screen")
+        } else {
+            format!("Open {package}")
+        })),
+        Command::OpenLink { url, package } => {
+            let scheme = url.split_once(':').map_or("", |(s, _)| s);
+            let title = format!("Open {} in {package}", shorten_link(url));
+            Ok(Assessment::judged(
+                link_consequence(scheme),
+                title,
+                format!("link|{package}|{scheme}"),
+            ))
+        }
         Command::Pinch {
             center,
             start_span,
@@ -523,6 +542,36 @@ fn assess(
                 place(obs.package.as_deref())
             )))
         }
+    }
+}
+
+/// How much attention opening a link with this scheme needs. Payment links
+/// (UPI) prefill a payment: asked every time, like any payment. Call,
+/// message, and mail links prefill a call or message to someone.
+pub fn link_consequence(scheme: &str) -> Consequence {
+    match scheme {
+        "upi" | "paytmmp" | "phonepe" | "tez" | "gpay" => Consequence::Critical,
+        "tel" | "sms" | "smsto" | "mms" | "mmsto" | "mailto" | "whatsapp" => {
+            Consequence::Consequential
+        }
+        _ => Consequence::None,
+    }
+}
+
+/// A link as the owner reads it on an approval card: the scheme and host
+/// of a web address, or the first 60 characters of anything else.
+fn shorten_link(url: &str) -> String {
+    let short = match url.split_once("://") {
+        Some((scheme, rest)) if scheme == "http" || scheme == "https" => {
+            let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+            format!("{scheme}://{host}")
+        }
+        _ => url.to_owned(),
+    };
+    if short.chars().count() > 60 {
+        format!("{}…", short.chars().take(59).collect::<String>())
+    } else {
+        short
     }
 }
 

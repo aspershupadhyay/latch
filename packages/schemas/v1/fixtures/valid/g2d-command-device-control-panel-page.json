@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0159", "deadline_ms": 20000, "command": { "name": "device.control", "params": { "control": { "kind": "panel", "panel": "battery" } } } }

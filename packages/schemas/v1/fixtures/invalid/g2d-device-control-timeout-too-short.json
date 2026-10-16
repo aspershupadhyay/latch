@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0165", "deadline_ms": 15000, "command": { "name": "device.control", "params": { "control": { "kind": "screen_timeout", "seconds": 5 } } } }

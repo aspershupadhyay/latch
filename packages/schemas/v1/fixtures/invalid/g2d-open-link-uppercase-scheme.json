@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0164", "deadline_ms": 15000, "command": { "name": "app.open_link", "params": { "url": "JavaScript:alert(1)", "package": "com.example.notes" } } }

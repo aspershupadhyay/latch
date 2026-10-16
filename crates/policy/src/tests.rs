@@ -376,6 +376,7 @@ fn missing_disabled_and_offscreen_targets_are_refused() {
 #[test]
 fn invalid_requests_never_reach_capability_checks() {
     let launch = Command::LaunchApp {
+        fresh: false,
         package: "intent://x".into(),
     };
     assert_eq!(

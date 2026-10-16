@@ -351,6 +351,8 @@ async fn mcp_handshake_and_discovery() {
             "press",
             "list_apps",
             "launch_app",
+            "open_link",
+            "device_status",
             "ask_owner",
             "get_activity",
             "finish_task",
@@ -1264,7 +1266,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.14, 34 tools.",
+        lines[0], "Latch gateway, protocol 1.15, 36 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -2796,4 +2798,171 @@ async fn nobody_can_fill_the_sign_in_list() {
         !now.contains(&"Spam 0".to_owned()),
         "the oldest went first: {now:?}"
     );
+}
+
+#[tokio::test]
+async fn more_buttons_links_status_and_controls() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+
+    // Roadmap R25: the new system buttons come back with the screen like back and home.
+    for button in ["split_screen", "dpad_down", "lock_screen"] {
+        let (is_error, text, _) = call(&gw, "press", json!({"button": button})).await;
+        assert!(!is_error, "{button}: {text}");
+        assert!(text.contains("observation_id"), "{text}");
+    }
+    // The shade shows one-time codes and message previews: never a button.
+    for button in ["power_off", "notifications", "quick_settings"] {
+        let (is_error, text, _) = call(&gw, "press", json!({"button": button})).await;
+        assert!(
+            is_error && text.contains("button must be one of back, home"),
+            "{text}"
+        );
+    }
+    {
+        use latch_protocol::GlobalAction::*;
+        assert_eq!(
+            phone.state.lock().expect("lock").pressed,
+            [SplitScreen, DpadDown, LockScreen]
+        );
+    }
+
+    // The status reads in plain words, and the lock screen shows up in it.
+    let (is_error, text, _) = call(&gw, "device_status", json!({})).await;
+    assert!(!is_error, "{text}");
+    for line in [
+        "- battery: 81%, not charging",
+        "- network: Wi-Fi",
+        "- free storage: 11.7 GB",
+        "- orientation: portrait",
+        "- lock screen: showing (only the owner can unlock; use ask_owner)",
+        "- do not disturb: off",
+        "- screen: 1080x2400 px",
+    ] {
+        assert!(text.contains(line), "{line} in {text}");
+    }
+
+    // A web link opens straight in the app; a fresh launch starts from the first screen.
+    let (is_error, text, _) = call(
+        &gw,
+        "open_link",
+        json!({"url": "https://shop.example/item/42", "package": "org.latch.demo.shop"}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    assert!(text.contains("app org.latch.demo.shop"), "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "launch_app",
+        json!({"package": "org.latch.demo.chat", "fresh": true}),
+    )
+    .await;
+    assert!(
+        !is_error && text.contains("app org.latch.demo.chat"),
+        "{text}"
+    );
+    for (url, says) in [
+        ("intent://x#Intent;end", "intent: links cannot be opened"),
+        ("file:///sdcard/a.txt", "file: links cannot be opened"),
+        ("https://a.example/a b", "printable ASCII"),
+        ("example.com", "url needs a scheme"),
+    ] {
+        let (is_error, text, _) = call(
+            &gw,
+            "open_link",
+            json!({"url": url, "package": "org.latch.demo.shop"}),
+        )
+        .await;
+        assert!(is_error && text.contains(says), "{url}: {text}");
+    }
+    {
+        let s = phone.state.lock().expect("lock");
+        assert_eq!(
+            s.links,
+            [(
+                "https://shop.example/item/42".to_owned(),
+                "org.latch.demo.shop".to_owned()
+            )]
+        );
+        assert_eq!(s.fresh_launches, ["org.latch.demo.chat"]);
+        assert!(s.approval_requests.is_empty(), "{:?}", s.approval_requests);
+    }
+
+    // A message link prefills a message to someone: the owner approves it first.
+    phone.state.lock().expect("lock").approval = Approval::Deny;
+    let (is_error, text, _) = call(
+        &gw,
+        "open_link",
+        json!({"url": "sms:+15550100?body=hi", "package": "org.latch.demo.chat"}),
+    )
+    .await;
+    assert!(is_error && text.contains("user_denied"), "{text}");
+    // A payment link is asked about every time, like any payment.
+    let (is_error, text, _) = call(
+        &gw,
+        "open_link",
+        json!({"url": "upi://pay?pa=shop@bank&am=10", "package": "org.latch.demo.shop"}),
+    )
+    .await;
+    assert!(is_error && text.contains("user_denied"), "{text}");
+    {
+        let s = phone.state.lock().expect("lock");
+        assert_eq!(s.approval_requests.len(), 2, "{:?}", s.approval_requests);
+        assert!(
+            s.approval_requests[1].contains("upi://pay"),
+            "{:?}",
+            s.approval_requests
+        );
+        assert_eq!(s.links.len(), 1, "nothing denied was opened");
+    }
+    phone.state.lock().expect("lock").approval = Approval::Approve;
+
+    // The new controls: off-screen ones answer in words, a settings page brings the screen.
+    for (args, says) in [
+        (
+            json!({"control": "ringer", "mode": "vibrate"}),
+            "Done: Set the ringer to vibrate.",
+        ),
+        (
+            json!({"control": "do_not_disturb", "on": true}),
+            "Done: Turn Do Not Disturb on.",
+        ),
+        (
+            json!({"control": "rotation", "mode": "portrait"}),
+            "Done: Lock the screen to portrait.",
+        ),
+        (
+            json!({"control": "screen_timeout", "seconds": 600}),
+            "Done: Set the screen timeout to 10 min.",
+        ),
+    ] {
+        let (is_error, text, _) = call(&gw, "phone_control", args).await;
+        assert!(!is_error && text == says, "{text}");
+    }
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "panel", "panel": "battery"}),
+    )
+    .await;
+    assert!(!is_error && text.contains("observation_id"), "{text}");
+    for (args, says) in [
+        (
+            json!({"control": "screen_timeout", "seconds": 5}),
+            "seconds must be between 15 and 1800",
+        ),
+        (
+            json!({"control": "ringer", "mode": "loud"}),
+            "mode must be normal, vibrate, or silent",
+        ),
+        (
+            json!({"control": "panel", "panel": "developer"}),
+            "panel must be one of wifi",
+        ),
+    ] {
+        let (is_error, text, _) = call(&gw, "phone_control", args).await;
+        assert!(is_error && text.contains(says), "{text}");
+    }
+    let (_, text, _) = call(&gw, "device_status", json!({})).await;
+    assert!(text.contains("- do not disturb: on"), "{text}");
 }

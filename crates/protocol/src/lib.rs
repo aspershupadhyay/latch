@@ -25,8 +25,9 @@ pub mod validate;
 pub use activity::{ActivityActor, ActivityEntry, ActivityKind, ActivityList};
 pub use capability::{Capability, CapabilityState, CapabilityStatus};
 pub use command::{
-    Command, ConfirmRequest, Direction, GlobalAction, MAX_REMEMBER_CHARS, MediaAction,
-    PhoneControl, Point, RiskLevel, SettingsPanel, Target, VolumeStream,
+    Command, ConfirmRequest, Direction, GlobalAction, MAX_REMEMBER_CHARS, MAX_SCREEN_TIMEOUT_S,
+    MIN_SCREEN_TIMEOUT_S, MediaAction, PhoneControl, Point, RingerMode, RiskLevel, RotationMode,
+    SettingsPanel, Target, VolumeStream,
 };
 pub use error::{ErrorCode, ProtocolError};
 pub use files::{
@@ -35,8 +36,9 @@ pub use files::{
 };
 pub use message::{
     ActionEffect, ActionResult, AppEntry, AppList, ApprovalChoice, ApprovalKind, ApprovalRequest,
-    CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceToGateway, GatewayToDevice, Hello,
-    ObserveAfter, Outcome, OwnerReply, SIGNING_CONTEXT, SessionInfo, WaitResult, signing_input,
+    CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway, GatewayToDevice,
+    Hello, NetworkKind, ObserveAfter, Orientation, Outcome, OwnerReply, SIGNING_CONTEXT,
+    SessionInfo, WaitResult, signing_input,
 };
 pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 
@@ -44,7 +46,7 @@ pub use observation::{Observation, Rect, ScreenInfo, Screenshot, UiNode};
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.14";
+pub const PROTOCOL_VERSION: &str = "1.15";
 
 /// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
 pub fn minor_version(version: &str) -> Option<u32> {

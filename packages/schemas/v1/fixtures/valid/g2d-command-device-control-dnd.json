@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0158", "deadline_ms": 15000, "command": { "name": "device.control", "params": { "control": { "kind": "do_not_disturb", "on": true } } } }
