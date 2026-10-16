@@ -232,7 +232,7 @@ class EmulatorGatewayTest {
         val key2 = Regex("-K ([0-9a-f]{64})").find(link.text)!!.groupValues[1]
         val iv2 = Regex("-iv ([0-9a-f]{32})").find(link.text)!!.groupValues[1]
         assertTrue("the file came back byte for byte", PhoneTransfers.cipherFor(FileLink("x", emptyMap(), key2, iv2)).doFinal(back).contentEquals(plain))
-        assertFalse(call("delete_file", "file_id" to fileId).isError)
+        // No clean-up: deleting asks the owner (nobody answers here), and the emulator is thrown away.
 
         // The emergency stop: the session ends and the AI can no longer reach the phone.
         onMain { app.session.stop() }
