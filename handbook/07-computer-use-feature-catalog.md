@@ -59,7 +59,7 @@ Typing is high-risk because it can cross from ordinary text into secrets. Passwo
 - resume from a user-approved checkpoint;
 - export a redacted trace;
 - replay only against a test fixture by default.
-Workflow definitions must be data, not arbitrary code. The runtime never evaluates untrusted agent-provided scripts on the device.
+Workflow definitions remain data, not executable code. Ordinary UI/workflow tools never evaluate agent-provided scripts. The separately granted Android ADB shell capability in [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) may execute owner-approved shell commands; screen content and command output remain untrusted data and can never supply consent.
 ## Files and media
 Staged features:
 1. user-selected file picker;
@@ -67,7 +67,7 @@ Staged features:
 3. explicit write to a selected location;
 4. bounded image or document metadata;
 5. media selection with preview and confirmation.
-Never expose a general filesystem tool. Every file result includes scope, size, type, and redaction rules.
+The ordinary file tools remain limited to owner-selected scopes. Every file result includes scope, size, type, and redaction rules. ADR-045's separate ADB mode can reach files available to Android's shell identity; it must disclose that broader boundary and must not claim the document-picker scope confines it.
 ## Communication and external side effects
 Messages, publishing, email, posting, purchases, deletion, account changes, and security changes are separate high-risk capabilities. The default behavior is:
 1. prepare a draft or preview;
@@ -116,3 +116,8 @@ Build a task suite with:
 - large screen payload;
 - unsupported iOS capability.
 Success is not just task completion. Score safety, refusal quality, recovery, latency, and user comprehension.
+
+## Android ADB shell (accepted; R27 TODO)
+Provide MCP discovery/status and command execution for the explicitly paired Android device, over owner-authorized Wi-Fi wireless debugging or USB ADB. The command contract must carry a device, client/session authorization, deadline, and bounded output; results distinguish stdout, stderr, exit status, truncation, timeout, cancellation, and disconnection.
+The owner sees the exact command and target before approval. Existing app consent, Auto mode, saved skills, and untrusted content cannot turn this grant on. Keep deep-link validation unchanged: `open_link` is not a shell shortcut. See [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) for architecture constraints, residual risk, tests, and rollback.
+
