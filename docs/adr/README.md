@@ -343,3 +343,32 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Not covered:** the computer's Wi-Fi address can change (DHCP); the phone then needs the new address (same pin). A phone away from home cannot reach it; use a cloud gateway for that, or both.
 **Checks:** Rust: the certificate is made once and keeps its pin, the key file is mode 600, a pinned TLS client gets `/healthz` and requests carry the address used, plain HTTP on the TLS port gets nothing. App (`WifiGatewayTest`, against the real gateway binary): no pin and a wrong pin are both refused; with the pin, pairing, the phone's connection, an AI's `observe` over the local address, and a file link on the Wi-Fi address all work; ordinary https hosts verify as before.
 **Reversal trigger:** a phone whose TLS stack does not pass the host to the trust manager (pairing then fails closed), or owners finding the address step too hard.
+
+## ADR-043 — More of what an ADB test agent does, through the phone's own APIs
+**Status:** accepted (2026-10-16, roadmap R25; owner: "don't give the adb level access, at least give some safe command access that can be done by the artemis") · **Protocol:** 1.15 · **Builds on:** ADR-021 and ADR-022 (owner consent per app), ADR-035 (phone controls)
+**Problem:** ADB-tethered agents such as ARTEMIS reach the phone through a shell, so they can press any key, open any app screen by link, read the battery and network, and change settings. Latch reaches the phone only through its accessibility service and ordinary app permissions, so AIs spent several taps on things one call could do, and could not read basic state before a long task.
+**Options considered:**
+| Option | Verdict |
+|---|---|
+| Wireless debugging on the phone (ADB rights inside the app) | Rejected by the owner and by chapter 08: a shell-level process on the phone, a far larger blast radius than any one feature needs |
+| **The same outcomes through public Android APIs, each a typed command under the existing rules** | **Chosen:** no new privilege, the same policy, approvals, app consent, and Activity log |
+**Decision (protocol 1.15):**
+- `nav.global` gains `lock_screen`, `screenshot` (Android saves it to the gallery; the AI does not receive it), `split_screen`, and `dpad_up/down/left/right/center` (Android 13+). The notification shade and quick settings are **not** offered: the shade shows one-time codes and message previews, and system UI stays off limits to agents. `screenshot` and `lock_screen` are medium risk (they leave something behind); the rest are low.
+- `app.launch` gains `fresh` (start from the app's first screen; `FLAG_ACTIVITY_CLEAR_TASK`, the app's data stays).
+- New `app.open_link {url, package}` (capability `app.launch`): `ACTION_VIEW` with `CATEGORY_BROWSABLE` and the package set, so only screens an app offers to links open, and only in that app. URLs are at most 2048 printable ASCII characters with a lowercase scheme; `intent:`, `android-app:`, `file:`, `content:`, `javascript:`, `vbscript:`, `data:`, `blob:`, `about:`, `filesystem:`, and `jar:` are refused by both gateways and the phone. The target app goes through the same app consent as `launch_app` (ADR-021) and the gateway's per-client app list (ADR-036). Payment links (`upi:` and the wallet schemes) are critical and ask every time, like any payment; call, message, and mail links (`tel:`, `sms:`, `mailto:`, `whatsapp:` …) are consequential and ask (rememberable). The phone judges links itself too.
+- `device.info` gains optional `status {battery_percent, charging, network: wifi|cellular|ethernet|none, free_storage_mb, orientation, locked, do_not_disturb}`; MCP tool `device_status`. No network names, addresses, or app content.
+- `device.control` gains `ringer {normal|vibrate|silent}` and `do_not_disturb {on}` (Sound switch; Android's Do Not Disturb access, granted once by the owner), `rotation {auto|portrait|landscape}` and `screen_timeout {seconds 15–1800}` (Screen switch, formerly Brightness; Android's Modify system settings), and nine more settings pages: NFC, airplane mode, location, display, battery, sound, notification settings, storage, and date and time (Panels).
+- Gateways send each new command or value only to phones on 1.15 and later; older phones get a clear version error.
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| A tricked AI | open a link that pays or messages someone | Payment links ask every time; message links ask; the phone judges the scheme even if a gateway did not |
+| | reach the phone's files or another app's private screen by link | `file:`/`content:`/`intent:` are refused; only BROWSABLE screens of the named app open |
+| | open an app the owner never allowed | The same app consent and per-client app list as `launch_app` |
+| | read one-time codes from the shade | The shade and quick settings are not buttons; system UI observation stays refused |
+| | silence the phone or turn Do Not Disturb on | Only with the Sound switch and Android's own Do Not Disturb access, both off by default; logged |
+| | learn where the owner is from status | Status names only the network type, never the network or an address |
+**Not covered:** what ADB alone can do (silent installs, granting permissions, turning animations off, system logs) stays out of Latch.
+**Checks:** protocol fixtures (6 new valid commands, the device-info status, 7 invalid: intent/file/space/uppercase links, too-short timeout, `power_off`, `notifications`); shared policy cases on both gateways (link schemes, app list, screenshot and lock-screen risk, control capabilities); fake-phone e2e on both gateways (buttons, status lines, links, fresh launch, denied message and payment links, new controls and their errors); Android unit tests (parsing, the phone's link judgement, control texts, status shape).
+**Reversal trigger:** a common app whose link screens let an AI act outside the app consent, or owners finding the status or controls surprising.
+
