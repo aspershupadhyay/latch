@@ -113,6 +113,12 @@ impl Links {
             && latch_protocol::validate::is_hex(&token[4..], 64)
     }
 
+    /// Forgets expired links and deletes their files; also run every minute,
+    /// so keys and ciphertext do not outlive their link while nobody makes a new one.
+    pub fn sweep(&self) {
+        self.collect();
+    }
+
     /// Forgets expired links and deletes their files.
     fn collect(&self) {
         let now = now_ms();

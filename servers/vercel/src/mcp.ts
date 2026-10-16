@@ -37,6 +37,8 @@ export interface McpContext {
   skills?: Store;
   /** Roadmap R18: the only phone apps this AI app may use; undefined for no limit. */
   allowedApps?: readonly string[];
+  /** Which AI app is calling, so each one gets changes against its own last screen (R5). */
+  callerKey?: string;
 }
 
 /** What an MCP client answered to `elicitation/create`, or undefined when it never did. */
@@ -74,11 +76,16 @@ export function askOwnerVia(elicit: Elicit) {
 }
 
 /** Every command an MCP tool sends goes through here, so approvals can be relayed. */
-const execute = (ctx: McpContext, deviceId: string, command: Command, options: Parameters<Devices["execute"]>[2] = {}) =>
-  ctx.devices.execute(deviceId, command, {
-    ...options, askOwner: ctx.askOwner, deferWhenAsked: ctx.deferWhenAsked, resumeCommandId: ctx.resumeCommandId,
+const execute = (ctx: McpContext, deviceId: string, command: Command, options: Parameters<Devices["execute"]>[2] = {}) => {
+  // After answer_approval only the first command was already sent; a tool's later
+  // commands (following a transfer, the next chunk) are new ones.
+  const resumeCommandId = ctx.resumeCommandId;
+  ctx.resumeCommandId = undefined;
+  return ctx.devices.execute(deviceId, command, {
+    ...options, askOwner: ctx.askOwner, deferWhenAsked: ctx.deferWhenAsked, resumeCommandId,
     allowedApps: ctx.allowedApps,
   });
+};
 
 const ANSWER_MEANINGS: Record<ApprovalChoice, string> = {
   once: "once (allow this one time)", session: "session (allow until the session ends)", always: "always (allow from now on)", deny: "deny",
@@ -512,11 +519,11 @@ const screenshotAllowed = (live: Live) => live.capabilities.some((c) => c.capabi
  */
 async function shown(ctx: McpContext, deviceId: string, live: Live, obs: Observation, screenshotWithheld: boolean, changes: boolean): Promise<ToolResult> {
   if (changes) {
-    const base = await ctx.devices.shownBase(deviceId, live.conn);
+    const base = await ctx.devices.shownBase(deviceId, live.conn, ctx.callerKey);
     const partial = base ? renderChanges(deviceId, obs, base, screenshotWithheld) : undefined;
     if (partial !== undefined) return withScreenshot(partial, obs);
   }
-  await ctx.devices.setShownBase(deviceId, live.conn, obs);
+  await ctx.devices.setShownBase(deviceId, live.conn, obs, ctx.callerKey);
   return observationResult(deviceId, obs, screenshotWithheld);
 }
 

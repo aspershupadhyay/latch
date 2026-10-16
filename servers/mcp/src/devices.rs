@@ -51,17 +51,21 @@ struct Live {
     /// Latest observation without its screenshot, and when it arrived.
     latest_observation: Option<(Arc<Observation>, u64)>,
     /// The last screen the AI was shown in full (roadmap R5), without its screenshot.
-    shown_base: Option<Arc<Observation>>,
+    /// Per AI app (caller key): two apps on one phone each get changes against
+    /// the screen they themselves were shown.
+    shown_base: HashMap<String, Arc<Observation>>,
     command_lock: Arc<tokio::sync::Mutex<()>>,
     connected_at_ms: u64,
     /// Present for HTTP long-poll connections, absent for WebSockets.
     poll: Option<PollChannel>,
 }
 
+/// AI apps whose last full screen is kept per phone connection; more start over.
+const MAX_SHOWN_BASES: usize = 8;
+
 #[derive(Default)]
 pub struct Registry {
     live: Mutex<HashMap<String, Live>>,
-    next_conn: std::sync::atomic::AtomicU64,
     /// R24: the Wi-Fi address each phone last connected through, for its file links.
     link_bases: Mutex<HashMap<String, String>>,
 }
@@ -141,9 +145,9 @@ impl Registry {
         tx: mpsc::Sender<GatewayToDevice>,
     ) -> u64 {
         let now = now_ms();
-        let conn_id = self
-            .next_conn
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Random, not counted: a signed message is bound to its connection, and a
+        // counter that restarts with the gateway would make old messages valid again.
+        let conn_id = u64::from_le_bytes(crate::secret::random_bytes::<8>());
         let live = Live {
             conn_id,
             tx,
@@ -154,7 +158,7 @@ impl Registry {
             pending: HashMap::new(),
             awaiting_owner: std::collections::HashSet::new(),
             latest_observation: None,
-            shown_base: None,
+            shown_base: HashMap::new(),
             command_lock: Arc::new(tokio::sync::Mutex::new(())),
             connected_at_ms: now,
         };
@@ -287,9 +291,10 @@ impl Registry {
 
     /// The last screen the AI was shown in full on this connection (R5).
     pub fn shown_base(&self, device_id: &str) -> Option<Arc<Observation>> {
+        let caller = crate::caller_key();
         self.lock()
             .get(device_id)
-            .and_then(|l| l.shown_base.clone())
+            .and_then(|l| l.shown_base.get(&caller).cloned())
     }
 
     /// Remembers `obs` (without its screenshot) as the screen the AI was shown in full.
@@ -297,7 +302,10 @@ impl Registry {
         if let Some(l) = self.lock().get_mut(device_id) {
             let mut base = obs.clone();
             base.screenshot = None;
-            l.shown_base = Some(Arc::new(base));
+            if l.shown_base.len() >= MAX_SHOWN_BASES {
+                l.shown_base.clear();
+            }
+            l.shown_base.insert(crate::caller_key(), Arc::new(base));
         }
     }
 

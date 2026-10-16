@@ -184,13 +184,28 @@ async fn file_download(State(state): State<Arc<AppState>>, Path(token): Path<Str
 async fn file_upload(
     State(state): State<Arc<AppState>>,
     Path(token): Path<String>,
-    body: axum::body::Bytes,
+    body: axum::body::Body,
 ) -> Response {
     use crate::transfers::TransferError;
-    match state.transfers.put_upload(&token, body.to_vec()) {
-        Ok(()) => {
-            Json(json!({ "ok": true, "upload_id": token, "size": body.len() })).into_response()
+    // Only a real, empty upload link reads a body (up to 64 MB) into memory.
+    if !state.transfers.upload_open(&token) {
+        return error(
+            StatusCode::NOT_FOUND,
+            "this link has expired, never existed, or was already used",
+        );
+    }
+    let body = match axum::body::to_bytes(body, crate::transfers::MAX_TRANSFER_BYTES).await {
+        Ok(bytes) => Vec::from(bytes),
+        Err(_) => {
+            return error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "the file is larger than 64 MB",
+            );
         }
+    };
+    let size = body.len();
+    match state.transfers.put_upload(&token, body) {
+        Ok(()) => Json(json!({ "ok": true, "upload_id": token, "size": size })).into_response(),
         Err(TransferError::TooLarge) => error(
             StatusCode::PAYLOAD_TOO_LARGE,
             "the file is larger than 64 MB",

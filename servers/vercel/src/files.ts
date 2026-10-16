@@ -108,13 +108,19 @@ export class Transfers {
   }
 
   /** Takes an uploaded file out (each upload is saved once). */
-  async takeUpload(token: string): Promise<Buffer> {
+  /** An upload's bytes, kept until [discardUpload]: a call that fails or waits for the owner can run again. */
+  async readUpload(token: string): Promise<Buffer> {
     const meta = await this.meta(token);
     const bytes = meta?.kind === "upload" && meta.parts !== undefined ? await this.getBytes(token, meta) : undefined;
     if (!bytes) throw bad("that upload_id is unknown, expired, already saved, or nothing was uploaded to it yet");
+    return bytes;
+  }
+
+  /** Deletes an upload once the phone saved it. */
+  async discardUpload(token: string): Promise<void> {
+    const meta = await this.meta(token);
     for (let i = 0; i < (meta?.parts ?? 0); i++) await this.store.del(partKey(token, i));
     await this.store.del(metaKey(token));
-    return bytes;
   }
 }
 
@@ -510,7 +516,7 @@ async function writeFile(ctx: FileToolContext, args: Record<string, unknown>): P
   else if (data !== undefined) {
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data) || data.replace(/=+$/, "").length % 4 === 1) throw bad("data_base64 is not valid base64");
     bytes = Buffer.from(data, "base64");
-  } else bytes = await ctx.transfers.takeUpload(upload as string);
+  } else bytes = await ctx.transfers.readUpload(upload as string);
   if (upload === undefined && bytes.length > MAX_INLINE_BYTES) throw bad("inline content is limited to 128 KB; use upload_link for bigger files");
   let saved: FileItem | undefined;
   const chunks: Buffer[] = [];
@@ -534,5 +540,7 @@ async function writeFile(ctx: FileToolContext, args: Record<string, unknown>): P
     };
     saved = (await ctx.execute(command)).data as FileItem;
   }
+  // Saved: a legacy upload is used up only now.
+  if (upload !== undefined) await ctx.transfers.discardUpload(upload);
   return savedText(saved as FileItem, place, bytes.length, name);
 }
