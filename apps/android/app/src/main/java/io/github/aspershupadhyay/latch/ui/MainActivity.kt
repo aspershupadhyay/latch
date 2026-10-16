@@ -758,6 +758,6 @@ private fun AppsRoute(app: LatchApp, onBack: () -> Unit) {
 private const val MAX_FOLDERS = 20
 
 /** README steps for bringing a Vercel gateway up to date. */
-private const val GATEWAY_UPDATE_HELP = "https://github.com/aspershupadhyay/latch#fix-update-your-gateway"
+private const val GATEWAY_UPDATE_HELP = "https://github.com/aspershupadhyay/latch/blob/main/docs/troubleshooting.md#fix-update-your-gateway"
 private const val RELAY_SPEED_HELP = "https://github.com/aspershupadhyay/latch/blob/main/docs/operations/vercel.md#speed"
 private const val SOURCE_CODE = "https://github.com/aspershupadhyay/latch"
