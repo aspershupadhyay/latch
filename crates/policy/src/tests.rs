@@ -22,6 +22,7 @@ fn node(id: &str, text: &str, bounds: Rect) -> UiNode {
         enabled: true,
         focused: false,
         sensitive: false,
+        ..Default::default()
     }
 }
 
@@ -174,6 +175,7 @@ fn approve_every_action_mode_confirms_harmless_actions_but_not_reads() {
     let read = Command::Observe {
         include_screenshot: true,
         max_nodes: 100,
+        marks: false,
     };
     assert!(matches!(
         decide(&read, &all_enabled(), s, None),
@@ -208,10 +210,12 @@ fn screenshot_requires_its_own_capability() {
     let with_shot = Command::Observe {
         include_screenshot: true,
         max_nodes: 100,
+        marks: false,
     };
     let tree_only = Command::Observe {
         include_screenshot: false,
         max_nodes: 100,
+        marks: false,
     };
     assert_eq!(
         code(decide(&with_shot, &caps, session(), None)),

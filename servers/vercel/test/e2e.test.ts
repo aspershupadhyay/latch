@@ -192,9 +192,13 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.ok(text(screen).includes(`Changes since observation ${obsId(full)}: elements not listed here are unchanged and keep their ids.\n(no element changed)\n`), text(screen));
   screen = await client.callTool({ name: "tap", arguments: { observation_id: obsId(text(screen)), element_id: element(full, "Network & internet") } });
   assert.match(text(screen), /\[tap,checked\]/);
+  // Protocol 1.16 (ADR-044), same text as the Rust gateway: state words and headings reach the AI.
+  assert.ok(text(screen).includes('Switch "Wi-Fi" state="On"'), text(screen));
+  assert.ok(text(screen).includes('TextView "Network & internet" @(40,100,1040,200) [heading]'), text(screen));
   const before = obsId(text(screen));
   screen = await client.callTool({ name: "tap", arguments: { observation_id: before, element_id: element(text(screen), "Wi-Fi") } });
   assert.match(text(screen), /\[tap,unchecked\]/);
+  assert.ok(text(screen).includes('state="Off"'), text(screen));
 
   const stale = await client.callTool({ name: "tap", arguments: { observation_id: before, element_id: "n1" } });
   assert.ok(stale.isError);

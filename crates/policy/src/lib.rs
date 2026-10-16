@@ -774,6 +774,7 @@ fn label_of(node: &UiNode) -> String {
         .as_deref()
         .filter(|t| !t.trim().is_empty())
         .or(node.description.as_deref().filter(|t| !t.trim().is_empty()))
+        .or(node.label.as_deref().filter(|t| !t.trim().is_empty()))
         .or(node.resource_id.as_deref())
         .unwrap_or(&node.role);
     shorten(raw)
@@ -1013,10 +1014,12 @@ fn words(text: &str) -> Vec<String> {
 }
 
 fn matches(node: &UiNode, single: &[&str], phrases: &[&str]) -> bool {
+    // A guessed label (protocol 1.16) can only add reasons to ask, never remove one.
     [
         node.text.as_deref(),
         node.description.as_deref(),
         node.resource_id.as_deref(),
+        node.label.as_deref(),
     ]
     .into_iter()
     .flatten()

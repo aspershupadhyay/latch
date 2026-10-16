@@ -64,6 +64,11 @@
             "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
             "type": "string"
           },
+          "marks": {
+            "default": false,
+            "description": "Draw each listed element's id (n12) on the screenshot, so what you see matches the ids you can act on. Use it when the list says controls have no name, or the screen is a web page or drawn area (Latch 1.16 on the phone).",
+            "type": "boolean"
+          },
           "max_nodes": {
             "default": 400,
             "description": "Upper bound on elements returned.",

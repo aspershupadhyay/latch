@@ -58,6 +58,25 @@ fn observation_rendering_matches() {
     check("render-expected.txt", text);
 }
 
+/// Protocol 1.16 (ADR-044): every new element fact, guessed labels, a menu
+/// window over a feed, and the reading note.
+#[test]
+fn rich_observation_rendering_matches() {
+    let input: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir().join("render-rich-input.json")).expect("input"),
+    )
+    .expect("json");
+    let obs: Observation =
+        serde_json::from_value(input["observation"].clone()).expect("observation");
+    latch_protocol::validate::observation(&obs, 2000).expect("valid observation");
+    let text = mcp::render_observation(
+        input["device_id"].as_str().expect("device_id"),
+        &obs,
+        input["screenshot_withheld"].as_bool().expect("flag"),
+    );
+    check("render-rich-expected.txt", text);
+}
+
 #[test]
 fn tool_errors_match() {
     let cases: Vec<Value> = [ErrorCode::StaleObservation, ErrorCode::DeviceUnavailable, ErrorCode::SensitiveTarget]

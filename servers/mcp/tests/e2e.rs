@@ -635,6 +635,29 @@ async fn agent_navigates_settings_and_toggles_wifi() {
     let (_, screen, _) = call(&gw, "tap", json!({"observation_id": observation_id(&screen), "element_id": element(&screen, "Network & internet")})).await;
     assert!(screen.contains("\"Wi-Fi\""), "{screen}");
     assert!(screen.contains("checked"), "{screen}");
+    // Protocol 1.16 (ADR-044): the app's state words and headings reach the AI.
+    assert!(screen.contains("Switch \"Wi-Fi\" state=\"On\""), "{screen}");
+    assert!(
+        screen.contains("TextView \"Network & internet\" @(40,100,1040,200) [heading]"),
+        "{screen}"
+    );
+    // Numbered marks are asked of the phone only with a screenshot.
+    let (is_error, marked, images) = call(&gw, "observe", json!({"marks": true})).await;
+    assert!(!is_error && images == 1, "{marked}");
+    let (_, unmarked, images) =
+        call(&gw, "observe", json!({"marks": true, "screenshot": false})).await;
+    assert_eq!(images, 0, "{unmarked}");
+    {
+        let s = phone.state.lock().expect("lock");
+        assert_eq!(
+            s.executed
+                .iter()
+                .filter(|c| *c == "ui.observe+marks")
+                .count(),
+            1
+        );
+    }
+    let screen = unmarked;
 
     let (is_error, screen, _) = call(
         &gw,
@@ -644,6 +667,7 @@ async fn agent_navigates_settings_and_toggles_wifi() {
     .await;
     assert!(!is_error, "{screen}");
     assert!(screen.contains("unchecked"), "{screen}");
+    assert!(screen.contains("state=\"Off\""), "{screen}");
     assert!(!phone.state.lock().expect("lock").phone.wifi_on);
 
     let (_, screen, _) = call(&gw, "press", json!({"button": "back"})).await;
@@ -1266,7 +1290,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.15, 36 tools.",
+        lines[0], "Latch gateway, protocol 1.16, 36 tools.",
         "{devices}"
     );
     let lines = &lines[1..];

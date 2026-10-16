@@ -82,10 +82,86 @@ pub struct UiNode {
     /// Password, OTP, or similar. Its content is redacted and it cannot be targeted.
     #[serde(default)]
     pub sensitive: bool,
+    /// Since 1.16: the app's own words for the element's state, e.g. `Liked` or `Playing`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// Since 1.16: a text field's hint, e.g. `Write a caption…`. Absent for sensitive fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// Since 1.16: selected, e.g. the current tab.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub selected: bool,
+    /// Since 1.16: a heading or screen title.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub heading: bool,
+    /// Since 1.16: where the element sits in a list or grid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<ListPosition>,
+    /// Since 1.16: a slider's or progress bar's value, as a percentage of its range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+    /// Since 1.16: the app's own extra actions on this element, e.g. `Like` or `Reply` (untrusted words).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<String>,
+    /// Since 1.16: a name the phone worked out for an element without words of its own,
+    /// from its tooltip, the label that names it, or its resource id. A guess.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Since 1.16: drawn under another window of the app (a menu, sheet, or dialog), so a tap lands on that window.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub covered: bool,
+}
+
+/// Where an element sits in a list or grid: `index` counts from 0; `count` is the list's length when known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ListPosition {
+    pub index: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+}
+
+impl Default for UiNode {
+    fn default() -> Self {
+        UiNode {
+            id: String::new(),
+            parent: None,
+            role: "View".into(),
+            text: None,
+            description: None,
+            resource_id: None,
+            bounds: Rect {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            clickable: false,
+            long_clickable: false,
+            editable: false,
+            scrollable: false,
+            checked: None,
+            enabled: true,
+            focused: false,
+            sensitive: false,
+            state: None,
+            hint: None,
+            selected: false,
+            heading: false,
+            position: None,
+            percent: None,
+            actions: Vec::new(),
+            label: None,
+            covered: false,
+        }
+    }
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -153,6 +229,7 @@ mod tests {
             enabled: true,
             focused: false,
             sensitive: false,
+            ..Default::default()
         }
     }
 

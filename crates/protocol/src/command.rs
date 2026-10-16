@@ -390,6 +390,9 @@ pub enum Command {
         include_screenshot: bool,
         #[serde(default = "default_max_nodes")]
         max_nodes: u32,
+        /// Since 1.16: draw each listed element's id on the screenshot. Older phones ignore it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        marks: bool,
     },
 
     #[serde(rename = "input.tap")]
