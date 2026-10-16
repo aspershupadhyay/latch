@@ -263,12 +263,12 @@
           "const": "activity.read"
         },
         {
-          "description": "Since 1.11: set volumes and send media keys (play/pause, next, previous).",
+          "description": "Since 1.11: set volumes and send media keys (play/pause, next, previous);\nsince 1.15 also the ringer and Do Not Disturb.",
           "type": "string",
           "const": "control.sound"
         },
         {
-          "description": "Since 1.11: set the screen brightness (needs Android's \"Modify system settings\").",
+          "description": "Since 1.11: set the screen brightness (needs Android's \"Modify system settings\");\nsince 1.15 also rotation and the screen timeout.",
           "type": "string",
           "const": "control.brightness"
         },
@@ -278,7 +278,7 @@
           "const": "control.flashlight"
         },
         {
-          "description": "Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel.",
+          "description": "Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel; since\n1.15 also NFC and the airplane mode, location, display, battery, sound,\nnotifications, storage, and date and time settings.",
           "type": "string",
           "const": "control.panels"
         }

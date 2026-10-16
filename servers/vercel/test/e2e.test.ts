@@ -327,7 +327,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.ok(!opened.isError && text(opened).includes("app org.latch.demo.shop"), text(opened));
   const fresh = await client.callTool({ name: "launch_app", arguments: { package: "org.latch.demo.chat", fresh: true } });
   assert.ok(!fresh.isError && text(fresh).includes("app org.latch.demo.chat"), text(fresh));
-  for (const [url, says] of [["intent://x#Intent;end", "intent: links cannot be opened"], ["https://a.example/a b", "printable ASCII"]]) {
+  for (const [url, says] of [["intent://x#Intent;end", "intent: links cannot be opened"], ["https://a.example/a b", "printable ASCII"]] as const) {
     const r = await client.callTool({ name: "open_link", arguments: { url, package: "org.latch.demo.shop" } });
     assert.ok(r.isError && text(r).includes(says), text(r));
   }
