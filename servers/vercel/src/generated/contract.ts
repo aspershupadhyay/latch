@@ -864,6 +864,15 @@ export const SERVER = {
           "file_id": {
             "description": "file_id from list_files or an earlier file tool.",
             "type": "string"
+          },
+          "lane": {
+            "default": "auto",
+            "description": "auto: straight from the phone when the owner switched on fast transfers on the same Wi-Fi. cloud: always through the gateway, e.g. after the Wi-Fi command could not reach the phone.",
+            "enum": [
+              "auto",
+              "cloud"
+            ],
+            "type": "string"
           }
         },
         "required": [

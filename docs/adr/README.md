@@ -283,7 +283,7 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Reversal trigger:** the field turning out to be wrong on common phones (for example, vendor battery managers that report exemption but still stop the app).
 
 ## ADR-041 — Same-Wi-Fi fast lane for whole files
-**Status:** proposed (2026-10-16, roadmap R23; owner: "yes add R23") · **Protocol:** 1.14 (planned) · **Builds on:** ADR-027 (files by encrypted link)
+**Status:** accepted (2026-10-16, roadmap R23; owner: "yes add R23"); protocol and both gateways done, the Android listener follows · **Protocol:** 1.14 · **Builds on:** ADR-027 (files by encrypted link)
 **Problem:** a whole file between the owner's computer and phone travels computer → storage → phone (ADR-027), so it moves at the slower of the two internet uploads, twice. On the same Wi-Fi the two devices could talk directly, typically 20–80 MB/s on home Wi-Fi, so a 1 GB video takes seconds instead of minutes. AirDrop gets its speed this way (local discovery plus a direct peer-to-peer link).
 **Options considered:**
 | Option | Verdict |
@@ -297,15 +297,21 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 - When `upload_link` or `get_file_link` is called and the switch is on, the gateway asks the phone to open a **one-transfer listener**: a random port on the Wi-Fi interface only, a 256-bit random path, alive until the transfer finishes or 15 minutes pass, then closed. The phone answers with its local address; the gateway hands the AI a command that tries the local address first with a 2-second connect timeout and falls back to today's cloud link.
 - What travels is exactly what ADR-027 sends: AES-256-CTR ciphertext under a key made for that one file, and a file is kept only if its SHA-256 matches. The listener accepts one request on its exact path and ignores everything else.
 - The Activity log records each local transfer (name, size, direction), never contents.
+**Mechanism (protocol 1.14):**
+- `file.local {direction: receive|send, max_bytes}` asks the phone for an address; it needs the capability the transfer itself needs (`file.write` to receive, `file.read` to send) and is not an action. The phone answers `LocalSlot {url, expires_at_ms}`, or `unsupported_capability` when the switch is off, it is not on Wi-Fi, or the app is older. Any error simply means the cloud link.
+- Gateways accept only `http://<private, loopback, or link-local IPv4>:<port ≥ 1024>/<64 lowercase hex>` (`validate::local_slot`, `isLocalSlotUrl`), so a phone can never point the AI's computer at an internet address.
+- **Upload:** `upload_link`'s command encrypts the file once to a temporary file, `curl --connect-timeout 2 -T` it to the phone's address, and on any failure to the cloud link with the same key. `write_file` then hands the phone a `file.fetch` whose link URL is its own address; the phone reads what arrived there instead of fetching. When the gateway holds a copy (the Wi-Fi try failed), or nothing arrived on the Wi-Fi (`target_not_found`), it uses the cloud link.
+- **Download:** `get_file_link` opens a `send` address and sends `file.push` to it; the phone encrypts into it instead of uploading, and the command reads it once. If this computer cannot reach the phone, the command says to call `get_file_link` again with `lane: "cloud"`, which skips the Wi-Fi.
 **Threat review:**
 | Who | Can they… | Why not, or what limits it |
 |---|---|---|
 | Another device on the same Wi-Fi | read the file | It sees only ciphertext; the key travels phone ↔ gateway ↔ AI over TLS, never on the LAN |
 | | change or replace the file | A changed file fails the SHA-256 check and is deleted |
-| | find or guess the listener | A random port and 256-bit path, for one transfer, for at most 15 minutes; wrong paths get no answer |
+| | find or guess the listener | A random port and 256-bit path, for one transfer, for at most 15 minutes; wrong paths get 404 and change nothing |
 | | slow the transfer down | Possible (a LAN denial of service); the cloud link stays as the fallback |
 | A hostile Wi-Fi network (café, office) | anything more | No, by the same three rows; client isolation simply makes the local try fail and the cloud link is used |
 | The AI app | reach other files | No: a listener carries only the transfer the existing file rules already allowed (capabilities, folder grant, approval for overwrite) |
+| A tampered phone or gateway reply | send the AI's computer somewhere else | Both gateways refuse any address that is not private IPv4 http with a 64-hex path; the computer only ever sends ciphertext |
 **Not covered:** devices on different networks or behind client isolation use the cloud link as today. Discovery without the gateway (mDNS) is not needed because the gateway already knows both ends.
-**Checks (planned):** protocol fixtures for the new field and command; fake-phone e2e on both gateways (local success, local refused, fallback); a JVM test of the listener (one request, wrong path ignored, closes after use or timeout, SHA-256 mismatch deleted); the emulator job sends a file through `adb forward` to the listener.
+**Checks:** done: protocol fixtures (`g2d-command-file-local`, `d2g-result-file-local`, two invalid), address validation tests in Rust and TypeScript, the fake phone runs a real one-transfer listener, Rust e2e `same_wifi_transfers_go_straight_to_the_phone_and_fall_back` (Wi-Fi upload, gateway fallback, nothing sent, Wi-Fi download once, `lane: "cloud"`, switch off), and the Vercel test `wifi.test.ts`, which runs the real `openssl`/`curl` commands from the answers. To do with the Android listener: a JVM test (one request, wrong path ignored, closes after use or timeout, SHA-256 mismatch deleted) and an emulator transfer through `adb forward`.
 **Reversal trigger:** a common phone or network where opening a local listener is blocked or flagged, or an owner-visible failure the fallback does not hide.

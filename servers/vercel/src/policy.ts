@@ -203,6 +203,7 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       return overwrite ? { risk: "high", title, detail: FILE_DETAIL } : medium(title);
     }
     case "file.push": return low("Copy a file from your phone");
+    case "file.local": return low("Get ready for a transfer on your Wi-Fi");
     case "file.transfer": return low(command.params.cancel === true ? "Stop a file transfer" : "Check a file transfer");
     case "activity.list": return low("Read Latch's activity log");
     case "task.done": return low("Say the task is done");

@@ -217,12 +217,19 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     if (!ctx.transfers || !ctx.links || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
     // Phones on protocol 1.6 still save from the old, unencrypted links.
     let minor = minorVersion(PROTOCOL_VERSION) ?? 0;
+    let phoneId: string | undefined;
     try {
-      minor = minorVersion((await ctx.devices.resolveDevice(argStr(args, "device_id"))).live.protocol) ?? 0;
+      const resolved = await ctx.devices.resolveDevice(argStr(args, "device_id"));
+      minor = minorVersion(resolved.live.protocol) ?? 0;
+      phoneId = resolved.id;
     } catch {
       // No phone connected yet: the link is for the current protocol.
     }
-    return minor >= 7 ? encryptedUploadLink(ctx.links, ctx.baseUrl) : uploadLink(ctx.transfers, ctx.baseUrl);
+    if (minor < 7) return uploadLink(ctx.transfers, ctx.baseUrl);
+    const id = phoneId;
+    return encryptedUploadLink(ctx.links, ctx.baseUrl, id === undefined ? undefined : {
+      id, minor, execute: (command) => execute(ctx, id, command),
+    });
   }
 
   if ((SKILL_TOOLS as readonly string[]).includes(name) && name !== "run_skill" && name !== "run_steps") {

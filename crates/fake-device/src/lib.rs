@@ -85,6 +85,11 @@ pub struct FakeState {
     pub device_key: Option<signing::DeviceKey>,
     /// Protocol 1.13: what the hello says about Android's battery optimisation.
     pub battery_restricted: Option<bool>,
+    /// Protocol 1.14: the owner switched same-Wi-Fi transfers on (off by
+    /// default, like the app); `file.local` then opens a real listener.
+    pub local_transfers: bool,
+    /// Every same-Wi-Fi slot opened with `file.local`.
+    pub local_slots: Vec<transfers::LocalSlot>,
     pub device_id: Option<String>,
     pub revoked: bool,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
@@ -128,6 +133,8 @@ impl FakeState {
             controls: Vec::new(),
             device_key: Some(signing::DeviceKey::generate()),
             battery_restricted: None,
+            local_transfers: false,
+            local_slots: Vec::new(),
             device_id: None,
             revoked: false,
             latest: None,
@@ -153,6 +160,15 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// The phone's own same-Wi-Fi slot that `url` names, if any (protocol 1.14).
+fn local_slot(state: &FakeState, url: &str) -> Option<transfers::Slot> {
+    state
+        .local_slots
+        .iter()
+        .find(|s| s.url == url)
+        .map(|s| s.data.clone())
 }
 
 fn err(code: ErrorCode, message: &str) -> ProtocolError {
@@ -448,6 +464,7 @@ pub fn handle(
                 transfer: id.clone(),
                 link: (**link).clone(),
                 sha256: sha256.clone(),
+                local: local_slot(state, &link.url),
             });
             state.executed.push("file.fetch".into());
             transfer_value(state, &id)
@@ -480,9 +497,42 @@ pub fn handle(
                 link: (**link).clone(),
                 data,
                 max_bytes: *max_bytes,
+                local: local_slot(state, &link.url),
             });
             state.executed.push("file.push".into());
             transfer_value(state, &transfer)
+        }
+        Command::OpenLocal { direction, .. } => {
+            if !state.local_transfers {
+                return Err(err(
+                    ErrorCode::UnsupportedCapability,
+                    "fast transfers on the same Wi-Fi are off on this phone",
+                ));
+            }
+            // A real listener on loopback, standing in for the phone's Wi-Fi address.
+            let runtime = tokio::runtime::Handle::try_current()
+                .map_err(|_| err(ErrorCode::UnsupportedCapability, "no network here"))?;
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")
+                .and_then(|l| l.set_nonblocking(true).map(|()| l))
+                .map_err(|_| err(ErrorCode::TransportUnavailable, "could not listen"))?;
+            let port = listener
+                .local_addr()
+                .map_err(|_| err(ErrorCode::Internal, "no address"))?
+                .port();
+            let token = transfers::random_token();
+            let slot = transfers::LocalSlot {
+                url: format!("http://127.0.0.1:{port}/{token}"),
+                direction: *direction,
+                data: Default::default(),
+            };
+            runtime.spawn(transfers::serve_slot(listener, slot.clone(), token));
+            let answer = latch_protocol::LocalSlot {
+                url: slot.url.clone(),
+                expires_at_ms: now_ms() + transfers::LOCAL_SLOT_TTL_MS,
+            };
+            state.local_slots.push(slot);
+            state.executed.push("file.local".into());
+            serde_json::to_value(answer).map_err(|_| err(ErrorCode::Internal, "encode"))
         }
         Command::TransferStatus {
             transfer, cancel, ..
@@ -780,8 +830,12 @@ async fn run_job(state: Shared, job: transfers::Job) {
             transfer,
             link,
             sha256,
+            local,
         } => {
-            let downloaded = transfers::download(&link, &sha256).await;
+            let downloaded = match &local {
+                Some(slot) => transfers::take_local(slot, &link, &sha256),
+                None => transfers::download(&link, &sha256).await,
+            };
             let mut s = lock(&state);
             let Some(dest) = s
                 .transfers
@@ -823,9 +877,13 @@ async fn run_job(state: Shared, job: transfers::Job) {
             link,
             data,
             max_bytes: _,
+            local,
         } => {
             let len = data.len() as u64;
-            let uploaded = transfers::upload(&link, data).await;
+            let uploaded = match &local {
+                Some(slot) => transfers::fill_local(slot, &link, data),
+                None => transfers::upload(&link, data).await,
+            };
             let mut s = lock(&state);
             if let Some(t) = s
                 .transfers

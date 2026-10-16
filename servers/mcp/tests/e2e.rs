@@ -1263,7 +1263,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.13, 34 tools.",
+        lines[0], "Latch gateway, protocol 1.14, 34 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -1725,6 +1725,149 @@ async fn file_tools_need_their_capabilities() {
     .await;
     assert!(is_error && text.contains("app.share"), "{text}");
     assert!(phone.state.lock().expect("lock").executed.is_empty());
+    phone.task.abort();
+}
+
+/// The phone's same-Wi-Fi address in a tool answer (protocol 1.14).
+fn local_url_in(text: &str) -> String {
+    text.split(['"', ' ', '\n'])
+        .find(|w| w.starts_with("http://127.0.0.1:") && !w.contains("/v1/"))
+        .unwrap_or_else(|| panic!("Wi-Fi address in {text}"))
+        .to_owned()
+}
+
+/// R23 (protocol 1.14, ADR-041): with fast transfers on, files go straight
+/// between the computer and the phone on the same Wi-Fi, encrypted the same
+/// way; the gateway's copy is the fallback, and phones that refuse never
+/// change the answer.
+#[tokio::test]
+async fn same_wifi_transfers_go_straight_to_the_phone_and_fall_back() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let no_headers = std::collections::BTreeMap::new();
+
+    // Off by default: the plain gateway link, and the phone keeps no address.
+    let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    assert!(!text.contains("--connect-timeout"), "{text}");
+    assert!(phone.state.lock().expect("lock").local_slots.is_empty());
+
+    phone.state.lock().expect("lock").local_transfers = true;
+    let id_after = |text: &str, key: &str| -> String {
+        let start = text.find(key).unwrap_or_else(|| panic!("{key} in {text}")) + key.len();
+        text[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect()
+    };
+
+    // Computer → phone over the Wi-Fi: the gateway never holds the file.
+    let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    assert!(
+        text.contains("On the phone's Wi-Fi it goes straight to the phone"),
+        "{text}"
+    );
+    let upload = id_after(&text, "upload_id=\"");
+    let local = local_url_in(&text);
+    let (path, link) = link_in(&gw, &text);
+    let plain = b"holiday video".to_vec();
+    let mut sealed = plain.clone();
+    transfers::apply(&link, &mut sealed).expect("encrypt");
+    let (status, _) = transfers::http_bytes("PUT", &local, &no_headers, &sealed)
+        .await
+        .expect("put");
+    assert_eq!(status, 201);
+    let (status, _) = http_bytes(&gw, "GET", &path, b"").await;
+    assert_eq!(status, 404, "nothing went through the gateway");
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "downloads", "name": "holiday.mp4", "upload_id": upload, "sha256": transfers::sha256_hex(&plain)}),
+    )
+    .await;
+    assert!(
+        !is_error && text.starts_with("Saved \"holiday.mp4\" to Downloads (13 B)."),
+        "{text}"
+    );
+    let file = id_after(&text, "file_id: ");
+
+    // The Wi-Fi try failed, so the command sent it through the gateway.
+    let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    let upload = id_after(&text, "upload_id=\"");
+    let (path, link) = link_in(&gw, &text);
+    let mut sealed = b"via the cloud".to_vec();
+    transfers::apply(&link, &mut sealed).expect("encrypt");
+    let (status, _) = http_bytes(&gw, "PUT", &path, &sealed).await;
+    assert_eq!(status, 200);
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "downloads", "name": "cloud.txt", "upload_id": upload, "sha256": transfers::sha256_hex(b"via the cloud")}),
+    )
+    .await;
+    assert!(
+        !is_error && text.starts_with("Saved \"cloud.txt\""),
+        "{text}"
+    );
+
+    // Nothing sent either way.
+    let (_, text, _) = call(&gw, "upload_link", json!({})).await;
+    let upload = id_after(&text, "upload_id=\"");
+    let (is_error, text, _) = call(
+        &gw,
+        "write_file",
+        json!({"location": "downloads", "name": "none.txt", "upload_id": upload, "sha256": transfers::sha256_hex(b"x")}),
+    )
+    .await;
+    assert!(is_error && text.contains("nothing was uploaded"), "{text}");
+
+    // Phone → computer over the Wi-Fi, once.
+    let (_, text, _) = call(&gw, "get_file_link", json!({"file_id": file})).await;
+    assert!(
+        text.starts_with("Download link for \"holiday.mp4\" (13 B), valid for 15 minutes and for one download, straight from the phone"),
+        "{text}"
+    );
+    assert!(text.contains("lane=cloud"), "{text}");
+    let local = local_url_in(&text);
+    let mut key = link.clone();
+    key.key_hex = text.split("-K ").nth(1).expect("key")[..64].to_owned();
+    key.iv_hex = text.split("-iv ").nth(1).expect("iv")[..32].to_owned();
+    let (status, mut body) = transfers::http_bytes("GET", &local, &no_headers, b"")
+        .await
+        .expect("get");
+    assert_eq!(status, 200);
+    assert_ne!(body, plain, "ciphertext on the Wi-Fi too");
+    transfers::apply(&key, &mut body).expect("decrypt");
+    assert_eq!(body, plain);
+    assert!(
+        transfers::http_bytes("GET", &local, &no_headers, b"")
+            .await
+            .is_err(),
+        "the address closes after one transfer"
+    );
+
+    // lane=cloud: through the gateway, as before.
+    let (_, text, _) = call(
+        &gw,
+        "get_file_link",
+        json!({"file_id": file, "lane": "cloud"}),
+    )
+    .await;
+    assert!(text.contains("The stored copy is encrypted"), "{text}");
+    let (path, link) = link_in(&gw, &text);
+    let (status, mut body) = http_bytes(&gw, "GET", &path, b"").await;
+    assert_eq!(status, 200);
+    transfers::apply(&link, &mut body).expect("decrypt");
+    assert_eq!(body, plain);
+    let (is_error, text, _) = call(
+        &gw,
+        "get_file_link",
+        json!({"file_id": file, "lane": "usb"}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("lane must be auto or cloud"),
+        "{text}"
+    );
     phone.task.abort();
 }
 

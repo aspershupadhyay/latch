@@ -11,7 +11,8 @@
 import type { CommandTiming, Devices, Live } from "./devices.js";
 import type { LinkRecord, Links } from "./links.js";
 import {
-  type Command, type FileChunk, type FileItem, type FileList, type FileLocation, type FilePreview, type FileTransfer, LIMITS, ProtocolError, isHex,
+  type Command, type FileChunk, type FileItem, type FileList, type FileLocation, type FilePreview, type FileTransfer, LIMITS,
+  type FileLink, type LocalDirection, type LocalSlot, ProtocolError, isHex, isLocalSlotUrl,
 } from "./protocol.js";
 import { quote, textResult } from "./render.js";
 import { newToken } from "./secret.js";
@@ -207,10 +208,42 @@ const curlHeaders = (headers: Record<string, string>) => Object.entries(headers)
 /** The file name as the shell command writes it. */
 const shellName = (name: string) => [...name].map((c) => (/[A-Za-z0-9._-]/.test(c) ? c : "_")).join("");
 
-/** Answers `upload_link` for a phone on protocol 1.7: an encrypted upload. */
-export async function encryptedUploadLink(links: Links, baseUrl: string): Promise<ToolResult> {
+type Execute = (command: Command) => Promise<{ data: unknown }>;
+
+/**
+ * Since 1.14 (ADR-041): asks the phone for a same-Wi-Fi address for one
+ * transfer. Undefined when the phone is older, has fast transfers off, is
+ * not on Wi-Fi, or refuses: the transfer then goes through this gateway.
+ */
+export async function openLocal(execute: Execute, minor: number, direction: LocalDirection, maxBytes: number): Promise<string | undefined> {
+  if (minor < 14) return undefined;
+  try {
+    const slot = (await execute({ name: "file.local", params: { direction, max_bytes: maxBytes } })).data as LocalSlot;
+    return isLocalSlotUrl(slot?.url) ? slot.url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Answers `upload_link` for a phone on protocol 1.7: an encrypted upload,
+ * straight to the phone when it opens a same-Wi-Fi address (1.14).
+ */
+export async function encryptedUploadLink(
+  links: Links, baseUrl: string, phone?: { id: string; minor: number; execute: Execute },
+): Promise<ToolResult> {
   const { token, record } = await links.create("up", baseUrl);
   const { key_hex: key, iv_hex: iv } = links.keyOf(token);
+  const localUrl = phone ? await openLocal(phone.execute, phone.minor, "receive", record.max_bytes) : undefined;
+  if (phone && localUrl !== undefined) {
+    await links.save(token, { ...record, local: { device: phone.id, url: localUrl } });
+    return textResult(
+      `Upload link for one file (valid for 15 minutes, up to ${sizeText(record.max_bytes)}). The file is encrypted on this computer before it leaves; only the phone gets the key. On the phone's Wi-Fi it goes straight to the phone; from anywhere else, through the gateway.\n` +
+        "Run this in a shell with openssl and curl (macOS, Linux, or Git Bash), with <path> replaced by the file:\n" +
+        `f="<path>"; t="$(mktemp)"; openssl enc -aes-256-ctr -K ${key} -iv ${iv} -in "$f" -out "$t" && { curl -fsS --connect-timeout 2 -T "$t" "${localUrl}" || curl -fsS -T "$t"${curlHeaders(record.put.headers)} "${record.put.url}"; } && openssl dgst -sha256 "$f"; rm -f "$t"\n` +
+        `Then call write_file with upload_id="${token}" and sha256 set to the 64-character hash it printed.`,
+    ) as ToolResult;
+  }
   return textResult(
     `Upload link for one file (valid for 15 minutes, up to ${sizeText(record.max_bytes)}). The file is encrypted on this computer before it leaves; only the phone gets the key.\n` +
       "Run this in a shell with openssl and curl (macOS, Linux, or Git Bash), with <path> replaced by the file:\n" +
@@ -223,6 +256,13 @@ export async function encryptedUploadLink(links: Links, baseUrl: string): Promis
 function downloadText(links: Links, token: string, record: LinkRecord): ToolResult {
   const { key_hex: key, iv_hex: iv } = links.keyOf(token);
   const out = shellName(record.name ?? "file");
+  if (record.local) {
+    return textResult(
+      `Download link for ${quote(record.name ?? "file", 80)} (${sizeText(record.size ?? 0)}), valid for 15 minutes and for one download, straight from the phone on its Wi-Fi. The copy is encrypted; this command decrypts and checks it:\n` +
+        `curl -fsSL --connect-timeout 2 "${record.local.url}" | openssl enc -d -aes-256-ctr -K ${key} -iv ${iv} -out "${out}" && openssl dgst -sha256 "${out}" | grep -q ${record.sha256} && echo "Saved and verified ${out}" || { rm -f "${out}"; echo "The phone could not be reached from here; call get_file_link again with lane=cloud"; }\n` +
+        "The link is private: do not share or post it.",
+    ) as ToolResult;
+  }
   return textResult(
     `Download link for ${quote(record.name ?? "file", 80)} (${sizeText(record.size ?? 0)}), valid for 15 minutes. The stored copy is encrypted; this command decrypts and checks it:\n` +
       `curl -fsSL "${record.get}" | openssl enc -d -aes-256-ctr -K ${key} -iv ${iv} -out "${out}" && openssl dgst -sha256 "${out}" | grep -q ${record.sha256} && echo "Saved and verified ${out}" || { rm -f "${out}"; echo "The download failed or was damaged; ask for a new link"; }\n` +
@@ -273,9 +313,20 @@ async function finish(ctx: FileToolContext, token: string, started: LinkRecord, 
   return downloadText(ctx.links, token, done);
 }
 
-async function encryptedFileLink(ctx: FileToolContext, id: string): Promise<ToolResult> {
-  const { token, record } = await ctx.links.create("down", ctx.baseUrl);
-  const link = { url: record.put.url, ...(Object.keys(record.put.headers).length > 0 ? { headers: record.put.headers } : {}), ...ctx.links.keyOf(token) };
+async function encryptedFileLink(ctx: FileToolContext, id: string, laneCloud: boolean): Promise<ToolResult> {
+  const created = await ctx.links.create("down", ctx.baseUrl);
+  let record = created.record;
+  const token = created.token;
+  let link: FileLink = {
+    url: record.put.url, ...(Object.keys(record.put.headers).length > 0 ? { headers: record.put.headers } : {}), ...ctx.links.keyOf(token),
+  };
+  const localUrl = laneCloud ? undefined : await openLocal(ctx.execute, ctx.minor, "send", record.max_bytes);
+  if (localUrl !== undefined) {
+    // The phone encrypts into its own Wi-Fi address instead of uploading.
+    link = { url: localUrl, ...ctx.links.keyOf(token) };
+    record = { ...record, local: { device: ctx.deviceId, url: localUrl } };
+    await ctx.links.save(token, record);
+  }
   const first = (await ctx.execute({ name: "file.push", params: { id, link, max_bytes: record.max_bytes } })).data as FileTransfer;
   return finish(ctx, token, record, await follow(ctx, first));
 }
@@ -341,7 +392,9 @@ export async function runFileTool(ctx: FileToolContext, name: string, args: Reco
     case "transfer_status": return transferStatus(ctx, args);
     case "get_file_link": {
       const id = req(args, "file_id");
-      if (ctx.minor >= 7) return encryptedFileLink(ctx, id);
+      const lane = str(args, "lane") ?? "auto";
+      if (lane !== "auto" && lane !== "cloud") throw bad("lane must be auto or cloud");
+      if (ctx.minor >= 7) return encryptedFileLink(ctx, id, lane === "cloud");
       const parts: Buffer[] = [];
       let size = 0;
       let item: FileItem;
@@ -419,17 +472,35 @@ async function writeFile(ctx: FileToolContext, args: Record<string, unknown>): P
     }
     const record = await ctx.links.record(upload);
     if (!record || record.kind !== "up" || record.used) throw bad("that upload_id is unknown, expired, already saved, or nothing was uploaded to it yet");
-    const size = await ctx.links.uploadedSize(record);
-    if (size === undefined) throw bad("nothing was uploaded to that upload_id yet: run the upload command first");
-    const first = (await ctx.execute({
+    const nothingYet = () => bad("nothing was uploaded to that upload_id yet: run the upload command first");
+    let size = await ctx.links.uploadedSize(record);
+    // Since 1.14: what the computer sent straight to this phone on its Wi-Fi,
+    // unless the gateway holds a copy (the Wi-Fi try failed).
+    const local = record.local?.device === ctx.deviceId && size === undefined ? record.local.url : undefined;
+    if (local === undefined && size === undefined) throw nothingYet();
+    const fetch = (url: string, bytes: number | undefined) => ctx.execute({
       name: "file.fetch",
       params: {
         location: loc, ...(folder !== undefined ? { folder } : {}), ...(subfolder !== undefined ? { subfolder } : {}),
         name, mime, overwrite,
-        link: { url: record.get, ...ctx.links.keyOf(upload) },
-        sha256: sha256.toLowerCase(), size,
+        link: { url, ...ctx.links.keyOf(upload) },
+        sha256: sha256.toLowerCase(), ...(bytes !== undefined ? { size: bytes } : {}),
       },
-    })).data as FileTransfer;
+    });
+    let first: FileTransfer;
+    if (local !== undefined) {
+      try {
+        first = (await fetch(local, undefined)).data as FileTransfer;
+      } catch (e) {
+        // Nothing arrived on the Wi-Fi: the gateway's copy, if it has one now.
+        if (!(e instanceof ProtocolError) || e.code !== "target_not_found") throw e;
+        size = await ctx.links.uploadedSize(record);
+        if (size === undefined) throw nothingYet();
+        first = (await fetch(record.get, size)).data as FileTransfer;
+      }
+    } else {
+      first = (await fetch(record.get, size)).data as FileTransfer;
+    }
     const started: LinkRecord = { ...record, used: true, place, asked_name: name, size };
     await ctx.links.save(upload, started);
     return finish(ctx, upload, started, await follow(ctx, first));

@@ -853,13 +853,14 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
 
     if name == "upload_link" {
         // Phones on protocol 1.6 still save from the old, unencrypted links.
-        let minor = devices::resolve_device(state, arg_str(args, "device_id").map_err(bad)?)
-            .ok()
-            .and_then(|id| state.devices.protocol_minor(&id))
+        let device = devices::resolve_device(state, arg_str(args, "device_id").map_err(bad)?).ok();
+        let minor = device
+            .as_deref()
+            .and_then(|id| state.devices.protocol_minor(id))
             .or_else(|| latch_protocol::minor_version(latch_protocol::PROTOCOL_VERSION))
             .unwrap_or(0);
         return Ok(if minor >= 7 {
-            files::encrypted_upload_link(state)
+            files::encrypted_upload_link(state, device.as_deref()).await
         } else {
             files::upload_link(state)
         });

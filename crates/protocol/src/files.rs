@@ -141,3 +141,23 @@ pub struct FileTransfer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
 }
+
+/// Since 1.14 (ADR-041): which way a same-Wi-Fi transfer goes, seen from the phone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalDirection {
+    /// The computer sends a file's encrypted bytes to the phone (`PUT`).
+    Receive,
+    /// The computer reads a file's encrypted bytes from the phone (`GET`).
+    Send,
+}
+
+/// Since 1.14 (ADR-041): answer to `file.local`. A one-transfer address on
+/// the phone's local network: `http://<private IPv4>:<port>/<64 hex>`,
+/// listening until `expires_at_ms` or until one transfer is done. The bytes
+/// it carries are the same AES-256-CTR ciphertext as a [`FileLink`]'s.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LocalSlot {
+    pub url: String,
+    pub expires_at_ms: u64,
+}

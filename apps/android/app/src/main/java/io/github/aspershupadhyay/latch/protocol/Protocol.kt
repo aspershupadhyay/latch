@@ -586,6 +586,17 @@ sealed interface Command {
         override val isAction = false
     }
 
+    /**
+     * Since 1.14 (ADR-041): open a one-transfer address on the phone's Wi-Fi for a
+     * same-network transfer; [direction] is "receive" or "send". This version answers
+     * unsupported_capability, so the gateway uses the encrypted cloud link instead.
+     */
+    data class OpenLocal(val direction: String, val maxBytes: Long) : Command {
+        override val name = "file.local"
+        override val requiredCapabilities = listOf(if (direction == "send") Capability.FILE_READ else Capability.FILE_WRITE)
+        override val isAction = false
+    }
+
     /** Since 1.7: put [text] on the clipboard. */
     data class SetClipboard(val text: String) : Command {
         override val name = "clipboard.set"
@@ -897,6 +908,7 @@ object GatewayParser {
                 if (params.containsKey("wait_ms")) params.int("wait_ms") else 0,
                 params.bool("cancel", false),
             )
+            "file.local" -> Command.OpenLocal(params.str("direction"), params.long("max_bytes"))
             "clipboard.set" -> Command.SetClipboard(params.str("text"))
             "activity.list" -> Command.ListActivity(
                 if (params.containsKey("limit")) params.int("limit") else 50,
@@ -1119,6 +1131,10 @@ object Validation {
             is Command.PushFile -> {
                 id(command.id)
                 link(command.link)
+                if (command.maxBytes !in 1..Limits.MAX_LINK_FILE_BYTES) invalid("max_bytes out of range")
+            }
+            is Command.OpenLocal -> {
+                if (command.direction != "receive" && command.direction != "send") invalid("direction must be receive or send")
                 if (command.maxBytes !in 1..Limits.MAX_LINK_FILE_BYTES) invalid("max_bytes out of range")
             }
             is Command.TransferStatus -> {

@@ -330,6 +330,8 @@ pub enum Output {
     Transfer(FileTransfer),
     /// Since 1.8.
     Activity(ActivityList),
+    /// Since 1.14: a same-Wi-Fi address, already checked.
+    Local(latch_protocol::LocalSlot),
 }
 
 /// Chooses the device a tool call addresses.
@@ -653,6 +655,12 @@ async fn execute_inner(
                 ));
             }
             Output::Transfer(transfer)
+        }
+        Command::OpenLocal { .. } => {
+            let slot: latch_protocol::LocalSlot =
+                serde_json::from_value(data).map_err(malformed)?;
+            validate::local_slot(&slot).map_err(|e| (decision, e))?;
+            Output::Local(slot)
         }
         Command::ListActivity { limit, .. } => {
             let mut list: ActivityList = serde_json::from_value(data).map_err(malformed)?;

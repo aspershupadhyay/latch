@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use latch_protocol::validate::{MAX_FILE_CHUNK_BYTES, MAX_FILE_LIST, MAX_SHARE_FILES};
 use latch_protocol::{
-    Command, ErrorCode, FileItem, FileKind, FileLink, FileLocation, FileTransfer, ObserveAfter,
-    ProtocolError, TransferState, b64,
+    Command, ErrorCode, FileItem, FileKind, FileLink, FileLocation, FileTransfer, LocalDirection,
+    ObserveAfter, ProtocolError, TransferState, b64,
 };
 use serde_json::{Value, json};
 
@@ -82,7 +82,16 @@ pub fn definitions() -> Vec<Value> {
              save it, e.g. into Downloads. A big file may still be copying when the answer comes: \
              it then gives a transfer_id for transfer_status.",
             true,
-            json!({ "device_id": device_id_schema(), "file_id": file_id_schema() }),
+            json!({
+                "device_id": device_id_schema(),
+                "file_id": file_id_schema(),
+                "lane": {
+                    "type": "string",
+                    "enum": ["auto", "cloud"],
+                    "default": "auto",
+                    "description": "auto: straight from the phone when the owner switched on fast transfers on the same Wi-Fi. cloud: always through the gateway, e.g. after the Wi-Fi command could not reach the phone."
+                },
+            }),
             &["file_id"],
         ),
         tool(
@@ -369,26 +378,79 @@ fn link_url(state: &Arc<AppState>, token: &str) -> String {
     format!("{}/v1/blobs/{token}", state.base_url())
 }
 
-/// Answers `upload_link` for a phone on protocol 1.7: an encrypted upload.
-pub fn encrypted_upload_link(state: &Arc<AppState>) -> Value {
-    let (token, record) = state.links.create(Kind::Up);
+/// Since 1.14 (ADR-041): asks the phone for a same-Wi-Fi address for one
+/// transfer. `None` when the phone is older, has fast transfers off, is not
+/// on Wi-Fi, or refuses: the transfer then goes through this gateway.
+async fn open_local(
+    state: &Arc<AppState>,
+    device_id: &str,
+    direction: LocalDirection,
+) -> Option<String> {
+    if state.devices.protocol_minor(device_id).unwrap_or(0) < 14 {
+        return None;
+    }
+    let command = Command::OpenLocal {
+        direction,
+        max_bytes: state.links.max_bytes,
+    };
+    match devices::execute(state, device_id, command).await {
+        Ok(Output::Local(slot)) => Some(slot.url),
+        _ => None,
+    }
+}
+
+/// Answers `upload_link` for a phone on protocol 1.7: an encrypted upload,
+/// straight to the phone when it opened a same-Wi-Fi address (1.14).
+pub async fn encrypted_upload_link(state: &Arc<AppState>, device_id: Option<&str>) -> Value {
+    let local = match device_id {
+        Some(id) => open_local(state, id, LocalDirection::Receive)
+            .await
+            .map(|url| (id.to_owned(), url)),
+        None => None,
+    };
+    let (token, mut record) = state.links.create(Kind::Up);
     let url = link_url(state, &token);
-    text_result(format!(
-        "Upload link for one file (valid for 15 minutes, up to {}). The file is encrypted on this computer before it leaves; only the phone gets the key.\n\
+    let size = size_text(state.links.max_bytes);
+    let (key, iv) = (record.key_hex.clone(), record.iv_hex.clone());
+    let then = format!(
+        "Then call write_file with upload_id=\"{token}\" and sha256 set to the 64-character hash it printed."
+    );
+    let Some((_, local_url)) = &local else {
+        return text_result(format!(
+            "Upload link for one file (valid for 15 minutes, up to {size}). The file is encrypted on this computer before it leaves; only the phone gets the key.\n\
+             Run this in a shell with openssl and curl (macOS, Linux, or Git Bash), with <path> replaced by the file:\n\
+             f=\"<path>\"; openssl enc -aes-256-ctr -K {key} -iv {iv} -in \"$f\" | curl -fsS -T - -H \"transfer-encoding:\" -H \"content-length: $(wc -c < \"$f\" | tr -d ' ')\"{} \"{url}\" && openssl dgst -sha256 \"$f\"\n\
+             {then}",
+            curl_headers(&Default::default()),
+        ));
+    };
+    let text = text_result(format!(
+        "Upload link for one file (valid for 15 minutes, up to {size}). The file is encrypted on this computer before it leaves; only the phone gets the key. On the phone's Wi-Fi it goes straight to the phone; from anywhere else, through the gateway.\n\
          Run this in a shell with openssl and curl (macOS, Linux, or Git Bash), with <path> replaced by the file:\n\
-         f=\"<path>\"; openssl enc -aes-256-ctr -K {} -iv {} -in \"$f\" | curl -fsS -T - -H \"transfer-encoding:\" -H \"content-length: $(wc -c < \"$f\" | tr -d ' ')\"{} \"{url}\" && openssl dgst -sha256 \"$f\"\n\
-         Then call write_file with upload_id=\"{token}\" and sha256 set to the 64-character hash it printed.",
-        size_text(state.links.max_bytes),
-        record.key_hex,
-        record.iv_hex,
-        curl_headers(&Default::default()),
-    ))
+         f=\"<path>\"; t=\"$(mktemp)\"; openssl enc -aes-256-ctr -K {key} -iv {iv} -in \"$f\" -out \"$t\" && {{ curl -fsS --connect-timeout 2 -T \"$t\" \"{local_url}\" || curl -fsS -T \"$t\" \"{url}\"; }} && openssl dgst -sha256 \"$f\"; rm -f \"$t\"\n\
+         {then}"
+    ));
+    record.local = local;
+    state.links.save(&token, record);
+    text
 }
 
 /// The command that downloads, decrypts, and checks a phone file on the computer.
 fn download_text(state: &Arc<AppState>, token: &str, record: &Record) -> Value {
     let name = record.name.as_deref().unwrap_or("file");
     let out = shell_name(name);
+    if let Some((_, local_url)) = &record.local {
+        return text_result(format!(
+            "Download link for {} ({}), valid for 15 minutes and for one download, straight from the phone on its Wi-Fi. The copy is encrypted; this command decrypts and checks it:\n\
+             curl -fsSL --connect-timeout 2 \"{local_url}\" | openssl enc -d -aes-256-ctr -K {} -iv {} -out \"{out}\" && openssl dgst -sha256 \"{out}\" | grep -q {} && echo \"Saved and verified {out}\" || {{ rm -f \"{out}\"; echo \"The phone could not be reached from here; call get_file_link again with lane=cloud\"; }}\n\
+             The link is private: do not share or post it.",
+            quote(name, 80),
+            size_text(record.size.unwrap_or(0)),
+            record.key_hex,
+            record.iv_hex,
+            record.sha256.as_deref().unwrap_or_default(),
+        ));
+    }
     let url = link_url(state, token);
     text_result(format!(
         "Download link for {} ({}), valid for 15 minutes. The stored copy is encrypted; this command decrypts and checks it:\n\
@@ -532,11 +594,18 @@ async fn encrypted_file_link(
     state: &Arc<AppState>,
     device_id: &str,
     id: String,
+    lane_cloud: bool,
 ) -> Result<Value, ProtocolError> {
-    let (token, record) = state.links.create(Kind::Down);
+    let (token, mut record) = state.links.create(Kind::Down);
+    let mut link = link_of(state, &token, &record);
+    if !lane_cloud && let Some(url) = open_local(state, device_id, LocalDirection::Send).await {
+        // The phone encrypts into its own Wi-Fi address instead of uploading.
+        link.url = url.clone();
+        record.local = Some((device_id.to_owned(), url));
+    }
     let command = Command::PushFile {
         id,
-        link: Box::new(link_of(state, &token, &record)),
+        link: Box::new(link),
         max_bytes: state.links.max_bytes,
     };
     let first = transfer_command(state, device_id, command).await?;
@@ -653,8 +722,13 @@ pub async fn run(
         "transfer_status" => transfer_status(state, args, device_id).await,
         "get_file_link" => {
             let id = req_str(args, "file_id").map_err(bad)?.to_owned();
+            let lane_cloud = match arg_str(args, "lane").map_err(bad)? {
+                None | Some("auto") => false,
+                Some("cloud") => true,
+                Some(_) => return Err(invalid("lane must be auto or cloud")),
+            };
             if state.devices.protocol_minor(device_id).unwrap_or(0) >= 7 {
-                return encrypted_file_link(state, device_id, id).await;
+                return encrypted_file_link(state, device_id, id, lane_cloud).await;
             }
             let mut bytes = Vec::new();
             let item = loop {
@@ -839,21 +913,54 @@ async fn write_file(
             .ok_or_else(|| {
                 invalid("that upload_id is unknown, expired, already saved, or nothing was uploaded to it yet")
             })?;
-        let size = record.size.ok_or_else(|| {
-            invalid("nothing was uploaded to that upload_id yet: run the upload command first")
-        })?;
-        let command = Command::FetchFile {
+        let nothing_yet =
+            || invalid("nothing was uploaded to that upload_id yet: run the upload command first");
+        // Since 1.14: what the computer sent straight to this phone on its
+        // Wi-Fi, unless the gateway holds a copy (the Wi-Fi try failed).
+        let local = record
+            .local
+            .as_ref()
+            .filter(|(phone, _)| phone == device_id && record.size.is_none())
+            .map(|(_, url)| url.clone());
+        if local.is_none() && record.size.is_none() {
+            return Err(nothing_yet());
+        }
+        let fetch = |link: FileLink, size: Option<u64>| Command::FetchFile {
             location,
-            folder,
-            subfolder,
+            folder: folder.clone(),
+            subfolder: subfolder.clone(),
             name: name.clone(),
-            mime: Some(mime),
+            mime: Some(mime.clone()),
             overwrite,
-            link: Box::new(link_of(state, upload, &record)),
-            sha256,
-            size: Some(size),
+            link: Box::new(link),
+            sha256: sha256.clone(),
+            size,
         };
-        let first = transfer_command(state, device_id, command).await?;
+        let first = match local {
+            Some(url) => {
+                let link = FileLink {
+                    url,
+                    ..link_of(state, upload, &record)
+                };
+                match transfer_command(state, device_id, fetch(link, None)).await {
+                    // Nothing arrived on the Wi-Fi: the gateway's copy, if it has one now.
+                    Err(e) if e.code == ErrorCode::TargetNotFound => {
+                        let size = state
+                            .links
+                            .record(upload)
+                            .and_then(|r| r.size)
+                            .ok_or_else(nothing_yet)?;
+                        let link = link_of(state, upload, &record);
+                        transfer_command(state, device_id, fetch(link, Some(size))).await?
+                    }
+                    other => other?,
+                }
+            }
+            None => {
+                let link = link_of(state, upload, &record);
+                transfer_command(state, device_id, fetch(link, record.size)).await?
+            }
+        };
         let started = Record {
             used: true,
             place: Some(place),
