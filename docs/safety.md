@@ -10,6 +10,7 @@ We built Latch so the AI can't sneak around you:
 - **Passwords, PINs, one-time codes, and card numbers are hidden** from the AI, and it can't type into those boxes.
 - **Off-limits areas:** the AI can't touch the Latch app itself, your notification shade, or your lock screen.
 - **No sneaky stuff exists in the app:** no file access, no reading notifications, no command line.
+- **Fast transfers on the same Wi-Fi (off until you switch them on)** open a listener on your Wi-Fi for one file at a time: a random address that closes after that file or 15 minutes. Only scrambled (encrypted) bytes cross your Wi-Fi, and a changed file is never kept.
 - **Screen text can't boss the AI around.** Text on screen is treated as plain information, never as instructions.
 
 ## What gets stored?

@@ -281,6 +281,14 @@ object LatchIcons {
         moveTo(18f, 14f); lineTo(18f, 20f); lineTo(4f, 20f); lineTo(4f, 6f); lineTo(10f, 6f)
     }
 
+    /** Three Wi-Fi arcs over a dot. */
+    val Wifi = icon("wifi") {
+        moveTo(3f, 9.5f); curveTo(8f, 4.8f, 16f, 4.8f, 21f, 9.5f)
+        moveTo(6f, 12.8f); curveTo(9.4f, 9.8f, 14.6f, 9.8f, 18f, 12.8f)
+        moveTo(9f, 16f); curveTo(10.8f, 14.6f, 13.2f, 14.6f, 15f, 16f)
+        dot(12f, 19f)
+    }
+
     val Info = icon("info") {
         circle(12f, 12f, 8.5f)
         moveTo(12f, 11f); lineTo(12f, 16f)

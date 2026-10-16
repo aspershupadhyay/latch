@@ -7,7 +7,9 @@ import android.os.PowerManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.aspershupadhyay.latch.data.Pairing
+import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import io.github.aspershupadhyay.latch.protocol.Capability
+import io.github.aspershupadhyay.latch.protocol.FileLink
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.session.deviceDescriptor
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +37,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
@@ -191,6 +194,45 @@ class EmulatorGatewayTest {
         if ("Internet" !in screen.text) screen = call("wait_for", "text" to "Internet")
         assertTrue(screen.text, "Internet" in screen.text)
         assertFalse(call("press", "button" to "home").isError)
+
+        // R23 (ADR-041): with fast transfers on, a file goes straight to the phone's Wi-Fi
+        // address and back. This test plays the AI's computer, as `curl` would.
+        onMain {
+            app.settings.update {
+                it.copy(enabled = it.enabled + setOf(Capability.FILE_READ, Capability.FILE_WRITE), localTransfers = true)
+            }
+        }
+        var upload = call("upload_link")
+        for (attempt in 1..10) {
+            if ("straight to the phone" in upload.text) break
+            delay(500)
+            upload = call("upload_link")
+        }
+        assertTrue(upload.text, "straight to the phone" in upload.text)
+        val key = Regex("-K ([0-9a-f]{64})").find(upload.text)!!.groupValues[1]
+        val iv = Regex("-iv ([0-9a-f]{32})").find(upload.text)!!.groupValues[1]
+        val toPhone = Regex("--connect-timeout 2 -T \"\\\$t\" \"(http://[^\"]+)\"").find(upload.text)?.groupValues?.get(1)
+            ?: throw AssertionError("no Wi-Fi address in:\n${upload.text}")
+        val plain = ByteArray(1_500_000) { (it % 253).toByte() }
+        val cipher = { PhoneTransfers.cipherFor(FileLink("x", emptyMap(), key, iv)) }
+        val put = Request.Builder().url(toPhone).put(cipher().doFinal(plain).toRequestBody("application/octet-stream".toMediaType())).build()
+        http.newCall(put).execute().use { assertTrue("PUT answered ${it.code}", it.code == 201) }
+        val sha = PhoneTransfers.hex(MessageDigest.getInstance("SHA-256").digest(plain))
+        val uploadId = Regex("upload_id=\"([^\"]+)\"").find(upload.text)!!.groupValues[1]
+        val saved = call("write_file", "location" to "downloads", "name" to "latch-wifi-test.bin", "upload_id" to uploadId, "sha256" to sha)
+        assertTrue(saved.text, !saved.isError && saved.text.startsWith("Saved \"latch-wifi-test"))
+        val fileId = Regex("file_id: (\\S+)\\.").find(saved.text)!!.groupValues[1]
+        val link = call("get_file_link", "file_id" to fileId)
+        assertTrue(link.text, "straight from the phone" in link.text)
+        val fromPhone = Regex("curl -fsSL --connect-timeout 2 \"(http://[^\"]+)\"").find(link.text)!!.groupValues[1]
+        val back = http.newCall(Request.Builder().url(fromPhone).build()).execute().use {
+            assertTrue("GET answered ${it.code}", it.code == 200)
+            it.body.bytes()
+        }
+        val key2 = Regex("-K ([0-9a-f]{64})").find(link.text)!!.groupValues[1]
+        val iv2 = Regex("-iv ([0-9a-f]{32})").find(link.text)!!.groupValues[1]
+        assertTrue("the file came back byte for byte", PhoneTransfers.cipherFor(FileLink("x", emptyMap(), key2, iv2)).doFinal(back).contentEquals(plain))
+        // No clean-up: deleting asks the owner (nobody answers here), and the emulator is thrown away.
 
         // The emergency stop: the session ends and the AI can no longer reach the phone.
         onMain { app.session.stop() }

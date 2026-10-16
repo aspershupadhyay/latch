@@ -169,6 +169,8 @@ fun CapabilitiesScreen(
     onAllowPhotos: () -> Unit = {},
     photosOn: Boolean = true,
     onPhotosOn: (Boolean) -> Unit = {},
+    localTransfers: Boolean = false,
+    onLocalTransfers: (Boolean) -> Unit = {},
     /** The open group page, hoisted so it survives a trip to the Apps list. */
     openGroup: AccessGroup? = null,
     onOpenGroup: ((AccessGroup?) -> Unit)? = null,
@@ -203,6 +205,7 @@ fun CapabilitiesScreen(
                     AccessGroup.FILES -> {
                         CapabilityList(current, enabled, onToggle)
                         FilePlaces(folders, photosAllowed, onPickFolder, onForgetFolder, onAllowPhotos, photosOn, onPhotosOn)
+                        FastTransfers(localTransfers, onLocalTransfers)
                     }
                     AccessGroup.SHARING -> CapabilityList(current, enabled, onToggle)
                     AccessGroup.CONTROLS -> {
@@ -529,6 +532,32 @@ private fun FilePlaces(
                 onClickLabel = "Choose which photos the AI can see",
             )
         }
+    }
+}
+
+/** ADR-041: the owner's switch for whole files over the same Wi-Fi; off by default. */
+@Composable
+private fun FastTransfers(on: Boolean, onChange: (Boolean) -> Unit) {
+    val signal = LocalSignal.current
+    SectionCaption("Copying whole files")
+    Card {
+        ListRow(
+            LatchIcons.Wifi,
+            "Fast transfers on the same Wi-Fi",
+            if (on) {
+                "On: when your computer is on this Wi-Fi, files go straight to and from it, encrypted. Elsewhere they use your gateway."
+            } else {
+                "Off: files always go through your gateway, encrypted."
+            },
+            tint = if (on) signal.accent else signal.text2,
+            trailing = {
+                LatchSwitch(
+                    checked = on,
+                    onCheckedChange = onChange,
+                    modifier = Modifier.semantics { contentDescription = "Fast transfers on the same Wi-Fi" },
+                )
+            },
+        )
     }
 }
 

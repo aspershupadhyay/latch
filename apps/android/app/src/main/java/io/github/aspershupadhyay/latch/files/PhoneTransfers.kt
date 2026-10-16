@@ -9,6 +9,7 @@ import io.github.aspershupadhyay.latch.protocol.ErrorCode
 import io.github.aspershupadhyay.latch.protocol.FileItem
 import io.github.aspershupadhyay.latch.protocol.FileLink
 import io.github.aspershupadhyay.latch.protocol.FileTransfer
+import io.github.aspershupadhyay.latch.protocol.LocalSlot
 import io.github.aspershupadhyay.latch.protocol.ProtocolException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,10 @@ import javax.crypto.spec.SecretKeySpec
  * matches; otherwise it is deleted. Links are followed only to the owner's
  * gateway and to the storage hosts the protocol names, never through
  * redirects. File contents are never logged.
+ *
+ * Since 1.14 (ADR-041), a link whose URL is one of this phone's own
+ * same-Wi-Fi addresses ([LocalSlots]) is read from or written to that
+ * address's waiting file instead of the network: same cipher, same check.
  */
 /** Where transfers read and write files: [PhoneFiles] on the phone. */
 interface TransferFiles {
@@ -65,6 +70,8 @@ interface TransferFiles {
 class PhoneTransfers(
     private val files: TransferFiles,
     http: OkHttpClient,
+    /** Same-Wi-Fi addresses (protocol 1.14); null where the phone has none. */
+    private val local: LocalSlots? = null,
     /** The paired gateway's address, e.g. https://latch-gateway.vercel.app. */
     private val gatewayUrl: () -> String?,
 ) {
@@ -105,17 +112,39 @@ class PhoneTransfers(
 
     /** Starts a download; answers once it is done, or after [quickMs] with its progress. */
     suspend fun fetch(command: Command.FetchFile, quickMs: Long = QUICK_MS): FileTransfer {
-        checkLink(command.link, upload = false)
+        val slot = local?.find(command.link.url)
+        if (slot != null) {
+            // What the computer sent to this phone's own Wi-Fi address (ADR-041).
+            if (slot.direction != LocalSlots.Direction.RECEIVE || !slot.filled) {
+                fail(ErrorCode.TARGET_NOT_FOUND, "nothing arrived at the phone's Wi-Fi address")
+            }
+        } else {
+            checkLink(command.link, upload = false)
+        }
         command.size?.let(::checkSpace)
         val t = Transfer(newId(), download = true, name = command.fileName, total = command.size)
         transfers[t.id] = t
-        t.job = scope.launch { run(t) { download(t, command) } }
+        t.job = scope.launch { run(t) { if (slot != null) downloadLocal(t, command, slot) else download(t, command) } }
         return wait(t, quickMs)
+    }
+
+    /** Opens a same-Wi-Fi address for one transfer (`file.local`); [send] reads from the phone. */
+    fun openLocal(send: Boolean, maxBytes: Long): LocalSlot {
+        val slots = local ?: fail(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone has no fast transfers on the same Wi-Fi")
+        val slot = slots.open(if (send) LocalSlots.Direction.SEND else LocalSlots.Direction.RECEIVE, maxBytes)
+        return LocalSlot(slot.url, slot.expiresAtMs)
     }
 
     /** Starts an upload of a phone file; answers like [fetch]. */
     suspend fun push(command: Command.PushFile, quickMs: Long = QUICK_MS): FileTransfer {
-        checkLink(command.link, upload = true)
+        val slot = local?.find(command.link.url)
+        if (slot != null) {
+            if (slot.direction != LocalSlots.Direction.SEND || slot.filled) {
+                fail(ErrorCode.INVALID_REQUEST, "that Wi-Fi address does not take a file")
+            }
+        } else {
+            checkLink(command.link, upload = true)
+        }
         val (item, size, input) = files.openRead(command.id)
         if (size != null && size > command.maxBytes) {
             input.close()
@@ -124,7 +153,7 @@ class PhoneTransfers(
         val t = Transfer(newId(), download = false, name = item.name, total = size)
         t.item = item
         transfers[t.id] = t
-        t.job = scope.launch { run(t) { upload(t, command, input, size) } }
+        t.job = scope.launch { run(t) { if (slot != null) uploadLocal(t, command, input, size, slot) else upload(t, command, input, size) } }
         return wait(t, quickMs)
     }
 
@@ -140,6 +169,7 @@ class PhoneTransfers(
 
     /** Session end or Stop: every transfer stops and its partial file is removed. */
     fun cancelAll() {
+        local?.closeAll()
         for (t in transfers.values) {
             if (!t.finished) t.error = ProtocolException(ErrorCode.CANCELLED, "the session ended")
             t.job?.cancel()
@@ -201,29 +231,68 @@ class PhoneTransfers(
             if (!response.isSuccessful) fail(ErrorCode.TRANSPORT_UNAVAILABLE, "the link answered HTTP ${response.code}")
             val body = response.body
             val length = body.contentLength().takeIf { it >= 0 }
-            if (length != null) {
-                if (command.size != null && length != command.size) fail(ErrorCode.INVALID_REQUEST, "the stored file has the wrong size")
-                checkSpace(length)
-                t.total = length
+            save(t, command, body.byteStream(), length)
+        }
+    }
+
+    /** Download from this phone's own Wi-Fi address: the file waiting there, then the slot is gone. */
+    private fun downloadLocal(t: Transfer, command: Command.FetchFile, slot: LocalSlots.Slot) {
+        val slots = local ?: fail(ErrorCode.INTERNAL, "no Wi-Fi addresses")
+        try {
+            val (input, length) = slots.received(slot)
+            save(t, command, input, length)
+        } finally {
+            slots.close(slot)
+        }
+    }
+
+    /** Decrypts [input] into a hidden file that becomes visible only if its SHA-256 matches. */
+    private fun save(t: Transfer, command: Command.FetchFile, input: InputStream, length: Long?) {
+        if (length != null) {
+            if (command.size != null && length != command.size) fail(ErrorCode.INVALID_REQUEST, "the stored file has the wrong size")
+            checkSpace(length)
+            t.total = length
+        }
+        val pending = files.begin(command.location, command.folder, command.subfolder, command.fileName, command.mime, command.overwrite)
+        var kept = false
+        try {
+            val cipher = cipher(command.link)
+            val digest = MessageDigest.getInstance("SHA-256")
+            files.output(pending).use { out ->
+                input.use { pump(t, it, cipher, digest, inputIsPlain = false) { bytes -> out.write(bytes) } }
+                out.write(cipher.doFinal().also(digest::update))
             }
-            val pending = files.begin(command.location, command.folder, command.subfolder, command.fileName, command.mime, command.overwrite)
-            var kept = false
-            try {
-                val cipher = cipher(command.link)
-                val digest = MessageDigest.getInstance("SHA-256")
-                files.output(pending).use { out ->
-                    body.byteStream().use { input -> pump(t, input, cipher, digest, inputIsPlain = false) { out.write(it) } }
-                    out.write(cipher.doFinal().also(digest::update))
-                }
-                if (hex(digest.digest()) != command.sha256) {
-                    fail(ErrorCode.INVALID_REQUEST, "the file did not match its sha256, so it was not saved")
-                }
-                t.item = files.commit(pending, t.done.get())
-                t.name = t.item?.name ?: t.name
-                kept = true
-            } finally {
-                if (!kept) files.abort(pending)
+            if (hex(digest.digest()) != command.sha256) {
+                fail(ErrorCode.INVALID_REQUEST, "the file did not match its sha256, so it was not saved")
             }
+            t.item = files.commit(pending, t.done.get())
+            t.name = t.item?.name ?: t.name
+            kept = true
+        } finally {
+            if (!kept) files.abort(pending)
+        }
+    }
+
+    /** Upload to this phone's own Wi-Fi address: the ciphertext waits there for one download. */
+    private fun uploadLocal(t: Transfer, command: Command.PushFile, input: InputStream, size: Long?, slot: LocalSlots.Slot) {
+        val slots = local ?: fail(ErrorCode.INTERNAL, "no Wi-Fi addresses")
+        size?.let(::checkSpace)
+        val cipher = cipher(command.link)
+        val digest = MessageDigest.getInstance("SHA-256")
+        var ready = false
+        try {
+            slots.output(slot).use { out ->
+                input.use { stream ->
+                    pump(t, stream, cipher, digest, inputIsPlain = true) { out.write(it) }
+                    out.write(cipher.doFinal())
+                }
+            }
+            if (size != null && t.done.get() != size) fail(ErrorCode.INVALID_REQUEST, "the file changed while it was being sent")
+            t.sha256 = hex(digest.digest())
+            slots.ready(slot)
+            ready = true
+        } finally {
+            if (!ready) slots.close(slot)
         }
     }
 
