@@ -236,7 +236,7 @@ Google's ARTEMIS (github.com/google/artemis, Apache-2.0, August 2026) is an ADB-
 
 **Handoff rule.** This table is the work queue. Any session, on any account, continues from it: read AGENTS.md and this chapter, prioritize R27 while it is TODO or IN_PROGRESS (owner request 2026-10-17), then take the first row that is TODO and not blocked; set the selected row to IN_PROGRESS in the same commit as the first code change, and update the row (status, evidence, PR) with every push. A row is DONE only when its acceptance check passed in CI or on the phone as stated. Rows marked *needs phone* stay IN_REVIEW until the owner runs them. Each row that changes a protocol, capability, or chapter 08 rule needs its fixtures, both gateways, and an ADR in the same change.
 
-Order: R1 → R2 → R3 → R10 → R9 → R4 → R13, then the rest top to bottom.
+Order (updated 2026-10-17): R27 first, then R1 → R2 → R3 → R10 → R9 → R4 → R13, then the rest top to bottom.
 
 | ID | Item | Acceptance | Status | Evidence / notes |
 |---|---|---|---|---|
