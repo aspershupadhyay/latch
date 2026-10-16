@@ -372,3 +372,31 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Checks:** protocol fixtures (6 new valid commands, the device-info status, 7 invalid: intent/file/space/uppercase links, too-short timeout, `power_off`, `notifications`); shared policy cases on both gateways (link schemes, app list, screenshot and lock-screen risk, control capabilities); fake-phone e2e on both gateways (buttons, status lines, links, fresh launch, denied message and payment links, new controls and their errors); Android unit tests (parsing, the phone's link judgement, control texts, status shape).
 **Reversal trigger:** a common app whose link screens let an AI act outside the app consent, or owners finding the status or controls surprising.
 
+## ADR-044 — Read more of what Android already tells accessibility services
+**Status:** accepted (2026-10-16, roadmap R26; owner: "make it an expert in reading the UI tree … let the AI decide if it needs a screenshot") · **Protocol:** 1.16 · **Builds on:** ADR-013 (screenshots through accessibility), ADR-032 (unlabeled controls read on the phone), ADR-034 (screen diffs)
+**Problem:** the element list left out much of what Android reports. Only the focused window was read, so menus, sheets, and dialogs in a second window of the same app were missed, and the AI tapped the screen behind them. State words ("Liked", "Playing"), field hints, the selected tab, headings, a row's place in a list, slider values, and the actions apps attach to an item (Instagram's "Like", Gmail's "Archive") never reached the AI. Icon-only buttons arrived with no name even when their tooltip, the label that names them, or their resource id said what they were. When the AI did take a screenshot, it had to guess which picture region matched which id, and the picture could be newer than the list.
+**Options considered:**
+| Option | Verdict |
+|---|---|
+| Declare Latch an accessibility tool (`isAccessibilityTool`) to see what apps hide | Rejected: apps hide sensitive views from non-tools on purpose (ADR-032); pretending would break that trust |
+| Send the ML Kit words read from icons (ADR-032) to the AI | Rejected: ADR-032 keeps them on the phone, for approvals only |
+| **Read every window of the app in front, the facts Android already exposes, and names from metadata only; let the AI ask for a numbered screenshot** | **Chosen:** no new permission, no screen words leave the phone that Android did not already expose to the service |
+**Decision (protocol 1.16):**
+- `UiNode` gains optional `state`, `hint`, `selected`, `heading`, `position {index, count?}`, `percent` (0–100), `actions` (the app's own extra actions, ≤ 16 names; standard ones such as click and scroll are left out), `label`, and `covered`. All are omitted when empty; older gateways ignore them.
+- `label` is a guess, made on the phone only for an element with no text or description, in this order: its tooltip, the text of the element that labels it (`labeledBy`), then its resource id split into words (`row_feed_button_like` → "row feed button like"). Gateways show it as `label?=` so the AI treats it as a guess. Policy reads it like the other words of an element, which can only add a reason to ask, never remove one; approval titles use it before the resource id.
+- Sensitive elements carry none of the new words; gateways refuse an observation that does (as they already did for text).
+- The phone reads every application window of the app in front (not system UI, not Latch), top window first, and marks an element of a lower window `covered` when its centre lies under a higher window. Taps on a covered element still run (the AI may know better); gateways tell the AI that the window on top receives them.
+- `ui.observe.marks` (boolean): the phone draws each listed element's id on the screenshot in a small label at its top-left corner, in Latch's ember with a dark outline. Older phones ignore it and send an unmarked screenshot. Gateways ask for marks only with a screenshot.
+- The phone builds the element list and screenshot from the same moment: it compares the screen's fingerprint before and after the screenshot and reads the list again if it changed.
+- Gateways add one **reading note** under the list when it is incomplete: controls without a name, names guessed, a web page, a drawn area (video, camera, map, game), almost nothing to read, and how many elements are covered. The AI decides whether to look at a screenshot; nothing is turned off.
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| A hostile app | steer the AI through state words, hints, action names, or a fake label | All new words are untrusted screen content, quoted and length-limited like text; the banner says so |
+| | hide a consequential button behind a harmless guessed label | A guessed label only adds words for policy; the element's own words and resource id are still judged |
+| | leak a password field's contents through `hint` or `state` | Sensitive elements carry no words; both gateways refuse an observation that breaks this |
+| A tricked AI | press an app's own action ("Delete") without approval | Actions are listed, not invoked: invoking them is not part of this decision |
+| | learn more of the screen than before | Only what Android already gives the service and the screenshot already shows |
+**Not covered:** invoking the apps' own actions (needs a policy review of action names first), memory of learned names per app, and reading inside web pages beyond what Chrome exposes.
+**Checks:** shared fixture `packages/schemas/v1/mcp/render-rich-*` (every new fact, covered menu, reading note) byte-identical in Rust and TS; protocol validation for sensitive words, action count, and percent on both gateways; a policy case for a consequential guessed label; fake-phone e2e on both gateways (state words, headings; marks asked only with a screenshot); Android JVM tests for labels, actions, covered windows, and marks.
+**Reversal trigger:** guessed labels misleading the AI more often than they help in the R10 evaluation runs, or a common app whose state words or action names carry secrets.

@@ -346,7 +346,7 @@ function checkOnScreen(obs: Observation, x: number, y: number) {
 
 /** Short human label for approval prompts. Untrusted text. */
 export function labelOf(node: UiNode): string {
-  return shorten(nonBlank(node.text) ?? nonBlank(node.description) ?? node.resource_id ?? node.role);
+  return shorten(nonBlank(node.text) ?? nonBlank(node.description) ?? nonBlank(node.label) ?? node.resource_id ?? node.role);
 }
 
 /** One line of at most 48 characters, for approval prompts. */
@@ -362,7 +362,8 @@ function shorten(raw: string): string {
 const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
 function matches(node: UiNode, single: readonly string[], phrases: readonly string[]): boolean {
-  return [node.text, node.description, node.resource_id].some((field) => {
+  // A guessed label (protocol 1.16) can only add reasons to ask, never remove one.
+  return [node.text, node.description, node.resource_id, node.label].some((field) => {
     if (field === undefined) return false;
     const ws = words(field);
     const joined = ` ${ws.join(" ")} `;

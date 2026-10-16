@@ -22,7 +22,8 @@
       { "id": "n13", "role": "TextView", "text": "Room 2026", "bounds": { "left": 0, "top": 1200, "right": 1080, "bottom": 1300 }, "clickable": true },
       { "id": "n14", "role": "EditText", "description": "Search settings", "bounds": { "left": 0, "top": 1300, "right": 1080, "bottom": 1400 }, "clickable": true, "editable": true },
       { "id": "n15", "role": "EditText", "description": "Message", "text": "see you at 6", "bounds": { "left": 0, "top": 1400, "right": 1080, "bottom": 1500 }, "clickable": true, "editable": true },
-      { "id": "n16", "role": "RecyclerView", "bounds": { "left": 0, "top": 1500, "right": 1080, "bottom": 2200 }, "scrollable": true }
+      { "id": "n16", "role": "RecyclerView", "bounds": { "left": 0, "top": 1500, "right": 1080, "bottom": 2200 }, "scrollable": true },
+      { "id": "n17", "role": "ImageButton", "label": "Send message", "bounds": { "left": 0, "top": 2200, "right": 200, "bottom": 2300 }, "clickable": true }
     ],
     "redacted_count": 1,
     "truncated": false
@@ -35,6 +36,7 @@
   "cases": [
     { "name": "double-tap on a consequential control asks", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n2" }, "double": true } }, "expect": { "decision": "confirm", "risk": "high", "title": "Double-tap “Send” in com.example.chat", "remember": "double-tap|com.example.chat|send" } },
     { "name": "double and long press together", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n1" }, "double": true, "long_press": true } }, "expect": { "decision": "deny", "code": "invalid_request" } },
+    { "name": "an unlabeled button whose guessed name is consequential asks", "command": { "name": "input.tap", "params": { "observation_id": "o_1", "target": { "element": "n17" } } }, "expect": { "decision": "confirm", "risk": "high", "title": "Tap “Send message” in com.example.chat" } },
     { "name": "drag", "command": { "name": "input.swipe", "params": { "observation_id": "o_1", "from": { "x": 500, "y": 150 }, "to": { "x": 500, "y": 650 }, "hold_ms": 600 } }, "expect": { "decision": "allow", "risk": "medium" } },
     { "name": "hold too long", "command": { "name": "input.swipe", "params": { "observation_id": "o_1", "from": { "x": 500, "y": 150 }, "to": { "x": 500, "y": 650 }, "hold_ms": 10000 } }, "expect": { "decision": "deny", "code": "invalid_request" } },
     { "name": "pinch to zoom", "command": { "name": "input.pinch", "params": { "observation_id": "o_1", "center": { "x": 540, "y": 150 }, "start_span": 200, "end_span": 600 } }, "expect": { "decision": "allow", "risk": "medium" } },

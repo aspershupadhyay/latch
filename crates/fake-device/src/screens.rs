@@ -105,6 +105,7 @@ fn base(id: usize, parent: Option<usize>, role: &str, bounds: Rect) -> UiNode {
         enabled: true,
         focused: false,
         sensitive: false,
+        ..Default::default()
     }
 }
 
@@ -189,7 +190,12 @@ impl Phone {
                 let mut wifi = base(1, Some(0), "Switch", rect(40, 300, 1040, 460));
                 wifi.clickable = true;
                 wifi.checked = Some(self.wifi_on);
+                // Protocol 1.16: the app's own words for the state.
+                wifi.state = Some(if self.wifi_on { "On" } else { "Off" }.into());
                 push(wifi, Effect::ToggleWifi, Some("Wi-Fi"));
+                let mut title = base(2, Some(0), "TextView", rect(40, 100, 1040, 200));
+                title.heading = true;
+                push(title, Effect::None, Some("Network & internet"));
             }
             Screen::Chat => {
                 for (i, message) in self.sent_messages.iter().enumerate() {

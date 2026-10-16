@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.15"
+    const val VERSION = "1.16"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -157,7 +157,27 @@ data class UiNode(
     val enabled: Boolean = true,
     val focused: Boolean = false,
     val sensitive: Boolean = false,
+    // Since 1.16 (ADR-044): optional facts, null when absent so they are not sent.
+    /** The app's own words for the element's state, e.g. "Liked". */
+    val state: String? = null,
+    /** A text field's hint, e.g. "Write a caption…". Never for sensitive fields. */
+    val hint: String? = null,
+    val selected: Boolean? = null,
+    val heading: Boolean? = null,
+    val position: ListPosition? = null,
+    /** A slider's or progress bar's value as a percentage of its range. */
+    val percent: Int? = null,
+    /** The app's own extra actions on this element, e.g. "Like". */
+    val actions: List<String>? = null,
+    /** A guessed name for an element without words: tooltip, labelling element, or resource id. */
+    val label: String? = null,
+    /** Under another window of the app (a menu, sheet, or dialog). */
+    val covered: Boolean? = null,
 )
+
+/** Where an element sits in a list or grid; [index] counts from 0. */
+@Serializable
+data class ListPosition(val index: Int, val count: Int? = null)
 
 @Serializable
 data class Screenshot(
@@ -457,7 +477,8 @@ sealed interface Command {
         override val isAction = false
     }
 
-    data class Observe(val includeScreenshot: Boolean, val maxNodes: Int) : Command {
+    /** [marks] (1.16): draw each listed element's id on the screenshot. */
+    data class Observe(val includeScreenshot: Boolean, val maxNodes: Int, val marks: Boolean = false) : Command {
         override val name = "ui.observe"
         override val requiredCapabilities =
             if (includeScreenshot) listOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE) else listOf(Capability.UI_OBSERVE)
@@ -903,6 +924,7 @@ object GatewayParser {
             "ui.observe" -> Command.Observe(
                 params.bool("include_screenshot", false),
                 if (params.containsKey("max_nodes")) params.int("max_nodes") else 400,
+                params.bool("marks", false),
             )
             "input.tap" -> Command.Tap(
                 params.str("observation_id"), parseTarget(params.obj("target")), params.bool("long_press", false), params.bool("double", false),

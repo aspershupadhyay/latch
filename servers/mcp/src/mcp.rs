@@ -253,6 +253,10 @@ pub fn tool_definitions() -> Vec<Value> {
                 "max_nodes": {
                     "type": "integer", "minimum": 1, "maximum": 2000, "default": 400,
                     "description": "Upper bound on elements returned."
+                },
+                "marks": {
+                    "type": "boolean", "default": false,
+                    "description": "Draw each listed element's id (n12) on the screenshot, so what you see matches the ids you can act on. Use it when the list says controls have no name, or the screen is a web page or drawn area (Latch 1.16 on the phone)."
                 }
             }),
             &[],
@@ -1006,7 +1010,8 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
                 ProtocolError::new(ErrorCode::InvalidRequest, "max_nodes must be positive")
             })?;
             let want_shot = arg_bool(args, "screenshot", true).map_err(bad)?;
-            return observe(state, &device_id, want_shot, max_nodes).await;
+            let marks = arg_bool(args, "marks", false).map_err(bad)?;
+            return observe(state, &device_id, want_shot, max_nodes, marks).await;
         }
         "list_apps" => {
             let query = arg_str(args, "query")
@@ -1221,7 +1226,7 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
     }
     // Phones older than 1.2: give the UI a moment to settle, then observe with a second command.
     tokio::time::sleep(std::time::Duration::from_millis(state.settle_ms)).await;
-    let mut result = observe(state, &device_id, screenshot_after, 400).await;
+    let mut result = observe(state, &device_id, screenshot_after, 400, false).await;
     if let Ok(value) = &mut result {
         prepend(value, &headline);
     }
@@ -1342,7 +1347,7 @@ async fn wait_for(
     };
     // A wait never carries a screenshot; take one only when asked and allowed.
     let mut result = if want_screenshot && screenshot_allowed(state, device_id) {
-        observe(state, device_id, true, 400).await?
+        observe(state, device_id, true, 400, false).await?
     } else {
         shown(state, device_id, &wait.observation, want_screenshot, true)
     };
@@ -1359,6 +1364,7 @@ async fn observe(
     device_id: &str,
     want_screenshot: bool,
     max_nodes: u32,
+    marks: bool,
 ) -> Result<Value, ProtocolError> {
     // Only ask for a screenshot when the owner allowed it, so a tree-only
     // grant still works with the default arguments.
@@ -1372,6 +1378,7 @@ async fn observe(
     let command = Command::Observe {
         include_screenshot: want_screenshot && screenshot_allowed,
         max_nodes,
+        marks: marks && want_screenshot && screenshot_allowed,
     };
     match devices::execute(state, device_id, command).await? {
         Output::Observation(obs) => Ok(shown(
@@ -1509,6 +1516,11 @@ fn is_interesting(n: &UiNode) -> bool {
         || n.checked.is_some()
         || n.sensitive
         || n.focused
+        || n.label.is_some()
+        || n.state.is_some()
+        || n.heading
+        || n.selected
+        || !n.actions.is_empty()
 }
 
 pub fn render_observation(device_id: &str, obs: &Observation, screenshot_withheld: bool) -> String {
@@ -1629,6 +1641,9 @@ fn observation_tail(out: &mut String, obs: &Observation, screenshot_withheld: bo
         out.push_str("; tree truncated by max_nodes");
     }
     out.push('\n');
+    if let Some(note) = reading_note(obs) {
+        out.push_str(&note);
+    }
     if screenshot_withheld {
         out.push_str("No screenshot: the owner has not enabled screen.capture.\n");
     }
@@ -1641,6 +1656,85 @@ fn observation_tail(out: &mut String, obs: &Observation, screenshot_withheld: bo
             shot.width, shot.height, obs.screen.width, obs.screen.height
         );
     }
+}
+
+/// At most this many of an element's own actions are listed.
+const MAX_ACTIONS_SHOWN: usize = 6;
+
+/// Whether an element has words of its own (text or description).
+fn has_words(node: &UiNode) -> bool {
+    node.text.as_deref().is_some_and(|t| !t.trim().is_empty())
+        || node
+            .description
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty())
+}
+
+/// Roadmap R26: how well the element list describes this screen, so the AI
+/// knows when a screenshot is worth it. None when nothing is missing.
+/// Same text as `readingNote` in servers/vercel/src/render.ts.
+pub fn reading_note(obs: &Observation) -> Option<String> {
+    let actionable = |n: &UiNode| n.clickable || n.long_clickable || n.editable;
+    let unlabeled = obs
+        .nodes
+        .iter()
+        .filter(|n| {
+            actionable(n)
+                && !n.sensitive
+                && !n.covered
+                && !has_words(n)
+                && n.label.is_none()
+                && n.hint.is_none()
+        })
+        .count();
+    let guessed = obs
+        .nodes
+        .iter()
+        .filter(|n| actionable(n) && !n.sensitive && !has_words(n) && n.label.is_some())
+        .count();
+    let web = obs.nodes.iter().any(|n| n.role == "WebView");
+    let drawn = obs.nodes.iter().any(|n| {
+        matches!(
+            n.role.as_str(),
+            "SurfaceView" | "TextureView" | "GLSurfaceView"
+        )
+    });
+    let covered = obs.nodes.iter().filter(|n| n.covered).count();
+    let shown = obs.nodes.iter().filter(|n| is_interesting(n)).count();
+    let mut parts: Vec<String> = Vec::new();
+    match unlabeled {
+        0 => {}
+        1 => parts.push("1 control without a name".into()),
+        n => parts.push(format!("{n} controls without a name")),
+    }
+    match guessed {
+        0 => {}
+        1 => parts.push("1 name guessed (label?)".into()),
+        n => parts.push(format!("{n} names guessed (label?)")),
+    }
+    if web {
+        parts.push("a web page".into());
+    }
+    if drawn {
+        parts.push("a drawn area (video, camera, map, or game) with no elements inside".into());
+    }
+    if shown < 2 {
+        parts.push("almost nothing to read".into());
+    }
+    let mut out = String::new();
+    if !parts.is_empty() {
+        out.push_str(&format!(
+            "Reading: {}. When these matter, look at the screenshot; observe with marks: true numbers the elements on it.\n",
+            parts.join(", ")
+        ));
+    }
+    if covered > 0 {
+        out.push_str(&format!(
+            "{covered} element{} under a menu, sheet, or dialog (covered): a tap there lands on the window on top.\n",
+            if covered == 1 { " is" } else { "s are" }
+        ));
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// One line per shown element, with its id, in screen order.
@@ -1680,6 +1774,17 @@ fn node_lines(obs: &Observation) -> Vec<(String, String)> {
             if let Some(desc) = node.description.as_deref().filter(|t| !t.trim().is_empty()) {
                 let _ = write!(line, " desc={}", quote(desc, 80));
             }
+            if !has_words(node)
+                && let Some(label) = node.label.as_deref().filter(|t| !t.trim().is_empty())
+            {
+                let _ = write!(line, " label?={}", quote(label, 40));
+            }
+            if let Some(hint) = node.hint.as_deref().filter(|t| !t.trim().is_empty()) {
+                let _ = write!(line, " hint={}", quote(hint, 80));
+            }
+            if let Some(state) = node.state.as_deref().filter(|t| !t.trim().is_empty()) {
+                let _ = write!(line, " state={}", quote(state, 60));
+            }
         }
         if let Some(rid) = &node.resource_id {
             let short = rid.rsplit('/').next().unwrap_or(rid);
@@ -1687,6 +1792,31 @@ fn node_lines(obs: &Observation) -> Vec<(String, String)> {
         }
         let b = node.bounds;
         let _ = write!(line, " @({},{},{},{})", b.left, b.top, b.right, b.bottom);
+        if let Some(position) = node.position {
+            match position.count {
+                Some(count) => {
+                    let _ = write!(line, " item {}/{}", position.index.saturating_add(1), count);
+                }
+                None => {
+                    let _ = write!(line, " item {}", position.index.saturating_add(1));
+                }
+            }
+        }
+        if let Some(percent) = node.percent {
+            let _ = write!(line, " {}%", percent.min(100));
+        }
+        if !node.sensitive && !node.actions.is_empty() {
+            let names: Vec<String> = node
+                .actions
+                .iter()
+                .filter(|a| !a.trim().is_empty())
+                .take(MAX_ACTIONS_SHOWN)
+                .map(|a| quote(a, 30))
+                .collect();
+            if !names.is_empty() {
+                let _ = write!(line, " actions=[{}]", names.join(","));
+            }
+        }
         let mut flags = Vec::new();
         if node.clickable {
             flags.push("tap");
@@ -1710,6 +1840,15 @@ fn node_lines(obs: &Observation) -> Vec<(String, String)> {
         }
         if !node.enabled {
             flags.push("disabled");
+        }
+        if node.selected {
+            flags.push("selected");
+        }
+        if node.heading {
+            flags.push("heading");
+        }
+        if node.covered {
+            flags.push("covered");
         }
         if !flags.is_empty() {
             let _ = write!(line, " [{}]", flags.join(","));
@@ -1938,6 +2077,7 @@ mod tests {
             enabled: true,
             focused: false,
             sensitive: false,
+            ..Default::default()
         };
         let mut secret = mk("n2", Some("n0"), None);
         secret.sensitive = true;

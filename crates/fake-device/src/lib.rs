@@ -318,9 +318,18 @@ pub fn handle(
         Command::Observe {
             include_screenshot,
             max_nodes,
+            marks,
         } => {
             let observation = observe(state, *include_screenshot, *max_nodes);
-            state.executed.push("ui.observe".into());
+            // Protocol 1.16: a real phone draws the ids on the screenshot; the fake one records the request.
+            state.executed.push(
+                if *marks {
+                    "ui.observe+marks"
+                } else {
+                    "ui.observe"
+                }
+                .into(),
+            );
             serde_json::to_value(observation).map_err(|_| err(ErrorCode::Internal, "encode"))
         }
         Command::Tap { target, .. } => {
@@ -1346,6 +1355,7 @@ mod tests {
         let observe = Command::Observe {
             include_screenshot: false,
             max_nodes: 10,
+            marks: false,
         };
         let refused = handle(&mut state, &envelope(observe, true)).expect_err("refused");
         assert_eq!(refused.code, ErrorCode::InvalidRequest);

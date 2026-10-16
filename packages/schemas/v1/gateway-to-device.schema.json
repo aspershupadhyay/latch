@@ -205,6 +205,10 @@
                   "type": "boolean",
                   "default": false
                 },
+                "marks": {
+                  "description": "Since 1.16: draw each listed element's id on the screenshot. Older phones ignore it.",
+                  "type": "boolean"
+                },
                 "max_nodes": {
                   "type": "integer",
                   "format": "uint32",

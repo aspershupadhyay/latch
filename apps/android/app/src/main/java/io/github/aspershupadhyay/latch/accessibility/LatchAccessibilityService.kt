@@ -575,22 +575,81 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
-    suspend fun observe(includeScreenshot: Boolean, maxNodes: Int): Observation {
+    suspend fun observe(includeScreenshot: Boolean, maxNodes: Int, marks: Boolean = false): Observation {
         val root = rootInActiveWindow ?: topAppWindowRoot()
         val packageName = root?.packageName?.toString() ?: foregroundPackage
         refuseRestrictedPackage(packageName)
 
+        val screen = screenInfo()
+        var tree = readTree(root, packageName, screen, maxNodes)
+        var screenshot: Screenshot? = null
+        if (includeScreenshot) {
+            // The list and the picture must show the same moment (ADR-044): if the screen
+            // changed while the screenshot was taken, read the list again to match it.
+            val before = screenSignature()
+            val shot = withoutCursor { capture() }
+            if (screenSignature() != before) tree = readTree(rootInActiveWindow ?: topAppWindowRoot(), packageName, screen, maxNodes)
+            screenshot = encode(shot, if (marks) tree.ui.values.filter(::markable) else emptyList())
+        }
+
+        observationCounter++
+        val observationId = "o_${observationCounter}_${random.nextInt(1 shl 20).toString(36)}"
+        latest = Snapshot(observationId, packageName, tree.refs, tree.ui)
+        return Observation(
+            observationId = observationId,
+            capturedAtMs = System.currentTimeMillis(),
+            `package` = packageName,
+            screen = screen,
+            nodes = tree.ui.values.toList(),
+            screenshot = screenshot,
+            redactedCount = tree.redacted,
+            truncated = tree.truncated,
+        )
+    }
+
+    private class Tree(
+        val ui: LinkedHashMap<String, UiNode>,
+        val refs: HashMap<String, AccessibilityNodeInfo>,
+        val redacted: Int,
+        val truncated: Boolean,
+    )
+
+    /**
+     * The windows of the app in front, top first (ADR-044): a menu, sheet, or
+     * dialog can be a second window of the same app, drawn over the first.
+     * Never system UI or another app's window. With one window this is [root].
+     */
+    private fun appWindows(root: AccessibilityNodeInfo?, packageName: String?): List<Pair<AccessibilityNodeInfo, android.graphics.Rect>> {
+        val out = ArrayList<Pair<AccessibilityNodeInfo, android.graphics.Rect>>()
+        val listed = runCatching { windows }.getOrDefault(emptyList())
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .sortedByDescending { it.layer }
+        for (window in listed) {
+            val windowRoot = window.root ?: continue
+            if (packageName == null || windowRoot.packageName?.toString() != packageName) continue
+            val bounds = android.graphics.Rect().also(window::getBoundsInScreen)
+            out += windowRoot to bounds
+        }
+        if (root != null && out.none { it.first == root }) {
+            // The active window was not listed (some dialogs): read it first, as before.
+            out.add(0, root to android.graphics.Rect().also(root::getBoundsInScreen))
+        }
+        return out
+    }
+
+    private fun readTree(root: AccessibilityNodeInfo?, packageName: String?, screen: ScreenInfo, maxNodes: Int): Tree {
         val ui = LinkedHashMap<String, UiNode>()
         val refs = HashMap<String, AccessibilityNodeInfo>()
         val repeats = Repeats()
-        val screen = screenInfo()
         val bounds = android.graphics.Rect()
         var redacted = 0
         var truncated = false
-        if (root != null) {
+        val windows = appWindows(root, packageName)
+        val above = ArrayList<Rect>()
+        windows@ for ((windowRoot, windowBounds) in windows) {
             // Breadth-first so a truncated tree keeps the top of the hierarchy.
             val queue = ArrayDeque<Pair<AccessibilityNodeInfo, String?>>()
-            queue.add(root to null)
+            queue.add(windowRoot to null)
             while (queue.isNotEmpty()) {
                 val (node, parentId) = queue.removeFirst()
                 // Hidden, zero-size, or fully off-screen elements (common in web pages) cannot be
@@ -607,11 +666,11 @@ class LatchAccessibilityService : AccessibilityService() {
                 }
                 if (ui.size >= maxNodes) {
                     truncated = true
-                    break
+                    break@windows
                 }
                 val id = "n${ui.size}"
                 val sensitive = Redaction.isSensitive(facts(node))
-                val candidate = toUiNode(node, id, parentId, sensitive)
+                val candidate = toUiNode(node, id, parentId, sensitive, above)
                 // Apps like Maps repeat an element in its container, a label, or a twin control:
                 // list it once and hang what the repeat contains on the kept element.
                 if (repeats.repeats(candidate, parentId?.let(ui::get))) {
@@ -626,22 +685,14 @@ class LatchAccessibilityService : AccessibilityService() {
                     node.getChild(i)?.let { queue.add(it to id) }
                 }
             }
+            above += Rect(windowBounds.left, windowBounds.top, windowBounds.right, windowBounds.bottom)
         }
-
-        observationCounter++
-        val observationId = "o_${observationCounter}_${random.nextInt(1 shl 20).toString(36)}"
-        latest = Snapshot(observationId, packageName, refs, ui)
-        return Observation(
-            observationId = observationId,
-            capturedAtMs = System.currentTimeMillis(),
-            `package` = packageName,
-            screen = screen,
-            nodes = ui.values.toList(),
-            screenshot = if (includeScreenshot) withoutCursor { screenshot() } else null,
-            redactedCount = redacted,
-            truncated = truncated,
-        )
+        return Tree(ui, refs, redacted, truncated)
     }
+
+    /** Elements that get their id drawn on a marked screenshot: the ones the AI can act on and reach. */
+    private fun markable(n: UiNode): Boolean =
+        n.covered != true && (n.clickable || n.longClickable || n.editable || n.checked != null)
 
     /** A layout container that is not important for accessibility and says or does nothing. */
     private fun emptyLayout(node: AccessibilityNodeInfo): Boolean =
@@ -661,18 +712,33 @@ class LatchAccessibilityService : AccessibilityService() {
         dataSensitive = Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive,
     )
 
-    private fun toUiNode(node: AccessibilityNodeInfo, id: String, parent: String?, sensitive: Boolean): UiNode {
+    private fun toUiNode(node: AccessibilityNodeInfo, id: String, parent: String?, sensitive: Boolean, windowsAbove: List<Rect> = emptyList()): UiNode {
         val r = android.graphics.Rect()
         node.getBoundsInScreen(r)
-        fun clip(value: CharSequence?) = value?.toString()?.take(1_000)?.takeIf { it.isNotBlank() }
+        fun clip(value: CharSequence?, max: Int = 1_000) = value?.toString()?.take(max)?.takeIf { it.isNotBlank() }
+        val bounds = Rect(r.left, r.top, r.right, r.bottom)
+        // An empty field reports its hint as its text; send it as the hint, so the AI does not think it is filled in.
+        val showingHint = node.isShowingHintText
+        val text = if (sensitive || showingHint) null else clip(node.text)
+        val description = if (sensitive) null else clip(node.contentDescription)
+        val hint = if (sensitive) null else clip(node.hintText, 200) ?: (if (showingHint) clip(node.text, 200) else null)
+        val label = if (sensitive || text != null || description != null) {
+            null
+        } else {
+            TreeReading.guessLabel(
+                if (Build.VERSION.SDK_INT >= 28) node.tooltipText?.toString() else null,
+                runCatching { labelOf(node) }.getOrNull(),
+                node.viewIdResourceName,
+            )
+        }
         return UiNode(
             id = id,
             parent = parent,
             role = node.className?.toString()?.substringAfterLast('.')?.take(64) ?: "View",
-            text = if (sensitive) null else clip(node.text),
-            description = if (sensitive) null else clip(node.contentDescription),
+            text = text,
+            description = description,
             resourceId = node.viewIdResourceName?.take(128),
-            bounds = Rect(r.left, r.top, r.right, r.bottom),
+            bounds = bounds,
             clickable = node.isClickable,
             longClickable = node.isLongClickable,
             editable = node.isEditable,
@@ -681,7 +747,39 @@ class LatchAccessibilityService : AccessibilityService() {
             enabled = node.isEnabled,
             focused = node.isFocused,
             sensitive = sensitive,
+            state = if (sensitive) null else clip(node.stateDescription, 200),
+            hint = hint,
+            selected = node.isSelected.takeIf { it },
+            heading = node.isHeading.takeIf { it },
+            position = positionOf(node),
+            percent = node.rangeInfo?.let { TreeReading.percentOf(it.min, it.max, it.current) },
+            actions = if (sensitive) null else TreeReading.ownActions(node.actionList.map { it.id to it.label }).takeIf { it.isNotEmpty() },
+            label = label,
+            covered = TreeReading.covered(bounds, windowsAbove).takeIf { it },
         )
+    }
+
+    /** The words of the element that labels [node] (`android:labelFor`), if any. */
+    private fun labelOf(node: AccessibilityNodeInfo): String? {
+        val labelling = if (Build.VERSION.SDK_INT >= 36) {
+            node.labeledByList.firstOrNull()
+        } else {
+            @Suppress("DEPRECATION")
+            node.labeledBy
+        } ?: return null
+        return (labelling.text ?: labelling.contentDescription)?.toString()
+    }
+
+    /** Where [node] sits in its list or grid, from the item and collection info apps report. */
+    private fun positionOf(node: AccessibilityNodeInfo): io.github.aspershupadhyay.latch.protocol.ListPosition? {
+        val item = node.collectionItemInfo ?: return null
+        val collection = runCatching { node.parent?.collectionInfo }.getOrNull()
+        // A horizontal list reports one row; count along whichever axis the list grows.
+        val horizontal = collection != null && collection.rowCount <= 1 && collection.columnCount > 1
+        val index = if (horizontal) item.columnIndex else item.rowIndex
+        if (index < 0) return null
+        val count = collection?.let { if (horizontal) it.columnCount else it.rowCount }?.takeIf { it > 0 }
+        return io.github.aspershupadhyay.latch.protocol.ListPosition(index, count)
     }
 
     /**
@@ -702,7 +800,8 @@ class LatchAccessibilityService : AccessibilityService() {
             node.isChecked
         }
 
-    private suspend fun screenshot(): Screenshot {
+    /** The screen as Android hands it over, retried when screenshots come too fast. */
+    private suspend fun capture(): ScreenshotResult {
         var attempt = 0
         while (true) {
             val result = suspendCancellableCoroutine { cont ->
@@ -722,7 +821,7 @@ class LatchAccessibilityService : AccessibilityService() {
                     throw ProtocolException(ErrorCode.INTERNAL, "screenshot failed with code $code")
                 }
             } ?: continue
-            return encode(shot)
+            return shot
         }
     }
 
@@ -797,7 +896,8 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun encode(shot: ScreenshotResult): Screenshot {
+    /** The screenshot as WebP or JPEG; with [marks], each element's id drawn at its top-left corner (ADR-044). */
+    private fun encode(shot: ScreenshotResult, marks: List<UiNode>): Screenshot {
         val buffer = shot.hardwareBuffer
         try {
             val hardware = Bitmap.wrapHardwareBuffer(buffer, shot.colorSpace)
@@ -805,12 +905,13 @@ class LatchAccessibilityService : AccessibilityService() {
             val software = hardware.copy(Bitmap.Config.ARGB_8888, false)
             hardware.recycle()
             val scale = MAX_SCREENSHOT_EDGE.toFloat() / max(software.width, software.height)
-            val scaled = if (scale < 1f) {
+            var scaled = if (scale < 1f) {
                 software.scale((software.width * scale).roundToInt(), (software.height * scale).roundToInt())
                     .also { software.recycle() }
             } else {
                 software
             }
+            if (marks.isNotEmpty()) scaled = drawMarks(scaled, marks, scaled.width.toFloat() / screenInfo().width)
             val out = ByteArrayOutputStream()
             // Roadmap R6: WebP is about 40 % smaller than JPEG at the same quality; gateways take it since 1.10.
             val webp = LatchApp.get(this).bridge.gatewayMinor >= WEBP_SINCE_MINOR
@@ -822,6 +923,42 @@ class LatchAccessibilityService : AccessibilityService() {
         } finally {
             buffer.close()
         }
+    }
+
+    /**
+     * Draws each element's id ("n12") in a small ember tag at its top-left corner,
+     * so the AI can match what it sees to the ids it acts on. [scale] maps screen
+     * pixels to the bitmap's. Returns the bitmap drawn on (a copy when [bitmap] is
+     * not mutable, which is then recycled).
+     */
+    private fun drawMarks(bitmap: Bitmap, marks: List<UiNode>, scale: Float): Bitmap {
+        val canvas = if (bitmap.isMutable) bitmap else bitmap.copy(Bitmap.Config.ARGB_8888, true).also { bitmap.recycle() }
+        val paper = android.graphics.Canvas(canvas)
+        val textSize = (canvas.width / 48f).coerceIn(12f, 28f)
+        val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(10, 10, 10)
+            this.textSize = textSize
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        }
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
+        val edge = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(10, 10, 10)
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = (textSize / 10f).coerceAtLeast(1f)
+        }
+        val pad = textSize / 4f
+        for (node in marks) {
+            val label = node.id
+            val w = text.measureText(label) + pad * 2
+            val h = textSize + pad
+            val left = (node.bounds.left * scale).coerceIn(0f, (canvas.width - w).coerceAtLeast(0f))
+            val top = (node.bounds.top * scale).coerceIn(0f, (canvas.height - h).coerceAtLeast(0f))
+            val box = android.graphics.RectF(left, top, left + w, top + h)
+            paper.drawRoundRect(box, pad, pad, fill)
+            paper.drawRoundRect(box, pad, pad, edge)
+            paper.drawText(label, left + pad, top + h - pad - text.descent() / 2, text)
+        }
+        return canvas
     }
 
     /** Like a computer: a hand over things that can be tapped, a text cursor over fields. */

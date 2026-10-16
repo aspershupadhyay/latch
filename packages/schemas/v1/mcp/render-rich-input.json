@@ -1,0 +1,30 @@
+{
+  "description": "Protocol 1.16 (ADR-044): every new element fact, a guessed label, a menu window over a feed, and a web page. Both gateways must render render-rich-expected.txt byte for byte.",
+  "device_id": "d_fixture",
+  "screenshot_withheld": false,
+  "observation": {
+    "observation_id": "o_77",
+    "captured_at_ms": 1800000000000,
+    "package": "com.example.photos",
+    "screen": { "width": 1080, "height": 2400, "rotation": 0 },
+    "nodes": [
+      { "id": "n0", "role": "FrameLayout", "bounds": { "left": 0, "top": 0, "right": 1080, "bottom": 2400 } },
+      { "id": "n1", "parent": "n0", "role": "TextView", "text": "Home", "bounds": { "left": 40, "top": 100, "right": 400, "bottom": 180 }, "heading": true },
+      { "id": "n2", "parent": "n0", "role": "RecyclerView", "bounds": { "left": 0, "top": 200, "right": 1080, "bottom": 2100 }, "scrollable": true, "covered": true },
+      { "id": "n3", "parent": "n2", "role": "ViewGroup", "description": "Photo by ada, 12 likes", "bounds": { "left": 0, "top": 220, "right": 1080, "bottom": 1200 }, "position": { "index": 6, "count": 40 }, "actions": ["Like", "Comment", "Share", "Save", "Report", "Copy link", "Hide"], "covered": true },
+      { "id": "n4", "parent": "n3", "role": "ImageView", "resource_id": "com.example.photos:id/row_feed_button_like", "label": "like", "bounds": { "left": 40, "top": 1100, "right": 140, "bottom": 1190 }, "clickable": true, "state": "Not liked", "covered": true },
+      { "id": "n5", "parent": "n3", "role": "ImageView", "bounds": { "left": 160, "top": 1100, "right": 260, "bottom": 1190 }, "clickable": true, "covered": true },
+      { "id": "n6", "parent": "n0", "role": "SeekBar", "description": "Volume", "bounds": { "left": 40, "top": 1220, "right": 1040, "bottom": 1280 }, "percent": 70 },
+      { "id": "n7", "parent": "n0", "role": "EditText", "bounds": { "left": 40, "top": 1300, "right": 1040, "bottom": 1400 }, "clickable": true, "editable": true, "hint": "Write a caption…" },
+      { "id": "n8", "parent": "n0", "role": "EditText", "resource_id": "com.example.photos:id/pin", "bounds": { "left": 40, "top": 1420, "right": 1040, "bottom": 1520 }, "editable": true, "sensitive": true },
+      { "id": "n9", "parent": "n0", "role": "WebView", "bounds": { "left": 0, "top": 1540, "right": 1080, "bottom": 2100 } },
+      { "id": "n10", "parent": "n0", "role": "ImageButton", "bounds": { "left": 900, "top": 2120, "right": 1060, "bottom": 2260 }, "clickable": true },
+      { "id": "n11", "parent": "n0", "role": "FrameLayout", "description": "Profile", "bounds": { "left": 0, "top": 2260, "right": 540, "bottom": 2400 }, "clickable": true, "selected": true },
+      { "id": "n12", "role": "ListView", "bounds": { "left": 600, "top": 300, "right": 1040, "bottom": 700 } },
+      { "id": "n13", "parent": "n12", "role": "TextView", "text": "Mute", "bounds": { "left": 600, "top": 300, "right": 1040, "bottom": 400 }, "clickable": true },
+      { "id": "n14", "parent": "n12", "role": "TextView", "text": "Unfollow", "bounds": { "left": 600, "top": 400, "right": 1040, "bottom": 500 }, "clickable": true }
+    ],
+    "redacted_count": 1,
+    "truncated": false
+  }
+}

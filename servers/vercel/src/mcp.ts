@@ -335,7 +335,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     case "observe": {
       const maxNodes = argInt(args, "max_nodes") ?? 400;
       if (maxNodes < 0) throw bad("max_nodes must be positive");
-      return observe(ctx, deviceId, live, argBool(args, "screenshot", true), maxNodes);
+      return observe(ctx, deviceId, live, argBool(args, "screenshot", true), maxNodes, argBool(args, "marks", false));
     }
     case "list_apps": {
       const query = argStr(args, "query")?.trim().toLowerCase() || undefined;
@@ -546,12 +546,12 @@ function withScreenshot(text: string, obs: Observation): ToolResult {
   return { content };
 }
 
-async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreenshot: boolean, maxNodes: number): Promise<ToolResult> {
+async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreenshot: boolean, maxNodes: number, marks = false): Promise<ToolResult> {
   const allowed = screenshotAllowed(live);
-  const run = await execute(ctx, deviceId, {
-    name: "ui.observe",
-    params: { include_screenshot: wantScreenshot && allowed, max_nodes: maxNodes },
-  });
+  // Since 1.16: the phone numbers the elements on the screenshot; older phones ignore the field.
+  const params: { include_screenshot: boolean; max_nodes: number; marks?: boolean } = { include_screenshot: wantScreenshot && allowed, max_nodes: maxNodes };
+  if (marks && wantScreenshot && allowed) params.marks = true;
+  const run = await execute(ctx, deviceId, { name: "ui.observe", params });
   return withTiming(await shown(ctx, deviceId, live, run.data as Observation, wantScreenshot && !allowed, false), run.timing);
 }
 

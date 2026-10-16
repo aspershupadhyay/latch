@@ -15,6 +15,24 @@ test("observation rendering matches the Rust gateway byte for byte", () => {
   assert.equal(renderObservation(input.device_id, obs, input.screenshot_withheld), shared("mcp/render-expected.txt"));
 });
 
+test("protocol 1.16 element facts, guessed labels, covered elements, and the reading note match the Rust gateway", () => {
+  const input = JSON.parse(shared("mcp/render-rich-input.json"));
+  const obs = normalizeObservation(input.observation, 2000);
+  assert.equal(renderObservation(input.device_id, obs, input.screenshot_withheld), shared("mcp/render-rich-expected.txt"));
+});
+
+test("a phone that sends words for a sensitive element is refused", () => {
+  const input = JSON.parse(shared("mcp/render-rich-input.json"));
+  for (const extra of [{ hint: "PIN" }, { state: "4 digits" }, { label: "pin" }, { actions: ["Paste"] }]) {
+    const nodes = input.observation.nodes.map((n: { id: string }) => (n.id === "n8" ? { ...n, ...extra } : n));
+    assert.throws(() => normalizeObservation({ ...input.observation, nodes }, 2000), /sensitive element/);
+  }
+  const tooMany = input.observation.nodes.map((n: { id: string }) => (n.id === "n3" ? { ...n, actions: Array(17).fill("Like") } : n));
+  assert.throws(() => normalizeObservation({ ...input.observation, nodes: tooMany }, 2000), /too many actions/);
+  const over = input.observation.nodes.map((n: { id: string }) => (n.id === "n6" ? { ...n, percent: 101 } : n));
+  assert.throws(() => normalizeObservation({ ...input.observation, nodes: over }, 2000), /percent/);
+});
+
 test("tool errors match the Rust gateway", () => {
   for (const c of JSON.parse(shared("mcp/tool-errors.json"))) {
     assert.deepEqual(toolError(new ProtocolError(c.code, c.message)), c.result);

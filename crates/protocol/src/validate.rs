@@ -21,6 +21,8 @@ pub const MAX_COORDINATE: i32 = 20_000;
 pub const MAX_ID_CHARS: usize = 64;
 pub const MAX_PACKAGE_CHARS: usize = 255;
 pub const MAX_NODE_TEXT_CHARS: usize = 4_000;
+/// Since 1.16: at most this many of an element's own actions.
+pub const MAX_NODE_ACTIONS: usize = 16;
 pub const MAX_SCREENSHOT_BASE64_BYTES: usize = 6 * 1024 * 1024;
 pub const MAX_SETTLE_MS: u32 = 3_000;
 pub const MAX_QUIET_MS: u32 = 1_000;
@@ -843,11 +845,27 @@ pub fn observation(obs: &Observation, max_nodes: u32) -> Result<(), ProtocolErro
     for node in &obs.nodes {
         check_id("node id", &node.id)?;
         let text_len = node.text.as_deref().map_or(0, str::len)
-            + node.description.as_deref().map_or(0, str::len);
+            + node.description.as_deref().map_or(0, str::len)
+            + node.state.as_deref().map_or(0, str::len)
+            + node.hint.as_deref().map_or(0, str::len)
+            + node.label.as_deref().map_or(0, str::len)
+            + node.actions.iter().map(String::len).sum::<usize>();
         if text_len > MAX_NODE_TEXT_CHARS {
             return Err(invalid("node text exceeds the protocol limit"));
         }
-        if node.sensitive && (node.text.is_some() || node.description.is_some()) {
+        if node.actions.len() > MAX_NODE_ACTIONS {
+            return Err(invalid("node has too many actions"));
+        }
+        if node.percent.is_some_and(|p| p > 100) {
+            return Err(invalid("node percent must be at most 100"));
+        }
+        let carries_words = node.text.is_some()
+            || node.description.is_some()
+            || node.state.is_some()
+            || node.hint.is_some()
+            || node.label.is_some()
+            || !node.actions.is_empty();
+        if node.sensitive && carries_words {
             // A device that leaks sensitive content is broken; refuse to forward it.
             return Err(ProtocolError::new(
                 ErrorCode::Internal,
@@ -966,7 +984,8 @@ mod tests {
         assert!(
             command(&Command::Observe {
                 include_screenshot: false,
-                max_nodes: 0
+                max_nodes: 0,
+                marks: false,
             })
             .is_err()
         );

@@ -43,14 +43,17 @@ class Repeats {
         // The child may not do anything the parent doesn't: tapping the parent must be enough.
         return (!child.clickable || parent.clickable) && (!child.longClickable || parent.longClickable) &&
             (!child.scrollable || parent.scrollable) && child.editable == parent.editable &&
-            (child.checked == null || child.checked == parent.checked) && child.enabled == parent.enabled
+            (child.checked == null || child.checked == parent.checked) && child.enabled == parent.enabled &&
+            // Its own state words or actions (1.16) are worth keeping.
+            (child.state == null || child.state == parent.state) && child.actions.isNullOrEmpty()
     }
 
     private fun words(n: UiNode) = setOfNotNull(n.text?.trim()?.lowercase(), n.description?.trim()?.lowercase())
 
     private fun labelKey(n: UiNode) = if (n.text != null || n.description != null) Triple(n.bounds, n.text, n.description) else null
 
-    private fun normal(n: UiNode) = n.copy(id = "", parent = null, role = "", resourceId = null, focused = false)
+    private fun normal(n: UiNode) =
+        n.copy(id = "", parent = null, role = "", resourceId = null, focused = false, position = null, actions = null, covered = null)
 
     companion object {
         fun interactive(n: UiNode) = n.clickable || n.longClickable || n.editable || n.scrollable || n.checked != null

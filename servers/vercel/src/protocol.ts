@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.15";
+export const PROTOCOL_VERSION = "1.16";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -107,6 +107,9 @@ export interface UiNode {
   id: string; parent?: string; role: string; text?: string; description?: string; resource_id?: string;
   bounds: Rect; clickable: boolean; long_clickable: boolean; editable: boolean; scrollable: boolean;
   checked?: boolean; enabled: boolean; focused: boolean; sensitive: boolean;
+  // Since 1.16 (ADR-044): optional facts from the phone's accessibility tree.
+  state?: string; hint?: string; selected?: boolean; heading?: boolean; position?: { index: number; count?: number };
+  percent?: number; actions?: string[]; label?: string; covered?: boolean;
 }
 export interface Screenshot { mime: string; width: number; height: number; data_base64: string }
 export interface Observation {
@@ -120,7 +123,7 @@ export type Direction = "up" | "down" | "left" | "right";
 const DIRECTIONS: readonly string[] = ["up", "down", "left", "right"];
 export type Command =
   | { name: "device.info"; params: Record<string, never> }
-  | { name: "ui.observe"; params: { include_screenshot: boolean; max_nodes: number } }
+  | { name: "ui.observe"; params: { include_screenshot: boolean; max_nodes: number; marks?: boolean } }
   | { name: "input.tap"; params: { observation_id: string; target: Target; long_press: boolean; double?: boolean } }
   | { name: "input.swipe"; params: { observation_id: string; from: { x: number; y: number }; to: { x: number; y: number }; duration_ms: number; hold_ms?: number } }
   | { name: "input.pinch"; params: { observation_id: string; center: { x: number; y: number }; start_span: number; end_span: number; duration_ms: number } }
@@ -432,7 +435,7 @@ export function observationIdOf(c: Command): string | undefined {
 
 export const LIMITS = {
   maxTextChars: 2_000, maxNodes: 2_000, maxSwipeMs: 5_000, maxCoordinate: 20_000, maxIdChars: 64,
-  maxPackageChars: 255, maxNodeTextChars: 4_000, maxScreenshotBase64: 6 * 1024 * 1024,
+  maxPackageChars: 255, maxNodeTextChars: 4_000, maxNodeActions: 16, maxScreenshotBase64: 6 * 1024 * 1024,
   maxMessageBytes: 8 * 1024 * 1024, minWaitMs: 100, maxWaitMs: 15_000, maxFindTextChars: 200, maxScrollSwipes: 20, maxHoldMs: 3_000, minPinchSpan: 20,
   maxAskOwnerChars: 300,
   maxFileChunkBytes: 512 * 1024, maxFileNameChars: 120, maxFileList: 200, maxShareFiles: 10, maxMimeChars: 100,
@@ -724,7 +727,13 @@ export function parseCommand(raw: unknown): Command {
   switch (name) {
     case "device.info": return { name, params: {} };
     case "app.list": return { name, params: {} };
-    case "ui.observe": return { name, params: { include_screenshot: bool("include_screenshot", false), max_nodes: p.max_nodes === undefined ? 400 : int(p.max_nodes, "max_nodes") } };
+    case "ui.observe": {
+      const params: { include_screenshot: boolean; max_nodes: number; marks?: boolean } = {
+        include_screenshot: bool("include_screenshot", false), max_nodes: p.max_nodes === undefined ? 400 : int(p.max_nodes, "max_nodes"),
+      };
+      if (bool("marks", false)) params.marks = true;
+      return { name, params };
+    }
     case "input.tap": {
       const t = p.target as Record<string, unknown> | undefined;
       if (!t) throw invalid("target is required");
@@ -906,8 +915,15 @@ export function normalizeObservation(raw: unknown, maxNodes: number): Observatio
   if (o.package !== undefined && o.package.length > LIMITS.maxPackageChars) throw invalid("package is too long");
   const nodes = o.nodes.map((n) => {
     id("node id", n.id);
-    if ((n.text?.length ?? 0) + (n.description?.length ?? 0) > LIMITS.maxNodeTextChars) throw invalid("node text exceeds the protocol limit");
-    if (n.sensitive && (n.text !== undefined || n.description !== undefined)) {
+    const actions = n.actions ?? [];
+    const wordsLength = (n.text?.length ?? 0) + (n.description?.length ?? 0) + (n.state?.length ?? 0) + (n.hint?.length ?? 0) +
+      (n.label?.length ?? 0) + actions.reduce((sum, a) => sum + a.length, 0);
+    if (wordsLength > LIMITS.maxNodeTextChars) throw invalid("node text exceeds the protocol limit");
+    if (actions.length > LIMITS.maxNodeActions) throw invalid("node has too many actions");
+    if (n.percent !== undefined && n.percent > 100) throw invalid("node percent must be at most 100");
+    const carriesWords = n.text !== undefined || n.description !== undefined || n.state !== undefined || n.hint !== undefined ||
+      n.label !== undefined || actions.length > 0;
+    if (n.sensitive && carriesWords) {
       throw new ProtocolError("internal", "device sent content for a sensitive element");
     }
     return {
