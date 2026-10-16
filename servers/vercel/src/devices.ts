@@ -165,8 +165,10 @@ export class Devices {
     return Object.values(all).map((v) => JSON.parse(v) as DeviceRecord).sort((a, b) => a.paired_at_ms - b.paired_at_ms);
   }
 
+  /** One phone's record: one field, not every phone's. */
   async record(id: string): Promise<DeviceRecord | undefined> {
-    return (await this.records()).find((d) => d.id === id);
+    const raw = await this.store.hget(K.devices, id);
+    return raw ? (JSON.parse(raw) as DeviceRecord) : undefined;
   }
 
   async addRecord(record: DeviceRecord): Promise<void> {
@@ -267,12 +269,17 @@ export class Devices {
    */
   async nextMessage(id: string, conn: string, waitMs: number, hot = false): Promise<string | undefined> {
     const until = Date.now() + waitMs;
-    const interval = hot ? this.timing.hotPollIntervalMs : this.timing.pollIntervalMs;
+    // An idle phone (no command for a minute) is checked a little less often as
+    // the wait goes on, up to twice the interval: half the database calls while
+    // nothing happens, for at most one interval more before a first command.
+    let interval = hot ? this.timing.hotPollIntervalMs : this.timing.pollIntervalMs;
+    const slowest = hot ? interval : interval * 2;
     for (;;) {
       const message = await this.store.rpop(K.queue(id, conn));
       if (message) return message;
       if (Date.now() + interval > until) return undefined;
       await sleep(interval);
+      interval = Math.min(slowest, Math.round(interval * 1.25));
     }
   }
 
@@ -510,12 +517,22 @@ export class Devices {
     let result: string | null = null;
     let approvalSeen = resume !== undefined;
     for (;;) {
-      const [got, approval] = await this.store.batch([
+      // Every few seconds the same round trip also checks the phone is still connected.
+      const checkPresence = Date.now() - lastPresenceCheck > 3_000;
+      const replies = await this.store.batch([
         { op: "getdel", key: K.result(commandId) },
         ...(approvalSeen ? [] : [{ op: "get" as const, key: K.approval(commandId) }]),
+        ...(checkPresence ? [{ op: "get" as const, key: K.live(id) }] : []),
       ]);
+      const got = replies[0];
+      const approval = approvalSeen ? undefined : replies[1];
       result = got ?? null;
       if (result) break;
+      if (checkPresence) {
+        lastPresenceCheck = Date.now();
+        const now = replies[replies.length - 1];
+        if (!now || (JSON.parse(now) as Live).conn !== live.conn) throw unavailable();
+      }
       if (!approvalSeen && approval) {
         approvalSeen = true;
         waitUntil = Math.max(waitUntil, Date.now() + CONFIRM_DEADLINE_MS + 3_000);
@@ -544,10 +561,6 @@ export class Devices {
           { op: "lpush", key: K.queue(id, live.conn), value: JSON.stringify({ type: "cancel", id: commandId }), px: 60_000 },
         );
         throw new ProtocolError("deadline_exceeded", "the phone did not answer in time");
-      }
-      if (Date.now() - lastPresenceCheck > 3_000) {
-        lastPresenceCheck = Date.now();
-        if ((await this.live(id))?.conn !== live.conn) throw unavailable();
       }
       await sleep(this.timing.resultIntervalMs);
     }

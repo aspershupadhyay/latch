@@ -119,8 +119,11 @@ export class Transfers {
   /** Deletes an upload once the phone saved it. */
   async discardUpload(token: string): Promise<void> {
     const meta = await this.meta(token);
-    for (let i = 0; i < (meta?.parts ?? 0); i++) await this.store.del(partKey(token, i));
-    await this.store.del(metaKey(token));
+    // One round trip for every part.
+    await this.store.batch([
+      ...Array.from({ length: meta?.parts ?? 0 }, (_, i) => ({ op: "del" as const, key: partKey(token, i) })),
+      { op: "del", key: metaKey(token) },
+    ]);
   }
 }
 

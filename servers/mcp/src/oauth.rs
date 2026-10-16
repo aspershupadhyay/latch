@@ -440,11 +440,19 @@ pub async fn authorize(
     let now = now_ms();
     let request = {
         let mut oauth = state.oauth();
-        if oauth.pending(now).len() >= MAX_PENDING {
-            return fail(
-                "temporarily_unavailable",
-                "too many sign-in requests are waiting; try again in a few minutes",
-            );
+        // One waiting request per app (signing in again replaces it), and a full
+        // list makes room by dropping its oldest: nobody can fill it to keep the
+        // owner's own app from asking.
+        let mut pending = oauth.pending(now);
+        for old in pending.iter().filter(|r| r.client_id == client.client_id) {
+            oauth.requests.remove(&old.id);
+        }
+        pending.retain(|r| r.client_id != client.client_id);
+        for old in pending
+            .iter()
+            .take((pending.len() + 1).saturating_sub(MAX_PENDING))
+        {
+            oauth.requests.remove(&old.id);
         }
         let request = AuthRequest {
             id: secret::new_token("lar"),
