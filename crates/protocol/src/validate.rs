@@ -454,8 +454,25 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
         Command::DeviceControl {
             control: PhoneControl::Volume { percent, .. } | PhoneControl::Brightness { percent },
         } if *percent > 100 => Err(invalid("percent must be 0-100")),
+        Command::DeviceControl {
+            control: PhoneControl::ScreenTimeout { seconds },
+        } if !(crate::MIN_SCREEN_TIMEOUT_S..=crate::MAX_SCREEN_TIMEOUT_S).contains(seconds) => {
+            Err(invalid(format!(
+                "seconds must be between {} and {}",
+                crate::MIN_SCREEN_TIMEOUT_S,
+                crate::MAX_SCREEN_TIMEOUT_S
+            )))
+        }
         Command::DeviceControl { .. } => Ok(()),
         Command::DeviceInfo {} | Command::ListApps {} | Command::Global { .. } => Ok(()),
+        Command::OpenLink { url, package } => {
+            if !is_valid_package(package) {
+                return Err(invalid(
+                    "package must be an application id such as com.example.app",
+                ));
+            }
+            open_link_url(url)
+        }
         Command::Observe { max_nodes, .. } => {
             if *max_nodes == 0 || *max_nodes > MAX_NODES {
                 Err(invalid(format!(
@@ -533,7 +550,7 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             }
             Ok(())
         }
-        Command::LaunchApp { package } => {
+        Command::LaunchApp { package, .. } => {
             if is_valid_package(package) {
                 Ok(())
             } else {
@@ -543,6 +560,66 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             }
         }
     }
+}
+
+/// Longest `app.open_link` URL.
+pub const MAX_LINK_CHARS: usize = 2048;
+
+/// Schemes `app.open_link` never opens: they reach the phone's own files and
+/// content, run script, or name an arbitrary screen instead of a link.
+const BLOCKED_LINK_SCHEMES: [&str; 11] = [
+    "intent",
+    "android-app",
+    "file",
+    "content",
+    "javascript",
+    "vbscript",
+    "data",
+    "blob",
+    "about",
+    "filesystem",
+    "jar",
+];
+
+/// An `app.open_link` URL: at most [`MAX_LINK_CHARS`], printable ASCII, a
+/// lowercase scheme that is not blocked, and something after the colon.
+pub fn open_link_url(url: &str) -> Result<(), ProtocolError> {
+    if url.is_empty() || url.len() > MAX_LINK_CHARS {
+        return Err(invalid(format!(
+            "url must be 1-{MAX_LINK_CHARS} characters"
+        )));
+    }
+    if !url.bytes().all(|b| (0x21..0x7f).contains(&b)) {
+        return Err(invalid(
+            "url must be printable ASCII without spaces (percent-encode the rest)",
+        ));
+    }
+    let Some((scheme, rest)) = url.split_once(':') else {
+        return Err(invalid("url needs a scheme, e.g. https:"));
+    };
+    let scheme_ok = scheme.len() <= 32
+        && scheme
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "+.-".contains(c));
+    if !scheme_ok {
+        return Err(invalid(
+            "url scheme must be lowercase letters, digits, +, ., or -",
+        ));
+    }
+    if BLOCKED_LINK_SCHEMES.contains(&scheme) {
+        return Err(invalid(format!("{scheme}: links cannot be opened")));
+    }
+    if rest.is_empty() {
+        return Err(invalid("url has nothing after the scheme"));
+    }
+    if (scheme == "http" || scheme == "https") && !rest.starts_with("//") {
+        return Err(invalid("a web address looks like https://example.com/..."));
+    }
+    Ok(())
 }
 
 /// Where `file.write` and `file.fetch` save: `folder` only in the picked

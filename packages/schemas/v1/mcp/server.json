@@ -463,9 +463,9 @@
         "idempotentHint": false,
         "openWorldHint": true,
         "readOnlyHint": false,
-        "title": "Press button"
+        "title": "Press a system button"
       },
-      "description": "Press the system back, home, or recents button. Returns the new observation.",
+      "description": "Press a system button or key: back, home, recents; notifications or quick_settings pull down the shade; lock_screen locks the phone (only the owner unlocks it); screenshot saves a screenshot to the phone's gallery (you do not receive it; use observe to see the screen); split_screen; dpad_up, dpad_down, dpad_left, dpad_right, dpad_center move focus and select on TV-style or keyboard-driven screens (Android 13+). Everything but back, home, and recents needs Latch 1.15 on the phone. Returns the new observation.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -473,7 +473,17 @@
             "enum": [
               "back",
               "home",
-              "recents"
+              "recents",
+              "notifications",
+              "quick_settings",
+              "lock_screen",
+              "screenshot",
+              "split_screen",
+              "dpad_up",
+              "dpad_down",
+              "dpad_left",
+              "dpad_right",
+              "dpad_center"
             ],
             "type": "string"
           },
@@ -493,7 +503,7 @@
         "type": "object"
       },
       "name": "press",
-      "title": "Press button"
+      "title": "Press a system button"
     },
     {
       "annotations": {
@@ -531,13 +541,18 @@
         "readOnlyHint": false,
         "title": "Open app"
       },
-      "description": "Open an installed app by package name (from list_apps). Returns the new observation.",
+      "description": "Open an installed app by package name (from list_apps). With fresh=true the app starts from its first screen, closing the screens it had open (its data stays), which gets a stuck or unfamiliar app to a known place. Returns the new observation.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "device_id": {
             "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
             "type": "string"
+          },
+          "fresh": {
+            "default": false,
+            "description": "Start from the app's first screen (Latch 1.15 on the phone).",
+            "type": "boolean"
           },
           "package": {
             "description": "Application id, e.g. com.android.settings.",
@@ -556,6 +571,69 @@
       },
       "name": "launch_app",
       "title": "Open app"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Open a link in an app"
+      },
+      "description": "Open a web address or app link directly in one app, the way a tapped link would, instead of tapping your way there: https://www.youtube.com/watch?v=... in com.google.android.youtube, geo:0,0?q=coffee in Maps, or an app's own link. Only screens the app offers to links open; intent:, file:, content:, and javascript: links are refused. The same app rules as launch_app apply; call, message, and mail links ask the owner, and payment links always do. Needs Latch 1.15 on the phone. Returns the new observation.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          },
+          "package": {
+            "description": "The app to open it in (from list_apps), e.g. com.google.android.apps.maps.",
+            "type": "string"
+          },
+          "screenshot_after": {
+            "default": false,
+            "description": "Also return a screenshot of the screen after the action. Default false (element tree only).",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "The link, e.g. https://maps.google.com/?q=Eiffel+Tower.",
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "package"
+        ],
+        "type": "object"
+      },
+      "name": "open_link",
+      "title": "Open a link in an app"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Read the phone's status"
+      },
+      "description": "Read the phone's battery level and charging, network type (wifi, cellular, ethernet, none), free storage, orientation, whether the lock screen is showing, Do Not Disturb, the app in front, and the screen size. Holds no personal data. Useful before a long task or a big file transfer. Needs Latch 1.15 on the phone for everything but the app and screen size.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "device_status",
+      "title": "Read the phone's status"
     },
     {
       "annotations": {
@@ -686,9 +764,9 @@
         "idempotentHint": false,
         "openWorldHint": true,
         "readOnlyHint": false,
-        "title": "Control volume, media, brightness, flashlight, or a settings panel"
+        "title": "Control sound, screen, flashlight, or open a settings page"
       },
-      "description": "One phone control per call, each behind its own owner switch (off by default): volume (a stream to 0-100 %) and media keys (play_pause, next, previous) need Sound; brightness (0-100 %, turns adaptive brightness off) needs Brightness; flashlight on or off needs Flashlight; panel opens the Wi-Fi, internet, Bluetooth, or volume panel over the current app and returns the screen, where you continue with tap (Panels). Needs Latch 1.11 on the phone.",
+      "description": "One phone control per call, each group behind its own owner switch (off by default). Sound: volume (a stream to 0-100 %), media keys (play_pause, next, previous), ringer (normal, vibrate, silent), do_not_disturb (on). Screen: brightness (0-100 %, turns adaptive brightness off), rotation (auto, portrait, landscape), screen_timeout (15-1800 seconds). Flashlight: on or off. Panels: panel opens a settings panel or page over the current app (wifi, internet, bluetooth, volume, nfc, airplane_mode, location, display, battery, sound, notifications, storage, date_time) and returns the screen, where you continue with tap. Ringer and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. Needs Latch 1.11 on the phone; ringer, do_not_disturb, rotation, screen_timeout, and the panels after volume need 1.15.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -705,7 +783,11 @@
             "enum": [
               "volume",
               "media",
+              "ringer",
+              "do_not_disturb",
               "brightness",
+              "rotation",
+              "screen_timeout",
               "flashlight",
               "panel"
             ],
@@ -715,8 +797,20 @@
             "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
             "type": "string"
           },
+          "mode": {
+            "description": "For ringer (normal, vibrate, silent) and rotation (auto, portrait, landscape).",
+            "enum": [
+              "normal",
+              "vibrate",
+              "silent",
+              "auto",
+              "portrait",
+              "landscape"
+            ],
+            "type": "string"
+          },
           "on": {
-            "description": "For flashlight.",
+            "description": "For flashlight and do_not_disturb.",
             "type": "boolean"
           },
           "panel": {
@@ -725,7 +819,16 @@
               "wifi",
               "internet",
               "bluetooth",
-              "volume"
+              "volume",
+              "nfc",
+              "airplane_mode",
+              "location",
+              "display",
+              "battery",
+              "sound",
+              "notifications",
+              "storage",
+              "date_time"
             ],
             "type": "string"
           },
@@ -739,6 +842,12 @@
             "default": false,
             "description": "Also return a screenshot of the screen after the action. Default false (element tree only).",
             "type": "boolean"
+          },
+          "seconds": {
+            "description": "For screen_timeout.",
+            "maximum": 1800,
+            "minimum": 15,
+            "type": "integer"
           },
           "stream": {
             "default": "media",
@@ -758,7 +867,7 @@
         "type": "object"
       },
       "name": "phone_control",
-      "title": "Control volume, media, brightness, flashlight, or a settings panel"
+      "title": "Control sound, screen, flashlight, or open a settings page"
     },
     {
       "annotations": {

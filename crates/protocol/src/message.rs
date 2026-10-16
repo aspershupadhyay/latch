@@ -233,6 +233,50 @@ pub struct DeviceInfo {
     pub package: Option<String>,
     pub capabilities: Vec<CapabilityState>,
     pub session: SessionInfo,
+    /// Since 1.15: battery, network, storage, and screen state. Absent from older apps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<DeviceStatus>,
+}
+
+/// Since 1.15: the phone's state, part of `device.info`. Every field is
+/// optional: a phone leaves out what it cannot read. Nothing here is
+/// personal: no network names, no addresses, no account or app content.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DeviceStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery_percent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charging: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<NetworkKind>,
+    /// Free space for files, in whole megabytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_storage_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<Orientation>,
+    /// True while the lock screen is showing: only the owner can unlock (ask_owner).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub do_not_disturb: Option<bool>,
+}
+
+/// Since 1.15: how the phone reaches the internet right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkKind {
+    Wifi,
+    Cellular,
+    Ethernet,
+    None,
+}
+
+/// Since 1.15: which way up the screen is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Orientation {
+    Portrait,
+    Landscape,
 }
 
 /// Result of input and navigation commands.

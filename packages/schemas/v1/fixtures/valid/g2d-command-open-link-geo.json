@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0154", "deadline_ms": 15000, "command": { "name": "app.open_link", "params": { "url": "geo:0,0?q=coffee", "package": "com.google.android.apps.maps" } } }

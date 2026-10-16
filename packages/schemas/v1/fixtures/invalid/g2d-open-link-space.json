@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0163", "deadline_ms": 15000, "command": { "name": "app.open_link", "params": { "url": "https://example.com/a b", "package": "com.example.notes" } } }
