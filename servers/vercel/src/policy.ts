@@ -6,7 +6,7 @@
 
 import { WORDS } from "./generated/policy-words.js";
 import {
-  CAPABILITY_DESCRIPTIONS, MAX_REMEMBER_CHARS, describeControl, type CapabilityState, type Command, type ConfirmRequest, type FileLocation, type Observation,
+  CAPABILITY_DESCRIPTIONS, GLOBAL_ACTION_TEXT, MAX_REMEMBER_CHARS, describeControl, type CapabilityState, type Command, type ConfirmRequest, type FileLocation, type Observation,
   ProtocolError, type RiskLevel, type SessionInfo, type UiNode, isEmptyRect, needsOwnerApprovalWhenStrict, nodeAt,
   observationIdOf, requiredCapabilities, validateCommand,
 } from "./protocol.js";
@@ -80,7 +80,8 @@ export function evaluate(command: Command, ctx: DeviceContext): Decision {
   }
 
   // R18: launching, sharing to, or acting in an app outside this AI app's limit.
-  const target = command.name === "app.launch" || command.name === "app.share" ? { pkg: command.params.package }
+  const target = command.name === "app.launch" || command.name === "app.open_link" || command.name === "app.share"
+    ? { pkg: command.params.package }
     : observation ? { pkg: observation.package } : undefined;
   if (target && !appAllowed(ctx.allowedApps, target.pkg)) return { kind: "deny", error: appRefused(target.pkg) };
 
@@ -115,7 +116,24 @@ function judged(consequence: Consequence, title: string, key: string): Assessmen
   return medium(title);
 }
 
-const GLOBAL_NAMES = { back: "Back", home: "Home", recents: "Recents" } as const;
+/**
+ * How much attention opening a link with this scheme needs (mirrors
+ * `latch_policy::link_consequence`): payment links always ask, call,
+ * message, and mail links ask and may be remembered.
+ */
+export function linkConsequence(scheme: string): Consequence {
+  if (["upi", "paytmmp", "phonepe", "tez", "gpay"].includes(scheme)) return "critical";
+  if (["tel", "sms", "smsto", "mms", "mmsto", "mailto", "whatsapp"].includes(scheme)) return "consequential";
+  return "none";
+}
+
+/** A link as the owner reads it: scheme and host of a web address, else the first 60 characters. */
+function shortenLink(url: string): string {
+  const m = /^(https?):\/\/([^/?#]*)/.exec(url);
+  const short = m ? `${m[1]}://${m[2]}` : url;
+  const chars = [...short];
+  return chars.length > 60 ? `${chars.slice(0, 59).join("")}…` : short;
+}
 
 const place = (pkg: string | undefined) => (pkg !== undefined ? ` in ${pkg}` : "");
 
@@ -129,8 +147,17 @@ function assess(command: Command, observation: Observation | undefined): Assessm
     case "device.info": return low("Read device information");
     case "ui.observe": return low(command.params.include_screenshot ? "Read the screen and take a screenshot" : "Read the screen");
     case "app.list": return low("List installed apps");
-    case "nav.global": return low(`Press ${GLOBAL_NAMES[command.params.action]}`);
-    case "app.launch": return medium(`Open ${command.params.package}`);
+    case "nav.global": {
+      const action = command.params.action;
+      // Both leave something behind: a picture in the gallery, a locked phone.
+      return action === "screenshot" || action === "lock_screen" ? medium(GLOBAL_ACTION_TEXT[action]) : low(GLOBAL_ACTION_TEXT[action]);
+    }
+    case "app.launch": return medium(command.params.fresh === true ? `Open ${command.params.package} from its first screen` : `Open ${command.params.package}`);
+    case "app.open_link": {
+      const { url, package: pkg } = command.params;
+      const scheme = url.includes(":") ? url.slice(0, url.indexOf(":")) : "";
+      return judged(linkConsequence(scheme), `Open ${shortenLink(url)} in ${pkg}`, `link|${pkg}|${scheme}`);
+    }
     case "input.pinch": {
       const obs = need();
       const { center, start_span: startSpan, end_span: endSpan } = command.params;

@@ -48,16 +48,20 @@ pub enum Capability {
     /// did, what the owner was asked and answered). Never screen content.
     #[serde(rename = "activity.read")]
     ActivityRead,
-    /// Since 1.11: set volumes and send media keys (play/pause, next, previous).
+    /// Since 1.11: set volumes and send media keys (play/pause, next, previous);
+    /// since 1.15 also the ringer and Do Not Disturb.
     #[serde(rename = "control.sound")]
     ControlSound,
-    /// Since 1.11: set the screen brightness (needs Android's "Modify system settings").
+    /// Since 1.11: set the screen brightness (needs Android's "Modify system settings");
+    /// since 1.15 also rotation and the screen timeout.
     #[serde(rename = "control.brightness")]
     ControlBrightness,
     /// Since 1.11: turn the flashlight on or off.
     #[serde(rename = "control.flashlight")]
     ControlFlashlight,
-    /// Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel.
+    /// Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel; since
+    /// 1.15 also NFC and the airplane mode, location, display, battery, sound,
+    /// notifications, storage, and date and time settings.
     #[serde(rename = "control.panels")]
     ControlPanels,
 }
@@ -112,17 +116,19 @@ impl Capability {
             Capability::ScreenCapture => "take screenshots",
             Capability::InputGesture => "tap, long-press, and swipe",
             Capability::InputText => "type into non-sensitive text fields",
-            Capability::NavGlobal => "press back, home, and recents",
+            Capability::NavGlobal => "press back, home, recents, and other system buttons",
             Capability::AppLaunch => "list and open apps",
             Capability::FileRead => "list and read allowed photos and files",
             Capability::FileWrite => "save, rename, and delete files",
             Capability::AppShare => "share files to an app",
             Capability::ClipboardWrite => "copy text to the clipboard",
             Capability::ActivityRead => "read Latch's activity log",
-            Capability::ControlSound => "set volumes and play or pause media",
-            Capability::ControlBrightness => "set the screen brightness",
+            Capability::ControlSound => {
+                "set volumes, the ringer, and Do Not Disturb, and play or pause media"
+            }
+            Capability::ControlBrightness => "set the screen brightness, rotation, and timeout",
             Capability::ControlFlashlight => "turn the flashlight on or off",
-            Capability::ControlPanels => "open the Wi-Fi, internet, Bluetooth, and volume panels",
+            Capability::ControlPanels => "open settings panels and pages",
         }
     }
 }

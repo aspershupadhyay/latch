@@ -1828,6 +1828,7 @@ pub fn render_status(device_id: &str, info: &latch_protocol::DeviceInfo) -> Stri
         ));
     }
     if let Some(package) = &info.package {
+        let package: String = package.chars().take(200).collect();
         lines.push(format!("- app in front: {package}"));
     }
     lines.push(format!(

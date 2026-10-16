@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.14";
+export const PROTOCOL_VERSION = "1.15";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -59,17 +59,17 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "screen.capture": "take screenshots",
   "input.gesture": "tap, long-press, and swipe",
   "input.text": "type into non-sensitive text fields",
-  "nav.global": "press back, home, and recents",
+  "nav.global": "press back, home, recents, and other system buttons",
   "app.launch": "list and open apps",
   "file.read": "list and read allowed photos and files",
   "file.write": "save, rename, and delete files",
   "app.share": "share files to an app",
   "clipboard.write": "copy text to the clipboard",
   "activity.read": "read Latch's activity log",
-  "control.sound": "set volumes and play or pause media",
-  "control.brightness": "set the screen brightness",
+  "control.sound": "set volumes, the ringer, and Do Not Disturb, and play or pause media",
+  "control.brightness": "set the screen brightness, rotation, and timeout",
   "control.flashlight": "turn the flashlight on or off",
-  "control.panels": "open the Wi-Fi, internet, Bluetooth, and volume panels",
+  "control.panels": "open settings panels and pages",
 };
 
 export interface SessionInfo {
@@ -127,9 +127,11 @@ export type Command =
   | { name: "input.type"; params: { observation_id: string; element: string; text: string; submit?: boolean } }
   | { name: "ui.wait"; params: { text: string; gone: boolean; timeout_ms: number; max_nodes: number } }
   | { name: "ui.scroll_to"; params: { observation_id: string; text: string; direction: Direction; container?: string; max_swipes: number } }
-  | { name: "nav.global"; params: { action: "back" | "home" | "recents" } }
+  | { name: "nav.global"; params: { action: GlobalAction } }
   | { name: "app.list"; params: Record<string, never> }
-  | { name: "app.launch"; params: { package: string } }
+  | { name: "app.launch"; params: { package: string; fresh?: boolean } }
+  /** Since 1.15: a web or app link opened in one app. */
+  | { name: "app.open_link"; params: { url: string; package: string } }
   /** Since 1.5: ask the owner to do something only a person should do; needs no capability. */
   | { name: "owner.ask"; params: { message: string } }
   // Since 1.6 (ADR-026): files addressed by opaque ids the phone issued.
@@ -169,19 +171,38 @@ export type Command =
 /** Since 1.11: one phone control; the same shapes as crates/protocol's `PhoneControl`. */
 export const VOLUME_STREAMS = ["media", "ring", "notification", "alarm"] as const;
 export const MEDIA_ACTIONS = ["play_pause", "next", "previous"] as const;
-export const SETTINGS_PANELS = ["wifi", "internet", "bluetooth", "volume"] as const;
+/** The four panels every 1.11 phone opens; the rest since 1.15. */
+const FIRST_PANELS = ["wifi", "internet", "bluetooth", "volume"] as const;
+export const SETTINGS_PANELS = [
+  ...FIRST_PANELS, "nfc", "airplane_mode", "location", "display", "battery", "sound", "notifications", "storage", "date_time",
+] as const;
+type SettingsPanel = (typeof SETTINGS_PANELS)[number];
+const PANEL_LABELS: Record<SettingsPanel, string> = {
+  wifi: "Wi-Fi", internet: "internet", bluetooth: "Bluetooth", volume: "volume", nfc: "NFC", airplane_mode: "airplane mode",
+  location: "location", display: "display", battery: "battery", sound: "sound", notifications: "notifications",
+  storage: "storage", date_time: "date and time",
+};
+export const ROTATION_MODES = ["auto", "portrait", "landscape"] as const;
+export const RINGER_MODES = ["normal", "vibrate", "silent"] as const;
+export const MIN_SCREEN_TIMEOUT_S = 15;
+export const MAX_SCREEN_TIMEOUT_S = 1800;
 export type PhoneControl =
   | { kind: "volume"; stream: (typeof VOLUME_STREAMS)[number]; percent: number }
   | { kind: "media"; action: (typeof MEDIA_ACTIONS)[number] }
   | { kind: "brightness"; percent: number }
   | { kind: "flashlight"; on: boolean }
-  | { kind: "panel"; panel: (typeof SETTINGS_PANELS)[number] };
+  | { kind: "panel"; panel: SettingsPanel }
+  // Since 1.15.
+  | { kind: "rotation"; mode: (typeof ROTATION_MODES)[number] }
+  | { kind: "screen_timeout"; seconds: number }
+  | { kind: "ringer"; mode: (typeof RINGER_MODES)[number] }
+  | { kind: "do_not_disturb"; on: boolean };
 
 /** The owner switch for a group of controls. */
 export function controlCapability(c: PhoneControl): Capability {
   switch (c.kind) {
-    case "volume": case "media": return "control.sound";
-    case "brightness": return "control.brightness";
+    case "volume": case "media": case "ringer": case "do_not_disturb": return "control.sound";
+    case "brightness": case "rotation": case "screen_timeout": return "control.brightness";
     case "flashlight": return "control.flashlight";
     case "panel": return "control.panels";
   }
@@ -194,8 +215,66 @@ export function describeControl(c: PhoneControl): string {
     case "media": return { play_pause: "Play or pause media", next: "Skip to the next track", previous: "Go back a track" }[c.action];
     case "brightness": return `Set the screen brightness to ${c.percent}%`;
     case "flashlight": return `Turn the flashlight ${c.on ? "on" : "off"}`;
-    case "panel": return `Open the ${{ wifi: "Wi-Fi", internet: "internet", bluetooth: "Bluetooth", volume: "volume" }[c.panel]} panel`;
+    case "panel": return (FIRST_PANELS as readonly string[]).includes(c.panel) || c.panel === "nfc"
+      ? `Open the ${PANEL_LABELS[c.panel]} panel` : `Open the ${PANEL_LABELS[c.panel]} settings`;
+    case "rotation": return { auto: "Turn auto-rotate on", portrait: "Lock the screen to portrait", landscape: "Lock the screen to landscape" }[c.mode];
+    case "screen_timeout": return c.seconds % 60 === 0 ? `Set the screen timeout to ${c.seconds / 60} min` : `Set the screen timeout to ${c.seconds} s`;
+    case "ringer": return { normal: "Set the ringer to ring", vibrate: "Set the ringer to vibrate", silent: "Silence the ringer" }[c.mode];
+    case "do_not_disturb": return `Turn Do Not Disturb ${c.on ? "on" : "off"}`;
   }
+}
+
+/** Lowest minor version a phone needs for this control. */
+function controlMinor(c: PhoneControl): number {
+  switch (c.kind) {
+    case "volume": case "media": case "brightness": case "flashlight": return 11;
+    case "panel": return (FIRST_PANELS as readonly string[]).includes(c.panel) ? 11 : 15;
+    default: return 15;
+  }
+}
+
+/** System buttons and keys (`nav.global`); back, home, and recents since 1.0, the rest since 1.15. */
+export const GLOBAL_ACTIONS = [
+  "back", "home", "recents", "notifications", "quick_settings", "lock_screen", "screenshot", "split_screen",
+  "dpad_up", "dpad_down", "dpad_left", "dpad_right", "dpad_center",
+] as const;
+export type GlobalAction = (typeof GLOBAL_ACTIONS)[number];
+/** What the owner reads; the same text as `GlobalAction::describe` in Rust. */
+export const GLOBAL_ACTION_TEXT: Record<GlobalAction, string> = {
+  back: "Press Back", home: "Press Home", recents: "Show recent apps", notifications: "Open the notification shade",
+  quick_settings: "Open quick settings", lock_screen: "Lock the screen", screenshot: "Take a screenshot (saved to the gallery)",
+  split_screen: "Split the screen", dpad_up: "Press the up arrow", dpad_down: "Press the down arrow",
+  dpad_left: "Press the left arrow", dpad_right: "Press the right arrow", dpad_center: "Press the centre (select) key",
+};
+
+/** Since 1.15: battery, network, storage, and screen state in `device.info`; never personal. */
+export interface DeviceStatus {
+  battery_percent?: number; charging?: boolean; network?: "wifi" | "cellular" | "ethernet" | "none";
+  free_storage_mb?: number; orientation?: "portrait" | "landscape"; locked?: boolean; do_not_disturb?: boolean;
+}
+export interface DeviceInfo {
+  device: { platform: string; os_version: string; model: string; app_version: string };
+  screen: { width: number; height: number; rotation?: number };
+  package?: string;
+  capabilities: CapabilityState[];
+  session: SessionInfo;
+  status?: DeviceStatus;
+}
+
+/** Longest `app.open_link` URL, and the schemes it never opens; the same as `validate::open_link_url` in Rust. */
+export const MAX_LINK_CHARS = 2048;
+const BLOCKED_LINK_SCHEMES = ["intent", "android-app", "file", "content", "javascript", "vbscript", "data", "blob", "about", "filesystem", "jar"];
+export function checkOpenLinkUrl(url: string): void {
+  if (url.length === 0 || url.length > MAX_LINK_CHARS) throw invalid(`url must be 1-${MAX_LINK_CHARS} characters`);
+  if (!/^[\x21-\x7e]+$/.test(url)) throw invalid("url must be printable ASCII without spaces (percent-encode the rest)");
+  const colon = url.indexOf(":");
+  if (colon < 0) throw invalid("url needs a scheme, e.g. https:");
+  const scheme = url.slice(0, colon);
+  const rest = url.slice(colon + 1);
+  if (!/^[a-z][a-z0-9+.-]{0,31}$/.test(scheme)) throw invalid("url scheme must be lowercase letters, digits, +, ., or -");
+  if (BLOCKED_LINK_SCHEMES.includes(scheme)) throw invalid(`${scheme}: links cannot be opened`);
+  if (rest.length === 0) throw invalid("url has nothing after the scheme");
+  if ((scheme === "http" || scheme === "https") && !rest.startsWith("//")) throw invalid("a web address looks like https://example.com/...");
 }
 
 /** Since 1.8: what an activity log entry is about. */
@@ -282,8 +361,11 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "input.tap" && c.params.double === true) return 3;
   if (c.name === "input.swipe" && (c.params.hold_ms ?? 0) > 0) return 3;
   if (c.name === "owner.ask") return 5;
+  if (c.name === "app.open_link") return 15;
+  if (c.name === "app.launch" && c.params.fresh === true) return 15;
+  if (c.name === "nav.global") return ["back", "home", "recents"].includes(c.params.action) ? 0 : 15;
   if (c.name === "file.local") return 14;
-  if (c.name === "device.control") return 11;
+  if (c.name === "device.control") return controlMinor(c.params.control);
   if (c.name === "activity.list" || c.name === "task.done") return 8;
   if (c.name === "file.fetch" || c.name === "file.push" || c.name === "file.transfer" || c.name === "clipboard.set") return 7;
   if (c.name.startsWith("file.") || c.name === "app.share") return 6;
@@ -300,7 +382,7 @@ export function requiredCapabilities(c: Command): Capability[] {
     case "input.tap": case "input.swipe": case "input.pinch": return ["input.gesture"];
     case "input.type": return ["input.text"];
     case "nav.global": return ["nav.global"];
-    case "app.list": case "app.launch": return ["app.launch"];
+    case "app.list": case "app.launch": case "app.open_link": return ["app.launch"];
     case "ui.wait": return ["ui.observe"];
     case "ui.scroll_to": return ["ui.observe", "input.gesture"];
     // Only shows the owner a question; the owner does the rest.
@@ -489,6 +571,10 @@ export function validateCommand(c: Command): void {
     case "app.launch":
       if (!isValidPackage(c.params.package)) throw invalid("package must be an application id such as com.example.app");
       return;
+    case "app.open_link":
+      if (!isValidPackage(c.params.package)) throw invalid("package must be an application id such as com.example.app");
+      checkOpenLinkUrl(c.params.url);
+      return;
     case "file.list":
       if (!FILE_LOCATIONS.includes(c.params.location)) throw invalid("location must be photos, downloads, or folder");
       if (c.params.folder !== undefined) id("folder", c.params.folder);
@@ -576,6 +662,9 @@ export function validateCommand(c: Command): void {
     case "device.control": {
       const k = c.params.control;
       if ((k.kind === "volume" || k.kind === "brightness") && (!isInt(k.percent) || k.percent < 0 || k.percent > 100)) throw invalid("percent must be 0-100");
+      if (k.kind === "screen_timeout" && (!isInt(k.seconds) || k.seconds < MIN_SCREEN_TIMEOUT_S || k.seconds > MAX_SCREEN_TIMEOUT_S)) {
+        throw invalid(`seconds must be between ${MIN_SCREEN_TIMEOUT_S} and ${MAX_SCREEN_TIMEOUT_S}`);
+      }
       return;
     }
     case "clipboard.set": {
@@ -612,6 +701,10 @@ export function parseControl(raw: unknown): PhoneControl {
     case "brightness": return { kind: "brightness", percent: percent() };
     case "flashlight": if (typeof c.on !== "boolean") throw invalid("on must be a boolean"); return { kind: "flashlight", on: c.on };
     case "panel": return { kind: "panel", panel: oneOf("panel", SETTINGS_PANELS) };
+    case "rotation": return { kind: "rotation", mode: oneOf("mode", ROTATION_MODES) };
+    case "ringer": return { kind: "ringer", mode: oneOf("mode", RINGER_MODES) };
+    case "screen_timeout": if (!isInt(c.seconds)) throw invalid("seconds must be an integer"); return { kind: "screen_timeout", seconds: c.seconds };
+    case "do_not_disturb": if (typeof c.on !== "boolean") throw invalid("on must be a boolean"); return { kind: "do_not_disturb", on: c.on };
     default: throw invalid("unknown control");
   }
 }
@@ -674,11 +767,13 @@ export function parseCommand(raw: unknown): Command {
       };
     }
     case "nav.global": {
-      const action = str("action");
-      if (action !== "back" && action !== "home" && action !== "recents") throw invalid("unknown global action");
+      const action = str("action") as GlobalAction;
+      if (!GLOBAL_ACTIONS.includes(action)) throw invalid("unknown global action");
       return { name, params: { action } };
     }
-    case "app.launch": return { name, params: { package: str("package") } };
+    case "app.launch": return bool("fresh", false)
+      ? { name, params: { package: str("package"), fresh: true } } : { name, params: { package: str("package") } };
+    case "app.open_link": return { name, params: { url: str("url"), package: str("package") } };
     case "owner.ask": return { name, params: { message: str("message") } };
     case "file.list": {
       const location = str("location") as FileLocation;
