@@ -1,0 +1,24 @@
+# Safety and privacy
+
+We built Latch so the AI can't sneak around you:
+
+- **Everything starts off.** You switch on each power yourself.
+- **Sessions end on their own** when the timer runs out, and the red **Stop** button is always on screen.
+- **Only the apps you pick.** The AI can use an app only after you switch it on (or say yes when it first asks). In apps you switched on it doesn't ask again; anywhere else, before the AI taps things like *Send, Post, Call, Delete,* a card pops up on your phone. Tap **Allow once**, or save your answer: **This session**, or **Always in Instagram** (for example).
+- **Money, installs, permissions, and deleting accounts ask.** Buttons like *Pay, Buy, Transfer, Install,* Android permission prompts, and *Delete account* ask every time, unless you yourself switch on **Also allow payments and permissions** (off until you do).
+- **The phone double-checks.** Even if the gateway missed a risky button, the phone checks the same rules on what it sees right now and asks you anyway.
+- **Passwords, PINs, one-time codes, and card numbers are hidden** from the AI, and it can't type into those boxes.
+- **Off-limits areas:** the AI can't touch the Latch app itself, your notification shade, or your lock screen.
+- **No sneaky stuff exists in the app:** no file access, no reading notifications, no command line.
+- **Screen text can't boss the AI around.** Text on screen is treated as plain information, never as instructions.
+
+## What gets stored?
+
+- **Your screen is never saved.** A screen reading passes through your gateway on its way to your AI and is deleted right after (within 60 seconds at most). A text-only copy of the latest screen reading (no picture) is kept for about 2 minutes so taps can be checked against the current screen.
+- **Your gateway keeps a short activity list:** what kind of action happened and whether it was allowed. No screen text, no pictures. It keeps the last 1,000 entries for up to 30 days.
+- **Keys are stored safely:** scrambled (as hashes) on the gateway, and encrypted on your phone.
+- **Nothing goes to us.** There's no Latch server, no tracking, and no analytics.
+- **Reading unlabeled buttons:** before the AI taps a button with no label (an icon-only Send or Pay), Latch reads the words on it on the phone with Google ML Kit so the button still asks you. The picture and the words never leave the phone, but ML Kit sends Google usage statistics (phone model, app version, speed). Switch it off in **Settings → Read unlabeled buttons**; then ML Kit never runs.
+- **One honest caveat:** whatever your AI sees is sent to that AI company (like Anthropic or OpenAI), because that's how it reads your screen. Their privacy rules apply. Only switch on what you're comfortable sharing.
+
+More detail: [SECURITY.md](../SECURITY.md) and [handbook chapter 08](../handbook/08-safety-privacy-security.md).
