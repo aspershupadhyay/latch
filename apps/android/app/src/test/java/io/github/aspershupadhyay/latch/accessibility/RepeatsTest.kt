@@ -85,4 +85,16 @@ class RepeatsTest {
         )
         assertEquals(listOf("a", "b"), ids)
     }
+
+    @Test
+    fun `a label that carries its own state or actions is kept (protocol 1_16)`() {
+        val inner = Rect(10, 110, 290, 170)
+        val ids = kept(
+            node("post", description = "Photo by ada", clickable = true, role = "ViewGroup") to null,
+            node("like", bounds = inner, description = "Photo by ada").copy(actions = listOf("Like")) to "post",
+            node("same", bounds = inner, description = "Photo by ada") to "post",
+            node("liked", bounds = inner, description = "Photo by ada").copy(state = "Liked") to "post",
+        )
+        assertEquals(listOf("post", "like", "liked"), ids)
+    }
 }

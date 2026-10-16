@@ -144,8 +144,9 @@ class Consequences(private val words: PolicyWords) {
 
     private fun words(text: String): List<String> = text.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
 
+    // A guessed label (protocol 1.16) can only add reasons to ask, never remove one.
     private fun matches(node: UiNode, single: List<String>, phrases: List<String>): Boolean =
-        listOfNotNull(node.text, node.description, node.resourceId).any { field ->
+        listOfNotNull(node.text, node.description, node.resourceId, node.label).any { field ->
             val ws = words(field)
             val joined = " " + ws.joinToString(" ") + " "
             val compact = ws.joinToString("")
@@ -257,7 +258,7 @@ class Consequences(private val words: PolicyWords) {
 
         private fun ownLabel(n: UiNode): String? = n.text?.takeIf { it.isNotBlank() } ?: n.description?.takeIf { it.isNotBlank() }
 
-        fun labelOf(n: UiNode): String = shorten(ownLabel(n) ?: n.resourceId ?: n.role)
+        fun labelOf(n: UiNode): String = shorten(ownLabel(n) ?: n.label?.takeIf { it.isNotBlank() } ?: n.resourceId ?: n.role)
 
         private fun fieldLabel(n: UiNode): String =
             shorten(n.description?.takeIf { it.isNotBlank() } ?: n.resourceId?.substringAfterLast('/') ?: n.role)

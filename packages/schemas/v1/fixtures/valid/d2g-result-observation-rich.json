@@ -1,0 +1,24 @@
+{
+  "type": "result",
+  "id": "c_0002",
+  "outcome": {
+    "status": "ok",
+    "data": {
+      "observation_id": "o_8",
+      "captured_at_ms": 1800000000000,
+      "package": "com.example.photos",
+      "screen": { "width": 1080, "height": 2400, "rotation": 0 },
+      "nodes": [
+        { "id": "n0", "role": "FrameLayout", "bounds": { "left": 0, "top": 0, "right": 1080, "bottom": 2400 } },
+        { "id": "n1", "parent": "n0", "role": "TextView", "text": "Home", "bounds": { "left": 40, "top": 100, "right": 400, "bottom": 180 }, "heading": true },
+        { "id": "n2", "parent": "n0", "role": "ViewGroup", "description": "Photo by ada", "bounds": { "left": 0, "top": 220, "right": 1080, "bottom": 1200 }, "position": { "index": 6, "count": 40 }, "actions": ["Like", "Comment"], "covered": true },
+        { "id": "n3", "parent": "n2", "role": "ImageView", "resource_id": "com.example.photos:id/row_feed_button_like", "label": "row feed button like", "state": "Not liked", "bounds": { "left": 40, "top": 1100, "right": 140, "bottom": 1190 }, "clickable": true, "covered": true },
+        { "id": "n4", "parent": "n0", "role": "SeekBar", "description": "Volume", "bounds": { "left": 40, "top": 1220, "right": 1040, "bottom": 1280 }, "percent": 70 },
+        { "id": "n5", "parent": "n0", "role": "EditText", "hint": "Write a caption…", "bounds": { "left": 40, "top": 1300, "right": 1040, "bottom": 1400 }, "editable": true },
+        { "id": "n6", "parent": "n0", "role": "FrameLayout", "description": "Profile", "bounds": { "left": 0, "top": 2260, "right": 540, "bottom": 2400 }, "clickable": true, "selected": true }
+      ],
+      "redacted_count": 0,
+      "truncated": false
+    }
+  }
+}

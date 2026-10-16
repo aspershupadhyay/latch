@@ -395,7 +395,7 @@ class CommandExecutor(
                 Protocol.json.encodeToJsonElement(ActionResult.serializer(), action)
             }
             is Command.Observe -> {
-                val observation = service.observe(command.includeScreenshot, command.maxNodes)
+                val observation = service.observe(command.includeScreenshot, command.maxNodes, command.marks)
                 note(ActivityKind.SCREEN, "${describe(command)} · ${observation.`package` ?: "unknown app"}")
                 Protocol.json.encodeToJsonElement(Observation.serializer(), observation)
             }
