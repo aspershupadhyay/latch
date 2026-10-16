@@ -98,6 +98,7 @@ fun describe(command: Command): String = when (command) {
     is Command.FetchFile -> (if (command.overwrite) "Replace" else "Save") +
         " “${command.fileName}” " + (if (command.overwrite) "in " else "to ") + where(command.location)
     is Command.PushFile -> "Copy a file from your phone"
+    is Command.OpenLocal -> "Get ready for a transfer on your Wi-Fi"
     is Command.TransferStatus -> if (command.cancel) "Stop a file transfer" else "Check a file transfer"
     is Command.SetClipboard -> "Copy ${command.text.codePointCount(0, command.text.length)} characters to the clipboard"
     is Command.ListActivity -> "Read Latch's activity log"
@@ -153,7 +154,7 @@ private fun worksOnScreen(command: Command): Boolean = when (command) {
     Command.DeviceInfoCommand, Command.ListApps, is Command.LaunchApp, is Command.AskOwner,
     is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
     is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share,
-    is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
+    is Command.FetchFile, is Command.PushFile, is Command.OpenLocal, is Command.TransferStatus, is Command.SetClipboard,
     is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
@@ -351,6 +352,12 @@ class CommandExecutor(
                 note(ActivityKind.FILE, "Copied a file off the phone")
                 Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
             }
+            // Same-Wi-Fi transfers (ADR-041) come in a later version: the gateway
+            // falls back to the encrypted cloud link.
+            is Command.OpenLocal -> throw ProtocolException(
+                ErrorCode.UNSUPPORTED_CAPABILITY,
+                "fast transfers on the same Wi-Fi are not available in this version",
+            )
             is Command.TransferStatus -> {
                 // Never longer than the command's own deadline allows.
                 val wait = command.waitMs.toLong().coerceAtMost((envelope.deadlineMs - 2_000).coerceAtLeast(0))
@@ -637,7 +644,7 @@ class CommandExecutor(
         Command.DeviceInfoCommand, Command.ListApps, is Command.AskOwner,
         is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
         is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile,
-        is Command.FetchFile, is Command.PushFile, is Command.TransferStatus, is Command.SetClipboard,
+        is Command.FetchFile, is Command.PushFile, is Command.OpenLocal, is Command.TransferStatus, is Command.SetClipboard,
         is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl -> null
         is Command.LaunchApp -> command.packageName
         // Sharing opens that app: only apps the owner allowed (or Auto mode).

@@ -473,6 +473,7 @@ fn assess(
             })
         }
         Command::PushFile { .. } => Ok(low("Copy a file from your phone".into())),
+        Command::OpenLocal { .. } => Ok(low("Get ready for a transfer on your Wi-Fi".into())),
         Command::TransferStatus { cancel, .. } => Ok(low(if *cancel {
             "Stop a file transfer".into()
         } else {

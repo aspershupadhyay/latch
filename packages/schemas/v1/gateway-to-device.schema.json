@@ -985,6 +985,37 @@
           ]
         },
         {
+          "description": "Since 1.14 (ADR-041): open a one-transfer address on the phone's local\nnetwork for a same-Wi-Fi transfer, if the owner switched fast\ntransfers on and the phone is on Wi-Fi; otherwise the phone answers\n`unsupported`. A later `file.fetch` (`receive`) or `file.push`\n(`send`) whose link URL is this address reads or fills it on the\nphone itself. Answers with a [`crate::LocalSlot`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "file.local"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "direction": {
+                  "$ref": "#/$defs/LocalDirection"
+                },
+                "max_bytes": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "direction",
+                "max_bytes"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
           "description": "Since 1.7: put `text` on the phone's clipboard, e.g. a caption to paste\ninto an app whose text box Latch cannot type into. Reading the\nclipboard is not offered. Answers with an [`crate::ActionResult`].",
           "type": "object",
           "properties": {
@@ -1237,6 +1268,21 @@
         "back",
         "home",
         "recents"
+      ]
+    },
+    "LocalDirection": {
+      "description": "Since 1.14 (ADR-041): which way a same-Wi-Fi transfer goes, seen from the phone.",
+      "oneOf": [
+        {
+          "description": "The computer sends a file's encrypted bytes to the phone (`PUT`).",
+          "type": "string",
+          "const": "receive"
+        },
+        {
+          "description": "The computer reads a file's encrypted bytes from the phone (`GET`).",
+          "type": "string",
+          "const": "send"
+        }
       ]
     },
     "MediaAction": {

@@ -52,6 +52,9 @@ pub struct Record {
     pub sha256: Option<String>,
     pub place: Option<String>,
     pub asked_name: Option<String>,
+    /// Since 1.14 (ADR-041): the phone and its same-Wi-Fi address that carry
+    /// this transfer instead of the stored copy, when the phone opened one.
+    pub local: Option<(String, String)>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -147,6 +150,7 @@ impl Links {
             sha256: None,
             place: None,
             asked_name: None,
+            local: None,
         };
         self.lock().insert(token.clone(), record.clone());
         (token, record)

@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0060", "deadline_ms": 10000, "command": { "name": "file.local", "params": { "direction": "receive", "max_bytes": 2147483648 } } }

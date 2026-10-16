@@ -393,6 +393,14 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             }
             Ok(())
         }
+        Command::OpenLocal { max_bytes, .. } => {
+            if *max_bytes == 0 || *max_bytes > MAX_LINK_FILE_BYTES {
+                return Err(invalid(format!(
+                    "max_bytes must be between 1 and {MAX_LINK_FILE_BYTES}"
+                )));
+            }
+            Ok(())
+        }
         Command::TransferStatus {
             transfer, wait_ms, ..
         } => {
@@ -612,6 +620,24 @@ fn check_link(link: &crate::FileLink) -> Result<(), ProtocolError> {
         return Err(invalid(
             "link.key_hex must be 64 and link.iv_hex 32 lowercase hex characters",
         ));
+    }
+    Ok(())
+}
+
+/// Checks a [`crate::LocalSlot`] from a phone (since 1.14, ADR-041): plain
+/// HTTP to a private or loopback IPv4 address, a port above 1023, and a
+/// 64-hex path. Anything else is refused, so a phone cannot point the AI's
+/// computer at an address on the internet.
+pub fn local_slot(slot: &crate::LocalSlot) -> Result<(), ProtocolError> {
+    let bad = || invalid("url must be http://<private IPv4>:<port>/<64 lowercase hex>");
+    let rest = slot.url.strip_prefix("http://").ok_or_else(bad)?;
+    let (host_port, path) = rest.split_once('/').ok_or_else(bad)?;
+    let (host, port) = host_port.split_once(':').ok_or_else(bad)?;
+    let ip: std::net::Ipv4Addr = host.parse().map_err(|_| bad())?;
+    let port: u16 = port.parse().map_err(|_| bad())?;
+    let private = ip.is_private() || ip.is_loopback() || ip.is_link_local();
+    if !private || port < 1024 || !is_hex(path, 64) {
+        return Err(bad());
     }
     Ok(())
 }
@@ -870,5 +896,38 @@ mod tests {
             })
             .is_ok()
         );
+    }
+
+    #[test]
+    fn local_slots_must_be_private_http_addresses() {
+        let path = "ab".repeat(32);
+        let slot = |url: String| crate::LocalSlot {
+            url,
+            expires_at_ms: 1,
+        };
+        for ok in [
+            "192.168.1.20:41234",
+            "10.0.0.7:1024",
+            "172.20.3.4:65535",
+            "127.0.0.1:5000",
+            "169.254.9.9:8000",
+        ] {
+            assert!(
+                local_slot(&slot(format!("http://{ok}/{path}"))).is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            format!("https://192.168.1.20:41234/{path}"),
+            format!("http://8.8.8.8:41234/{path}"),
+            format!("http://example.com:41234/{path}"),
+            format!("http://192.168.1.20:80/{path}"),
+            format!("http://192.168.1.20/{path}"),
+            "http://192.168.1.20:41234/short".to_owned(),
+            format!("http://192.168.1.20:41234/{}", "AB".repeat(32)),
+            format!("http://[fe80::1]:41234/{path}"),
+        ] {
+            assert!(local_slot(&slot(bad.clone())).is_err(), "{bad}");
+        }
     }
 }

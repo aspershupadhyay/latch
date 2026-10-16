@@ -7,6 +7,7 @@
 //! download is kept.
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use aes::cipher::{KeyIvInit, StreamCipher};
 use latch_protocol::{ErrorCode, FileItem, FileLink, ProtocolError};
@@ -46,13 +47,144 @@ pub enum Job {
         transfer: String,
         link: FileLink,
         sha256: String,
+        /// The phone's own Wi-Fi slot, when the link points there (1.14).
+        local: Option<Slot>,
     },
     Push {
         transfer: String,
         link: FileLink,
         data: Vec<u8>,
         max_bytes: u64,
+        local: Option<Slot>,
     },
+}
+
+/// The ciphertext a same-Wi-Fi slot holds (protocol 1.14, ADR-041).
+pub type Slot = Arc<Mutex<Option<Vec<u8>>>>;
+
+/// One same-Wi-Fi address the phone opened with `file.local`.
+#[derive(Debug, Clone)]
+pub struct LocalSlot {
+    pub url: String,
+    pub direction: latch_protocol::LocalDirection,
+    pub data: Slot,
+}
+
+/// How long a slot listens, like the app's.
+pub const LOCAL_SLOT_TTL_MS: u64 = 15 * 60 * 1000;
+
+/// Serves one slot on 127.0.0.1 until one transfer is done or it expires:
+/// `PUT /<token>` fills a receive slot, `GET /<token>` reads a send slot.
+/// Anything else is answered 404, and the slot keeps listening.
+pub async fn serve_slot(listener: std::net::TcpListener, slot: LocalSlot, token: String) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
+        return;
+    };
+    let ttl = std::time::Duration::from_millis(LOCAL_SLOT_TTL_MS);
+    let _ = tokio::time::timeout(ttl, async {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let mut raw = Vec::new();
+            let mut buf = [0u8; 64 * 1024];
+            let head_end = loop {
+                if let Some(end) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break Some(end);
+                }
+                match stream.read(&mut buf).await {
+                    Ok(0) | Err(_) => break None,
+                    Ok(n) => raw.extend_from_slice(&buf[..n]),
+                }
+            };
+            let Some(end) = head_end else { continue };
+            let head = String::from_utf8_lossy(&raw[..end]).to_ascii_lowercase();
+            let mut words = head.split_whitespace();
+            let (method, path) = (words.next().unwrap_or(""), words.next().unwrap_or(""));
+            let length: usize = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0);
+            let mut body = raw[end + 4..].to_vec();
+            while body.len() < length {
+                match stream.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => body.extend_from_slice(&buf[..n]),
+                }
+            }
+            let ours = path.strip_prefix('/') == Some(token.as_str());
+            let reply = |status: &str, payload: &[u8]| {
+                let mut out = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                )
+                .into_bytes();
+                out.extend_from_slice(payload);
+                out
+            };
+            let (answer, done) = {
+                let mut data = slot.data.lock().unwrap_or_else(|e| e.into_inner());
+                match (method, slot.direction) {
+                    ("put", latch_protocol::LocalDirection::Receive)
+                        if ours && data.is_none() && body.len() == length =>
+                    {
+                        *data = Some(body);
+                        (reply("201 Created", b""), true)
+                    }
+                    ("get", latch_protocol::LocalDirection::Send) if ours && data.is_some() => {
+                        (reply("200 OK", data.as_deref().unwrap_or_default()), true)
+                    }
+                    _ => (reply("404 Not Found", b""), false),
+                }
+            };
+            let _ = stream.write_all(&answer).await;
+            let _ = stream.shutdown().await;
+            if done {
+                return;
+            }
+        }
+    })
+    .await;
+}
+
+/// 64 lowercase hex characters from the OS random generator: a slot's path.
+pub fn random_token() -> String {
+    let mut bytes = [0u8; 32];
+    // The OS RNG failing is unrecoverable for a secret path.
+    #[allow(clippy::expect_used)]
+    getrandom::fill(&mut bytes).expect("operating system random number generator failed");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Decrypts what arrived at the phone's own receive slot.
+pub fn take_local(slot: &Slot, link: &FileLink, sha256: &str) -> Result<Vec<u8>, ProtocolError> {
+    let mut data = slot
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .ok_or_else(|| {
+            err(
+                ErrorCode::TargetNotFound,
+                "nothing arrived at the phone's Wi-Fi address",
+            )
+        })?;
+    apply(link, &mut data)?;
+    if sha256_hex(&data) != sha256 {
+        return Err(err(
+            ErrorCode::InvalidRequest,
+            "the file did not match its sha256, so it was not saved",
+        ));
+    }
+    Ok(data)
+}
+
+/// Encrypts a push into the phone's own send slot.
+pub fn fill_local(slot: &Slot, link: &FileLink, mut data: Vec<u8>) -> Result<(), ProtocolError> {
+    apply(link, &mut data)?;
+    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(data);
+    Ok(())
 }
 
 /// Where a fetched file goes once it checks out.

@@ -388,6 +388,18 @@ pub enum Command {
         cancel: bool,
     },
 
+    /// Since 1.14 (ADR-041): open a one-transfer address on the phone's local
+    /// network for a same-Wi-Fi transfer, if the owner switched fast
+    /// transfers on and the phone is on Wi-Fi; otherwise the phone answers
+    /// `unsupported`. A later `file.fetch` (`receive`) or `file.push`
+    /// (`send`) whose link URL is this address reads or fills it on the
+    /// phone itself. Answers with a [`crate::LocalSlot`].
+    #[serde(rename = "file.local")]
+    OpenLocal {
+        direction: crate::LocalDirection,
+        max_bytes: u64,
+    },
+
     /// Since 1.7: put `text` on the phone's clipboard, e.g. a caption to paste
     /// into an app whose text box Latch cannot type into. Reading the
     /// clipboard is not offered. Answers with an [`crate::ActionResult`].
@@ -478,6 +490,7 @@ impl Command {
             Command::FetchFile { .. } => "file.fetch",
             Command::PushFile { .. } => "file.push",
             Command::TransferStatus { .. } => "file.transfer",
+            Command::OpenLocal { .. } => "file.local",
             Command::SetClipboard { .. } => "clipboard.set",
             Command::ListActivity { .. } => "activity.list",
             Command::TaskDone { .. } => "task.done",
@@ -518,6 +531,11 @@ impl Command {
             Command::Share { .. } => vec![Capability::AppShare],
             Command::FetchFile { .. } => vec![Capability::FileWrite],
             Command::PushFile { .. } => vec![Capability::FileRead],
+            // The same capability the transfer it prepares needs.
+            Command::OpenLocal { direction, .. } => vec![match direction {
+                crate::LocalDirection::Receive => Capability::FileWrite,
+                crate::LocalDirection::Send => Capability::FileRead,
+            }],
             // Follows a transfer that already passed its own checks; the phone
             // answers only for transfers of the running session.
             Command::TransferStatus { .. } => vec![],
@@ -543,6 +561,7 @@ impl Command {
                 | Command::ReadFile { .. }
                 | Command::PushFile { .. }
                 | Command::TransferStatus { .. }
+                | Command::OpenLocal { .. }
                 | Command::ListActivity { .. }
                 | Command::TaskDone { .. }
         )
@@ -613,6 +632,7 @@ impl Command {
             | Command::SetClipboard { .. } => 7,
             Command::ListActivity { .. } | Command::TaskDone { .. } => 8,
             Command::DeviceControl { .. } => 11,
+            Command::OpenLocal { .. } => 14,
             _ => 0,
         }
     }
