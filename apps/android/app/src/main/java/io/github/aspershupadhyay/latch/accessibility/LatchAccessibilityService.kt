@@ -26,6 +26,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.edit
 import androidx.core.graphics.scale
+import androidx.core.net.toUri
 import io.github.aspershupadhyay.latch.LatchApp
 import io.github.aspershupadhyay.latch.protocol.AppEntry
 import io.github.aspershupadhyay.latch.protocol.Direction
@@ -1306,15 +1307,32 @@ class LatchAccessibilityService : AccessibilityService() {
         val current = rootInActiveWindow?.packageName?.toString()
         // Home only leaves the current app, so it is how an agent gets out of Latch's own screen.
         if (!(action == GlobalAction.HOME && current == packageName)) refuseRestrictedPackage(current)
+        val code = when (action) {
+            GlobalAction.BACK -> GLOBAL_ACTION_BACK
+            GlobalAction.HOME -> GLOBAL_ACTION_HOME
+            GlobalAction.RECENTS -> GLOBAL_ACTION_RECENTS
+            GlobalAction.LOCK_SCREEN -> GLOBAL_ACTION_LOCK_SCREEN
+            GlobalAction.SCREENSHOT -> GLOBAL_ACTION_TAKE_SCREENSHOT
+            GlobalAction.SPLIT_SCREEN -> GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN
+            GlobalAction.DPAD_UP, GlobalAction.DPAD_DOWN, GlobalAction.DPAD_LEFT, GlobalAction.DPAD_RIGHT, GlobalAction.DPAD_CENTER -> {
+                if (Build.VERSION.SDK_INT < 33) {
+                    throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "the arrow keys need Android 13 or newer")
+                }
+                dpad(action)
+            }
+        }
         invalidate()
-        val ok = performGlobalAction(
-            when (action) {
-                GlobalAction.BACK -> GLOBAL_ACTION_BACK
-                GlobalAction.HOME -> GLOBAL_ACTION_HOME
-                GlobalAction.RECENTS -> GLOBAL_ACTION_RECENTS
-            },
-        )
+        val ok = performGlobalAction(code)
         if (!ok) throw ProtocolException(ErrorCode.INTERNAL, "the system refused the button press")
+    }
+
+    @androidx.annotation.RequiresApi(33)
+    private fun dpad(action: GlobalAction): Int = when (action) {
+        GlobalAction.DPAD_UP -> GLOBAL_ACTION_DPAD_UP
+        GlobalAction.DPAD_DOWN -> GLOBAL_ACTION_DPAD_DOWN
+        GlobalAction.DPAD_LEFT -> GLOBAL_ACTION_DPAD_LEFT
+        GlobalAction.DPAD_RIGHT -> GLOBAL_ACTION_DPAD_RIGHT
+        else -> GLOBAL_ACTION_DPAD_CENTER
     }
 
     fun listApps(): List<AppEntry> {
@@ -1326,7 +1344,8 @@ class LatchAccessibilityService : AccessibilityService() {
             .sortedBy { it.label.lowercase() }
     }
 
-    fun launch(target: String) {
+    /** [fresh] (protocol 1.15): start from the app's first screen, closing the screens it had open. */
+    fun launch(target: String, fresh: Boolean = false) {
         if (target == packageName || target == SYSTEM_UI) {
             throw ProtocolException(ErrorCode.POLICY_REFUSED, "agents cannot open Latch or system UI")
         }
@@ -1334,7 +1353,28 @@ class LatchAccessibilityService : AccessibilityService() {
             ?: throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "no launchable app with that package")
         invalidate()
         // Accessibility services are exempt from background activity start limits.
-        startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
+        val flags = if (fresh) Intent.FLAG_ACTIVITY_CLEAR_TASK else Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+        startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or flags))
+    }
+
+    /**
+     * Opens [url] in [target] only (protocol 1.15), the way a tapped link
+     * would: only screens the app offers to links (BROWSABLE) can open.
+     */
+    fun openLink(url: String, target: String) {
+        if (target == packageName || target == SYSTEM_UI) {
+            throw ProtocolException(ErrorCode.POLICY_REFUSED, "agents cannot open Latch or system UI")
+        }
+        val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .setPackage(target)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        invalidate()
+        try {
+            startActivity(intent)
+        } catch (_: android.content.ActivityNotFoundException) {
+            throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "$target does not open that link (or is not installed)")
+        }
     }
 
     /** Opens a settings panel over the current app (protocol 1.11). */

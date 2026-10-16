@@ -87,7 +87,10 @@ class SessionController(
     /** Minor protocol version of the connected gateway; 1.4 relays approvals and waits for them. */
     @Volatile private var gatewayMinor = 0
 
-    private val executor = CommandExecutor(bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers, ::labelReader)
+    private val executor = CommandExecutor(
+        bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers, ::labelReader,
+        status = { bridge.service.value?.let { runCatching { PhoneControls.status(it) }.getOrNull() } },
+    )
     private var reader: Pair<LatchAccessibilityService, ButtonReader>? = null
     private var link: DeviceLink? = null
     @Volatile private var wanted = false

@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.14"
+    const val VERSION = "1.15"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -186,6 +186,22 @@ data class DeviceInfo(
     val `package`: String? = null,
     val capabilities: List<CapabilityState>,
     val session: SessionInfo,
+    /** Since 1.15: battery, network, storage, and screen state. */
+    val status: DeviceStatus? = null,
+)
+
+/** Since 1.15: the phone's state, part of `device.info`; never personal (no network names or addresses). */
+@Serializable
+data class DeviceStatus(
+    @SerialName("battery_percent") val batteryPercent: Int? = null,
+    val charging: Boolean? = null,
+    /** `wifi`, `cellular`, `ethernet`, or `none`. */
+    val network: String? = null,
+    @SerialName("free_storage_mb") val freeStorageMb: Long? = null,
+    /** `portrait` or `landscape`. */
+    val orientation: String? = null,
+    val locked: Boolean? = null,
+    @SerialName("do_not_disturb") val doNotDisturb: Boolean? = null,
 )
 
 /** Error details inside a successful result, e.g. why the phone could not observe after an action. */
@@ -402,7 +418,29 @@ sealed interface Target {
     data class Point(val x: Int, val y: Int) : Target
 }
 
-enum class GlobalAction { BACK, HOME, RECENTS }
+/**
+ * System buttons and keys. Back, home, and recents since 1.0; the rest since
+ * 1.15. The notification shade and quick settings are not offered: system UI
+ * stays off limits to agents.
+ */
+enum class GlobalAction(val wire: String, val description: String, val cursor: String) {
+    BACK("back", "Press Back", "Going back"),
+    HOME("home", "Press Home", "Going home"),
+    RECENTS("recents", "Show recent apps", "Opening Recents"),
+    LOCK_SCREEN("lock_screen", "Lock the screen", "Locking the screen"),
+    SCREENSHOT("screenshot", "Take a screenshot (saved to the gallery)", "Taking a screenshot"),
+    SPLIT_SCREEN("split_screen", "Split the screen", "Splitting the screen"),
+    DPAD_UP("dpad_up", "Press the up arrow", "Pressing up"),
+    DPAD_DOWN("dpad_down", "Press the down arrow", "Pressing down"),
+    DPAD_LEFT("dpad_left", "Press the left arrow", "Pressing left"),
+    DPAD_RIGHT("dpad_right", "Press the right arrow", "Pressing right"),
+    DPAD_CENTER("dpad_center", "Press the centre (select) key", "Pressing select"),
+    ;
+
+    companion object {
+        fun fromWire(wire: String): GlobalAction? = entries.firstOrNull { it.wire == wire }
+    }
+}
 
 /** Named after the content revealed: DOWN shows what is further down. */
 enum class Direction { UP, DOWN, LEFT, RIGHT }
@@ -492,9 +530,17 @@ sealed interface Command {
         override val isAction = false
     }
 
-    data class LaunchApp(val packageName: String) : Command {
+    /** [fresh] (since 1.15): start from the app's first screen, closing the screens it had open. */
+    data class LaunchApp(val packageName: String, val fresh: Boolean = false) : Command {
         override val name = "app.launch"
         override val requiredCapabilities = listOf(Capability.APP_LAUNCH)
+    }
+
+    /** Since 1.15: open a web or app link in one app, the way a tapped link would. */
+    data class OpenLink(val url: String, val packageName: String) : Command {
+        override val name = "app.open_link"
+        override val requiredCapabilities = listOf(Capability.APP_LAUNCH)
+        val scheme: String get() = url.substringBefore(':', "")
     }
 
     /**
@@ -662,13 +708,58 @@ sealed interface PhoneControl {
 
     data class Panel(val panel: String) : PhoneControl {
         override val capability = Capability.CONTROL_PANELS
-        override val description get() = "Open the ${PANEL_NAMES[panel]} panel"
+        override val description get() =
+            if (panel in OVERLAY_PANELS) "Open the ${PANEL_NAMES[panel]} panel" else "Open the ${PANEL_NAMES[panel]} settings"
+    }
+
+    /** Since 1.15: auto-rotate, or lock to portrait or landscape (Screen switch). */
+    data class Rotation(val mode: String) : PhoneControl {
+        override val capability = Capability.CONTROL_BRIGHTNESS
+        override val description get() = when (mode) {
+            "auto" -> "Turn auto-rotate on"
+            "portrait" -> "Lock the screen to portrait"
+            else -> "Lock the screen to landscape"
+        }
+    }
+
+    /** Since 1.15: how long the screen stays on without a touch (Screen switch). */
+    data class ScreenTimeout(val seconds: Int) : PhoneControl {
+        override val capability = Capability.CONTROL_BRIGHTNESS
+        override val description get() =
+            if (seconds % 60 == 0) "Set the screen timeout to ${seconds / 60} min" else "Set the screen timeout to $seconds s"
+    }
+
+    /** Since 1.15: ring, vibrate, or silent (Sound switch). */
+    data class Ringer(val mode: String) : PhoneControl {
+        override val capability = Capability.CONTROL_SOUND
+        override val description get() = when (mode) {
+            "normal" -> "Set the ringer to ring"
+            "vibrate" -> "Set the ringer to vibrate"
+            else -> "Silence the ringer"
+        }
+    }
+
+    /** Since 1.15: Do Not Disturb on or off (Sound switch). */
+    data class DoNotDisturb(val on: Boolean) : PhoneControl {
+        override val capability = Capability.CONTROL_SOUND
+        override val description get() = "Turn Do Not Disturb ${if (on) "on" else "off"}"
     }
 
     companion object {
         val STREAMS = setOf("media", "ring", "notification", "alarm")
         val MEDIA_ACTIONS = setOf("play_pause", "next", "previous")
-        val PANEL_NAMES = mapOf("wifi" to "Wi-Fi", "internet" to "internet", "bluetooth" to "Bluetooth", "volume" to "volume")
+        val ROTATION_MODES = setOf("auto", "portrait", "landscape")
+        val RINGER_MODES = setOf("normal", "vibrate", "silent")
+        const val MIN_SCREEN_TIMEOUT_S = 15
+        const val MAX_SCREEN_TIMEOUT_S = 1800
+        /** Panels shown over the current app; the rest are settings pages. */
+        val OVERLAY_PANELS = setOf("wifi", "internet", "bluetooth", "volume", "nfc")
+        val PANEL_NAMES = linkedMapOf(
+            "wifi" to "Wi-Fi", "internet" to "internet", "bluetooth" to "Bluetooth", "volume" to "volume",
+            "nfc" to "NFC", "airplane_mode" to "airplane mode", "location" to "location", "display" to "display",
+            "battery" to "battery", "sound" to "sound", "notifications" to "notifications", "storage" to "storage",
+            "date_time" to "date and time",
+        )
     }
 }
 
@@ -739,6 +830,10 @@ object GatewayParser {
             "brightness" -> PhoneControl.Brightness(c.int("percent"))
             "flashlight" -> PhoneControl.Flashlight(c["on"].let { (it as? JsonPrimitive)?.takeIf { p -> !p.isString }?.booleanOrNull } ?: invalid("on must be a boolean"))
             "panel" -> PhoneControl.Panel(oneOf("panel", PhoneControl.PANEL_NAMES.keys))
+            "rotation" -> PhoneControl.Rotation(oneOf("mode", PhoneControl.ROTATION_MODES))
+            "screen_timeout" -> PhoneControl.ScreenTimeout(c.int("seconds"))
+            "ringer" -> PhoneControl.Ringer(oneOf("mode", PhoneControl.RINGER_MODES))
+            "do_not_disturb" -> PhoneControl.DoNotDisturb(c["on"].let { (it as? JsonPrimitive)?.takeIf { p -> !p.isString }?.booleanOrNull } ?: invalid("on must be a boolean"))
             else -> invalid("unknown control")
         }
     }
@@ -852,16 +947,10 @@ object GatewayParser {
                 if (params.containsKey("container")) params.str("container") else null,
                 if (params.containsKey("max_swipes")) params.int("max_swipes") else 10,
             )
-            "nav.global" -> Command.Global(
-                when (params.str("action")) {
-                    "back" -> GlobalAction.BACK
-                    "home" -> GlobalAction.HOME
-                    "recents" -> GlobalAction.RECENTS
-                    else -> invalid("unknown global action")
-                },
-            )
+            "nav.global" -> Command.Global(GlobalAction.fromWire(params.str("action")) ?: invalid("unknown global action"))
             "app.list" -> Command.ListApps
-            "app.launch" -> Command.LaunchApp(params.str("package"))
+            "app.launch" -> Command.LaunchApp(params.str("package"), params.bool("fresh", false))
+            "app.open_link" -> Command.OpenLink(params.str("url"), params.str("package"))
             "owner.ask" -> Command.AskOwner(params.str("message"))
             "file.list" -> Command.ListFiles(
                 location(params.str("location")),
@@ -944,6 +1033,28 @@ object GatewayParser {
 
 /** Mirrors `latch_protocol::validate`. */
 object Limits {
+    /** Longest `app.open_link` URL, and the schemes it never opens (the same as the Rust `validate::open_link_url`). */
+    const val MAX_LINK_CHARS = 2048
+    private val BLOCKED_LINK_SCHEMES = setOf(
+        "intent", "android-app", "file", "content", "javascript", "vbscript", "data", "blob", "about", "filesystem", "jar",
+    )
+    private val LINK_SCHEME = Regex("^[a-z][a-z0-9+.-]{0,31}$")
+
+    /** Throws `invalid_request` unless [url] is a link `app.open_link` may open. */
+    fun checkOpenLinkUrl(url: String) {
+        fun invalid(message: String): Nothing = throw ProtocolException(ErrorCode.INVALID_REQUEST, message)
+        if (url.isEmpty() || url.length > MAX_LINK_CHARS) invalid("url must be 1-$MAX_LINK_CHARS characters")
+        if (!url.all { it.code in 0x21..0x7e }) invalid("url must be printable ASCII without spaces")
+        val colon = url.indexOf(':')
+        if (colon < 0) invalid("url needs a scheme")
+        val scheme = url.substring(0, colon)
+        val rest = url.substring(colon + 1)
+        if (!LINK_SCHEME.matches(scheme)) invalid("url scheme must be lowercase letters, digits, +, ., or -")
+        if (scheme in BLOCKED_LINK_SCHEMES) invalid("$scheme: links cannot be opened")
+        if (rest.isEmpty()) invalid("url has nothing after the scheme")
+        if ((scheme == "http" || scheme == "https") && !rest.startsWith("//")) invalid("a web address looks like https://example.com/...")
+    }
+
     const val MAX_TEXT_CHARS = 2_000
     const val MAX_NODES = 2_000
     const val MAX_SWIPE_MS = 5_000
@@ -1087,6 +1198,10 @@ object Validation {
                 if (command.text.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
             }
             is Command.LaunchApp -> if (!Limits.isValidPackage(command.packageName)) invalid("bad package name")
+            is Command.OpenLink -> {
+                if (!Limits.isValidPackage(command.packageName)) invalid("bad package name")
+                Limits.checkOpenLinkUrl(command.url)
+            }
             is Command.ListFiles -> {
                 command.folder?.let(::id)
                 command.query?.let(::findText)
@@ -1158,6 +1273,9 @@ object Validation {
             is Command.DeviceControl -> when (val c = command.control) {
                 is PhoneControl.Volume -> if (c.percent !in 0..100) invalid("percent must be 0-100")
                 is PhoneControl.Brightness -> if (c.percent !in 0..100) invalid("percent must be 0-100")
+                is PhoneControl.ScreenTimeout -> if (c.seconds !in PhoneControl.MIN_SCREEN_TIMEOUT_S..PhoneControl.MAX_SCREEN_TIMEOUT_S) {
+                    invalid("seconds must be between ${PhoneControl.MIN_SCREEN_TIMEOUT_S} and ${PhoneControl.MAX_SCREEN_TIMEOUT_S}")
+                }
                 else -> Unit
             }
             is Command.SetClipboard -> {

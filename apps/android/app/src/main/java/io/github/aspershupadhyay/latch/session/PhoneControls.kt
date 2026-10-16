@@ -2,8 +2,17 @@
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 package io.github.aspershupadhyay.latch.session
 
+import android.app.KeyguardManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.BatteryManager
+import android.os.Environment
+import android.os.StatFs
+import android.view.Surface
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
@@ -12,15 +21,17 @@ import android.provider.Settings
 import android.view.KeyEvent
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
+import io.github.aspershupadhyay.latch.protocol.DeviceStatus
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
 import io.github.aspershupadhyay.latch.protocol.PhoneControl
 import io.github.aspershupadhyay.latch.protocol.ProtocolException
 import kotlin.math.roundToInt
 
 /**
- * Phone controls (protocol 1.11, roadmap R16), each behind its own owner
- * switch: volume and media keys, brightness, the flashlight, and the settings
- * panels. Only public Android APIs; nothing here reads anything back.
+ * Phone controls (protocol 1.11, roadmap R16; more in 1.15, R25), each group
+ * behind its own owner switch: volume, media keys, the ringer, and Do Not
+ * Disturb (Sound); brightness, rotation, and the screen timeout (Screen); the
+ * flashlight; and settings panels and pages. Only public Android APIs.
  */
 object PhoneControls {
     /** Applies an off-screen control. Panels open over the app instead: see [panelIntent]. */
@@ -30,20 +41,42 @@ object PhoneControls {
             is PhoneControl.Media -> media(context, control.action)
             is PhoneControl.Brightness -> brightness(context, control.percent)
             is PhoneControl.Flashlight -> flashlight(context, control.on)
+            is PhoneControl.Rotation -> rotation(context, control.mode)
+            is PhoneControl.ScreenTimeout -> systemSetting(context, Settings.System.SCREEN_OFF_TIMEOUT, control.seconds * 1000)
+            is PhoneControl.Ringer -> ringer(context, control.mode)
+            is PhoneControl.DoNotDisturb -> doNotDisturb(context, control.on)
             is PhoneControl.Panel -> error("panels open as a screen action")
         }
     }
 
-    /** The settings panel to start, shown over the current app. */
+    /** The settings panel or page to start, shown over the current app. */
     fun panelIntent(panel: String): Intent = Intent(
         when (panel) {
             "wifi" -> Settings.Panel.ACTION_WIFI
             "internet" -> Settings.Panel.ACTION_INTERNET_CONNECTIVITY
             "volume" -> Settings.Panel.ACTION_VOLUME
+            "nfc" -> Settings.Panel.ACTION_NFC
+            "airplane_mode" -> Settings.ACTION_AIRPLANE_MODE_SETTINGS
+            "location" -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
+            "display" -> Settings.ACTION_DISPLAY_SETTINGS
+            "battery" -> Intent.ACTION_POWER_USAGE_SUMMARY
+            "sound" -> Settings.ACTION_SOUND_SETTINGS
+            // The phone's notification settings, never the notification shade.
+            "notifications" -> "android.settings.NOTIFICATION_SETTINGS"
+            "storage" -> Settings.ACTION_INTERNAL_STORAGE_SETTINGS
+            "date_time" -> Settings.ACTION_DATE_SETTINGS
             // Android has no Bluetooth panel; its settings page is the closest.
             else -> Settings.ACTION_BLUETOOTH_SETTINGS
         },
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    /** Android's own screen where the owner lets Latch change the ringer and Do Not Disturb. */
+    fun doNotDisturbAccessIntent(): Intent =
+        Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    /** Whether the owner let Latch change the ringer and Do Not Disturb. */
+    fun canChangeDoNotDisturb(context: Context): Boolean =
+        context.getSystemService(NotificationManager::class.java)?.isNotificationPolicyAccessGranted == true
 
     /** What the phone can offer for [capability] beyond the owner's switch, or null when nothing is missing. */
     fun limit(context: Context, capability: Capability): CapabilityStatus? = when (capability) {
@@ -88,13 +121,64 @@ object PhoneControls {
         audio.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
     }
 
-    private fun brightness(context: Context, percent: Int) {
+    private fun requireWriteSettings(context: Context) {
         if (!Settings.System.canWrite(context)) {
             throw ProtocolException(
                 ErrorCode.PERMISSION_MISSING,
-                "the owner has not let Latch change the brightness (Latch → Access → Phone controls)",
+                "the owner has not let Latch change system settings (Latch → Access → Phone controls)",
             )
         }
+    }
+
+    private fun systemSetting(context: Context, name: String, value: Int) {
+        requireWriteSettings(context)
+        Settings.System.putInt(context.contentResolver, name, value)
+    }
+
+    private fun rotation(context: Context, mode: String) {
+        requireWriteSettings(context)
+        val resolver = context.contentResolver
+        if (mode == "auto") {
+            Settings.System.putInt(resolver, Settings.System.ACCELEROMETER_ROTATION, 1)
+            return
+        }
+        Settings.System.putInt(resolver, Settings.System.ACCELEROMETER_ROTATION, 0)
+        Settings.System.putInt(resolver, Settings.System.USER_ROTATION, if (mode == "landscape") Surface.ROTATION_90 else Surface.ROTATION_0)
+    }
+
+    private fun requireDoNotDisturbAccess(context: Context) {
+        if (!canChangeDoNotDisturb(context)) {
+            throw ProtocolException(
+                ErrorCode.PERMISSION_MISSING,
+                "the owner has not let Latch change Do Not Disturb (Latch → Access → Phone controls)",
+            )
+        }
+    }
+
+    private fun ringer(context: Context, mode: String) {
+        val audio = context.getSystemService(AudioManager::class.java) ?: unsupported("this phone has no audio service")
+        requireDoNotDisturbAccess(context)
+        try {
+            audio.ringerMode = when (mode) {
+                "vibrate" -> AudioManager.RINGER_MODE_VIBRATE
+                "silent" -> AudioManager.RINGER_MODE_SILENT
+                else -> AudioManager.RINGER_MODE_NORMAL
+            }
+        } catch (_: SecurityException) {
+            throw ProtocolException(ErrorCode.PERMISSION_MISSING, "Android did not let Latch change the ringer")
+        }
+    }
+
+    private fun doNotDisturb(context: Context, on: Boolean) {
+        val notifications = context.getSystemService(NotificationManager::class.java) ?: unsupported("this phone has no notification service")
+        requireDoNotDisturbAccess(context)
+        notifications.setInterruptionFilter(
+            if (on) NotificationManager.INTERRUPTION_FILTER_PRIORITY else NotificationManager.INTERRUPTION_FILTER_ALL,
+        )
+    }
+
+    private fun brightness(context: Context, percent: Int) {
+        requireWriteSettings(context)
         val resolver = context.contentResolver
         Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, (percent * 255 / 100.0).roundToInt().coerceIn(1, 255))
@@ -119,4 +203,44 @@ object PhoneControls {
     }
 
     private fun unsupported(message: String): Nothing = throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, message)
+
+    /**
+     * The phone's state for `device.info` (protocol 1.15): battery, network
+     * type, free storage, orientation, lock screen, Do Not Disturb. Nothing
+     * personal: no network names, addresses, or app content. Whatever Android
+     * will not say is left out.
+     */
+    fun status(context: Context): DeviceStatus {
+        val battery = context.getSystemService(BatteryManager::class.java)
+        val percent = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val network = runCatching {
+            val caps = connectivity?.getNetworkCapabilities(connectivity.activeNetwork)
+            when {
+                connectivity == null -> null
+                caps == null -> "none"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                else -> null
+            }
+        }.getOrNull()
+        val free = runCatching { StatFs(Environment.getDataDirectory().path).availableBytes / (1024 * 1024) }.getOrNull()
+        val orientation = when (context.resources.configuration.orientation) {
+            Configuration.ORIENTATION_LANDSCAPE -> "landscape"
+            Configuration.ORIENTATION_PORTRAIT -> "portrait"
+            else -> null
+        }
+        val filter = context.getSystemService(NotificationManager::class.java)?.currentInterruptionFilter
+        return DeviceStatus(
+            batteryPercent = percent,
+            charging = battery?.isCharging,
+            network = network,
+            freeStorageMb = free,
+            orientation = orientation,
+            locked = context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked,
+            doNotDisturb = filter?.takeIf { it != NotificationManager.INTERRUPTION_FILTER_UNKNOWN }
+                ?.let { it != NotificationManager.INTERRUPTION_FILTER_ALL },
+        )
+    }
 }

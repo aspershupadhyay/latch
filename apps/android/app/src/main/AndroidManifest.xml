@@ -7,6 +7,10 @@
     <uses-permission
         android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Roadmap R25: the ringer and Do Not Disturb, only after the owner allows Do Not Disturb access for Latch. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Roadmap R25: device_status says whether the phone is on Wi-Fi or mobile data (never which network). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Asked for during setup, so the system does not cut a running session when the screen is off. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />

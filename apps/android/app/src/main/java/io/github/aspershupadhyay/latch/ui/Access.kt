@@ -95,7 +95,7 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
     CONTROLS(
         "Phone controls", LatchIcons.Sliders,
         listOf(Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS),
-        "With this on, the AI can set volumes, play or pause media, change the brightness, use the flashlight, and open the Wi-Fi and Bluetooth panels. Each is its own switch, off until you turn it on.",
+        "With this on, the AI can set volumes, the ringer, and Do Not Disturb, play or pause media, change the brightness, rotation, and screen timeout, use the flashlight, and open settings panels and pages. Each group is its own switch, off until you turn it on.",
     ),
     WORKING(
         "While the AI works", LatchIcons.Phone, emptyList(),
@@ -211,6 +211,7 @@ fun CapabilitiesScreen(
                     AccessGroup.CONTROLS -> {
                         CapabilityList(current, enabled, onToggle)
                         BrightnessPermission(Capability.CONTROL_BRIGHTNESS in enabled)
+                        DoNotDisturbPermission(Capability.CONTROL_SOUND in enabled)
                     }
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
                 }
@@ -669,11 +670,35 @@ private fun BrightnessPermission(wanted: Boolean) {
     Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
         ListRow(
             LatchIcons.Warning,
-            "Let Latch change the brightness",
+            "Let Latch change the brightness, rotation, and timeout",
             "Android asks once: Modify system settings → Latch → on.",
             tint = signal.warning,
             onClick = { context.startActivity(PhoneControls.writeSettingsIntent(context)) },
             onClickLabel = "Open Modify system settings",
+        )
+    }
+}
+
+/** The ringer and Do Not Disturb also need Android's "Do Not Disturb access" for Latch; this row opens it. */
+@Composable
+private fun DoNotDisturbPermission(wanted: Boolean) {
+    val context = LocalContext.current
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        resumes++
+        onPauseOrDispose { }
+    }
+    val allowed = remember(resumes) { PhoneControls.canChangeDoNotDisturb(context) }
+    if (!wanted || allowed) return
+    val signal = LocalSignal.current
+    Card(color = signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
+        ListRow(
+            LatchIcons.Bell,
+            "Optional: let Latch change the ringer and Do Not Disturb",
+            "Volume and media work without this. Android asks once: Do Not Disturb access → Latch → on.",
+            tint = signal.accent,
+            onClick = { context.startActivity(PhoneControls.doNotDisturbAccessIntent()) },
+            onClickLabel = "Open Do Not Disturb access",
         )
     }
 }
