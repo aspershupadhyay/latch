@@ -48,6 +48,7 @@ async fn start_gateway_on(
         mcp_http: true,
         public_url: None,
         allowed_origins: vec!["https://allowed.example".into()],
+        wifi_bind: None,
     };
     let mut state = AppState::new(config, store);
     state.settle_ms = 0;

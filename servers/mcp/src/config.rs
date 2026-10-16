@@ -37,6 +37,9 @@ pub struct Config {
     /// Browser origins allowed to call `/mcp`. Requests without an Origin header are
     /// unaffected; requests with any other Origin are rejected (DNS-rebinding defence).
     pub allowed_origins: Vec<String>,
+    /// R24: also listen with TLS on the local network for phones on the same
+    /// Wi-Fi (`LATCH_WIFI=1`, or an address in `LATCH_WIFI_BIND`).
+    pub wifi_bind: Option<SocketAddr>,
 }
 
 impl std::fmt::Debug for Config {
@@ -46,6 +49,7 @@ impl std::fmt::Debug for Config {
             .field("data_dir", &self.data_dir)
             .field("public_url", &self.public_url)
             .field("allowed_origins", &self.allowed_origins)
+            .field("wifi_bind", &self.wifi_bind)
             .finish_non_exhaustive()
     }
 }
@@ -85,6 +89,23 @@ impl Config {
         if mcp_token.as_deref() == Some(admin_token.as_str()) {
             return Err(ConfigError::SharedToken);
         }
+        let wifi_bind = match std::env::var("LATCH_WIFI_BIND") {
+            Ok(value) if !value.trim().is_empty() => {
+                Some(value.trim().parse().map_err(|_| ConfigError::BadAddress {
+                    name: "LATCH_WIFI_BIND",
+                    value,
+                })?)
+            }
+            _ => std::env::var("LATCH_WIFI")
+                .ok()
+                .filter(|v| {
+                    matches!(
+                        v.trim().to_ascii_lowercase().as_str(),
+                        "1" | "true" | "yes" | "on"
+                    )
+                })
+                .map(|_| crate::wifi::DEFAULT_BIND),
+        };
         Ok(Self {
             bind,
             data_dir: std::env::var_os("LATCH_DATA_DIR")
@@ -105,6 +126,7 @@ impl Config {
                         .collect()
                 })
                 .unwrap_or_default(),
+            wifi_bind,
         })
     }
 }

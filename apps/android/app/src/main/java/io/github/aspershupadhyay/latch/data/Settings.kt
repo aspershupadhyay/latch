@@ -18,7 +18,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** Where this phone is paired. The token itself lives in [TokenVault]. */
-data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String)
+/** [pin]: for a gateway on the owner's Wi-Fi (R24), the SHA-256 of its certificate's key. */
+data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String, val pin: String? = null)
 
 /** A folder the owner shares with the AI: its Storage Access Framework tree URI and its name. */
 data class FolderGrant(val uri: String, val name: String)
@@ -83,7 +84,7 @@ class Settings(context: Context) {
     private fun readPairing(): Pairing? {
         val url = prefs.getString("gateway_url", null) ?: return null
         val id = prefs.getString("device_id", null) ?: return null
-        return Pairing(url, id, prefs.getString("device_name", null) ?: "This phone")
+        return Pairing(url, id, prefs.getString("device_name", null) ?: "This phone", prefs.getString("gateway_pin", null))
     }
 
     private fun readPreferences(): Preferences {
@@ -125,6 +126,7 @@ class Settings(context: Context) {
             putString("gateway_url", pairing.gatewayUrl)
             putString("device_id", pairing.deviceId)
             putString("device_name", pairing.name)
+            if (pairing.pin != null) putString("gateway_pin", pairing.pin) else remove("gateway_pin")
         }
         _pairing.value = pairing
     }
@@ -148,6 +150,7 @@ class Settings(context: Context) {
             remove("gateway_url")
             remove("device_id")
             remove("device_name")
+            remove("gateway_pin")
             remove("setup_done")
         }
         _preferences.value = _preferences.value.copy(setupDone = false)

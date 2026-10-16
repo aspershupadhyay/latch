@@ -14,6 +14,8 @@ You need: an **Android phone** (Android 11 or newer), and a free **[Vercel](http
 
 That's it. Every step below is just one of these.
 
+> **Prefer no cloud at all?** If your AI app runs on your computer (Claude Code, Claude Desktop, Cursor), the gateway can run there too and the phone connects over your Wi-Fi: see [phones on the same Wi-Fi](operations/gateway.md#phones-on-the-same-wi-fi-no-cloud).
+
 ## Step 1: Get the app
 
 1. On your phone, download the app: **[latch-android.apk](https://github.com/aspershupadhyay/latch/releases/download/beta/latch-android.apk)**

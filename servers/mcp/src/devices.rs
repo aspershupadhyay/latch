@@ -62,6 +62,8 @@ struct Live {
 pub struct Registry {
     live: Mutex<HashMap<String, Live>>,
     next_conn: std::sync::atomic::AtomicU64,
+    /// R24: the Wi-Fi address each phone last connected through, for its file links.
+    link_bases: Mutex<HashMap<String, String>>,
 }
 
 /// Public, redaction-safe view of a connected device.
@@ -98,6 +100,25 @@ fn to_gateway_clock(session: SessionInfo, device_time_ms: Option<u64>, now: u64)
 }
 
 impl Registry {
+    /// Remembers how a phone reached this gateway: its Wi-Fi address (R24),
+    /// or `None` for the usual address. File links for it are built on that.
+    pub fn set_link_base(&self, device_id: &str, base: Option<String>) {
+        let mut bases = self.link_bases.lock().unwrap_or_else(|e| e.into_inner());
+        match base {
+            Some(base) => bases.insert(device_id.to_owned(), base),
+            None => bases.remove(device_id),
+        };
+    }
+
+    /// The Wi-Fi address a phone connected through, if it did (R24).
+    pub fn link_base(&self, device_id: &str) -> Option<String> {
+        self.link_bases
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(device_id)
+            .cloned()
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Live>> {
         // A poisoned lock means a panic mid-update; the map itself is still usable.
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());

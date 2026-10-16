@@ -66,12 +66,16 @@ fn connection_id(query: &ConnectionQuery) -> Option<u64> {
 
 pub async fn hello(
     State(state): State<Arc<AppState>>,
+    wifi: Option<axum::Extension<crate::wifi::WifiOrigin>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let Some(device_id) = authenticate(&state, &headers) else {
         return unknown_device();
     };
+    state
+        .devices
+        .set_link_base(&device_id, wifi.map(|axum::Extension(o)| o.0));
     let registered = state
         .store()
         .get(&device_id)

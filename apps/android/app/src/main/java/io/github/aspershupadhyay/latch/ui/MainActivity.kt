@@ -67,6 +67,7 @@ import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
 import io.github.aspershupadhyay.latch.data.Pairing as SavedPairing
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
+import io.github.aspershupadhyay.latch.session.GatewayPins
 import io.github.aspershupadhyay.latch.session.GatewaySetup
 import io.github.aspershupadhyay.latch.session.McpClient
 import io.github.aspershupadhyay.latch.session.RelayPhone
@@ -178,7 +179,7 @@ fun openAccessibilityFor(context: Context) {
     if (!opened) context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
 }
 
-private fun Paired.save(app: LatchApp) = app.settings.savePairing(SavedPairing(gatewayUrl, deviceId, name), deviceToken)
+private fun Paired.save(app: LatchApp, pin: String?) = app.settings.savePairing(SavedPairing(gatewayUrl, deviceId, name, pin), deviceToken)
 
 @Composable
 fun LatchRoot(app: LatchApp, reducedMotion: Boolean) {
@@ -208,11 +209,14 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
     BackHandler(enabled = step != Onboarding.WELCOME) { step = Onboarding.WELCOME; error = null }
 
     fun connect(asOwner: Boolean, key: String) {
-        val url = Pairing.normalize(address, BuildConfig.ALLOW_CLEARTEXT)
-        if (url == null) {
+        val parsed = Pairing.parse(address, BuildConfig.ALLOW_CLEARTEXT)
+        if (parsed == null) {
             error = if (address.trim().startsWith("http://")) "Use an https:// address." else "That does not look like a web address."
             return
         }
+        val url = parsed.url
+        // A gateway on this Wi-Fi (R24): trust its own certificate, by the pin in the address.
+        GatewayPins.set(url, parsed.pin)
         busy = true
         error = null
         app.session.clearFailure()
@@ -221,7 +225,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
                 val model = deviceDescriptor().model
                 val paired = if (asOwner) app.setup.pairAsOwner(url, key.trim(), model, model) else app.setup.pairWithCode(url, key, model)
                 if (asOwner) app.settings.saveOwnerKey(key.trim())
-                paired.save(app)
+                paired.save(app, parsed.pin)
             } catch (e: SetupException) {
                 error = e.message
             } finally {

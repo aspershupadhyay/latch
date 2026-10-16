@@ -16,6 +16,8 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 | `LATCH_MAX_TRANSFER_MB` | no | Largest file one link carries, in MB (default 2048, at most 4096). Links are streamed to a private temporary folder (mode 700) as AES-256 ciphertext; keys live only in memory; files are deleted when the phone has them or the link expires (15 minutes). All links together hold at most four times this size. |
 | `LATCH_ALLOWED_ORIGINS` | no | Comma-separated browser origins allowed to call `/mcp`. Requests carrying any other `Origin` header are rejected (DNS-rebinding defence). Server-side clients send no `Origin` and are unaffected. |
 | `LATCH_CLIENT_CALLS_PER_MINUTE` | no | Tool calls each AI app may make per minute (default 120, `0` for no limit). Over it, the AI reads `rate_limited: …` and waits; other AI apps are unaffected (roadmap R18). |
+| `LATCH_WIFI` | no | `1`: also serve phones on this Wi-Fi with TLS on `0.0.0.0:8788` ([below](#phones-on-the-same-wi-fi-no-cloud)). |
+| `LATCH_WIFI_BIND` | no | The Wi-Fi listener's address instead, e.g. `0.0.0.0:9443` (implies `LATCH_WIFI`). |
 | `RUST_LOG` | no | Log filter, default `info`. Logs never contain screen text, typed text, or tokens. |
 
 Generate tokens with `latch-gateway gen-token` (or `openssl rand -hex 32`).
@@ -45,9 +47,31 @@ cd deploy && cp .env.example .env   # set LATCH_DOMAIN and both tokens
 docker compose up -d
 ```
 
-**Local development, or a phone on the same Wi-Fi.** `scripts/dev.sh` builds and starts a gateway with fresh tokens plus a simulated phone. Debug builds of the Android app accept `http://` addresses; release builds require `https://`.
+**Local development.** `scripts/dev.sh` builds and starts a gateway with fresh tokens plus a simulated phone. Debug builds of the Android app accept `http://` addresses; release builds require `https://`. For a real phone on the same Wi-Fi, see the next section.
 
 **Inside an MCP client over stdio.** `latch-gateway stdio` speaks MCP on stdin/stdout and still serves phones over HTTP, for clients that only launch local commands.
+
+## Phones on the same Wi-Fi (no cloud)
+
+Run the gateway on your own computer and let the phone reach it over your home Wi-Fi. Nothing leaves your home network, and every action is a local round trip (ADR-042, roadmap R24).
+
+1. Start it with `LATCH_WIFI=1`. The simplest way is to let your AI app start it over stdio, for example Claude Code:
+
+   ```sh
+   claude mcp add latch -e LATCH_ADMIN_TOKEN=<owner key> -e LATCH_WIFI=1 -e LATCH_DATA_DIR=$HOME/.latch -- latch-gateway stdio
+   ```
+
+   Or run `LATCH_WIFI=1 latch-gateway serve` with both tokens set, and add `http://127.0.0.1:8787/mcp` to your AI app as usual.
+2. The gateway prints, on its error output:
+
+   ```
+   Phones on this Wi-Fi: in the Latch app, tap "I have a code or a relay already" and enter
+       https://192.168.1.5:8788#pin=Qm9vb…
+   ```
+
+3. In the app, enter that whole address (with `#pin=`) and the owner key. The phone connects with TLS and trusts exactly this gateway's own certificate: the pin is the SHA-256 of its public key. A wrong or missing pin is refused.
+
+The certificate is made once and kept in `LATCH_DATA_DIR/wifi/` (the key readable by you only), so restarts keep the same pin. If your computer's Wi-Fi address changes, enter the new address; the pin stays. Allow incoming connections on port 8788 if your firewall asks. Away from home the phone cannot reach this gateway; use a cloud gateway for that.
 
 ## Connect an AI client
 
