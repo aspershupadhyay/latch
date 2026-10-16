@@ -101,6 +101,8 @@ class SessionController(
         if (!settings.preferences.value.readButtons) return null
         val service = bridge.service.value ?: return null
         reader?.takeIf { it.first === service }?.let { return it.second }
+        // The accessibility service restarted: the old reader's ML Kit resources go with it.
+        reader?.second?.close()
         return ButtonReader(service, service::captureRegion).also { reader = service to it }
     }
 
@@ -163,7 +165,13 @@ class SessionController(
         bridge.touches.onOwnerTap = { pkg -> log.add(ActivityKind.ACTION, "You tapped the screen", appName(pkg) ?: pkg, ActivityActor.OWNER) }
         expiryJob?.cancel()
         expiryJob = scope.launch {
-            delay(expiresAtMs - System.currentTimeMillis())
+            // delay() counts only awake time; look at the wall clock at least every
+            // 30 s, so a phone that slept does not run the session past its end.
+            while (true) {
+                val left = expiresAtMs - System.currentTimeMillis()
+                if (left <= 0) break
+                delay(minOf(left, 30_000L))
+            }
             stop("Session time ended")
         }
         _state.value = SessionState.Connecting(0)

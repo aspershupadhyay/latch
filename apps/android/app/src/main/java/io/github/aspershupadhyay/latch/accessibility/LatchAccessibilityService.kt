@@ -940,7 +940,12 @@ class LatchAccessibilityService : AccessibilityService() {
         latest = null
     }
 
-    suspend fun tap(observationId: String, target: Target, longPress: Boolean, double: Boolean = false) {
+    /**
+     * [fingerRetry]: when the accessibility click shows no change, press again with a
+     * real finger (some apps ignore accessibility clicks). Off for taps that may send,
+     * pay, or delete, so a slow app never gets them twice.
+     */
+    suspend fun tap(observationId: String, target: Target, longPress: Boolean, double: Boolean = false, fingerRetry: Boolean = true) {
         val snap = requireFresh(observationId)
         invalidate()
         val press = when {
@@ -960,8 +965,11 @@ class LatchAccessibilityService : AccessibilityService() {
                         if (cursorOn) cursor.press(r.centerX(), r.centerY(), pointerFor(snap.ui[target.element]), press)
                         val before = screenSignature()
                         // Some apps (Instagram's caption "OK") accept the accessibility click and
-                        // ignore it. If the screen shows no change, press with a real finger instead.
-                        if (node.performAction(action) && (longPress || clickTookEffect(node, before))) return
+                        // ignore it. If the screen shows no change, press with a real finger instead,
+                        // but only where the same element still is, and only when that is harmless.
+                        if (node.performAction(action) && (longPress || !fingerRetry || clickTookEffect(node, before))) return
+                        val now = android.graphics.Rect()
+                        if (!node.refresh() || !node.isVisibleToUser || node.getBoundsInScreen(now).let { now != r }) return
                     }
                 }
                 r.centerX() to r.centerY()
@@ -1162,10 +1170,17 @@ class LatchAccessibilityService : AccessibilityService() {
             if (present != gone) return WaitResult(true, observation)
             val now = SystemClock.uptimeMillis()
             if (now >= deadline) return WaitResult(false, observation)
-            // Look again when the screen changes, and at least every 300 ms.
+            // Look again when the screen changes, and at least every 300 ms, but never more
+            // than about 6 times a second: a screen that keeps animating (a video, a map)
+            // would otherwise be read in full 40 times a second, slowing the app down.
             val seen = lastUiEventAtMs
             val until = minOf(deadline, now + 300)
-            while (SystemClock.uptimeMillis() < until && lastUiEventAtMs == seen) delay(25)
+            val earliest = now + 150
+            while (true) {
+                val t = SystemClock.uptimeMillis()
+                if (t >= until || (lastUiEventAtMs != seen && t >= earliest)) break
+                delay(25)
+            }
         }
     }
 

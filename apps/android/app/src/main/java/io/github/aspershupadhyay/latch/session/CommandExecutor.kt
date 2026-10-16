@@ -233,6 +233,9 @@ class CommandExecutor(
         return if (longApprovals()) maxOf(own, APPROVAL_WAIT_MS) else own
     }
 
+    /** The phone's own judgement of the command being run, from its approval check. */
+    @Volatile private var lastJudgement: Judgement? = null
+
     /**
      * [current] reads the owner's session and switches again later, so an
      * observation after an action respects a pause or switch made meanwhile.
@@ -285,6 +288,7 @@ class CommandExecutor(
         appTarget(command)?.let { requireApp(it, envelope) }
 
         // Asking the owner is itself a question to the owner, never approved first.
+        lastJudgement = null
         val judged = if (command.isAction && command !is Command.AskOwner) approve(envelope, session) else null
         // After a question to the owner, the cursor says what happens next again.
         cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
@@ -404,6 +408,16 @@ class CommandExecutor(
             is Command.WaitFor -> {
                 // The searched-for text is the agent's, not screen content, but the log stays content-free anyway.
                 val waited = service.waitFor(command.text, command.gone, command.timeoutMs, command.maxNodes)
+                // Another app may have come to the front while waiting: its screen is shared
+                // only once the owner allows that app, as for any other screen.
+                waited.observation.`package`?.let { now ->
+                    if (!appUsable(now)) {
+                        throw ProtocolException(
+                            ErrorCode.POLICY_REFUSED,
+                            "now in ${appName(now) ?: now}, which the owner has not switched on; call observe and Latch will ask them",
+                        )
+                    }
+                }
                 note(ActivityKind.SCREEN, "${describe(command)} · ${if (waited.matched) "done" else "timed out"}")
                 Protocol.json.encodeToJsonElement(WaitResult.serializer(), waited)
             }
@@ -424,7 +438,10 @@ class CommandExecutor(
                         // Android's "Open with" and share choosers start another app, which takes longer
                         // than an in-app change: wait for it, or the agent gets the closing chooser.
                         if (service.currentPackage() in CHOOSER_PACKAGES) expectChangeMs = CHOOSER_EXPECT_CHANGE_MS
-                        service.tap(command.observationId, command.target, command.longPress, command.double)
+                        // A tap that may send, pay, or delete is never pressed a second time with a
+                        // finger when the first press shows nothing yet: the app may just be slow.
+                        val mayRepeat = envelope.confirm == null && (lastJudgement?.consequence ?: Consequence.NONE) == Consequence.NONE
+                        service.tap(command.observationId, command.target, command.longPress, command.double, fingerRetry = mayRepeat)
                     }
                     is Command.Swipe -> service.swipe(
                         command.observationId, command.fromX, command.fromY, command.toX, command.toY, command.durationMs, command.holdMs,
@@ -467,6 +484,7 @@ class CommandExecutor(
         if (command.isFileChange) return approveFileChange(envelope, session)
         val confirm = envelope.confirm
         val judgement = judge(command)
+        lastJudgement = judgement
         val deviceAsks = judgement != null && judgement.consequence != Consequence.NONE
         if (confirm == null && !session.approveEveryAction && !deviceAsks) return judgement?.title
 
@@ -533,6 +551,7 @@ class CommandExecutor(
                 note(ActivityKind.REFUSAL, "Expired without an answer: $title")
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
             }
+            ApprovalOutcome.CANCELLED -> withdrawn()
         }
         return title
     }
@@ -577,6 +596,7 @@ class CommandExecutor(
                 note(ActivityKind.REFUSAL, "Expired without an answer: $title", inApp = false)
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer in time")
             }
+            ApprovalOutcome.CANCELLED -> withdrawn()
             else -> note(ActivityKind.APPROVAL, "You approved: $title", inApp = false)
         }
         return title
@@ -612,12 +632,17 @@ class CommandExecutor(
                 note(ActivityKind.APPROVAL, "You said you can't do it now")
                 "cant"
             }
+            ApprovalOutcome.CANCELLED -> withdrawn()
             else -> {
                 note(ActivityKind.APPROVAL, "You said it's done")
                 "done"
             }
         }
     }
+
+    /** A question Latch withdrew (pause, Stop, reconnect): not the owner's answer, so nothing is logged as theirs. */
+    private fun withdrawn(): Nothing =
+        throw ProtocolException(ErrorCode.CANCELLED, "the question to the owner was withdrawn because the session paused, stopped, or reconnected; ask again")
 
     /** A line in Activity; screen, action, and approval lines name the app they happened in. */
     /** [inApp] false for things that do not happen in the app in front (file changes), so they are not tagged with it. */
@@ -696,6 +721,7 @@ class CommandExecutor(
                 note(ActivityKind.REFUSAL, "Expired without an answer: let the AI use $name")
                 throw ProtocolException(ErrorCode.CONFIRMATION_EXPIRED, "the owner did not answer whether AI may use $name")
             }
+            ApprovalOutcome.CANCELLED -> withdrawn()
         }
     }
 

@@ -132,13 +132,25 @@ class DeviceLink(
     }
 
     private suspend fun post(body: String) = withContext(Dispatchers.IO) {
-        val conn = connection ?: return@withContext
-        val signed = sealed(conn, body)
-        // Results matter: retry briefly through a flaky network.
-        repeat(3) { attempt ->
-            val status = runCatching { send("/v1/device/messages?connection=$conn", signed) }.getOrNull()
-            if (status != null && status != 500 && status != 502 && status != 503) return@withContext
+        // Results matter: an action that already happened must reach the AI, or it may
+        // repeat it. Through a reconnect, wait for the new connection; through a flaky
+        // network, retry briefly.
+        val until = System.currentTimeMillis() + RECONNECT_WAIT_MS
+        var attempt = 0
+        while (attempt < 3) {
+            val conn = connection
+            if (conn == null) {
+                if (System.currentTimeMillis() >= until || loop?.isActive != true) return@withContext
+                delay(200)
+                continue
+            }
+            val status = runCatching { send("/v1/device/messages?connection=$conn", sealed(conn, body)) }.getOrNull()
+            when {
+                status == 409 && connection != conn -> continue // replaced meanwhile: send on the new one
+                status != null && status != 500 && status != 502 && status != 503 -> return@withContext
+            }
             delay(500L * (attempt + 1))
+            attempt++
         }
     }
 
@@ -154,6 +166,17 @@ class DeviceLink(
             try {
                 val conn = connection ?: when (val r = sayHello()) {
                     is HelloResult.Ok -> {
+                        // Stop was pressed while the hello was on its way: leave at once
+                        // instead of showing the phone as connected.
+                        if (!currentCoroutineContext().isActive) {
+                            runCatching {
+                                send(
+                                    "/v1/device/messages?connection=${r.connection}",
+                                    sealed(r.connection, Protocol.json.encodeToString(ByeMessage.serializer(), ByeMessage("user_stopped"))),
+                                )
+                            }
+                            return
+                        }
                         failures = 0
                         everConnected = true
                         connection = r.connection
@@ -289,6 +312,9 @@ class DeviceLink(
     private companion object {
         /** An agent loop sends its next command within seconds of reading a result. */
         const val HOT_WINDOW_MS = 60_000L
+
+        /** How long a result waits for the link to come back before it is dropped. */
+        const val RECONNECT_WAIT_MS = 20_000L
 
         /** The first protocol minor that takes signed messages. */
         const val SIGNING_MINOR = 12

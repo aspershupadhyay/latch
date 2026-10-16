@@ -72,6 +72,7 @@ class Autonomy(private val store: Store) {
         return if (s.autoOn || packageName in s.allowed || packageName in s.sessionApps) AppDecision.ALLOWED else AppDecision.ASK
     }
 
+    @Synchronized
     fun setAllowed(packageName: String, on: Boolean) {
         val s = _state.value
         val allowed = when {
@@ -86,17 +87,20 @@ class Autonomy(private val store: Store) {
         _state.value = next
     }
 
+    @Synchronized
     fun allowForSession(packageName: String) {
         _state.value = _state.value.let { it.copy(sessionApps = it.sessionApps + packageName) }
     }
 
     /** Turns Auto mode on or off. The screens ask for the owner's consent before calling this. */
+    @Synchronized
     fun setAuto(mode: AutoMode) {
         if (_state.value.auto == mode) return
         store.saveAutoAlways(mode == AutoMode.ALWAYS)
         _state.value = _state.value.copy(auto = mode)
     }
 
+    @Synchronized
     fun setTrustCritical(value: Boolean) {
         if (_state.value.trustCritical == value) return
         store.saveTrustCritical(value)
@@ -104,6 +108,7 @@ class Autonomy(private val store: Store) {
     }
 
     /** Every app off, and payments and the like ask again. */
+    @Synchronized
     fun clearAll() {
         store.save(emptySet())
         store.saveTrustCritical(false)
@@ -112,6 +117,7 @@ class Autonomy(private val store: Store) {
     }
 
     /** "This session" answers and session Auto mode end with the session (stop or expiry). */
+    @Synchronized
     fun endSession() {
         _state.value = _state.value.let { it.copy(sessionApps = emptySet(), auto = if (it.auto == AutoMode.SESSION) AutoMode.OFF else it.auto) }
     }

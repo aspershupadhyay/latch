@@ -30,6 +30,17 @@ class ApprovalBrokerTest {
     }
 
     @Test
+    fun aWithdrawnQuestionIsNotTheOwnersNo() = runTest {
+        val broker = ApprovalBroker()
+        val outcome = async { broker.request("Send", "d", "high", 60_000, true) }
+        yield()
+        // Stop, pause, or a reconnect: Latch ends the question, the owner said nothing.
+        broker.cancel()
+        assertEquals(ApprovalOutcome.CANCELLED, outcome.await())
+        assertEquals(null, broker.pending.value)
+    }
+
+    @Test
     fun wrongNonceIsIgnored() = runTest {
         val broker = ApprovalBroker()
         val outcome = async { broker.request("t", "d", "high", 60_000, true) }
