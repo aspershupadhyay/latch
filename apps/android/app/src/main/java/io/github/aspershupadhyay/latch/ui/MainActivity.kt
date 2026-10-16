@@ -78,6 +78,8 @@ import io.github.aspershupadhyay.latch.session.Pairing
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.session.SetupException
 import io.github.aspershupadhyay.latch.session.SignInRequest
+import io.github.aspershupadhyay.latch.report.ActivityReport
+import io.github.aspershupadhyay.latch.report.ReportSaver
 import io.github.aspershupadhyay.latch.session.deviceDescriptor
 import io.github.aspershupadhyay.latch.ui.theme.LatchTheme
 import io.github.aspershupadhyay.latch.update.UpdateInfo
@@ -331,7 +333,28 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                     Tab.CONNECT -> ConnectRoute(app, signInRequests) { requestsTick++ }
                     Tab.ACTIVITY -> {
                         val entries by app.log.entries.collectAsStateWithLifecycle()
-                        ActivityScreen(entries, app.log::clear)
+                        val context = LocalContext.current
+                        val scope = rememberCoroutineScope()
+                        ActivityScreen(entries, app.log::clear) { period ->
+                            scope.launch {
+                                val saved = runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        val d = deviceDescriptor()
+                                        val report = ActivityReport.build(
+                                            app.log.entries.value, period, System.currentTimeMillis(),
+                                            "${d.model} · Android ${d.osVersion} · Latch ${d.appVersion}",
+                                        )
+                                        ReportSaver.save(context, report)
+                                    }
+                                }
+                                saved.onSuccess {
+                                    Toast.makeText(context, "Saved to Downloads/${ReportSaver.FOLDER}/${it.name}", Toast.LENGTH_LONG).show()
+                                    context.startActivity(ReportSaver.shareIntent(it))
+                                }.onFailure {
+                                    Toast.makeText(context, "Could not save the report: ${it.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
                     }
                     Tab.SETTINGS -> SettingsRoute(app, reducedMotion, openGuide = { guideOpen = true }) { setupOpen = true }
                 }

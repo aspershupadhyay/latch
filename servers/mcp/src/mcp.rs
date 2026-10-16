@@ -54,7 +54,7 @@ the user in the chat and pass on exactly their answer with `answer_approval`; ne
 for them. When you finish, call `finish_task` with a one-line summary (the phone hides the AI \
 cursor at once), then tell the user which actions you took on the phone: apps opened, and what \
 you tapped, typed, sent, or deleted. When the user asks what happened on the phone, \
-`get_activity` reads the phone's own log. When a tool fails in a way you do not understand, \
+`get_activity` reads the phone's own log; for a PDF of every step, the owner taps Activity → Export a PDF report on the phone. When a tool fails in a way you do not understand, \
 call `diagnose` before retrying and pass its fixes on to the user.
 Files: `list_files` shows photos the owner allowed, Downloads, or the folders they share in \
 Latch; `read_file` shows a text file or a picture. To move whole files between the user's \
