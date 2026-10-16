@@ -572,6 +572,8 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         },
         photosOn = prefs.photosOn,
         onPhotosOn = { v -> app.settings.update { it.copy(photosOn = v) } },
+        localTransfers = prefs.localTransfers,
+        onLocalTransfers = { v -> app.settings.update { it.copy(localTransfers = v) } },
         onAllowPhotos = {
             askPhotos.launch(
                 when {

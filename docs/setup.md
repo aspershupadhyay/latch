@@ -109,6 +109,7 @@ Files travel between your computer and the phone through private links that expi
 - **Encrypted end to end between your devices.** Your computer encrypts a file (AES-256) before it leaves, with a key made for that one file; only your phone gets the key and decrypts it. The storage in between only ever holds scrambled bytes, and the phone checks the file's SHA-256 before keeping it, so a file changed on the way is never saved. The same in the other direction.
 - **Size:** up to **2 GB** per file on a self-hosted gateway, and on Vercel once you connect a free **Vercel Blob** store ([how](operations/vercel.md#big-files-vercel-blob)); without Blob, Vercel carries files up to 4 MB.
 - **Speed:** the phone and your computer move the bytes themselves, straight to and from the storage, at your connection's speed. A big file keeps moving in the background, with a progress bar on the phone.
+- **Faster on the same Wi-Fi:** switch on **Access → Files → Fast transfers on the same Wi-Fi**. When your computer is on the phone's Wi-Fi (or the phone's hotspot), files then go straight between them, still encrypted the same way, usually many times faster. Anywhere else the same command quietly uses your gateway. Off until you switch it on.
 - File contents are never logged.
 
 ## Step 7: Connect your AI

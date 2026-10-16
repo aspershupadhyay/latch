@@ -54,6 +54,8 @@ data class Preferences(
     val theme: ThemeChoice = ThemeChoice.SYSTEM,
     /** ADR-032: read the words on unlabeled buttons on the phone (Google ML Kit) so approvals see them. */
     val readButtons: Boolean = true,
+    /** ADR-041: whole files move straight between the AI's computer and the phone on the same Wi-Fi. */
+    val localTransfers: Boolean = false,
 )
 
 /**
@@ -100,6 +102,7 @@ class Settings(context: Context) {
             remoteApprovals = prefs.getBoolean("remote_approvals", false),
             folders = readFolders(),
             photosOn = prefs.getBoolean("photos_on", true),
+            localTransfers = prefs.getBoolean("local_transfers", false),
             theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
     }
@@ -167,6 +170,7 @@ class Settings(context: Context) {
             remove("files_folder")
             remove("files_folder_name")
             putBoolean("photos_on", next.photosOn)
+            putBoolean("local_transfers", next.localTransfers)
             putString("theme", next.theme.name)
         }
         _preferences.value = next

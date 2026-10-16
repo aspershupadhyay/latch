@@ -33,6 +33,7 @@ import kotlinx.coroutines.CoroutineScope
 import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.session.Crashes
 import kotlinx.coroutines.Dispatchers
+import io.github.aspershupadhyay.latch.files.LocalSlots
 import io.github.aspershupadhyay.latch.files.PhoneFiles
 import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import kotlinx.coroutines.SupervisorJob
@@ -103,7 +104,8 @@ class LatchApp : Application() {
             folderUris = { settings.preferences.value.folders.map { android.net.Uri.parse(it.uri) } },
             photosOn = { settings.preferences.value.photosOn },
         )
-        transfers = PhoneTransfers(files, http) { settings.pairing.value?.gatewayUrl }
+        val local = LocalSlots(dir = { java.io.File(cacheDir, "local") }, enabled = { settings.preferences.value.localTransfers })
+        transfers = PhoneTransfers(files, http, local) { settings.pairing.value?.gatewayUrl }
         session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers) {
             runCatching { !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) }.getOrNull()
         }

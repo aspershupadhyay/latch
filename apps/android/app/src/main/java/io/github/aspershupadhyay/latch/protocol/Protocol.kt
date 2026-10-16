@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.13"
+    const val VERSION = "1.14"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -289,6 +289,10 @@ data class ActivityItem(
     /** Who did it: "ai", "owner", or "latch". Optional: older phones leave it out. */
     val by: String? = null,
 )
+
+/** Since 1.14 (ADR-041): answer to `file.local`, a one-transfer address on the phone's Wi-Fi. */
+@Serializable
+data class LocalSlot(val url: String, @SerialName("expires_at_ms") val expiresAtMs: Long)
 
 /** Since 1.8: answer to `activity.list`, newest first. */
 @Serializable
@@ -588,8 +592,9 @@ sealed interface Command {
 
     /**
      * Since 1.14 (ADR-041): open a one-transfer address on the phone's Wi-Fi for a
-     * same-network transfer; [direction] is "receive" or "send". This version answers
-     * unsupported_capability, so the gateway uses the encrypted cloud link instead.
+     * same-network transfer; [direction] is "receive" or "send". The phone answers
+     * unsupported_capability when the owner's switch is off or it is not on Wi-Fi, and
+     * the gateway then uses the encrypted cloud link instead.
      */
     data class OpenLocal(val direction: String, val maxBytes: Long) : Command {
         override val name = "file.local"

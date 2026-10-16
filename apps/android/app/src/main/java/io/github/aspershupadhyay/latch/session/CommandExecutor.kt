@@ -36,6 +36,7 @@ import io.github.aspershupadhyay.latch.protocol.FileLocation
 import io.github.aspershupadhyay.latch.protocol.FilePreview
 import io.github.aspershupadhyay.latch.protocol.FileTransfer
 import io.github.aspershupadhyay.latch.protocol.GlobalAction
+import io.github.aspershupadhyay.latch.protocol.LocalSlot
 import io.github.aspershupadhyay.latch.protocol.Observation
 import io.github.aspershupadhyay.latch.protocol.ObserveAfter
 import io.github.aspershupadhyay.latch.protocol.PhoneControl
@@ -352,12 +353,11 @@ class CommandExecutor(
                 note(ActivityKind.FILE, "Copied a file off the phone")
                 Protocol.json.encodeToJsonElement(FileTransfer.serializer(), result)
             }
-            // Same-Wi-Fi transfers (ADR-041) come in a later version: the gateway
-            // falls back to the encrypted cloud link.
-            is Command.OpenLocal -> throw ProtocolException(
-                ErrorCode.UNSUPPORTED_CAPABILITY,
-                "fast transfers on the same Wi-Fi are not available in this version",
-            )
+            // ADR-041: an error here only means the gateway uses the cloud link.
+            is Command.OpenLocal -> {
+                val slot = transfers().openLocal(command.direction == "send", command.maxBytes)
+                Protocol.json.encodeToJsonElement(LocalSlot.serializer(), slot)
+            }
             is Command.TransferStatus -> {
                 // Never longer than the command's own deadline allows.
                 val wait = command.waitMs.toLong().coerceAtMost((envelope.deadlineMs - 2_000).coerceAtLeast(0))
