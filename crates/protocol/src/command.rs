@@ -26,14 +26,14 @@ pub enum Target {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+///
+/// The notification shade and quick settings are not offered: the shade
+/// shows one-time codes and message previews, and system UI stays off limits
+/// to agents (chapter 08).
 pub enum GlobalAction {
     Back,
     Home,
     Recents,
-    /// Since 1.15: pull down the notification shade.
-    Notifications,
-    /// Since 1.15: pull down quick settings.
-    QuickSettings,
     /// Since 1.15: lock the screen (the owner unlocks it).
     LockScreen,
     /// Since 1.15: take a screenshot the way the owner would; Android saves
@@ -51,14 +51,12 @@ pub enum GlobalAction {
 }
 
 impl GlobalAction {
-    /// The wire name, e.g. `quick_settings`.
+    /// The wire name, e.g. `lock_screen`.
     pub fn as_str(&self) -> &'static str {
         match self {
             GlobalAction::Back => "back",
             GlobalAction::Home => "home",
             GlobalAction::Recents => "recents",
-            GlobalAction::Notifications => "notifications",
-            GlobalAction::QuickSettings => "quick_settings",
             GlobalAction::LockScreen => "lock_screen",
             GlobalAction::Screenshot => "screenshot",
             GlobalAction::SplitScreen => "split_screen",
@@ -71,12 +69,10 @@ impl GlobalAction {
     }
 
     /// Every action, in the order tools list them.
-    pub const ALL: [GlobalAction; 13] = [
+    pub const ALL: [GlobalAction; 11] = [
         GlobalAction::Back,
         GlobalAction::Home,
         GlobalAction::Recents,
-        GlobalAction::Notifications,
-        GlobalAction::QuickSettings,
         GlobalAction::LockScreen,
         GlobalAction::Screenshot,
         GlobalAction::SplitScreen,
@@ -97,8 +93,6 @@ impl GlobalAction {
             GlobalAction::Back => "Press Back",
             GlobalAction::Home => "Press Home",
             GlobalAction::Recents => "Show recent apps",
-            GlobalAction::Notifications => "Open the notification shade",
-            GlobalAction::QuickSettings => "Open quick settings",
             GlobalAction::LockScreen => "Lock the screen",
             GlobalAction::Screenshot => "Take a screenshot (saved to the gallery)",
             GlobalAction::SplitScreen => "Split the screen",
@@ -947,7 +941,7 @@ mod r25_tests {
     fn new_commands_go_only_to_phones_that_understand_them() {
         let global = |action| Command::Global { action };
         assert_eq!(global(GlobalAction::Back).min_minor_version(), 0);
-        assert_eq!(global(GlobalAction::QuickSettings).min_minor_version(), 15);
+        assert_eq!(global(GlobalAction::SplitScreen).min_minor_version(), 15);
         let launch = |fresh| Command::LaunchApp {
             package: "com.example".into(),
             fresh,

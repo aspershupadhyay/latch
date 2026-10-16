@@ -465,7 +465,7 @@
         "readOnlyHint": false,
         "title": "Press a system button"
       },
-      "description": "Press a system button or key: back, home, recents; notifications or quick_settings pull down the shade; lock_screen locks the phone (only the owner unlocks it); screenshot saves a screenshot to the phone's gallery (you do not receive it; use observe to see the screen); split_screen; dpad_up, dpad_down, dpad_left, dpad_right, dpad_center move focus and select on TV-style or keyboard-driven screens (Android 13+). Everything but back, home, and recents needs Latch 1.15 on the phone. Returns the new observation.",
+      "description": "Press a system button or key: back, home, recents; lock_screen locks the phone (only the owner unlocks it); screenshot saves a screenshot to the phone's gallery (you do not receive it; use observe to see the screen); split_screen; dpad_up, dpad_down, dpad_left, dpad_right, dpad_center move focus and select on TV-style or keyboard-driven screens (Android 13+). The notification shade and quick settings stay off limits. Everything but back, home, and recents needs Latch 1.15 on the phone. Returns the new observation.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -474,8 +474,6 @@
               "back",
               "home",
               "recents",
-              "notifications",
-              "quick_settings",
               "lock_screen",
               "screenshot",
               "split_screen",

@@ -313,12 +313,14 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     assert.ok(r.isError && text(r).includes(says), text(r));
   }
   // Roadmap R25 (protocol 1.15): more buttons, links, status, and controls (same texts as the Rust gateway).
-  for (const button of ["quick_settings", "dpad_down"]) {
+  for (const button of ["split_screen", "dpad_down"]) {
     const r = await client.callTool({ name: "press", arguments: { button } });
     assert.ok(!r.isError && text(r).includes("observation_id"), text(r));
   }
-  const powerOff = await client.callTool({ name: "press", arguments: { button: "power_off" } });
-  assert.ok(powerOff.isError && text(powerOff).includes("button must be one of back, home"), text(powerOff));
+  for (const button of ["power_off", "notifications"]) {
+    const r = await client.callTool({ name: "press", arguments: { button } });
+    assert.ok(r.isError && text(r).includes("button must be one of back, home"), text(r));
+  }
   const status = text(await client.callTool({ name: "device_status", arguments: {} }));
   for (const line of ["- battery: 81%, not charging", "- network: Wi-Fi", "- free storage: 11.7 GB", "- lock screen: unlocked", "- screen: 1080x2400 px"]) {
     assert.ok(status.includes(line), `${line} in ${status}`);

@@ -1296,6 +1296,7 @@
       ]
     },
     "GlobalAction": {
+      "description": "The notification shade and quick settings are not offered: the shade\nshows one-time codes and message previews, and system UI stays off limits\nto agents (chapter 08).",
       "oneOf": [
         {
           "type": "string",
@@ -1308,16 +1309,6 @@
             "dpad_right",
             "dpad_center"
           ]
-        },
-        {
-          "description": "Since 1.15: pull down the notification shade.",
-          "type": "string",
-          "const": "notifications"
-        },
-        {
-          "description": "Since 1.15: pull down quick settings.",
-          "type": "string",
-          "const": "quick_settings"
         },
         {
           "description": "Since 1.15: lock the screen (the owner unlocks it).",

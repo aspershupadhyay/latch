@@ -233,16 +233,19 @@ function controlMinor(c: PhoneControl): number {
   }
 }
 
-/** System buttons and keys (`nav.global`); back, home, and recents since 1.0, the rest since 1.15. */
+/**
+ * System buttons and keys (`nav.global`); back, home, and recents since 1.0,
+ * the rest since 1.15. The notification shade and quick settings are not
+ * offered: the shade shows one-time codes, and system UI stays off limits.
+ */
 export const GLOBAL_ACTIONS = [
-  "back", "home", "recents", "notifications", "quick_settings", "lock_screen", "screenshot", "split_screen",
+  "back", "home", "recents", "lock_screen", "screenshot", "split_screen",
   "dpad_up", "dpad_down", "dpad_left", "dpad_right", "dpad_center",
 ] as const;
 export type GlobalAction = (typeof GLOBAL_ACTIONS)[number];
 /** What the owner reads; the same text as `GlobalAction::describe` in Rust. */
 export const GLOBAL_ACTION_TEXT: Record<GlobalAction, string> = {
-  back: "Press Back", home: "Press Home", recents: "Show recent apps", notifications: "Open the notification shade",
-  quick_settings: "Open quick settings", lock_screen: "Lock the screen", screenshot: "Take a screenshot (saved to the gallery)",
+  back: "Press Back", home: "Press Home", recents: "Show recent apps", lock_screen: "Lock the screen", screenshot: "Take a screenshot (saved to the gallery)",
   split_screen: "Split the screen", dpad_up: "Press the up arrow", dpad_down: "Press the down arrow",
   dpad_left: "Press the left arrow", dpad_right: "Press the right arrow", dpad_center: "Press the centre (select) key",
 };

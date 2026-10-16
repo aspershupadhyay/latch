@@ -2806,26 +2806,24 @@ async fn more_buttons_links_status_and_controls() {
     let phone = connect_phone(&gw, &Capability::ALL).await;
 
     // Roadmap R25: the new system buttons come back with the screen like back and home.
-    for button in [
-        "quick_settings",
-        "notifications",
-        "dpad_down",
-        "lock_screen",
-    ] {
+    for button in ["split_screen", "dpad_down", "lock_screen"] {
         let (is_error, text, _) = call(&gw, "press", json!({"button": button})).await;
         assert!(!is_error, "{button}: {text}");
         assert!(text.contains("observation_id"), "{text}");
     }
-    let (is_error, text, _) = call(&gw, "press", json!({"button": "power_off"})).await;
-    assert!(
-        is_error && text.contains("button must be one of back, home"),
-        "{text}"
-    );
+    // The shade shows one-time codes and message previews: never a button.
+    for button in ["power_off", "notifications", "quick_settings"] {
+        let (is_error, text, _) = call(&gw, "press", json!({"button": button})).await;
+        assert!(
+            is_error && text.contains("button must be one of back, home"),
+            "{text}"
+        );
+    }
     {
         use latch_protocol::GlobalAction::*;
         assert_eq!(
             phone.state.lock().expect("lock").pressed,
-            [QuickSettings, Notifications, DpadDown, LockScreen]
+            [SplitScreen, DpadDown, LockScreen]
         );
     }
 

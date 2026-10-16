@@ -1,1 +1,0 @@
-{ "type": "command", "id": "c_0150", "deadline_ms": 15000, "command": { "name": "nav.global", "params": { "action": "quick_settings" } } }
