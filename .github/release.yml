@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+# Groups "Generate release notes" by pull request label (docs/operations/release.md).
+changelog:
+  exclude:
+    labels: [skip-changelog]
+    authors: [dependabot]
+  categories:
+    - title: Safety and security
+      labels: [security, safety]
+    - title: New for owners
+      labels: [feature, enhancement]
+    - title: Fixes
+      labels: [bug, fix]
+    - title: Speed
+      labels: [performance]
+    - title: Documentation
+      labels: [documentation]
+    - title: Other changes
+      labels: ["*"]
