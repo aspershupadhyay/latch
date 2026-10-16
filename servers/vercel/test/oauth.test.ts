@@ -197,6 +197,32 @@ test("a browser can only deny; approving takes the app, never the owner key in a
   assert.equal(denied.searchParams.get("state"), "s2");
 });
 
+test("nobody can fill the sign-in list to keep the owner's app from asking", async () => {
+  const challenge = createHash("sha256").update(randomBytes(32).toString("base64url")).digest("base64url");
+  const register = async (name: string) => (await (await fetch(`${base}/oauth/register`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ client_name: name, redirect_uris: ["https://app.example/cb"] }),
+  })).json()).client_id as string;
+  const ask = (clientId: string) => fetch(`${base}/oauth/authorize?${new URLSearchParams({
+    response_type: "code", client_id: clientId, redirect_uri: "https://app.example/cb", code_challenge: challenge, code_challenge_method: "S256", state: "s",
+  })}`);
+  const waiting = async () => ((await admin("/v1/admin/oauth/requests")).body.requests as { client_name: string }[]).map((r) => r.client_name);
+
+  // Signing in again replaces an app's waiting request instead of adding one.
+  const spammer = await register("Spam 0");
+  for (let i = 0; i < 5; i++) assert.equal((await ask(spammer)).status, 200);
+  assert.equal((await waiting()).filter((n) => n === "Spam 0").length, 1);
+
+  // A flood of apps never refuses a new one: the oldest waiting request makes room.
+  for (let i = 1; i <= 12; i++) assert.equal((await ask(await register(`Spam ${i}`))).status, 200);
+  const owners = await register("Owner's app");
+  assert.equal((await ask(owners)).status, 200);
+  const now = await waiting();
+  assert.ok(now.length <= 10, now.join(", "));
+  assert.ok(now.includes("Owner's app"), now.join(", "));
+  assert.ok(!now.includes("Spam 0"), "the oldest went first");
+});
+
 test("authorization requests are validated before anything is shown", async () => {
   const reg = await (await fetch(`${base}/oauth/register`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: ["https://app.example/cb"] }),

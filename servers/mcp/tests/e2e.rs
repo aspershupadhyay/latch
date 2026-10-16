@@ -2725,3 +2725,75 @@ async fn phones_and_ai_apps_survive_a_gateway_restart() {
     task.abort();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Audit finding: anyone could fill the sign-in list (10 waiting requests) and
+/// keep the owner's own AI app from asking. Same rule as the Vercel gateway.
+#[tokio::test]
+async fn nobody_can_fill_the_sign_in_list() {
+    let gw = start_gateway().await;
+    let register = |name: String| {
+        let gw = &gw;
+        async move {
+            let (status, body) = http(
+                gw,
+                "POST",
+                "/oauth/register",
+                None,
+                Some(json!({"client_name": name, "redirect_uris": ["https://app.example/cb"]})),
+                &[],
+            )
+            .await;
+            assert_eq!(status, 201, "{body}");
+            body["client_id"].as_str().expect("client_id").to_owned()
+        }
+    };
+    let ask = |client: String| {
+        let gw = &gw;
+        async move {
+            let path = format!(
+                "/oauth/authorize?response_type=code&client_id={client}&redirect_uri=https%3A%2F%2Fapp.example%2Fcb&code_challenge={}&code_challenge_method=S256&state=s",
+                "a".repeat(43)
+            );
+            let (status, _, _) = get_raw(gw, &path).await;
+            assert_eq!(status, 200);
+        }
+    };
+    let waiting = || async {
+        let (_, body) = http(
+            &gw,
+            "GET",
+            "/v1/admin/oauth/requests",
+            Some(ADMIN),
+            None,
+            &[],
+        )
+        .await;
+        body["requests"]
+            .as_array()
+            .expect("requests")
+            .iter()
+            .map(|r| r["client_name"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+    };
+
+    // Signing in again replaces an app's waiting request instead of adding one.
+    let spammer = register("Spam 0".into()).await;
+    for _ in 0..5 {
+        ask(spammer.clone()).await;
+    }
+    assert_eq!(waiting().await.iter().filter(|n| *n == "Spam 0").count(), 1);
+
+    // A flood of apps never refuses a new one: the oldest waiting request makes room.
+    for i in 1..=12 {
+        ask(register(format!("Spam {i}")).await).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    ask(register("Owner's app".into()).await).await;
+    let now = waiting().await;
+    assert!(now.len() <= 10, "{now:?}");
+    assert!(now.contains(&"Owner's app".to_owned()), "{now:?}");
+    assert!(
+        !now.contains(&"Spam 0".to_owned()),
+        "the oldest went first: {now:?}"
+    );
+}

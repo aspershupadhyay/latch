@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Links } from "../src/links.js";
-import { OAuth, isPublicHttps } from "../src/oauth.js";
+import { OAuth, isPublicAddress, isPublicHttps, publicLookup } from "../src/oauth.js";
 import { pairingCode } from "../src/secret.js";
 import { MemoryStore } from "../src/store.js";
 
@@ -49,6 +49,20 @@ test("client metadata documents are never fetched from private addresses", () =>
     "https://169.254.169.254/x", "https://172.16.0.1/x", "https://192.168.1.1/x", "https://[::1]/x", "https://printer.local/x",
     "https://user:pw@client.example/x", "https://client.example:8443/x",
   ]) assert.ok(!isPublicHttps(url), url);
+});
+
+// Audit finding: a public-looking name that resolves to a private address
+// (DNS pointing at 169.254.169.254, or rebinding) is refused when connecting.
+test("names that resolve to private addresses are refused at connection time", async () => {
+  for (const ok of ["93.184.216.34", "8.8.8.8", "2606:4700:4700::1111"]) assert.ok(isPublicAddress(ok), ok);
+  for (const bad of [
+    "127.0.0.1", "10.0.0.1", "172.20.1.1", "192.168.0.10", "169.254.169.254", "100.64.0.1", "0.0.0.0", "192.0.0.8",
+    "198.18.0.1", "224.0.0.1", "255.255.255.255", "::1", "::", "fd00::1", "fe80::1", "ff02::1", "::ffff:10.0.0.1", "64:ff9b::a00:1",
+    "not an ip",
+  ]) assert.ok(!isPublicAddress(bad), bad);
+  // "localhost" resolves on this machine without the network: to loopback, so it is refused.
+  const err = await new Promise<NodeJS.ErrnoException | null>((resolve) => publicLookup("localhost", {}, (e) => resolve(e)));
+  assert.equal(err?.code, "ENOTPUBLIC");
 });
 
 test("two uploads at once to one link: only the first is kept", async () => {

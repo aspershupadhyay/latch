@@ -188,7 +188,7 @@ export class Links {
       await this.store.hdel(GC_KEY, record.path);
     } else {
       const parts = Math.ceil((record.size ?? 0) / PART_BYTES);
-      for (let i = 0; i < parts; i++) await this.store.del(partKey(token, i));
+      if (parts > 0) await this.store.batch(Array.from({ length: parts }, (_, i) => ({ op: "del" as const, key: partKey(token, i) })));
     }
   }
 

@@ -728,7 +728,7 @@ export class Gateway {
     }
     if (path.startsWith("clients/") && method === "DELETE") {
       const id = decodePath(path.slice("clients/".length));
-      const raw = (await this.store.hgetall("latch:clients"))[id];
+      const raw = await this.store.hget("latch:clients", id);
       if (!raw) return error(404, "no such client");
       await this.store.hdel("latch:clients", id);
       await this.store.hdel(CLIENT_USED, id);

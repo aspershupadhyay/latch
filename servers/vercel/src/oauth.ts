@@ -13,6 +13,9 @@
 import { newId, newToken, pairingCode, sha256 } from "./secret.js";
 import type { Store } from "./store.js";
 import { createHash } from "node:crypto";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
+import { request as httpsRequest } from "node:https";
+import { isIP } from "node:net";
 
 export const SCOPE = "phone";
 const REQUEST_TTL_MS = 10 * 60 * 1000;
@@ -158,7 +161,7 @@ export class OAuth {
   /** A client registered here, or one that publishes a client ID metadata document at an https URL. */
   private async client(clientId: string): Promise<RegisteredClient | undefined> {
     if (clientId.startsWith("https://")) return this.metadataDocument(clientId);
-    const raw = (await this.store.hgetall(K.clients))[clientId];
+    const raw = await this.store.hget(K.clients, clientId);
     return raw ? (JSON.parse(raw) as RegisteredClient) : undefined;
   }
 
@@ -167,10 +170,8 @@ export class OAuth {
     if (cached) return JSON.parse(cached) as RegisteredClient;
     if (url.length > 512 || !isPublicHttps(url)) return undefined;
     try {
-      const res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(3000), headers: { accept: "application/json" } });
-      if (!res.ok) return undefined;
-      const text = await res.text();
-      if (text.length > 16 * 1024) return undefined;
+      const text = await fetchPublic(url);
+      if (text === undefined) return undefined;
       const doc = JSON.parse(text) as Record<string, unknown>;
       const uris = doc.redirect_uris;
       if (doc.client_id !== url || !Array.isArray(uris) || !uris.every((u) => typeof u === "string" && redirectAllowed(u))) return undefined;
@@ -206,8 +207,19 @@ export class OAuth {
     if (resource !== null && !sameResource(resource, base)) return fail("invalid_target", "this server only issues tokens for its own /mcp endpoint");
     if (this.host.adminToken === undefined) return page(503, "Gateway not set up", "Set LATCH_ADMIN_TOKEN in the Vercel project, then redeploy.");
 
+    // One waiting request per app (signing in again replaces it), and a full list
+    // makes room by dropping its oldest: nobody can fill it to keep the owner's own
+    // app from asking. Same rule as the Rust gateway.
     const pending = await this.pendingRequests();
-    if (pending.length >= MAX_PENDING) return fail("temporarily_unavailable", "too many sign-in requests are waiting; try again in a few minutes");
+    const others = pending.filter((r) => r.client_id !== client.client_id);
+    const drop = [
+      ...pending.filter((r) => r.client_id === client.client_id),
+      ...others.slice(0, Math.max(0, others.length + 1 - MAX_PENDING)),
+    ];
+    for (const old of drop) {
+      await this.store.hdel(K.pending, old.id);
+      await this.store.del(K.request(old.id));
+    }
     const req: AuthRequest = {
       id: newToken("lar"),
       client_id: client.client_id,
@@ -244,10 +256,13 @@ export class OAuth {
 
   /** Owner API: requests waiting for approval in the app. */
   async pendingRequests(): Promise<AuthRequest[]> {
-    const ids = Object.keys(await this.store.hgetall(K.pending));
+    const ids = Object.keys(await this.store.hgetall(K.pending)).filter((id) => /^lar_[0-9a-f]{64}$/.test(id));
+    // One round trip for all of them.
+    const raws = ids.length > 0 ? await this.store.mget(ids.map(K.request)) : [];
     const out: AuthRequest[] = [];
-    for (const id of ids) {
-      const req = await this.loadRequest(id);
+    for (const [i, id] of ids.entries()) {
+      const raw = raws[i];
+      const req = raw ? (JSON.parse(raw) as AuthRequest) : undefined;
       if (req && req.status === "pending") out.push(req);
       else await this.store.hdel(K.pending, id);
     }
@@ -396,6 +411,76 @@ export function matchRedirect(registered: string[], requested: string): string |
     }
   }
   return undefined;
+}
+
+/**
+ * Whether an address a name resolved to is on the public internet: not
+ * loopback, private, link-local, carrier NAT, "this network", benchmark,
+ * multicast, or reserved, in IPv4 or IPv6 (including IPv4-mapped IPv6).
+ */
+export function isPublicAddress(address: string): boolean {
+  const v4 = (ip: string): boolean => {
+    const [a = 0, b = 0] = ip.split(".").map(Number);
+    return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)));
+  };
+  const kind = isIP(address);
+  if (kind === 4) return v4(address);
+  if (kind !== 6) return false;
+  const ip = address.toLowerCase();
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(ip);
+  if (mapped) return v4(mapped[1]!);
+  if (ip === "::" || ip === "::1") return false;
+  const first = parseInt(ip.split(":")[0] || "0", 16);
+  // fc00::/7 unique local, fe80::/10 link-local, ff00::/8 multicast, 64:ff9b::/96 translation.
+  return !((first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00 || ip.startsWith("64:ff9b:"));
+}
+
+/**
+ * DNS for the metadata fetch: every address the name resolves to must be public,
+ * checked when the connection is made, so a name cannot point the gateway at an
+ * internal service, not even by changing its answer between a check and the fetch.
+ */
+export function publicLookup(
+  hostname: string,
+  options: { all?: boolean },
+  callback: (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void,
+): void {
+  dnsLookup(hostname, { all: true }, (err, addresses) => {
+    if (err) return callback(err, "", 0);
+    if (addresses.length === 0 || !addresses.every((a) => isPublicAddress(a.address))) {
+      return callback(Object.assign(new Error(`${hostname} does not resolve to a public address`), { code: "ENOTPUBLIC" }), "", 0);
+    }
+    if (options.all) callback(null, addresses);
+    else callback(null, addresses[0]!.address, addresses[0]!.family);
+  });
+}
+
+/** GET a small public https document: no redirects, 3 s, at most 16 KB; undefined on any failure. */
+function fetchPublic(url: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const req = httpsRequest(url, { method: "GET", headers: { accept: "application/json" }, timeout: 3000, lookup: publicLookup as never }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return resolve(undefined);
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > 16 * 1024) {
+          req.destroy();
+          return resolve(undefined);
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+      res.on("error", () => resolve(undefined));
+    });
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => resolve(undefined));
+    req.end();
+  });
 }
 
 export function isPublicHttps(url: string): boolean {
