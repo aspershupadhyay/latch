@@ -120,7 +120,7 @@ scripts/check.sh                 # everything CI runs
 | [`packages/schemas`](packages/schemas) | JSON Schemas and fixtures shared by every implementation |
 | [`adapters/python`](adapters/python) · [`tests/interop`](tests/interop) | A Python client, and checks against the official MCP SDK |
 
-CI runs on every pull request: Rust, both gateways end to end, the official MCP SDK client, the Android build, the real app on an emulator, the container image, and a dependency audit. Read [CONTRIBUTING.md](CONTRIBUTING.md) before your first pull request, and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
+CI runs on every pull request: Rust, both gateways end to end, the official MCP SDK client, the Android build, the real app on an emulator, the container image, and a dependency audit. Read [CONTRIBUTING.md](CONTRIBUTING.md) before your first pull request and [SECURITY.md](SECURITY.md) to report a vulnerability privately. How decisions and releases are made: [GOVERNANCE.md](GOVERNANCE.md). What changed: [CHANGELOG.md](CHANGELOG.md). Need help: [SUPPORT.md](SUPPORT.md).
 
 **iPhone:** iOS has no public way for one app to operate another, so a full iPhone version is not possible. See [handbook chapter 06](handbook/06-ios-application-plan.md).
 

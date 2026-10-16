@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+cff-version: 1.2.0
+message: "If you use Latch in research or a publication, please cite it as below."
+title: "Latch: user-controlled phone access for AI apps over the Model Context Protocol"
+type: software
+authors:
+  - family-names: Upadhyay
+    given-names: Aspersh
+repository-code: "https://github.com/aspershupadhyay/latch"
+url: "https://aspershupadhyay.github.io/latch/"
+license: AGPL-3.0-only
+keywords:
+  - model context protocol
+  - android automation
+  - ai agents
+  - accessibility service
+  - capability-based security
+  - human-in-the-loop
