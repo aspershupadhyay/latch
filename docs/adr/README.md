@@ -315,3 +315,31 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Not covered:** devices on different networks or behind client isolation use the cloud link as today. Discovery without the gateway (mDNS) is not needed because the gateway already knows both ends.
 **Checks:** done: protocol fixtures (`g2d-command-file-local`, `d2g-result-file-local`, two invalid), address validation tests in Rust and TypeScript, the fake phone runs a real one-transfer listener, Rust e2e `same_wifi_transfers_go_straight_to_the_phone_and_fall_back` (Wi-Fi upload, gateway fallback, nothing sent, Wi-Fi download once, `lane: "cloud"`, switch off), and the Vercel test `wifi.test.ts`, which runs the real `openssl`/`curl` commands from the answers. Android: `LocalSlots` binds to the Wi-Fi (or hotspot) IPv4 address only, never mobile data; its JVM tests (`LocalSlotsTest`) cover the curl-style `Expect: 100-continue` upload, wrong path and method, size limit, one transfer per address, expiry, Stop, a tampered file, and nothing arrived. The emulator job sends a file to the app's Wi-Fi address and reads one back through the real container gateway, with the test playing the computer. Still to do: the speed measured on a real phone and Wi-Fi.
 **Reversal trigger:** a common phone or network where opening a local listener is blocked or flagged, or an owner-visible failure the fallback does not hide.
+
+## ADR-042 — The gateway on the owner's own computer, reached over the Wi-Fi
+**Status:** accepted (2026-10-16, roadmap R24; owner: "make it compatible so that we can connect the MCP server as well through Wi-Fi") · **Protocol:** unchanged (1.14) · **Builds on:** ADR-029 (private gateway), ADR-041 (same-Wi-Fi files)
+**Problem:** an AI app on the owner's computer (Claude Code, Claude Desktop, Cursor) can already start the gateway itself (`latch-gateway stdio`), but a phone could reach it only over plain `http://`, which release builds refuse (and should: screen text and the phone's token would cross the Wi-Fi readable). A cloud gateway works, but every action then makes two trips over the internet, and the screen leaves the home.
+**Options considered:**
+| Option | Verdict |
+|---|---|
+| Let release builds use `http://` to private addresses | Rejected: anyone on the same Wi-Fi could read the screen and take the phone's token |
+| ADB over Wi-Fi | Rejected: wireless debugging gives the computer a full shell on the phone (chapter 08 forbids it) |
+| A certificate from a public authority for a local name | Rejected: needs a domain, DNS, and renewal; not something an owner sets up in five minutes |
+| **The gateway makes its own certificate; the phone pins its key** | **Chosen:** standard TLS (rustls), no new protocol, nothing to buy or renew |
+**Decision:**
+- `LATCH_WIFI=1` (or `LATCH_WIFI_BIND=<address>`) adds a TLS listener, by default `0.0.0.0:8788`, serving the same routes. The certificate (ECDSA P-256, made with rcgen) and its key live in `LATCH_DATA_DIR/wifi/`, the key readable by its owner only; they survive restarts, so a paired phone keeps working.
+- At start the gateway prints the address to enter in the app: `https://<this computer's Wi-Fi address>:8788#pin=<base64url SHA-256 of the certificate's SubjectPublicKeyInfo>`. The pin is not a secret.
+- The app accepts `#pin=` only with `https://`, stores the pin with the pairing, and for that exact host and port trusts that key and nothing else (`GatewayPins`, an `X509ExtendedTrustManager` keyed by host and port). Every other host keeps Android's normal certificate checks, unchanged.
+- The AI app on the same computer keeps using the plain local address (`http://127.0.0.1:8787/mcp`, or stdio), which never leaves the computer.
+- File links for a phone are built on the address that phone connected through, so they match its paired gateway and pass the app's link check.
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| Another device on the Wi-Fi | read screens, commands, or the token | TLS 1.2/1.3 with the pinned key; without the private key there is nothing readable |
+| | pretend to be the gateway | The phone refuses any key but the pinned one, also one signed by a public authority |
+| | reach the gateway | It still needs the phone's token, the owner key, or an MCP key on every request, as on the internet |
+| Someone who copies `LATCH_DATA_DIR` | pretend to be the gateway | Yes, like any server whose private key is stolen; the folder already holds the device list. Delete `wifi/` and re-pair to rotate |
+| A typo or a changed pin | connect the phone elsewhere | The handshake fails closed; the app shows the connection error |
+**Not covered:** the computer's Wi-Fi address can change (DHCP); the phone then needs the new address (same pin). A phone away from home cannot reach it; use a cloud gateway for that, or both.
+**Checks:** Rust: the certificate is made once and keeps its pin, the key file is mode 600, a pinned TLS client gets `/healthz` and requests carry the address used, plain HTTP on the TLS port gets nothing. App (`WifiGatewayTest`, against the real gateway binary): no pin and a wrong pin are both refused; with the pin, pairing, the phone's connection, an AI's `observe` over the local address, and a file link on the Wi-Fi address all work; ordinary https hosts verify as before.
+**Reversal trigger:** a phone whose TLS stack does not pass the host to the trust manager (pairing then fails closed), or owners finding the address step too hard.

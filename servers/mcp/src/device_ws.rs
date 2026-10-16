@@ -25,6 +25,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub async fn upgrade(
     State(state): State<Arc<AppState>>,
+    wifi: Option<axum::Extension<crate::wifi::WifiOrigin>>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
@@ -37,6 +38,9 @@ pub async fn upgrade(
         )
             .into_response();
     };
+    state
+        .devices
+        .set_link_base(&device_id, wifi.map(|axum::Extension(o)| o.0));
     ws.max_message_size(validate::MAX_FRAME_BYTES)
         .max_frame_size(validate::MAX_FRAME_BYTES)
         .on_upgrade(move |socket| serve(state, device_id, socket))

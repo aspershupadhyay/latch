@@ -26,6 +26,11 @@ axum = { version = "0.8.9", features = ["ws"] }
 ctr = "0.10.1"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 getrandom = "0.4.3"
+hyper = { version = "1.11.1", default-features = false, features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["server-auto", "server-graceful", "service", "tokio"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 p256 = { version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
 schemars = "1.2.2"
 serde = { version = "1.0.229", features = ["derive"] }

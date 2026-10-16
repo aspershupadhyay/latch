@@ -371,6 +371,23 @@ private const val APPROVAL_GRACE_MS = 120_000L
 
 /** Gateway address handling, shared by pairing and the session. */
 object Pairing {
+    /** A gateway address and, for a gateway on the owner's own Wi-Fi (R24), the pin of its certificate. */
+    data class Address(val url: String, val pin: String?)
+
+    /**
+     * Reads what the owner typed or pasted: an address, optionally with
+     * `#pin=<base64url SHA-256>` as `latch-gateway` prints it for phones on the
+     * same Wi-Fi. Returns null for anything unusable; a pin needs https.
+     */
+    fun parse(input: String, allowCleartext: Boolean): Address? {
+        val trimmed = input.trim()
+        val fragment = trimmed.substringAfter('#', "")
+        val pin = if ('#' in trimmed) fragment.removePrefix("pin=").takeIf { fragment.startsWith("pin=") && GatewayPins.isPin(it) } ?: return null else null
+        val url = normalize(trimmed.substringBefore('#'), allowCleartext) ?: return null
+        if (pin != null && !url.startsWith("https://")) return null
+        return Address(url, pin)
+    }
+
     /** Adds https:// when the owner typed a bare host. Returns null for anything unusable. */
     fun normalize(input: String, allowCleartext: Boolean): String? {
         val trimmed = input.trim().trimEnd('/')
@@ -383,7 +400,7 @@ object Pairing {
         }
     }
 
-    fun client(): OkHttpClient = OkHttpClient.Builder()
+    fun client(): OkHttpClient = GatewayPins.install(OkHttpClient.Builder())
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

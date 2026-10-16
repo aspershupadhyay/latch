@@ -581,9 +581,15 @@ fn finish(
     Ok(download_text(state, token, &record))
 }
 
-fn link_of(state: &Arc<AppState>, token: &str, record: &Record) -> FileLink {
+/// The link a phone follows: on the address it connected through, so a phone
+/// on the Wi-Fi listener (R24) gets links it can reach and that match its gateway.
+fn link_of(state: &Arc<AppState>, device_id: &str, token: &str, record: &Record) -> FileLink {
+    let base = state
+        .devices
+        .link_base(device_id)
+        .unwrap_or_else(|| state.base_url());
     FileLink {
-        url: link_url(state, token),
+        url: format!("{base}/v1/blobs/{token}"),
         headers: Default::default(),
         key_hex: record.key_hex.clone(),
         iv_hex: record.iv_hex.clone(),
@@ -597,7 +603,7 @@ async fn encrypted_file_link(
     lane_cloud: bool,
 ) -> Result<Value, ProtocolError> {
     let (token, mut record) = state.links.create(Kind::Down);
-    let mut link = link_of(state, &token, &record);
+    let mut link = link_of(state, device_id, &token, &record);
     if !lane_cloud && let Some(url) = open_local(state, device_id, LocalDirection::Send).await {
         // The phone encrypts into its own Wi-Fi address instead of uploading.
         link.url = url.clone();
@@ -940,7 +946,7 @@ async fn write_file(
             Some(url) => {
                 let link = FileLink {
                     url,
-                    ..link_of(state, upload, &record)
+                    ..link_of(state, device_id, upload, &record)
                 };
                 match transfer_command(state, device_id, fetch(link, None)).await {
                     // Nothing arrived on the Wi-Fi: the gateway's copy, if it has one now.
@@ -950,14 +956,14 @@ async fn write_file(
                             .record(upload)
                             .and_then(|r| r.size)
                             .ok_or_else(nothing_yet)?;
-                        let link = link_of(state, upload, &record);
+                        let link = link_of(state, device_id, upload, &record);
                         transfer_command(state, device_id, fetch(link, Some(size))).await?
                     }
                     other => other?,
                 }
             }
             None => {
-                let link = link_of(state, upload, &record);
+                let link = link_of(state, device_id, upload, &record);
                 transfer_command(state, device_id, fetch(link, record.size)).await?
             }
         };

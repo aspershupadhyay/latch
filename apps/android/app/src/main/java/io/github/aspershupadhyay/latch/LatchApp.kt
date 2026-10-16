@@ -23,6 +23,7 @@ import io.github.aspershupadhyay.latch.policy.PolicyWords
 import io.github.aspershupadhyay.latch.data.Settings
 import io.github.aspershupadhyay.latch.session.ApprovalBroker
 import io.github.aspershupadhyay.latch.session.Pairing
+import io.github.aspershupadhyay.latch.session.GatewayPins
 import io.github.aspershupadhyay.latch.session.GatewaySetup
 import io.github.aspershupadhyay.latch.session.SessionController
 import io.github.aspershupadhyay.latch.session.SessionState
@@ -96,6 +97,8 @@ class LatchApp : Application() {
         // A failure that closed Latch last time is shown in Activity, without content.
         Crashes.takeLastFatal()?.let { (what, _) -> log.add(ActivityKind.REFUSAL, "Latch closed unexpectedly last time: $what") }
         settings = Settings(this)
+        // R24: the paired gateway's own certificate, when it is on the owner's Wi-Fi.
+        settings.pairing.value?.let { GatewayPins.set(it.gatewayUrl, it.pin) }
         grants = ApprovalGrants(PrefsGrantStore(this))
         consequences = Consequences(PolicyWords.parse(assets.open("words.json").bufferedReader().use { it.readText() }))
         autonomy = Autonomy(PrefsAutonomyStore(this))

@@ -217,7 +217,7 @@ fun JoinGatewayScreen(state: JoinState, actions: JoinActions) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 LabeledField(
                     label = "Relay address",
-                    hint = "The web address of the relay, for example latch-gateway-ada.vercel.app",
+                    hint = "The web address of the relay, for example latch-gateway-ada.vercel.app. For a relay on your computer, paste the whole address it prints, with #pin=.",
                     value = state.address,
                     onValueChange = actions.setAddress,
                     topic = HelpTopic.RELAY,

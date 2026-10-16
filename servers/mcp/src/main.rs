@@ -5,7 +5,7 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use latch_gateway::{AppState, Config, mcp, router, secret, store::Store};
+use latch_gateway::{AppState, Config, mcp, router, secret, store::Store, wifi};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 const USAGE: &str = "\
@@ -24,6 +24,8 @@ ENVIRONMENT:
     LATCH_DATA_DIR          where devices.json lives (default ./latch-data)
     LATCH_PUBLIC_URL        public https URL shown to phones when pairing
     LATCH_ALLOWED_ORIGINS   comma-separated browser origins allowed to call /mcp
+    LATCH_WIFI              1: also serve phones on this Wi-Fi with TLS, on 0.0.0.0:8788
+    LATCH_WIFI_BIND         the Wi-Fi listener's address instead (implies LATCH_WIFI)
     RUST_LOG                log filter (default info)
 ";
 
@@ -95,21 +97,62 @@ async fn main() -> ExitCode {
     tracing::info!(%bind, mode, "latch gateway listening");
 
     let app = router(state.clone());
+    let wifi = match state.config.wifi_bind {
+        Some(addr) => match start_wifi(&state, addr, app.clone()).await {
+            Ok(task) => Some(task),
+            Err(e) => {
+                eprintln!("cannot serve phones on the Wi-Fi at {addr}: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+        None => None,
+    };
     let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
 
     if stdio {
         let http = tokio::spawn(async move { server.await });
         serve_stdio(state).await;
         http.abort();
+        if let Some(wifi) = wifi {
+            wifi.abort();
+        }
         return ExitCode::SUCCESS;
     }
-    match server.await {
+    let result = server.await;
+    if let Some(wifi) = wifi {
+        wifi.abort();
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("server error: {e}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// R24: the TLS listener for phones on the same Wi-Fi, and the address to enter in the app.
+async fn start_wifi(
+    state: &Arc<AppState>,
+    addr: std::net::SocketAddr,
+    app: axum::Router,
+) -> std::io::Result<tokio::task::JoinHandle<()>> {
+    let tls = wifi::load_or_create(&state.config.data_dir)?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let port = listener.local_addr()?.port();
+    let address = match wifi::lan_ip() {
+        Some(ip) => wifi::phone_address(ip, port, &tls.pin),
+        None => format!(
+            "https://<this computer's Wi-Fi address>:{port}#pin={}",
+            tls.pin
+        ),
+    };
+    tracing::info!(%addr, "serving phones on the Wi-Fi");
+    // stderr, so stdio mode keeps stdout for MCP.
+    eprintln!(
+        "Phones on this Wi-Fi: in the Latch app, tap \"I have a code or a relay already\" and enter\n    {address}"
+    );
+    Ok(tokio::spawn(wifi::serve(listener, tls.config, app)))
 }
 
 /// Newline-delimited JSON-RPC on stdin/stdout, per the MCP stdio transport.

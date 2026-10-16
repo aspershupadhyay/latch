@@ -34,6 +34,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 - The phone learns how long each app takes to settle (R7).
 - Every action reports whether it changed the screen, opened another app, or did nothing (R11, protocol 1.9).
 - Repeated elements, such as map results, are listed once (R12).
+- **No cloud needed at home:** run the gateway on your computer with `LATCH_WIFI=1` (also from your AI app over stdio). The phone connects over your Wi-Fi with TLS, trusting only that gateway's own certificate by the pin in its address (R24).
 - **Fast transfers on the same Wi-Fi:** with the switch on (Access → Files), whole files go straight between your computer and the phone, still encrypted, and fall back to your gateway anywhere else (R23, protocol 1.14).
 
 ### Fixes

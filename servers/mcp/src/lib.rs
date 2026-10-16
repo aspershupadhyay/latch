@@ -25,6 +25,7 @@ pub mod secret;
 pub mod signing;
 pub mod store;
 pub mod transfers;
+pub mod wifi;
 
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
