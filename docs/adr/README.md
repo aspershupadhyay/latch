@@ -281,3 +281,31 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Why a hello field:** it is one bit about the phone's own app, holds no screen or personal content, and changes rarely; a reconnect refreshes it. Older gateways ignore unknown hello fields, so phones send it to any gateway.
 **Not covered:** whether the accessibility service is on needs no new field: switched-on capabilities already report `needs_permission` without it, which `diagnose` names. Brand-specific background killers (some vendors stop apps despite the exemption) are not visible to the app.
 **Reversal trigger:** the field turning out to be wrong on common phones (for example, vendor battery managers that report exemption but still stop the app).
+
+## ADR-041 — Same-Wi-Fi fast lane for whole files
+**Status:** proposed (2026-10-16, roadmap R23; owner: "yes add R23") · **Protocol:** 1.14 (planned) · **Builds on:** ADR-027 (files by encrypted link)
+**Problem:** a whole file between the owner's computer and phone travels computer → storage → phone (ADR-027), so it moves at the slower of the two internet uploads, twice. On the same Wi-Fi the two devices could talk directly, typically 20–80 MB/s on home Wi-Fi, so a 1 GB video takes seconds instead of minutes. AirDrop gets its speed this way (local discovery plus a direct peer-to-peer link).
+**Options considered:**
+| Option | Verdict |
+|---|---|
+| ADB over Wi-Fi (as ADB agents use) | Rejected: wireless debugging gives the computer a full shell on the phone, which chapter 08 forbids exposing, and it needs developer options |
+| Wi-Fi Direct / Wi-Fi Aware / Quick Share | Rejected for now: computers cannot use them from an ordinary program, and Quick Share's protocol is not public |
+| The computer runs a small server and the phone downloads from it | Rejected: the phone would have to follow links to arbitrary LAN addresses (today it follows only the gateway and the storage hosts), and release builds refuse plain HTTP |
+| **The phone listens on the local network for one transfer, and the computer sends to or reads from it** | **Chosen:** the computer needs only `curl`, as today; the phone never connects anywhere new |
+**Decision:**
+- An owner switch, **Access → Files → Fast transfers on the same Wi-Fi**, off by default. While it is off, nothing changes.
+- When `upload_link` or `get_file_link` is called and the switch is on, the gateway asks the phone to open a **one-transfer listener**: a random port on the Wi-Fi interface only, a 256-bit random path, alive until the transfer finishes or 15 minutes pass, then closed. The phone answers with its local address; the gateway hands the AI a command that tries the local address first with a 2-second connect timeout and falls back to today's cloud link.
+- What travels is exactly what ADR-027 sends: AES-256-CTR ciphertext under a key made for that one file, and a file is kept only if its SHA-256 matches. The listener accepts one request on its exact path and ignores everything else.
+- The Activity log records each local transfer (name, size, direction), never contents.
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| Another device on the same Wi-Fi | read the file | It sees only ciphertext; the key travels phone ↔ gateway ↔ AI over TLS, never on the LAN |
+| | change or replace the file | A changed file fails the SHA-256 check and is deleted |
+| | find or guess the listener | A random port and 256-bit path, for one transfer, for at most 15 minutes; wrong paths get no answer |
+| | slow the transfer down | Possible (a LAN denial of service); the cloud link stays as the fallback |
+| A hostile Wi-Fi network (café, office) | anything more | No, by the same three rows; client isolation simply makes the local try fail and the cloud link is used |
+| The AI app | reach other files | No: a listener carries only the transfer the existing file rules already allowed (capabilities, folder grant, approval for overwrite) |
+**Not covered:** devices on different networks or behind client isolation use the cloud link as today. Discovery without the gateway (mDNS) is not needed because the gateway already knows both ends.
+**Checks (planned):** protocol fixtures for the new field and command; fake-phone e2e on both gateways (local success, local refused, fallback); a JVM test of the listener (one request, wrong path ignored, closes after use or timeout, SHA-256 mismatch deleted); the emulator job sends a file through `adb forward` to the listener.
+**Reversal trigger:** a common phone or network where opening a local listener is blocked or flagged, or an owner-visible failure the fallback does not hide.
