@@ -8,7 +8,7 @@ import { SERVER } from "./generated/contract.js";
 import { renderLatestTask } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
-import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
@@ -271,12 +271,14 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     const stdin = argStr(args, "stdin");
     const continueFrom = argStr(args, "continue_from");
     const timeoutMs = argInt(args, "timeout_ms") ?? 0;
+    const base64 = argBool(args, "base64", false);
     if ((command !== undefined) === (continueFrom !== undefined)) {
       throw bad("give either command or continue_from, not both (and not neither)");
     }
     // Most aggregated stdout returned in one result before handing back a
     // cursor for the rest (ADR-046: the full result is never silently cut).
-    const BUDGET = 256 * 1024;
+    // Larger for base64 (1.18), so a whole screenshot arrives as one image.
+    const BUDGET = base64 ? 6 * 1024 * 1024 : 256 * 1024;
     let stdout = "";
     let stderr = "";
     let exitCode: number | undefined;
@@ -285,9 +287,10 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     let first = true;
     let timing;
     for (;;) {
-      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string } = {};
+      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string; base64?: boolean } = {};
       if (first) {
         if (command !== undefined) params.command_line = command;
+        if (base64) params.base64 = true;
         if (stdin !== undefined) params.stdin = stdin;
         if (timeoutMs) params.timeout_ms = timeoutMs;
       }
@@ -303,6 +306,17 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       next = r.cursor;
     }
     let body = exitCode !== undefined ? `exit code ${exitCode}\n` : "(more output remains)\n";
+    // Binary output that is a whole picture comes back as one the AI can see.
+    const mime = base64 && exitCode !== undefined ? imageMime(Buffer.from(stdout, "base64")) : undefined;
+    if (mime !== undefined) {
+      body += `\nstdout: a ${mime} image of ${Buffer.from(stdout, "base64").length} bytes, shown below\n`;
+      if (stderr) body += `\n--- stderr ---\n${stderr}${stderr.endsWith("\n") ? "" : "\n"}`;
+      return withTiming({ content: [{ type: "text", text: body }, { type: "image", data: stdout, mimeType: mime }] }, timing);
+    }
+    if (base64 && stdout) {
+      body += `\n--- stdout (base64) ---\n${stdout}\n`;
+      stdout = "";
+    }
     if (stdout) body += `\n--- stdout ---\n${stdout}${stdout.endsWith("\n") ? "" : "\n"}`;
     if (stderr) body += `\n--- stderr ---\n${stderr}${stderr.endsWith("\n") ? "" : "\n"}`;
     if (!stdout && !stderr && exitCode !== undefined) body += "\n(no output)\n";
@@ -456,6 +470,9 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     case "pinch":
       command = await pinchCommand(ctx, deviceId, args);
       break;
+    case "gesture":
+      command = { name: "input.gesture", params: { observation_id: reqStr(args, "observation_id"), strokes: gestureStrokes(args.strokes) } };
+      break;
     case "scroll":
       command = await scrollCommand(ctx, deviceId, reqStr(args, "observation_id"), reqStr(args, "direction"), argStr(args, "element_id"));
       break;
@@ -598,6 +615,36 @@ async function observe(ctx: McpContext, deviceId: string, live: Live, wantScreen
   if (marks && wantScreenshot && allowed) params.marks = true;
   const run = await execute(ctx, deviceId, { name: "ui.observe", params });
   return withTiming(await shown(ctx, deviceId, live, run.data as Observation, wantScreenshot && !allowed, false), run.timing);
+}
+
+/** The image type of `bytes` from its first bytes, for the formats MCP clients show (as the Rust gateway). */
+function imageMime(b: Buffer): string | undefined {
+  if (b.length >= 4 && b[0] === 0x89 && b.toString("latin1", 1, 4) === "PNG") return "image/png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 4 && b.toString("latin1", 0, 4) === "GIF8") return "image/gif";
+  if (b.length >= 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  return undefined;
+}
+
+/** The `gesture` tool's strokes, shape-checked; the protocol validator checks the bounds. */
+function gestureStrokes(raw: unknown): Stroke[] {
+  const fail = () => bad("strokes must be a list of {points: [{x, y}, ...], start_ms?, duration_ms}");
+  if (!Array.isArray(raw)) throw fail();
+  const int = (v: unknown) => { if (typeof v !== "number" || !Number.isInteger(v)) throw fail(); return v; };
+  return raw.map((r) => {
+    if (r === null || typeof r !== "object" || !Array.isArray((r as { points?: unknown }).points)) throw fail();
+    const o = r as { points: unknown[]; start_ms?: unknown; duration_ms?: unknown };
+    const stroke: Stroke = {
+      points: o.points.map((pt) => {
+        if (pt === null || typeof pt !== "object") throw fail();
+        const q = pt as { x?: unknown; y?: unknown };
+        return { x: int(q.x), y: int(q.y) };
+      }),
+      duration_ms: int(o.duration_ms),
+    };
+    if (o.start_ms !== undefined) stroke.start_ms = int(o.start_ms);
+    return stroke;
+  });
 }
 
 /**
