@@ -21,6 +21,7 @@ pub mod links;
 pub mod mcp;
 pub mod oauth;
 pub mod pairing;
+pub mod phone_check;
 pub mod secret;
 pub mod signing;
 pub mod store;
