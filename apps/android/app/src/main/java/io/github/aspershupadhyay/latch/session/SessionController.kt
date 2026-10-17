@@ -210,17 +210,7 @@ class SessionController(
         log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes", by = ActivityActor.OWNER)
         // The owner's own taps while the session runs are logged as theirs.
         bridge.touches.onOwnerTap = { pkg -> log.add(ActivityKind.ACTION, "You tapped the screen", appName(pkg) ?: pkg, ActivityActor.OWNER) }
-        expiryJob?.cancel()
-        expiryJob = scope.launch {
-            // delay() counts only awake time; look at the wall clock at least every
-            // 30 s, so a phone that slept does not run the session past its end.
-            while (true) {
-                val left = expiresAtMs - System.currentTimeMillis()
-                if (left <= 0) break
-                delay(minOf(left, 30_000L))
-            }
-            sessionTimeEnded()
-        }
+        startExpiryTimer()
         _state.value = SessionState.Connecting(0)
         link = DeviceLink(
             http = http,
@@ -312,6 +302,42 @@ class SessionController(
     fun unpairAdb() {
         settings.update { it.copy(adbEndpoint = null, enabled = it.enabled - Capability.ADB_SHELL) }
         log.add(ActivityKind.SESSION, "You turned off full ADB access", by = ActivityActor.OWNER)
+    }
+
+    /** Ends the session at [expiresAtMs], however often that moves. */
+    private fun startExpiryTimer() {
+        expiryJob?.cancel()
+        expiryJob = scope.launch {
+            // delay() counts only awake time; look at the wall clock at least every
+            // 30 s, so a phone that slept does not run the session past its end.
+            while (true) {
+                val left = expiresAtMs - System.currentTimeMillis()
+                if (left <= 0) break
+                delay(minOf(left, 30_000L))
+            }
+            sessionTimeEnded()
+        }
+    }
+
+    /**
+     * The owner's one-tap Extend: adds the chosen session length to what is
+     * left (or to now, once the timer has run out), at most [MAX_SESSION_MINUTES]
+     * from now. The session still ends by itself; only the owner extends it.
+     */
+    fun extend() {
+        if (!wanted) return
+        val now = System.currentTimeMillis()
+        val minutes = settings.preferences.value.sessionMinutes
+        val wasOver = now >= expiresAtMs
+        expiresAtMs = minOf(maxOf(expiresAtMs, now) + minutes * 60_000L, now + MAX_SESSION_MINUTES * 60_000L)
+        if (wasOver) startExpiryTimer()
+        log.add(ActivityKind.SESSION, "You extended the session by $minutes minutes", by = ActivityActor.OWNER)
+        pushState()
+        when (val current = _state.value) {
+            is SessionState.Active -> _state.value = current.copy(expiresAtMs = expiresAtMs)
+            is SessionState.Reconnecting -> _state.value = current.copy(expiresAtMs = expiresAtMs)
+            else -> Unit
+        }
     }
 
     fun setPaused(value: Boolean) {
@@ -504,6 +530,9 @@ class SessionController(
         }
     }
 }
+
+/** The longest session the owner can choose or extend to, from now. */
+const val MAX_SESSION_MINUTES = 8 * 60
 
 /** Extra time a command may take while the owner answers an approval (protocol 1.4 gateways). */
 private const val APPROVAL_GRACE_MS = 120_000L
