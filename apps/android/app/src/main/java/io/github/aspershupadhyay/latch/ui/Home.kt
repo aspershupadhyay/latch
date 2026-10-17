@@ -426,4 +426,5 @@ fun shortName(c: Capability) = when (c) {
     Capability.CONTROL_BRIGHTNESS -> "Screen"
     Capability.CONTROL_FLASHLIGHT -> "Flashlight"
     Capability.CONTROL_PANELS -> "Panels"
+    Capability.ADB_SHELL -> "Full ADB"
 }

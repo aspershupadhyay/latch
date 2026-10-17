@@ -19,6 +19,7 @@ import io.github.aspershupadhyay.latch.policy.Consequences
 import io.github.aspershupadhyay.latch.policy.Judgement
 import io.github.aspershupadhyay.latch.policy.LabelReader
 import io.github.aspershupadhyay.latch.protocol.ActionResult
+import io.github.aspershupadhyay.latch.protocol.AdbResult
 import io.github.aspershupadhyay.latch.protocol.ActivityList
 import io.github.aspershupadhyay.latch.protocol.AppList
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -103,6 +104,7 @@ fun describe(command: Command): String = when (command) {
     is Command.ListActivity -> "Read Latch's activity log"
     is Command.TaskDone -> "Say the task is done"
     is Command.DeviceControl -> command.control.description
+    is Command.AdbShell -> "Run an ADB shell command"
 }
 
 private fun where(location: FileLocation) = when (location) {
@@ -141,6 +143,7 @@ private fun cursorLabel(command: Command): String? = when (command) {
     is Command.Share -> "Opening a share screen"
     is Command.SetClipboard -> "Copying text"
     is Command.DeviceControl -> if (command.control is PhoneControl.Panel) "Opening a settings panel" else "Adjusting the phone"
+    is Command.AdbShell -> "Running an ADB command"
     is Command.Global -> command.action.cursor
     else -> null
 }
@@ -151,7 +154,7 @@ private fun worksOnScreen(command: Command): Boolean = when (command) {
     is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
     is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile, is Command.Share,
     is Command.FetchFile, is Command.PushFile, is Command.OpenLocal, is Command.TransferStatus, is Command.SetClipboard,
-    is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl -> false
+    is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl, is Command.AdbShell -> false
     is Command.Global -> command.action != GlobalAction.HOME
     else -> true
 }
@@ -221,6 +224,12 @@ class CommandExecutor(
     private val labelReader: () -> LabelReader? = { null },
     /** Battery, network, storage, and screen state for `device.info` (protocol 1.15). */
     private val status: () -> DeviceStatus? = { null },
+    /**
+     * Since 1.17 (ADR-046, R27): the owner-authorized wireless-debugging ADB
+     * executor. Null until the owner enables full-access ADB and it is wired
+     * on this device build; adb.shell is then refused as unsupported.
+     */
+    private val adbShell: AdbShellBridge? = null,
 ) {
     private val settle = SettleStats()
 
@@ -245,7 +254,9 @@ class CommandExecutor(
     ): JsonElement {
         val command = envelope.command
         if (session.paused) throw ProtocolException(ErrorCode.DEVICE_UNAVAILABLE, "the owner paused this session")
-        if (System.currentTimeMillis() >= session.expiresAtMs) {
+        // ADR-046: full-access ADB keeps working past the ordinary session
+        // timer; only owner Stop/pause (above) and revoke stop it.
+        if (command !is Command.AdbShell && System.currentTimeMillis() >= session.expiresAtMs) {
             throw ProtocolException(ErrorCode.DEVICE_UNAVAILABLE, "the session ended")
         }
         for (capability in command.requiredCapabilities) {
@@ -312,6 +323,15 @@ class CommandExecutor(
                     status = status(),
                 ),
             )
+        }
+
+        // Full-access ADB (ADR-046): runs against the device's ADB executor, not
+        // the accessibility service, and its output is never logged.
+        if (command is Command.AdbShell) {
+            val adb = adbShell
+                ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "full-access ADB is not available on this device build")
+            val result = adb.run(command)
+            return Protocol.json.encodeToJsonElement(AdbResult.serializer(), result)
         }
 
         val service = bridge.service.value
@@ -670,7 +690,9 @@ class CommandExecutor(
         is Command.ListFiles, is Command.PreviewFile, is Command.ReadFile, is Command.WriteFile,
         is Command.MakeFolder, is Command.RenameFile, is Command.DeleteFile,
         is Command.FetchFile, is Command.PushFile, is Command.OpenLocal, is Command.TransferStatus, is Command.SetClipboard,
-        is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl -> null
+        is Command.ListActivity, is Command.TaskDone, is Command.DeviceControl,
+        // ADR-046: full-access ADB is not scoped to an app.
+        is Command.AdbShell -> null
         is Command.LaunchApp -> command.packageName
         // A link opens in that app: only apps the owner allowed (or Auto mode).
         is Command.OpenLink -> command.packageName
