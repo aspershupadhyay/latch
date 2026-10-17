@@ -50,6 +50,8 @@ class DeviceLink(
     private val events: Events,
     /** Protocol 1.12: signs every message with this phone's device key, if the gateway speaks 1.12. */
     private val signer: MessageSigner? = null,
+    /** Protocol 1.19 (ADR-048): ids already run, so a command sent again is never run twice. */
+    private val recent: RecentCommands = RecentCommands(),
 ) {
     interface Events {
         /** Connected (also after an automatic reconnect). */
@@ -108,10 +110,13 @@ class DeviceLink(
         val reply = try {
             onCommand(envelope)
         } catch (e: CancellationException) {
+            // Stopped before it answered: whatever it did, it must not run again.
+            recent.finish(envelope.id, Outgoing.error(envelope.id, io.github.aspershupadhyay.latch.protocol.ErrorCode.CANCELLED, "the command was stopped on the phone"))
             throw e
         } catch (e: Exception) {
             Outgoing.error(envelope.id, io.github.aspershupadhyay.latch.protocol.ErrorCode.INTERNAL, "the phone could not finish this")
         }
+        recent.finish(envelope.id, reply)
         post(reply)
     }
 
@@ -308,7 +313,12 @@ class DeviceLink(
         when (message) {
             is GatewayMessage.CommandMessage -> {
                 lastCommandAtMs = System.currentTimeMillis()
-                commands.send(message.envelope)
+                // ADR-048: after a reconnect the gateway sends a command in flight again.
+                when (val seen = recent.claim(message.envelope.id)) {
+                    RecentCommands.Seen.New -> commands.send(message.envelope)
+                    RecentCommands.Seen.Running -> Unit
+                    is RecentCommands.Seen.Answered -> scope.launch(Dispatchers.IO) { post(seen.reply) }
+                }
             }
             is GatewayMessage.Cancel -> events.cancel(message.id)
             is GatewayMessage.ApprovalAnswer -> events.approvalAnswer(message.nonce, message.choice)

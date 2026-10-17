@@ -81,6 +81,8 @@ class SessionController(
     private val adbKey: io.github.aspershupadhyay.latch.session.adb.AdbKey? = null,
     /** R27 (ADR-046): cable-free wireless-debugging pairing; null where discovery is unavailable. */
     private val adbWireless: io.github.aspershupadhyay.latch.session.adb.AdbWireless? = null,
+    /** Protocol 1.19 (ADR-048): command ids already run, kept across sessions and restarts. */
+    private val recentCommands: RecentCommands = RecentCommands(),
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -231,6 +233,7 @@ class SessionController(
             events = linkEvents,
             // Protocol 1.12 (ADR-037): a keystore key for this pairing signs every message.
             signer = KeystoreSigner.forPairing(pairing.deviceId),
+            recent = recentCommands,
         ).also { it.start() }
     }
 
