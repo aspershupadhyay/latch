@@ -502,3 +502,21 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Rejected:** retrying in the AI client (it cannot know whether the action happened); a gateway-side result cache (the gateway cannot know whether a lost command ran); persisting answers on the phone (they hold screen content, which never goes to disk).
 
 **Recovery:** if the phone's journal file is lost, only the restart case loses protection; memory still protects every reconnect. Reverting the change restores the old fail-on-disconnect behavior; a 1.19 phone talking to an older gateway is simply never sent a command twice.
+
+## ADR-049 — ADB jobs: start now, collect later
+**Status:** accepted (2026-10-17, owner request R29 "long ADB jobs"); protocol 1.20, roadmap R29 (d).
+
+**Context:** a full-access `adb.shell` command ends when its tool call ends: when the AI app stops waiting, or at the Vercel function's 300 s limit (R2). Builds, long `logcat` captures, big copies, and benchmarks take longer. The workaround, `nohup … &` to a file, works but leaves the AI to manage files, exit codes, and clean-up by hand, and leaves output behind on the phone.
+
+**Decision:**
+- `adb.shell {command_line, background: true}` starts the command on the phone and answers at once with a `job` id. `adb.shell {job, wait_ms?}` returns what the job wrote since the last collection, waiting up to `wait_ms` for it to finish; `finished` comes with the exit code once everything was read, after which the id is forgotten. `{job, cancel: true}` ends it. The `adb` MCP tool on both gateways takes `background`, `job`, `wait_ms`, and `cancel`, and says how to collect a started job.
+- The job runs in the phone app's own scope on its own adbd connection, outside the command that started it, so it outlives that call, the link, and reconnects. Its output goes to two files in the app's private cache and is read from where the last collection stopped (at most 16 MiB per collection, ending on a whole UTF-8 character; the rest waits for the next). It is deleted once collected, on cancel, on owner Stop, when the owner turns full ADB off, and at app start.
+- No Latch-imposed limit on how long a job runs, how many run, or how much they write (ADR-046): free disk space is the limit. The caller's own `timeout_ms` still applies to the job if it asked for one.
+- `background` does not combine with `base64`: base64 of separately read pieces does not join into one valid encoding. Binary output goes to a file in the job and is read afterwards with `base64`.
+
+**Privacy:** ADB output now waits on the phone's disk until it is collected. It stays in Latch's private, non-backed-up cache, is never logged, and is gone as soon as it is collected or the session is stopped. The Activity log records no command output, as before.
+
+**Rejected:** jobs on the gateway (the Vercel gateway cannot keep a task alive between requests, and the Rust gateway would lose them on restart); keeping output in memory (an unbounded job would exhaust it, and a cap is forbidden by ADR-046).
+
+**Recovery:** a phone below 1.20 is refused `background` and `job` by both gateways with the usual "update the app" message; ordinary `adb` calls are unchanged.
+

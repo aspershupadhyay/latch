@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.19"
+    const val VERSION = "1.20"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -264,7 +264,19 @@ data class AdbResult(
     val stderr: String,
     @SerialName("exit_code") val exitCode: Int? = null,
     val cursor: String? = null,
+    /** Since 1.20 (ADR-049): the job this answer is about. */
+    val job: String? = null,
+    /** Since 1.20: the job's state once everything it wrote so far was read. */
+    @SerialName("job_state") val jobState: AdbJobState? = null,
 )
+
+/** Since 1.20: where an `adb.shell` job stands. */
+@Serializable
+enum class AdbJobState {
+    @SerialName("running") RUNNING,
+    @SerialName("finished") FINISHED,
+    @SerialName("cancelled") CANCELLED,
+}
 
 // ---- Files (since 1.6, ADR-026) ----
 
@@ -745,6 +757,14 @@ sealed interface Command {
         val continueFrom: String?,
         /** Since 1.18: return stdout as base64 of the exact bytes. */
         val base64: Boolean = false,
+        /** Since 1.20 (ADR-049): start [commandLine] as a job and answer with its id at once. */
+        val background: Boolean = false,
+        /** Since 1.20: the job to collect or cancel. */
+        val job: String? = null,
+        /** Since 1.20, with [job]: how long to wait for the job to finish. */
+        val waitMs: Long = 0,
+        /** Since 1.20, with [job]: end the job. */
+        val cancel: Boolean = false,
     ) : Command {
         override val name = "adb.shell"
         override val requiredCapabilities = listOf(Capability.ADB_SHELL)
@@ -1109,18 +1129,29 @@ object GatewayParser {
             "adb.shell" -> {
                 val commandLine = params.optStr("command_line")
                 val continueFrom = params.optStr("continue_from")
-                if ((commandLine != null) == (continueFrom != null)) {
-                    invalid("give either command_line or continue_from, not both")
+                val job = params.optStr("job")
+                if (listOfNotNull(commandLine, continueFrom, job).size != 1) {
+                    invalid("give exactly one of command_line, continue_from, or job")
                 }
                 if (commandLine != null && commandLine.isEmpty()) invalid("command_line must not be empty")
                 val base64 = params.bool("base64", false)
                 if (base64 && commandLine == null) invalid("base64 goes with command_line")
+                val background = params.bool("background", false)
+                if (background && (commandLine == null || base64)) invalid("background goes with command_line and without base64")
+                val waitMs = if (params["wait_ms"] == null) 0L else params.long("wait_ms")
+                val cancel = params.bool("cancel", false)
+                if ((waitMs > 0 || cancel) && job == null) invalid("wait_ms and cancel go with job")
+                if (job != null && params.optStr("stdin") != null) invalid("give job alone, not with stdin")
                 Command.AdbShell(
                     commandLine,
                     params.optStr("stdin"),
                     if (params["timeout_ms"] == null) 0 else params.int("timeout_ms"),
                     continueFrom,
                     base64,
+                    background,
+                    job,
+                    waitMs,
+                    cancel,
                 )
             }
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
@@ -1404,6 +1435,11 @@ object Validation {
             is Command.AdbShell -> {
                 val line = command.commandLine
                 val cursor = command.continueFrom
+                command.job?.let { job ->
+                    if (line != null || cursor != null) invalid("give job alone")
+                    if (!Limits.isValidId(job)) invalid("job must be an id from a background answer")
+                    return
+                }
                 if ((line != null) == (cursor != null)) invalid("give either command_line or continue_from, not both")
                 if (line != null) {
                     if (line.isEmpty()) invalid("command_line must not be empty")

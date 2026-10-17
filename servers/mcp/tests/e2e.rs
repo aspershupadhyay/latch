@@ -3311,6 +3311,7 @@ async fn the_phone_check_passes_on_the_fake_phone_and_its_report_keeps_nothing_p
         "ADB identity",
         "ADB large output",
         "ADB screenshot",
+        "ADB job",
     ] {
         assert_eq!(outcome(name), Outcome::Pass, "{name}: {report:?}");
     }

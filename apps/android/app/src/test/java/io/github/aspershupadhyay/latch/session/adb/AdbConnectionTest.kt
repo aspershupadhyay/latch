@@ -112,6 +112,8 @@ class AdbConnectionTest {
             command == "bin" -> { writeOut(ByteArray(256) { it.toByte() }); finish(0) }
             // Never finishes: only cancellation (which closes the connection) ends it.
             command == "hang" -> Unit
+            // Output in two parts with a pause between: a job that is visibly running.
+            command == "tick" -> { writeOut("a\n".toByteArray()); Thread.sleep(400); writeOut("b\n".toByteArray()); finish(0) }
             else -> {
                 send(AdbMessage.of(AdbProtocol.A_WRTE, remote, client, shellPacket(ShellProtocol.ID_STDERR, "not found\n".toByteArray())))
                 AdbMessage.read(serverIn)
@@ -124,7 +126,7 @@ class AdbConnectionTest {
         ByteBuffer.allocate(5 + data.size).order(ByteOrder.LITTLE_ENDIAN).put(id).putInt(data.size).put(data).array()
 
     /** Wires a client executor whose every connection reaches a fresh fake adbd over two pipes. */
-    private fun executor(onError: (Throwable) -> Unit): AdbShellExecutor = AdbShellExecutor {
+    private fun executor(jobDir: java.io.File? = null, onError: (Throwable) -> Unit): AdbShellExecutor = AdbShellExecutor(jobDir) {
         val toServer = PipedOutputStream()
         val serverIn = PipedInputStream(toServer, 4 * 1024 * 1024)
         val toClient = PipedOutputStream()
@@ -319,5 +321,78 @@ class AdbConnectionTest {
         toClient.write(AdbMessage.of(AdbProtocol.A_STLS, AdbProtocol.STLS_VERSION, 0).encode())
         val e = runCatching { AdbConnection(clientIn, toServer, key).connect() }.exceptionOrNull()
         assertTrue(e is AdbProtocolException)
+    }
+
+    // ---- Since 1.20 (ADR-049): background jobs ----
+
+    private fun job(id: String, waitMs: Long = 0, cancel: Boolean = false) =
+        Command.AdbShell(commandLine = null, stdin = null, timeoutMs = 0, continueFrom = null, job = id, waitMs = waitMs, cancel = cancel)
+
+    private fun background(command: String) =
+        Command.AdbShell(commandLine = command, stdin = null, timeoutMs = 0, continueFrom = null, background = true)
+
+    @Test fun aJobRunsOnAfterItsStartAndIsCollectedLater() {
+        var error: Throwable? = null
+        val dir = java.nio.file.Files.createTempDirectory("jobs").toFile()
+        val exec = executor(dir) { error = it }
+        runBlocking {
+            val started = exec.run(background("tick"))
+            val id = started.job!!
+            assertEquals(io.github.aspershupadhyay.latch.protocol.AdbJobState.RUNNING, started.jobState)
+            assertNull(started.exitCode)
+            // The start answered at once; the job is still writing.
+            val early = exec.run(job(id))
+            assertEquals(io.github.aspershupadhyay.latch.protocol.AdbJobState.RUNNING, early.jobState)
+            val done = exec.run(job(id, waitMs = 5_000))
+            assertEquals(io.github.aspershupadhyay.latch.protocol.AdbJobState.FINISHED, done.jobState)
+            assertEquals(0, done.exitCode)
+            // Each collection returns only what is new: together, all of it once.
+            assertEquals("a\nb\n", early.stdout + done.stdout)
+            // Finished and read: forgotten, files gone.
+            val gone = runCatching { exec.run(job(id)) }.exceptionOrNull()
+            assertTrue(gone is ProtocolException && gone.code == ErrorCode.INVALID_REQUEST)
+            assertTrue(dir.listFiles().isNullOrEmpty())
+        }
+        error?.let { throw it }
+    }
+
+    @Test fun aCancelledJobEndsAndIsForgotten() {
+        val exec = executor { }
+        runBlocking {
+            val id = exec.run(background("hang")).job!!
+            val cancelled = withTimeout(5_000) { exec.run(job(id, cancel = true)) }
+            assertEquals(io.github.aspershupadhyay.latch.protocol.AdbJobState.CANCELLED, cancelled.jobState)
+            val gone = runCatching { exec.run(job(id)) }.exceptionOrNull()
+            assertTrue(gone is ProtocolException && gone.code == ErrorCode.INVALID_REQUEST)
+        }
+    }
+
+    @Test fun stopEndsEveryJobAndDeletesItsOutput() {
+        val dir = java.nio.file.Files.createTempDirectory("jobs").toFile()
+        val exec = executor(dir) { }
+        runBlocking {
+            val id = exec.run(background("hang")).job!!
+            exec.stopJobs()
+            val gone = runCatching { exec.run(job(id)) }.exceptionOrNull()
+            assertTrue(gone is ProtocolException && gone.code == ErrorCode.INVALID_REQUEST)
+            assertTrue(dir.listFiles().isNullOrEmpty())
+        }
+    }
+
+    @Test fun leftoverJobOutputFromAnEarlierRunIsDeleted() {
+        val dir = java.nio.file.Files.createTempDirectory("jobs").toFile()
+        java.io.File(dir, "adbj_1.out").writeText("old output")
+        executor(dir) { }
+        assertTrue(dir.listFiles().isNullOrEmpty())
+    }
+
+    @Test fun aReadEndsOnAWholeUtf8Character() {
+        val e = "é".toByteArray() // C3 A9
+        val euro = "€".toByteArray() // E2 82 AC
+        assertEquals(3, AdbShellExecutor.utf8Prefix("a".toByteArray() + e))
+        assertEquals(1, AdbShellExecutor.utf8Prefix("a".toByteArray() + e.copyOf(1)))
+        assertEquals(1, AdbShellExecutor.utf8Prefix("a".toByteArray() + euro.copyOf(2)))
+        assertEquals(4, AdbShellExecutor.utf8Prefix("a".toByteArray() + euro))
+        assertEquals(0, AdbShellExecutor.utf8Prefix(ByteArray(0)))
     }
 }
