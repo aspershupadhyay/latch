@@ -361,6 +361,8 @@ pub enum Output {
     Activity(ActivityList),
     /// Since 1.14: a same-Wi-Fi address, already checked.
     Local(latch_protocol::LocalSlot),
+    /// Since 1.17 (ADR-046): one frame of an `adb.shell` result.
+    Adb(latch_protocol::AdbResult),
 }
 
 /// Chooses the device a tool call addresses.
@@ -690,6 +692,9 @@ async fn execute_inner(
                 serde_json::from_value(data).map_err(malformed)?;
             validate::local_slot(&slot).map_err(|e| (decision, e))?;
             Output::Local(slot)
+        }
+        Command::AdbShell { .. } => {
+            Output::Adb(serde_json::from_value(data).map_err(malformed)?)
         }
         Command::ListActivity { limit, .. } => {
             let mut list: ActivityList = serde_json::from_value(data).map_err(malformed)?;

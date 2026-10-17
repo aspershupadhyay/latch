@@ -504,12 +504,10 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
                     return Err(invalid("command_line is required"));
                 }
             }
-            if let Some(stdin) = stdin {
-                if stdin.len() > MAX_ADB_STDIN_BYTES {
-                    return Err(invalid(format!(
-                        "stdin must be at most {MAX_ADB_STDIN_BYTES} bytes"
-                    )));
-                }
+            if stdin.as_ref().is_some_and(|s| s.len() > MAX_ADB_STDIN_BYTES) {
+                return Err(invalid(format!(
+                    "stdin must be at most {MAX_ADB_STDIN_BYTES} bytes"
+                )));
             }
             Ok(())
         }

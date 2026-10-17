@@ -874,6 +874,48 @@
     },
     {
       "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Run an ADB shell command"
+      },
+      "description": "Full-access ADB mode (off by default; the owner enables it and authorizes Android wireless debugging). Runs one shell command line on the selected phone with the same command surface and results as direct ADB — Latch adds no allowlist, per-command approval, or output filter in this mode, and Android's own ADB permissions still bound it. `stdin` is optional data piped to the command. Large output arrives over several frames; the gateway joins them and, if the output is very large, returns a `continue_from` cursor for the rest. This is the selected phone, not the gateway host. Needs Latch 1.17 on the phone.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "The shell command line to run, e.g. \"pm list packages\".",
+            "maxLength": 131072,
+            "type": "string"
+          },
+          "continue_from": {
+            "description": "A cursor from a previous result, to fetch the next chunk of its output. Give this instead of command.",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          },
+          "stdin": {
+            "description": "Optional data piped to the command's standard input.",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "description": "Optional deadline you request for the command; 0 or omitted means none.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "adb",
+      "title": "Run an ADB shell command"
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true,
