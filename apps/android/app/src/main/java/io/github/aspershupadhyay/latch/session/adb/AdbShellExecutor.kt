@@ -43,13 +43,17 @@ internal class AdbShellExecutor(
         val stderrBytes = ByteArrayOutputStream()
         val exit = withContext(Dispatchers.IO) {
             val connection = openConnection()
-            connection.connect()
-            connection.shell(
-                command = line,
-                stdin = command.stdin?.toByteArray(Charsets.UTF_8),
-                onStdout = { stdoutBytes.write(it) },
-                onStderr = { stderrBytes.write(it) },
-            )
+            try {
+                connection.connect()
+                connection.shell(
+                    command = line,
+                    stdin = command.stdin?.toByteArray(Charsets.UTF_8),
+                    onStdout = { stdoutBytes.write(it) },
+                    onStderr = { stderrBytes.write(it) },
+                )
+            } finally {
+                connection.close()
+            }
         }
         firstChunk(stdoutBytes.toByteArray(), stderrBytes.toByteArray(), exit)
     }

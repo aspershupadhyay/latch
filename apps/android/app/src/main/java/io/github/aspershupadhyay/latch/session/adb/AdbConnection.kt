@@ -25,8 +25,15 @@ internal class AdbConnection(
     private val output: OutputStream,
     private val key: AdbKey,
     private val features: String = "shell_v2,cmd",
-) {
+    private val closer: java.io.Closeable? = null,
+) : java.io.Closeable {
     private val input = BufferedInputStream(rawIn)
+
+    override fun close() {
+        runCatching { input.close() }
+        runCatching { output.close() }
+        runCatching { closer?.close() }
+    }
     private var nextLocalId = 1
 
     /** The peer's connection banner (e.g. `device::...`), set once [connect] succeeds. */

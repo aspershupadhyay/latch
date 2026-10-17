@@ -73,6 +73,8 @@ class SessionController(
     private val transfers: PhoneTransfers? = null,
     /** Protocol 1.13: whether Android's battery optimisation applies to Latch; null when unknown. */
     private val batteryRestricted: () -> Boolean? = { null },
+    /** R27 (ADR-046): this phone's ADB identity, present once the device build wires it; null disables full-access ADB. */
+    private val adbKey: io.github.aspershupadhyay.latch.session.adb.AdbKey? = null,
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -87,9 +89,22 @@ class SessionController(
     /** Minor protocol version of the connected gateway; 1.4 relays approvals and waits for them. */
     @Volatile private var gatewayMinor = 0
 
+    /**
+     * R27 (ADR-046): full-access ADB runs each command over a fresh connection
+     * to the device's own adbd, reading the wireless-debugging endpoint fresh
+     * each time so re-pairing takes effect without a restart. Null (no key or
+     * no endpoint) leaves adb.shell refused as unsupported.
+     */
+    private val adbBridge: AdbShellBridge? = adbKey?.let { key ->
+        io.github.aspershupadhyay.latch.session.adb.AdbShellExecutor {
+            io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(settings.preferences.value.adbEndpoint, key)
+        }
+    }
+
     private val executor = CommandExecutor(
         bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers, ::labelReader,
         status = { bridge.service.value?.let { runCatching { PhoneControls.status(it) }.getOrNull() } },
+        adbShell = adbBridge,
     )
     private var reader: Pair<LatchAccessibilityService, ButtonReader>? = null
     private var link: DeviceLink? = null
@@ -132,6 +147,10 @@ class SessionController(
             when {
                 capability == Capability.DEVICE_INFO -> CapabilityStatus.ENABLED
                 capability !in prefs.enabled -> CapabilityStatus.DISABLED
+                // ADR-046: full-access ADB does not use the accessibility service; it
+                // needs a wireless-debugging endpoint from pairing instead.
+                capability == Capability.ADB_SHELL ->
+                    if (adbBridge != null && prefs.adbEndpoint != null) CapabilityStatus.ENABLED else CapabilityStatus.NEEDS_PERMISSION
                 !serviceOn -> CapabilityStatus.NEEDS_PERMISSION
                 // Brightness needs Android's "Modify system settings"; some phones have no flashlight.
                 else -> bridge.service.value?.let { PhoneControls.limit(it, capability) } ?: CapabilityStatus.ENABLED

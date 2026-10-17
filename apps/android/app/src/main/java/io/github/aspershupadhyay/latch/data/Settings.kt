@@ -57,6 +57,12 @@ data class Preferences(
     val readButtons: Boolean = true,
     /** ADR-041: whole files move straight between the AI's computer and the phone on the same Wi-Fi. */
     val localTransfers: Boolean = false,
+    /**
+     * ADR-046 (R27): the device's own `adbd` endpoint as `host:port`, set once
+     * the owner completes Android wireless-debugging pairing. Null until then,
+     * so full-access ADB reports needs_permission even when the switch is on.
+     */
+    val adbEndpoint: String? = null,
 )
 
 /**
@@ -104,6 +110,7 @@ class Settings(context: Context) {
             folders = readFolders(),
             photosOn = prefs.getBoolean("photos_on", true),
             localTransfers = prefs.getBoolean("local_transfers", false),
+            adbEndpoint = prefs.getString("adb_endpoint", null),
             theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
     }
@@ -174,6 +181,7 @@ class Settings(context: Context) {
             remove("files_folder_name")
             putBoolean("photos_on", next.photosOn)
             putBoolean("local_transfers", next.localTransfers)
+            if (next.adbEndpoint != null) putString("adb_endpoint", next.adbEndpoint) else remove("adb_endpoint")
             putString("theme", next.theme.name)
         }
         _preferences.value = next
