@@ -999,6 +999,26 @@ async fn full_access_adb_runs_commands_without_extra_restrictions() {
         1
     );
 
+    // No Latch-imposed deadline (ADR-046): only one the caller asks for.
+    let (is_error, text, _) = call(
+        &gw,
+        "adb",
+        json!({"command": "echo timed", "timeout_ms": 5000}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    {
+        let s = phone.state.lock().expect("lock");
+        let deadlines = &s.adb_deadlines;
+        assert!(
+            deadlines[..deadlines.len() - 1]
+                .iter()
+                .all(|d| *d == latch_gateway::devices::NO_DEADLINE_MS),
+            "{deadlines:?}"
+        );
+        assert_eq!(deadlines.last(), Some(&5000));
+    }
+
     // No per-command approval, even with "approve every action" on.
     {
         let mut s = phone.state.lock().expect("lock");

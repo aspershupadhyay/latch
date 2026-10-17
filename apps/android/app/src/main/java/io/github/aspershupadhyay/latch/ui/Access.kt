@@ -619,12 +619,14 @@ private fun AdbPairing(
     var code by rememberSaveable { mutableStateOf("") }
     var hostPort by rememberSaveable { mutableStateOf("") }
     var status by rememberSaveable { mutableStateOf<String?>(null) }
-    var busy by rememberSaveable { mutableStateOf(false) }
+    // Not saveable: after a rotation the pairing coroutine is gone, so the button must be usable again.
+    var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                "On this phone open Settings → Developer options → Wireless debugging → Pair device with a code. " +
+                "Open Latch and Settings side by side (split screen). In Settings open Developer options → Wireless " +
+                    "debugging → Pair device with a code, and keep that code on screen: Android closes it when you leave. " +
                     "Type the 6-digit code here. Leave the address blank to find the phone automatically, or enter the " +
                     "pairing address it shows (host:port).",
                 style = MaterialTheme.typography.bodySmall,
@@ -647,8 +649,15 @@ private fun AdbPairing(
                     val host = hostPort.substringBeforeLast(':', "").ifBlank { null }
                     val port = if (':' in hostPort) hostPort.substringAfterLast(':').toIntOrNull() else null
                     scope.launch {
-                        status = onPair(code, host, port)
-                        busy = false
+                        try {
+                            status = onPair(code, host, port)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            status = "Pairing failed: ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            busy = false
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Pair full ADB access" },

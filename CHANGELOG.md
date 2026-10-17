@@ -18,6 +18,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### New for owners
 
+- **Full ADB access over Wi-Fi** (off by default): switch it on in **Access → Full ADB access**, pair Android's wireless debugging once with no cable, and your AI app can run any `adb shell` command through the new `adb` tool, with complete stdout, stderr, and exit codes (R27, ADR-046, protocol 1.17). Stop ends a running command at once; reconnecting after a restart needs no cable or new pairing.
 - **Activity → Export a PDF report**: every step the AI took, what it asked you and how you answered, and what was refused, for the latest task, today, the last 24 hours, or the whole week; saved to Downloads and ready to share, with a fingerprint that changes if any line does (R25).
 - More of what ADB test agents do, without ADB: lock screen, screenshot, split screen, and arrow keys; open a link straight in an app (payment links always ask, message links ask); start an app fresh; read battery, network, and storage with `device_status`; set the ringer, Do Not Disturb, rotation, and screen timeout; nine more settings pages (R25, protocol 1.15).
 - `diagnose` checks each phone and names the fix, including Android's battery optimisation (R13, protocol 1.13).
@@ -42,6 +43,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 ### Fixes
 
 - Disconnecting no longer leaves duplicate entries of the same phone on the relay.
+- Full ADB: the wireless-debugging connection now upgrades to TLS the way Android expects; Stop and cancel end a running command instead of waiting for it; ADB commands are no longer cut off at 20 seconds by the self-hosted gateway; multibyte and control-character output is never corrupted at chunk edges; big `adb` calls (up to the protocol's 128 Ki-character command and 512 KiB stdin) are no longer refused by the MCP endpoint; a stuck **Pair** button after rotating the phone.
 
 ### For developers
 

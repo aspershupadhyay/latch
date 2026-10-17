@@ -19,7 +19,7 @@
 
 ---
 
-Latch is an Android app and a small gateway that you own. Claude, ChatGPT, Cursor, or any other [MCP](https://modelcontextprotocol.io) app connects to your gateway and can read your screen, tap, type, and move files, but only in the apps you switch on, and never past a payment, a password, or the Stop button.
+Latch is an Android app and a small gateway that you own. Claude, ChatGPT, Cursor, or any other [MCP](https://modelcontextprotocol.io) app connects to your gateway and can read your screen, tap, type, and move files, but only in the apps you switch on, and never past a payment, a password, or the Stop button. Developers can also switch on full ADB shell access over Wi-Fi.
 
 No cable, no laptop left running, and no Latch server in the middle. Your phone connects out to a gateway on your own free Vercel account or your own server.
 
@@ -46,6 +46,7 @@ flowchart LR
 | **You stay in charge** | Every app is off until you switch it on. Send, Pay, Install, and permission prompts ask you first. Password, PIN, and one-time-code fields are refused. Text on screen is treated as data, never as an instruction. |
 | **Fast loops** | Actions return only what changed on screen. `run_steps` and saved skills do several steps in one call. `wait_for` and `scroll_to` replace polling. |
 | **Sees what others miss** | Icon-only buttons are read on the phone, so an unlabeled "Send" still asks you before the AI taps it. |
+| **Full ADB, no cable** | Optional and off by default: pair Android's wireless debugging once, and your AI app runs any `adb shell` command on the phone over Wi-Fi, with complete output and real exit codes. You turn it on; Stop ends it. |
 | **Files without the cloud** | Whole files, up to 2 GB, move between your computer and the phone over encrypted 15-minute links. The storage in between only ever holds encrypted bytes. |
 | **Yours to run** | A free Vercel deploy or a small container. Messages from the phone are signed by a key kept in its keystore. Latch itself collects nothing. AGPL-3.0. |
 
@@ -64,11 +65,12 @@ Then start a session on the phone and ask: *"What's on my screen right now?"*
 
 ## Latch compared with ADB agents
 
-Tools such as Google's ARTEMIS drive a phone over a USB cable from a computer, mainly for app testing. Latch is built for your own phone, used every day:
+Tools such as Google's ARTEMIS drive a phone over a USB cable from a computer, mainly for app testing. Latch is built for your own phone, used every day, and can give your AI the same ADB shell when you want it:
 
 | | Latch | ADB test agent |
 |---|---|---|
 | Connection | The app on your phone connects out to your gateway | USB debugging, plus a computer nearby |
+| ADB shell | Optional, over Wi-Fi with no cable, switched on by you ([`adb` tool](docs/tools.md#full-access-adb-adb)) | Yes, over USB |
 | Which AI | Any MCP app | Its own agent loop |
 | Owner approval for Send, Pay, Install | On the phone, by default | Not documented |
 | Password and one-time-code fields | Refused | Not documented |
@@ -83,7 +85,7 @@ Sources and the full comparison: [security page](https://aspershupadhyay.github.
 | [Setup](docs/setup.md) | Install, deploy, connect an AI, choose what it may do, files, skills |
 | [Troubleshooting](docs/troubleshooting.md) | Play Protect, Restricted setting, sessions that drop, slow actions, updating your gateway |
 | [Safety and privacy](docs/safety.md) | What the AI can and cannot do, and what is stored where |
-| [MCP tools](docs/tools.md) | All 34 tools an AI app can call |
+| [MCP tools](docs/tools.md) | All 37 tools an AI app can call, including full-access ADB |
 | [Run on Vercel](docs/operations/vercel.md) · [Self-host](docs/operations/gateway.md) | Operating either gateway, owner key rotation, big files |
 | [QA and emulators](docs/operations/qa.md) | Fake phones, emulators, several phones, the Python client |
 | [Device protocol](docs/protocol/v1.md) · [Decisions](docs/adr/README.md) | The phone ↔ gateway contract and why it looks the way it does |

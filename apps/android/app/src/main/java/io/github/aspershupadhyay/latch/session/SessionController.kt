@@ -145,7 +145,14 @@ class SessionController(
     init {
         approvals.onRequested = ::offerApproval
         scope.launch {
-            combine(settings.preferences, bridge.service) { _, _ -> Unit }.collect { pushState() }
+            combine(settings.preferences, bridge.service) { _, _ -> Unit }.collect {
+                // Past the timer only full ADB kept the link up; once it is off, end it.
+                if (wanted && expiresAtMs > 0 && System.currentTimeMillis() >= expiresAtMs && !adbActive()) {
+                    stop("Session time ended")
+                } else {
+                    pushState()
+                }
+            }
         }
         scope.launch {
             settings.pairing.collect { pairing ->
@@ -212,7 +219,7 @@ class SessionController(
                 if (left <= 0) break
                 delay(minOf(left, 30_000L))
             }
-            stop("Session time ended")
+            sessionTimeEnded()
         }
         _state.value = SessionState.Connecting(0)
         link = DeviceLink(
@@ -235,6 +242,29 @@ class SessionController(
             // Protocol 1.12 (ADR-037): a keystore key for this pairing signs every message.
             signer = KeystoreSigner.forPairing(pairing.deviceId),
         ).also { it.start() }
+    }
+
+    /** Whether full-access ADB is switched on and paired, so `adb.shell` can run. */
+    private fun adbActive(): Boolean = capabilityStatuses()[Capability.ADB_SHELL] == CapabilityStatus.ENABLED
+
+    /**
+     * The session timer ran out. Ordinary tools end with it. ADR-046: full-access
+     * ADB has no Latch-imposed expiry, so while it is on the link stays up for
+     * `adb.shell` alone (the executor refuses everything else past the timer)
+     * until the owner presses Stop or turns full ADB off.
+     */
+    private fun sessionTimeEnded() {
+        if (!adbActive()) {
+            stop("Session time ended")
+            return
+        }
+        approvals.cancel()
+        grants.endSession()
+        autonomy?.endSession()
+        transfers?.cancelAll()
+        files?.reset()
+        log.add(ActivityKind.SESSION, "Session time ended. Full ADB access stays connected until you press Stop", by = ActivityActor.LATCH)
+        pushState()
     }
 
     /** The emergency stop: ends the session, drops queued work, and denies any pending approval. */

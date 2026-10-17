@@ -144,6 +144,18 @@ After your AI does a task (say, filling a grocery cart), ask it to **save it as 
 - **Starter skills** come with Latch: web search (Chrome), YouTube search, Maps search, Settings search, and a WhatsApp message. Ask your AI to *"show Latch's starter skills"* and to save the ones you want; nothing runs until it's saved, and a WhatsApp Send still asks you unless WhatsApp is switched on.
 - Even without a saved skill, your AI can send a few predictable steps together (open an app, search, tap a result) with `run_steps`, so it doesn't stop to think between each one. Every step still follows the same rules.
 
+## Optional: full ADB access over Wi-Fi
+
+For developers and power users: let your AI app run any `adb shell` command on the phone, over Wi-Fi, with no cable at any point. It is **off** until you do all of this, and it gives the AI the same power as a computer with ADB, with no check per command (see [safety](safety.md)).
+
+1. Turn on **Developer options** (Settings → About phone → tap **Build number** seven times), then **Developer options → Wireless debugging** → on. Your phone must be on Wi-Fi.
+2. In Latch, open **Access → Full ADB access** and switch it on.
+3. Open Latch and Settings **side by side** (split screen). In Settings tap **Wireless debugging → Pair device with a code** and leave the code on screen: Android closes it when you leave Settings.
+4. In Latch, type the 6-digit code and tap **Pair**. Latch finds the phone's own pairing service by itself; if it can't, type the address shown under the code (for example `192.168.1.20:37123`).
+5. When it says **Paired**, ask your AI: *"Run `getprop ro.product.model` on my phone with adb."*
+
+Android moves wireless debugging to a new port after a restart; Latch finds it again by itself as long as **Wireless debugging** is on. To revoke, tap **Turn off** in Latch and forget Latch under **Wireless debugging → Paired devices**. Details and limits: [the `adb` tool](tools.md#full-access-adb-adb).
+
 ## Step 8: Start a session and try it
 
 1. On the app's **Home** tab, pick how long (15, 30, 60, or 120 minutes) and tap **Start session**.
