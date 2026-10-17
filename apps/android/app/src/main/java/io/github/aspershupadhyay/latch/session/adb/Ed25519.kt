@@ -71,6 +71,9 @@ internal object Ed25519 {
             return out
         }
 
+        /** −P = (−x, y) in twisted Edwards form. */
+        fun negate(): Point = Point(P.subtract(x).mod(P), y)
+
         fun isOnCurve(): Boolean {
             val xx = x.multiply(x).mod(P)
             val yy = y.multiply(y).mod(P)
