@@ -348,6 +348,7 @@ async fn mcp_handshake_and_discovery() {
             "scroll",
             "swipe",
             "pinch",
+            "gesture",
             "press",
             "list_apps",
             "launch_app",
@@ -999,6 +1000,23 @@ async fn full_access_adb_runs_commands_without_extra_restrictions() {
         1
     );
 
+    // Protocol 1.18: binary output as base64; a picture comes back as an image.
+    let (is_error, text, images) = call(
+        &gw,
+        "adb",
+        json!({"command": "screencap -p", "base64": true}),
+    )
+    .await;
+    assert!(!is_error && text.contains("image/png"), "{text}");
+    assert_eq!(images, 1);
+    let (is_error, text, images) =
+        call(&gw, "adb", json!({"command": "echo hi", "base64": true})).await;
+    assert!(
+        !is_error && text.contains("--- stdout (base64) ---\naGkK"),
+        "{text}"
+    );
+    assert_eq!(images, 0);
+
     // No Latch-imposed deadline (ADR-046): only one the caller asks for.
     let (is_error, text, _) = call(
         &gw,
@@ -1378,6 +1396,50 @@ async fn pinch_drag_and_double_tap_reach_the_phone() {
     phone.task.abort();
 }
 
+#[tokio::test]
+async fn free_form_gestures_reach_the_phone() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let (_, screen, _) = call(&gw, "observe", json!({"screenshot": false})).await;
+    // Protocol 1.18: a two-finger rotate.
+    let rotate = json!([
+        { "points": [{"x": 400, "y": 1200}, {"x": 450, "y": 1100}, {"x": 540, "y": 1050}], "duration_ms": 400 },
+        { "points": [{"x": 680, "y": 1200}, {"x": 630, "y": 1300}, {"x": 540, "y": 1350}], "duration_ms": 400 }
+    ]);
+    let (is_error, screen, _) = call(
+        &gw,
+        "gesture",
+        json!({"observation_id": observation_id(&screen), "strokes": rotate}),
+    )
+    .await;
+    assert!(!is_error, "{screen}");
+    assert_eq!(phone.state.lock().expect("lock").gestures, [2]);
+
+    // Bad shapes are refused before the phone sees them.
+    let too_many: Vec<Value> = (0..11)
+        .map(|i| json!({"points": [{"x": 100 + i * 50, "y": 500}], "duration_ms": 100}))
+        .collect();
+    let (is_error, text, _) = call(
+        &gw,
+        "gesture",
+        json!({"observation_id": observation_id(&screen), "strokes": too_many}),
+    )
+    .await;
+    assert!(is_error && text.contains("1 to 10 fingers"), "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "gesture",
+        json!({"observation_id": observation_id(&screen), "strokes": "swipe up"}),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("strokes must be a list"),
+        "{text}"
+    );
+    assert_eq!(phone.state.lock().expect("lock").gestures, [2]);
+    phone.task.abort();
+}
+
 /// Regression from the 2026-10-02 speed test: the agent picked a paired phone
 /// that was not connected. Connected phones come first, and the error names them.
 #[tokio::test]
@@ -1406,7 +1468,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.17, 37 tools.",
+        lines[0], "Latch gateway, protocol 1.18, 38 tools.",
         "{devices}"
     );
     let lines = &lines[1..];

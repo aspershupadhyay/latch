@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.17";
+export const PROTOCOL_VERSION = "1.18";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -129,6 +129,7 @@ export type Command =
   | { name: "input.tap"; params: { observation_id: string; target: Target; long_press: boolean; double?: boolean } }
   | { name: "input.swipe"; params: { observation_id: string; from: { x: number; y: number }; to: { x: number; y: number }; duration_ms: number; hold_ms?: number } }
   | { name: "input.pinch"; params: { observation_id: string; center: { x: number; y: number }; start_span: number; end_span: number; duration_ms: number } }
+  | { name: "input.gesture"; params: { observation_id: string; strokes: Stroke[] } }
   | { name: "input.type"; params: { observation_id: string; element: string; text: string; submit?: boolean } }
   | { name: "ui.wait"; params: { text: string; gone: boolean; timeout_ms: number; max_nodes: number } }
   | { name: "ui.scroll_to"; params: { observation_id: string; text: string; direction: Direction; container?: string; max_swipes: number } }
@@ -173,7 +174,10 @@ export type Command =
   // Since 1.11: phone controls, one owner switch per group.
   | { name: "device.control"; params: { control: PhoneControl } }
   // Since 1.17 (ADR-046, R27): owner-enabled full-access ADB shell.
-  | { name: "adb.shell"; params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string } };
+  | { name: "adb.shell"; params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string; base64?: boolean } };
+
+/** One finger of an `input.gesture` (since 1.18): its path, when it touches down, and how long it stays down. */
+export interface Stroke { points: { x: number; y: number }[]; start_ms?: number; duration_ms: number }
 
 /** Since 1.11: one phone control; the same shapes as crates/protocol's `PhoneControl`. */
 export const VOLUME_STREAMS = ["media", "ring", "notification", "alarm"] as const;
@@ -369,6 +373,7 @@ export function minorVersion(version: string | undefined): number | undefined {
 
 /** Lowest minor version a phone must speak to run this command exactly. */
 export function minMinorVersion(c: Command): number {
+  if (c.name === "input.gesture" || (c.name === "adb.shell" && c.params.base64 === true)) return 18;
   if (c.name === "ui.wait" || c.name === "ui.scroll_to" || c.name === "input.pinch") return 3;
   if (c.name === "input.type" && c.params.submit === true) return 3;
   if (c.name === "input.tap" && c.params.double === true) return 3;
@@ -393,7 +398,7 @@ export function requiredCapabilities(c: Command): Capability[] {
   switch (c.name) {
     case "device.info": return ["device.info"];
     case "ui.observe": return c.params.include_screenshot ? ["ui.observe", "screen.capture"] : ["ui.observe"];
-    case "input.tap": case "input.swipe": case "input.pinch": return ["input.gesture"];
+    case "input.tap": case "input.swipe": case "input.pinch": case "input.gesture": return ["input.gesture"];
     case "input.type": return ["input.text"];
     case "nav.global": return ["nav.global"];
     case "app.list": case "app.launch": case "app.open_link": return ["app.launch"];
@@ -435,7 +440,7 @@ export const needsOwnerApprovalWhenStrict = (c: Command) =>
   isAction(c) && c.name !== "owner.ask" && !(c.name === "file.write" && c.params.append === true);
 
 export function observationIdOf(c: Command): string | undefined {
-  return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" || c.name === "ui.scroll_to" || c.name === "input.pinch"
+  return c.name === "input.tap" || c.name === "input.swipe" || c.name === "input.type" || c.name === "ui.scroll_to" || c.name === "input.pinch" || c.name === "input.gesture"
     ? c.params.observation_id
     : undefined;
 }
@@ -452,6 +457,8 @@ export const LIMITS = {
   maxActivityEntries: 500, maxTaskSummaryChars: 500,
   // Since 1.17 (ADR-046): generous transport-frame bounds, not command restrictions.
   maxAdbCommandChars: 128 * 1024, maxAdbStdinBytes: 512 * 1024,
+  // Since 1.18: input.gesture, as latch_protocol::validate.
+  maxGestureStrokes: 10, maxStrokePoints: 64, maxGestureMs: 15_000,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
@@ -558,6 +565,19 @@ export function validateCommand(c: Command): void {
       }
       if (p.start_span === p.end_span) throw invalid("start_span and end_span must differ");
       if (p.duration_ms < 50 || p.duration_ms > LIMITS.maxSwipeMs) throw invalid(`duration_ms must be between 50 and ${LIMITS.maxSwipeMs}`);
+      return;
+    }
+    case "input.gesture": {
+      id("observation_id", c.params.observation_id);
+      const { strokes } = c.params;
+      if (strokes.length < 1 || strokes.length > LIMITS.maxGestureStrokes) throw invalid(`a gesture has 1 to ${LIMITS.maxGestureStrokes} fingers (strokes)`);
+      strokes.forEach((stroke, i) => {
+        if (stroke.points.length < 1 || stroke.points.length > LIMITS.maxStrokePoints) throw invalid(`stroke ${i} needs 1 to ${LIMITS.maxStrokePoints} points`);
+        for (const pt of stroke.points) { coordinate("x", pt.x); coordinate("y", pt.y); }
+        if (stroke.duration_ms < 1 || (stroke.start_ms ?? 0) + stroke.duration_ms > LIMITS.maxGestureMs) {
+          throw invalid(`stroke ${i}: duration_ms must be at least 1 and start_ms + duration_ms at most ${LIMITS.maxGestureMs}`);
+        }
+      });
       return;
     }
     case "input.tap": {
@@ -686,6 +706,7 @@ export function validateCommand(c: Command): void {
     }
     case "adb.shell": {
       const { command_line, stdin, continue_from } = c.params;
+      if (c.params.base64 === true && command_line === undefined) throw invalid("base64 goes with command_line; a continuation keeps the command's own encoding");
       if (command_line !== undefined && continue_from !== undefined) throw invalid("give either command_line or continue_from, not both");
       if (command_line !== undefined) {
         if (command_line === "") throw invalid("command_line must not be empty");
@@ -773,6 +794,25 @@ export function parseCommand(raw: unknown): Command {
         hold_ms: p.hold_ms === undefined ? 0 : int(p.hold_ms, "hold_ms"),
       },
     };
+    case "input.gesture": {
+      const raw = p.strokes;
+      if (!Array.isArray(raw)) throw invalid("strokes must be a list");
+      const strokes: Stroke[] = raw.map((r, i) => {
+        const o = r as Record<string, unknown> | null;
+        if (o === null || typeof o !== "object" || !Array.isArray(o.points)) throw invalid(`stroke ${i} needs points`);
+        const stroke: Stroke = {
+          points: (o.points as unknown[]).map((pt, j) => {
+            const q = pt as Record<string, unknown> | null;
+            if (q === null || typeof q !== "object") throw invalid(`stroke ${i} point ${j} must be {x, y}`);
+            return { x: int(q.x, "x"), y: int(q.y, "y") };
+          }),
+          duration_ms: int(o.duration_ms, "duration_ms"),
+        };
+        if (o.start_ms !== undefined) stroke.start_ms = int(o.start_ms, "start_ms");
+        return stroke;
+      });
+      return { name, params: { observation_id: str("observation_id"), strokes } };
+    }
     case "input.pinch": return {
       name,
       params: {
@@ -882,8 +922,9 @@ export function parseCommand(raw: unknown): Command {
     case "task.done": return { name, params: p.summary !== undefined ? { summary: str("summary") } : {} };
     case "device.control": return { name, params: { control: parseControl(p.control) } };
     case "adb.shell": {
-      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string } = {};
+      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string; base64?: boolean } = {};
       if (p.command_line !== undefined) params.command_line = str("command_line");
+      if (p.base64 !== undefined) params.base64 = bool("base64", false);
       if (p.stdin !== undefined) params.stdin = str("stdin");
       if (p.timeout_ms !== undefined) params.timeout_ms = int(p.timeout_ms, "timeout_ms");
       if (p.continue_from !== undefined) params.continue_from = str("continue_from");

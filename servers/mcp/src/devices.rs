@@ -510,18 +510,26 @@ async fn execute_inner(
         .get(device_id)
         .map(|l| l.command_lock.clone())
         .ok_or_else(unavailable)?;
-    // One command at a time per phone: actions on a screen are inherently sequential.
-    let _turn = tokio::time::timeout(QUEUE_WAIT, lock.lock_owned())
-        .await
-        .map_err(|_| {
-            (
-                "deny",
-                ProtocolError::new(
-                    ErrorCode::TransportUnavailable,
-                    "the phone is busy with other commands",
-                ),
-            )
-        })?;
+    // One screen command at a time per phone: actions on a screen are
+    // inherently sequential. Full-access ADB never touches the screen, so it
+    // runs beside them instead of waiting (ADR-046); the phone does the same.
+    let _turn = if matches!(command, Command::AdbShell { .. }) {
+        None
+    } else {
+        Some(
+            tokio::time::timeout(QUEUE_WAIT, lock.lock_owned())
+                .await
+                .map_err(|_| {
+                    (
+                        "deny",
+                        ProtocolError::new(
+                            ErrorCode::TransportUnavailable,
+                            "the phone is busy with other commands",
+                        ),
+                    )
+                })?,
+        )
+    };
 
     let (decision, deadline_ms, id, rx, conn_id, observe_after) = {
         let mut live = state.devices.lock();

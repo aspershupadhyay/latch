@@ -77,6 +77,7 @@ fun describe(command: Command): String = when (command) {
     }
     is Command.Swipe -> if (command.holdMs > 0) "Drag on the screen" else "Swipe on the screen"
     is Command.Pinch -> if (command.endSpan > command.startSpan) "Pinch to zoom in" else "Pinch to zoom out"
+    is Command.Gesture -> "Gesture with ${command.strokes.size} finger${if (command.strokes.size == 1) "" else "s"}"
     is Command.TypeText ->
         "Type ${command.text.codePointCount(0, command.text.length)} characters" + if (command.submit) " and press Enter" else ""
     is Command.WaitFor -> if (command.gone) "Wait for text to disappear" else "Wait for text to appear"
@@ -124,6 +125,7 @@ private fun cursorLabel(command: Command): String? = when (command) {
     is Command.Tap -> if (command.longPress) "Holding" else if (command.double) "Double-tapping" else "Tapping"
     is Command.Swipe -> if (command.holdMs > 0) "Dragging" else "Swiping"
     is Command.Pinch -> "Zooming"
+    is Command.Gesture -> "Gesturing"
     is Command.TypeText -> if (command.submit) "Typing and pressing Enter" else "Typing"
     is Command.ScrollTo -> "Scrolling to find text"
     is Command.TransferStatus -> "Checking a file transfer"
@@ -268,6 +270,9 @@ class CommandExecutor(
             }
         }
 
+        // Full-access ADB runs beside screen commands and never touches the
+        // screen, so it leaves the cursor and the owner's-tap tracking alone.
+        if (command is Command.AdbShell) return run(envelope, session, capabilities, current)
         // The owner sees what the AI is doing, also when it happens off screen.
         cursorLabel(command)?.let { bridge.service.value?.cursorStatus(it) }
         bridge.touches.aiStarted()
@@ -466,6 +471,7 @@ class CommandExecutor(
                     )
                     is Command.Pinch ->
                         service.pinch(command.observationId, command.centerX, command.centerY, command.startSpan, command.endSpan, command.durationMs)
+                    is Command.Gesture -> service.gesture(command.observationId, command.strokes)
                     is Command.TypeText -> {
                         val typed = service.typeText(command.observationId, command.element, command.text, command.submit)
                         submitted = typed.submitted
@@ -759,6 +765,7 @@ class CommandExecutor(
             is Command.Tap -> if (command.longPress) "long" else "tap"
             is Command.Swipe -> "swipe"
             is Command.Pinch -> "pinch"
+            is Command.Gesture -> "gesture"
             else -> return null
         }
         return "$pkg|$kind"
@@ -771,7 +778,32 @@ class CommandExecutor(
             is Command.Tap -> service.tapContext(command.observationId, command.target)?.let {
                 consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double, seen = readUnlabeled(service, it, command.target))
             }
-            is Command.Swipe -> consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
+            // A swipe that barely moves is a tap to Android: judge it as the tap it is.
+            is Command.Swipe -> if (Consequences.isTapMovement(listOf(command.fromX to command.fromY, command.toX to command.toY))) {
+                val target = Target.Point(command.fromX, command.fromY)
+                service.tapContext(command.observationId, target)?.let {
+                    val longPress = command.holdMs > 0 || command.durationMs >= Consequences.LONG_PRESS_MS
+                    consequences.judgeTap(it.observation, it.node, longPress, it.live, seen = readUnlabeled(service, it, target))
+                }
+            } else {
+                consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
+            }
+            // Each finger that does not really move is judged as the tap it is; the
+            // gesture needs what its most consequential finger needs.
+            is Command.Gesture -> command.strokes
+                .filter { Consequences.isTapMovement(it.points) }
+                .mapNotNull { stroke ->
+                    val (x, y) = stroke.points.first()
+                    val target = Target.Point(x, y)
+                    service.tapContext(command.observationId, target)?.let {
+                        consequences.judgeTap(it.observation, it.node, stroke.durationMs >= Consequences.LONG_PRESS_MS, it.live, seen = readUnlabeled(service, it, target))
+                    }
+                }
+                .maxByOrNull { it.consequence }
+                ?.takeIf { it.consequence != Consequence.NONE }
+                ?: consequences.judgeSwipe(service.currentPackage()).let { swipe ->
+                    Judgement(swipe.consequence, "${describe(command)} on the screen", swipe.rememberKey.replaceFirst("swipe|", "gesture|"))
+                }
             // Payment links ask every time; call, message, and mail links ask (protocol 1.15).
             is Command.OpenLink -> Consequences.judgeLink(command.url, command.packageName)
             is Command.TypeText -> if (!command.submit) {

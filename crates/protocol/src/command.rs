@@ -431,6 +431,18 @@ pub enum Command {
         duration_ms: u32,
     },
 
+    /// Since 1.18: any touch gesture, as up to [`crate::validate::MAX_GESTURE_STROKES`]
+    /// fingers, each following its own path of points over its own time
+    /// window: rotate, two- or three-finger swipes, curved paths, edge
+    /// swipes, press-and-drag sequences. A finger whose path stays within
+    /// the touch slop is a tap or long press on what is under it, and policy
+    /// judges it exactly like a tap. Answers with an [`crate::ActionResult`].
+    #[serde(rename = "input.gesture")]
+    Gesture {
+        observation_id: String,
+        strokes: Vec<Stroke>,
+    },
+
     /// Replace the text of an editable element. Never allowed on sensitive fields.
     #[serde(rename = "input.type")]
     TypeText {
@@ -702,7 +714,23 @@ pub enum Command {
         timeout_ms: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         continue_from: Option<String>,
+        /// Since 1.18: return stdout as base64 of the exact bytes, for binary
+        /// output (`screencap -p`, `cat` of an image). stderr stays text.
+        #[serde(default, skip_serializing_if = "is_false")]
+        base64: bool,
     },
+}
+
+/// One finger of an `input.gesture`: it touches down at the first point
+/// `start_ms` after the gesture begins, follows the points in order over
+/// `duration_ms`, and lifts at the last one. A single point is a press held
+/// for `duration_ms`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Stroke {
+    pub points: Vec<Point>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start_ms: u32,
+    pub duration_ms: u32,
 }
 
 fn default_activity_limit() -> u32 {
@@ -745,6 +773,7 @@ impl Command {
             Command::WaitFor { .. } => "ui.wait",
             Command::ScrollTo { .. } => "ui.scroll_to",
             Command::Pinch { .. } => "input.pinch",
+            Command::Gesture { .. } => "input.gesture",
             Command::AskOwner { .. } => "owner.ask",
             Command::ListFiles { .. } => "file.list",
             Command::PreviewFile { .. } => "file.preview",
@@ -779,9 +808,10 @@ impl Command {
                     vec![Capability::UiObserve]
                 }
             }
-            Command::Tap { .. } | Command::Swipe { .. } | Command::Pinch { .. } => {
-                vec![Capability::InputGesture]
-            }
+            Command::Tap { .. }
+            | Command::Swipe { .. }
+            | Command::Pinch { .. }
+            | Command::Gesture { .. } => vec![Capability::InputGesture],
             Command::TypeText { .. } => vec![Capability::InputText],
             Command::Global { .. } => vec![Capability::NavGlobal],
             Command::ListApps {} | Command::LaunchApp { .. } | Command::OpenLink { .. } => {
@@ -915,6 +945,7 @@ impl Command {
             Command::OpenLocal { .. } => 14,
             Command::Global { action } => action.min_minor_version(),
             Command::LaunchApp { fresh: true, .. } | Command::OpenLink { .. } => 15,
+            Command::Gesture { .. } | Command::AdbShell { base64: true, .. } => 18,
             Command::AdbShell { .. } => 17,
             _ => 0,
         }
@@ -927,7 +958,8 @@ impl Command {
             | Command::Swipe { observation_id, .. }
             | Command::TypeText { observation_id, .. }
             | Command::ScrollTo { observation_id, .. }
-            | Command::Pinch { observation_id, .. } => Some(observation_id),
+            | Command::Pinch { observation_id, .. }
+            | Command::Gesture { observation_id, .. } => Some(observation_id),
             _ => None,
         }
     }

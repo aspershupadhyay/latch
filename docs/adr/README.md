@@ -471,3 +471,17 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Decision precedence:** AGENTS.md and active handbook guidance route new sessions to R27 and this ADR. The ordinary capability rules elsewhere (including deadlines, app/folder scoping, required observations, approval overlays, redaction, rate limits, and fixed session duration) are not additional restrictions on owner-enabled full-access ADB. Older ADR text remains historical; do not restore those restrictions during a Notion sync.
 
 **Reference:** [Android Debug Bridge](https://developer.android.com/tools/adb) documents the actual ADB command/permission boundary and wireless pairing; implementation must validate support on the tested device/build.
+
+## ADR-047 — Any gesture, judged finger by finger; ADB beside screen commands
+**Status:** accepted (2026-10-17, owner request); protocol 1.18, roadmap R28 IN_REVIEW · *needs phone*.
+
+**Context:** the owner asked for every Android gesture, for ADB output that can be binary, and for long ADB commands not to block the other tools. An audit also found that a swipe that barely moves (for example from (990, 2300) to (1000, 2310)) is a tap to Android, yet policy only checked its start for a password field, so it could press Send or Pay without the approval a tap needs.
+
+**Decision:**
+- `input.gesture`: up to 10 fingers, each a path of up to 64 points with its own start and duration, ending within 15 s (inside an ordinary command's 20 s deadline; Android allows 60 s). Every point must be on screen; no finger may start on a sensitive element, in the status bar, on Latch's own windows, or touch the keyboard (text goes through `type_text`). Any finger whose path stays within 32 px of its start (Android's touch slop is ~8 dp) is judged exactly like a tap, or a long press when it lasts 400 ms or more, by all three checks (Rust policy, Vercel policy, the phone). The gesture needs the approval its most consequential finger needs. The same rule now applies to `input.swipe`.
+- `adb.shell` gains `base64`: stdout is base64 of the exact bytes. The `adb` tool shows a whole PNG, JPEG, GIF, or WebP as an image; other binary stays base64 text.
+- `adb.shell` runs beside screen commands: gateways skip the per-phone command lock for it, and the phone runs it outside its serialized worker on its own adbd connection. Screen commands stay one at a time. This removes a concurrency limit, which ADR-046 forbids anyway.
+
+**Rejected:** letting gestures bypass tap judgement (it would undo the consequential-action rule for ordinary tools); a 60 s gesture (it would outlive the command deadline and look like a failure).
+
+**Recovery:** a phone below 1.18 is refused `input.gesture` and `base64` by both gateways, with the usual "update the app" message; every other tool is unchanged.

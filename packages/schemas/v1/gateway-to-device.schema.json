@@ -351,6 +351,38 @@
           ]
         },
         {
+          "description": "Since 1.18: any touch gesture, as up to [`crate::validate::MAX_GESTURE_STROKES`]\nfingers, each following its own path of points over its own time\nwindow: rotate, two- or three-finger swipes, curved paths, edge\nswipes, press-and-drag sequences. A finger whose path stays within\nthe touch slop is a tap or long press on what is under it, and policy\njudges it exactly like a tap. Answers with an [`crate::ActionResult`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "input.gesture"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "observation_id": {
+                  "type": "string"
+                },
+                "strokes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Stroke"
+                  }
+                }
+              },
+              "required": [
+                "observation_id",
+                "strokes"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
+        },
+        {
           "description": "Replace the text of an editable element. Never allowed on sensitive fields.",
           "type": "object",
           "properties": {
@@ -1177,6 +1209,10 @@
             "params": {
               "type": "object",
               "properties": {
+                "base64": {
+                  "description": "Since 1.18: return stdout as base64 of the exact bytes, for binary\noutput (`screencap -p`, `cat` of an image). stderr stays text.",
+                  "type": "boolean"
+                },
                 "command_line": {
                   "type": [
                     "string",
@@ -1675,6 +1711,32 @@
           "type": "string",
           "const": "nfc"
         }
+      ]
+    },
+    "Stroke": {
+      "description": "One finger of an `input.gesture`: it touches down at the first point\n`start_ms` after the gesture begins, follows the points in order over\n`duration_ms`, and lifts at the last one. A single point is a press held\nfor `duration_ms`.",
+      "type": "object",
+      "properties": {
+        "duration_ms": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Point"
+          }
+        },
+        "start_ms": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "points",
+        "duration_ms"
       ]
     },
     "Target": {

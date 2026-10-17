@@ -390,6 +390,54 @@ pub fn tool_definitions() -> Vec<Value> {
             &["observation_id", "zoom"],
         ),
         tool(
+            "gesture",
+            "Any touch gesture",
+            "Perform any touch gesture with up to 10 fingers: each stroke is one finger that \
+             touches down at its first point start_ms after the gesture begins, follows its points \
+             over duration_ms, and lifts at the last point. Rotate (two fingers circling), \
+             two- or three-finger swipes, curved paths, edge swipes (back from the left edge, home \
+             from the bottom), press-then-drag. A single point held is a long press; a finger \
+             that does not move is a tap and asks the owner exactly like tap would. Coordinates \
+             are screen pixels of the latest observation; the whole gesture ends within 15 s. \
+             Prefer tap, swipe, scroll, and pinch when they fit. Needs Latch 1.18 on the phone. \
+             Returns the new observation.",
+            false,
+            json!({
+                "device_id": device_id_schema(),
+                "observation_id": observation_id_schema(),
+                "strokes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": latch_protocol::validate::MAX_GESTURE_STROKES,
+                    "description": "One entry per finger.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "points": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": latch_protocol::validate::MAX_STROKE_POINTS,
+                                "description": "The finger's path in order, e.g. [{\"x\":540,\"y\":1800},{\"x\":540,\"y\":600}].",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "x": { "type": "integer", "minimum": 0 },
+                                        "y": { "type": "integer", "minimum": 0 }
+                                    },
+                                    "required": ["x", "y"]
+                                }
+                            },
+                            "start_ms": { "type": "integer", "minimum": 0, "default": 0, "description": "When this finger touches down, from the start of the gesture." },
+                            "duration_ms": { "type": "integer", "minimum": 1, "maximum": latch_protocol::validate::MAX_GESTURE_MS, "description": "How long this finger stays down while following its points." }
+                        },
+                        "required": ["points", "duration_ms"]
+                    }
+                },
+                "screenshot_after": screenshot_after_schema(),
+            }),
+            &["observation_id", "strokes"],
+        ),
+        tool(
             "press",
             "Press a system button",
             "Press a system button or key: back, home, recents; lock_screen locks the phone \
@@ -568,6 +616,7 @@ pub fn tool_definitions() -> Vec<Value> {
                     "stdin": { "type": "string", "description": "Optional data piped to the command's standard input." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "Optional deadline you request for the command; 0 or omitted means none." },
                     "continue_from": { "type": "string", "maxLength": 64, "description": "A cursor from a previous result, to fetch the next chunk of its output. Give this instead of command." },
+                    "base64": { "type": "boolean", "default": false, "description": "Return stdout as base64 of the exact bytes, for binary output. An image (e.g. `screencap -p`) comes back as an image. Needs Latch 1.18 on the phone." },
                 }),
                 &[],
             );
@@ -623,6 +672,36 @@ const ACTIVITY_KINDS: [&str; 10] = [
 /// full result is preserved through continuation, never silently truncated).
 const ADB_RESULT_BUDGET: usize = 256 * 1024;
 
+/// The same budget for base64 output (protocol 1.18), larger so a whole
+/// screenshot (a few MB) arrives in one result and can be shown as an image.
+const ADB_BASE64_BUDGET: usize = 6 * 1024 * 1024;
+
+/// The image type of `bytes` from its first bytes, for the formats MCP
+/// clients show: PNG, JPEG, GIF, and WebP.
+fn image_mime(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', ..] => Some("image/png"),
+        [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
+        [b'G', b'I', b'F', b'8', ..] => Some("image/gif"),
+        [
+            b'R',
+            b'I',
+            b'F',
+            b'F',
+            _,
+            _,
+            _,
+            _,
+            b'W',
+            b'E',
+            b'B',
+            b'P',
+            ..,
+        ] => Some("image/webp"),
+        _ => None,
+    }
+}
+
 /// `adb`: run one shell command on the phone in the owner-enabled full-access
 /// ADB mode, joining the device's output frames into one result.
 async fn adb_shell(
@@ -636,6 +715,12 @@ async fn adb_shell(
     let continue_from = arg_str(args, "continue_from")
         .map_err(bad)?
         .map(str::to_owned);
+    let base64 = arg_bool(args, "base64", false).map_err(bad)?;
+    let budget = if base64 {
+        ADB_BASE64_BUDGET
+    } else {
+        ADB_RESULT_BUDGET
+    };
     let timeout_ms = u32::try_from(arg_int(args, "timeout_ms").map_err(bad)?.unwrap_or(0))
         .map_err(|_| ProtocolError::new(ErrorCode::InvalidRequest, "timeout_ms is out of range"))?;
     if command.is_some() == continue_from.is_some() {
@@ -658,6 +743,7 @@ async fn adb_shell(
             stdin: if first { stdin.clone() } else { None },
             timeout_ms: if first { timeout_ms } else { 0 },
             continue_from: next.clone(),
+            base64: first && base64,
         };
         first = false;
         let result = match devices::execute(state, device_id, cmd).await? {
@@ -673,7 +759,7 @@ async fn adb_shell(
         stderr.push_str(&result.stderr);
         match result.cursor {
             None => break (result.exit_code, None),
-            Some(c) if stdout.len() >= ADB_RESULT_BUDGET => break (None, Some(c)),
+            Some(c) if stdout.len() >= budget => break (None, Some(c)),
             Some(c) => next = Some(c),
         }
     };
@@ -682,6 +768,29 @@ async fn adb_shell(
     match exit_code {
         Some(code) => body.push_str(&format!("exit code {code}\n")),
         None => body.push_str("(more output remains)\n"),
+    }
+    // Binary output that is a whole picture comes back as one the AI can see.
+    let image = if base64 && exit_code.is_some() {
+        latch_protocol::b64::decode(&stdout)
+            .and_then(|bytes| image_mime(&bytes).map(|mime| (mime, bytes.len())))
+    } else {
+        None
+    };
+    if let Some((mime, size)) = image {
+        body.push_str(&format!(
+            "\nstdout: a {mime} image of {size} bytes, shown below\n"
+        ));
+        if !stderr.is_empty() {
+            body.push_str(&format!("\n--- stderr ---\n{stderr}"));
+        }
+        return Ok(json!({ "content": [
+            { "type": "text", "text": body },
+            { "type": "image", "data": stdout, "mimeType": mime },
+        ] }));
+    }
+    if base64 && !stdout.is_empty() {
+        body.push_str(&format!("\n--- stdout (base64) ---\n{stdout}\n"));
+        stdout.clear();
     }
     if !stdout.is_empty() {
         body.push_str(&format!("\n--- stdout ---\n{stdout}"));
@@ -702,7 +811,7 @@ async fn adb_shell(
         && let Some(c) = &cursor
     {
         body.push_str(&format!(
-            "\nOutput reached {ADB_RESULT_BUDGET} bytes. Call adb again with continue_from=\"{c}\" for the rest."
+            "\nOutput reached {budget} bytes. Call adb again with continue_from=\"{c}\" for the rest."
         ));
     }
     Ok(text_result(body))
@@ -1264,6 +1373,19 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             )?,
         },
         "pinch" => pinch_command(state, &device_id, args)?,
+        "gesture" => Command::Gesture {
+            observation_id: req_str(args, "observation_id").map_err(bad)?.to_owned(),
+            strokes: args
+                .get("strokes")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .ok_or_else(|| {
+                    ProtocolError::new(
+                        ErrorCode::InvalidRequest,
+                        "strokes must be a list of {points: [{x, y}, ...], start_ms?, duration_ms}",
+                    )
+                })?,
+        },
         "scroll" => {
             let observation_id = req_str(args, "observation_id").map_err(bad)?;
             let direction = req_str(args, "direction").map_err(bad)?;

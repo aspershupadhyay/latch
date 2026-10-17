@@ -522,6 +522,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             },
             stop = { app.session.stop() },
             setPaused = app.session::setPaused,
+            extend = app.session::extend,
             setMinutes = { m -> app.settings.update { it.copy(sessionMinutes = m) } },
             answer = app.approvals::answer,
             openAccessibilitySettings = { openAccessibilityFor(context) },

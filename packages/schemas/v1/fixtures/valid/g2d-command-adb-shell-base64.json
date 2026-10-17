@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0312", "deadline_ms": 30000, "command": { "name": "adb.shell", "params": { "command_line": "screencap -p", "base64": true } } }

@@ -101,6 +101,8 @@ pub struct FakeState {
     /// Since 1.17 (ADR-046): every `adb.shell` command line this session ran,
     /// in order. Output is never stored — ADR-046 keeps ADB results out of logs.
     pub adb_commands: Vec<String>,
+    /// Since 1.18: the finger count of each `input.gesture`, in order.
+    pub gestures: Vec<usize>,
     /// The envelope deadline of each new `adb.shell` command, in order, so
     /// tests can check gateways impose none of their own (ADR-046).
     pub adb_deadlines: Vec<u32>,
@@ -167,6 +169,7 @@ impl FakeState {
             revoked: false,
             adb_commands: Vec::new(),
             adb_deadlines: Vec::new(),
+            gestures: Vec::new(),
             adb_chunks: std::collections::HashMap::new(),
             adb_cursor_seq: 0,
             latest: None,
@@ -221,6 +224,9 @@ const FAKE_ADB_CHUNK_BYTES: usize = 1024;
 /// pass-through, stdin, exit codes, and multi-frame output. It is NOT a real
 /// shell — the Android executor runs the command against the device's own ADB.
 /// Returns (stdout, stderr, exit_code).
+/// What the fake `screencap -p` prints: a valid 1x1 PNG.
+pub const FAKE_SCREENCAP_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
 fn run_fake_shell(line: &str, stdin: Option<&str>) -> (Vec<u8>, String, i32) {
     let trimmed = line.trim();
     let mut parts = trimmed.split_whitespace();
@@ -237,6 +243,12 @@ fn run_fake_shell(line: &str, stdin: Option<&str>) -> (Vec<u8>, String, i32) {
         ),
         "cat" => (
             stdin.unwrap_or_default().as_bytes().to_vec(),
+            String::new(),
+            0,
+        ),
+        // A 1x1 PNG, so binary output (protocol 1.18 base64) can be checked.
+        "screencap" => (
+            latch_protocol::b64::decode(FAKE_SCREENCAP_PNG).unwrap_or_default(),
             String::new(),
             0,
         ),
@@ -572,6 +584,11 @@ pub fn handle(
             state.latest = None;
             done(state)
         }
+        Command::Gesture { strokes, .. } => {
+            state.gestures.push(strokes.len());
+            state.latest = None;
+            done(state)
+        }
         Command::ListFiles {
             location,
             folder,
@@ -826,6 +843,7 @@ pub fn handle(
             command_line,
             stdin,
             continue_from,
+            base64,
             ..
         } => {
             state.executed.push("adb.shell".into());
@@ -835,6 +853,12 @@ pub fn handle(
                 let line = command_line.as_deref().unwrap_or_default();
                 state.adb_commands.push(line.to_owned());
                 let (stdout, stderr, exit_code) = run_fake_shell(line, stdin.as_deref());
+                // Since 1.18: the exact bytes as base64, chunked like any text.
+                let stdout = if *base64 {
+                    latch_protocol::b64::encode(&stdout).into_bytes()
+                } else {
+                    stdout
+                };
                 first_adb_chunk(state, stdout, stderr, exit_code)
             };
             serde_json::to_value(result).map_err(|_| err(ErrorCode::Internal, "encode"))

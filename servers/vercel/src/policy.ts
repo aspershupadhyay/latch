@@ -177,11 +177,40 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       if (nodeAt(obs, center.x, center.y)?.sensitive) throw sensitive();
       return medium(`Pinch to zoom ${endSpan > startSpan ? "in" : "out"}${place(obs.package)}`);
     }
+    case "input.gesture": {
+      const obs = need();
+      const { strokes } = command.params;
+      for (const stroke of strokes) for (const pt of stroke.points) checkOnScreen(obs, pt.x, pt.y);
+      // Each finger that does not really move is a tap or long press on what is
+      // under it, judged exactly like one; the gesture needs the approval its
+      // most consequential finger needs.
+      let worst: Assessment | undefined;
+      for (const stroke of strokes) {
+        const start = stroke.points[0]!;
+        const node = nodeAt(obs, start.x, start.y);
+        if (node?.sensitive) throw sensitive();
+        if (isTapMovement(stroke.points)) {
+          const touch = judgeTouch(obs, node, stroke.duration_ms >= LONG_PRESS_MS ? "Long-press" : "Tap");
+          if (worst === undefined || severity(touch) > severity(worst)) worst = touch;
+        }
+      }
+      if (worst !== undefined && worst.risk === "high") return worst;
+      // In a phone app a gesture can answer, decline, or place a call.
+      const consequence: Consequence = obs.package !== undefined && isCallPackage(obs.package) ? "consequential" : "none";
+      const n = strokes.length;
+      return judged(consequence, `Gesture with ${n} finger${n === 1 ? "" : "s"} on the screen${place(obs.package)}`, `gesture|${obs.package ?? "?"}|`);
+    }
     case "input.swipe": {
       const obs = need();
       const { from, to } = command.params;
       checkOnScreen(obs, from.x, from.y);
       checkOnScreen(obs, to.x, to.y);
+      // A swipe that barely moves is a tap to Android: judge it as one, so it
+      // cannot press Send or Pay without the approval a tap needs.
+      if (isTapMovement([from, to])) {
+        const held = (command.params.hold_ms ?? 0) > 0 || (command.params.duration_ms ?? 0) >= LONG_PRESS_MS;
+        return judgeTouch(obs, nodeAt(obs, from.x, from.y), held ? "Long-press" : "Tap");
+      }
       if (nodeAt(obs, from.x, from.y)?.sensitive) throw sensitive();
       // In a phone app a swipe can answer, decline, or place a call.
       const consequence: Consequence = obs.package !== undefined && isCallPackage(obs.package) ? "consequential" : "none";
@@ -195,18 +224,7 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       let node: UiNode | undefined;
       if ("element" in t) node = resolve(obs, t.element);
       else { checkOnScreen(obs, t.x, t.y); node = nodeAt(obs, t.x, t.y); }
-      if (!node) {
-        return judged(classify([], obs.package), `${verb} on the screen${place(obs.package)}`, `${verb.toLowerCase()}|${obs.package ?? "?"}|`);
-      }
-      if (node.sensitive) throw sensitive();
-      const scope = scopeOf(obs, node);
-      const found = scope.map(ownLabel).find((l) => l !== undefined);
-      const label = found !== undefined ? shorten(found) : labelOf(node);
-      return judged(
-        classify(scope, obs.package),
-        `${verb} “${label}”${place(obs.package)}`,
-        `${verb.toLowerCase()}|${obs.package ?? "?"}|${label.toLowerCase()}`,
-      );
+      return judgeTouch(obs, node, verb);
     }
     case "input.type": {
       const obs = need();
@@ -270,6 +288,40 @@ function assess(command: Command, observation: Observation | undefined): Assessm
 }
 
 /** Most descendants of a tapped element that are read for its meaning. */
+/** Movement within this many pixels is a tap to Android (touch slop ~8 dp), as in `latch_policy::TAP_SLOP_PX`. */
+export const TAP_SLOP_PX = 32;
+/** A press held at least this long is a long press, as in `latch_policy::LONG_PRESS_MS`. */
+export const LONG_PRESS_MS = 400;
+
+/** Whether a finger path never leaves the touch slop around its first point. */
+export function isTapMovement(points: readonly { x: number; y: number }[]): boolean {
+  const first = points[0];
+  if (first === undefined) return true;
+  return points.every((p) => Math.abs(p.x - first.x) <= TAP_SLOP_PX && Math.abs(p.y - first.y) <= TAP_SLOP_PX);
+}
+
+/** How much an assessment asks of the owner: critical (no remember key) above consequential above the rest. */
+function severity(a: Assessment): number {
+  const base = a.risk === "high" ? 2 : a.risk === "medium" ? 1 : 0;
+  return base * 2 + (a.risk === "high" && a.remember === undefined ? 1 : 0);
+}
+
+/** The judgement of a touch on `node` (or on nothing): the same rules a tap gets, wherever the touch comes from. */
+function judgeTouch(obs: Observation, node: UiNode | undefined, verb: string): Assessment {
+  if (!node) {
+    return judged(classify([], obs.package), `${verb} on the screen${place(obs.package)}`, `${verb.toLowerCase()}|${obs.package ?? "?"}|`);
+  }
+  if (node.sensitive) throw sensitive();
+  const scope = scopeOf(obs, node);
+  const found = scope.map(ownLabel).find((l) => l !== undefined);
+  const label = found !== undefined ? shorten(found) : labelOf(node);
+  return judged(
+    classify(scope, obs.package),
+    `${verb} “${label}”${place(obs.package)}`,
+    `${verb.toLowerCase()}|${obs.package ?? "?"}|${label.toLowerCase()}`,
+  );
+}
+
 const MAX_SCOPE_NODES = 64;
 
 /**

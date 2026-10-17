@@ -129,8 +129,8 @@ class SessionController(
     @Volatile private var expiresAtMs = 0L
     private var expiryJob: Job? = null
     @Volatile private var runningCommandId: String? = null
-    /** The running `adb.shell` command's id and job, so a gateway cancel can stop it. */
-    @Volatile private var runningAdb: Pair<String, Job>? = null
+    /** Running `adb.shell` commands by id (they run in parallel), so a gateway cancel can stop one. */
+    private val runningAdb = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
     /** ADR-032: reads unlabeled buttons only while the owner's switch is on; one reader per service. */
     private fun labelReader(): LabelReader? {
@@ -210,17 +210,7 @@ class SessionController(
         log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes", by = ActivityActor.OWNER)
         // The owner's own taps while the session runs are logged as theirs.
         bridge.touches.onOwnerTap = { pkg -> log.add(ActivityKind.ACTION, "You tapped the screen", appName(pkg) ?: pkg, ActivityActor.OWNER) }
-        expiryJob?.cancel()
-        expiryJob = scope.launch {
-            // delay() counts only awake time; look at the wall clock at least every
-            // 30 s, so a phone that slept does not run the session past its end.
-            while (true) {
-                val left = expiresAtMs - System.currentTimeMillis()
-                if (left <= 0) break
-                delay(minOf(left, 30_000L))
-            }
-            sessionTimeEnded()
-        }
+        startExpiryTimer()
         _state.value = SessionState.Connecting(0)
         link = DeviceLink(
             http = http,
@@ -314,6 +304,42 @@ class SessionController(
         log.add(ActivityKind.SESSION, "You turned off full ADB access", by = ActivityActor.OWNER)
     }
 
+    /** Ends the session at [expiresAtMs], however often that moves. */
+    private fun startExpiryTimer() {
+        expiryJob?.cancel()
+        expiryJob = scope.launch {
+            // delay() counts only awake time; look at the wall clock at least every
+            // 30 s, so a phone that slept does not run the session past its end.
+            while (true) {
+                val left = expiresAtMs - System.currentTimeMillis()
+                if (left <= 0) break
+                delay(minOf(left, 30_000L))
+            }
+            sessionTimeEnded()
+        }
+    }
+
+    /**
+     * The owner's one-tap Extend: adds the chosen session length to what is
+     * left (or to now, once the timer has run out), at most [MAX_SESSION_MINUTES]
+     * from now. The session still ends by itself; only the owner extends it.
+     */
+    fun extend() {
+        if (!wanted) return
+        val now = System.currentTimeMillis()
+        val minutes = settings.preferences.value.sessionMinutes
+        val wasOver = now >= expiresAtMs
+        expiresAtMs = minOf(maxOf(expiresAtMs, now) + minutes * 60_000L, now + MAX_SESSION_MINUTES * 60_000L)
+        if (wasOver) startExpiryTimer()
+        log.add(ActivityKind.SESSION, "You extended the session by $minutes minutes", by = ActivityActor.OWNER)
+        pushState()
+        when (val current = _state.value) {
+            is SessionState.Active -> _state.value = current.copy(expiresAtMs = expiresAtMs)
+            is SessionState.Reconnecting -> _state.value = current.copy(expiresAtMs = expiresAtMs)
+            else -> Unit
+        }
+    }
+
     fun setPaused(value: Boolean) {
         if (!wanted || paused == value) return
         paused = value
@@ -394,11 +420,11 @@ class SessionController(
 
         override fun cancel(commandId: String) {
             scope.launch {
-                if (runningCommandId != commandId) return@launch
-                approvals.cancel()
                 // A full-access ADB command may run indefinitely (ADR-046); the
                 // gateway's cancel is how its caller stops it.
-                runningAdb?.takeIf { it.first == commandId }?.second?.cancel()
+                runningAdb[commandId]?.let { it.cancel(); return@launch }
+                if (runningCommandId != commandId) return@launch
+                approvals.cancel()
             }
         }
 
@@ -447,7 +473,9 @@ class SessionController(
      * error answer for the AI and a line in Activity.
      */
     private suspend fun runCommand(envelope: CommandEnvelope): String = withContext(Dispatchers.Default) {
-        runningCommandId = envelope.id
+        // ADB commands run beside the one screen command; only that one is "running".
+        val isAdb = envelope.command is Command.AdbShell
+        if (!isAdb) runningCommandId = envelope.id
         try {
             val command = envelope.command
             val data = if (command is Command.AdbShell) {
@@ -463,7 +491,7 @@ class SessionController(
                         val run = suspend { executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() } }
                         if (limit != null) withTimeout(limit) { run() } else run()
                     }
-                    runningAdb = envelope.id to job
+                    runningAdb[envelope.id] = job
                     try {
                         job.await()
                     } catch (e: CancellationException) {
@@ -471,7 +499,7 @@ class SessionController(
                         if (e is TimeoutCancellationException) throw e
                         throw ProtocolException(ErrorCode.CANCELLED, "the ADB command was cancelled")
                     } finally {
-                        runningAdb = null
+                        runningAdb.remove(envelope.id)
                     }
                 }
             } else {
@@ -498,10 +526,13 @@ class SessionController(
             log.add(ActivityKind.REFUSAL, "Could not finish ${envelope.command.name}: ${e.javaClass.simpleName}")
             Outgoing.error(envelope.id, ErrorCode.INTERNAL, "the phone could not finish this (${e.javaClass.simpleName}); observe and try again")
         } finally {
-            runningCommandId = null
+            if (!isAdb) runningCommandId = null
         }
     }
 }
+
+/** The longest session the owner can choose or extend to, from now. */
+const val MAX_SESSION_MINUTES = 8 * 60
 
 /** Extra time a command may take while the owner answers an approval (protocol 1.4 gateways). */
 private const val APPROVAL_GRACE_MS = 120_000L

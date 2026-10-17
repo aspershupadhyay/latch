@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -310,12 +311,22 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(LatchIcons.Clock, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("$left min left \u00b7 stops by itself", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                Text("${if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"} left \u00b7 stops by itself", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
             }
         }
         if (live) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 IconButtonLarge("Stop", LatchIcons.Stop, actions.stop, Modifier.weight(1.3f), container = LocalSignal.current.danger, content = LocalSignal.current.onInk)
+                // The session still ends by itself; Extend adds the chosen length once more.
+                IconButtonLarge(
+                    "+${SESSION_LENGTHS.firstOrNull { it.first == state.sessionMinutes }?.second ?: "${state.sessionMinutes}m"}",
+                    LatchIcons.Clock,
+                    actions.extend,
+                    Modifier.weight(1f).semantics { contentDescription = "Extend the session by ${spokenLength(state.sessionMinutes)}" },
+                    container = Color.White.copy(alpha = 0.08f),
+                    content = Color.White,
+                    outline = Color.White.copy(alpha = 0.22f),
+                )
                 if (state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED) {
                     val paused = state.phase == Phase.PAUSED
                     IconButtonLarge(
@@ -337,12 +348,12 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                     .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                listOf(15 to "15 min", 30 to "30 min", 60 to "1 hour", 120 to "2 hours").forEach { (m, label) ->
+                SESSION_LENGTHS.forEach { (m, label) ->
                     val selected = state.sessionMinutes == m
                     Box(
                         Modifier.weight(1f).clip(RoundedCornerShape(5.dp))
                             .background(if (selected) Cream else Color.Transparent)
-                            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length $label") { actions.setMinutes(m) }
+                            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length ${spokenLength(m)}") { actions.setMinutes(m) }
                             .padding(vertical = 9.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -368,6 +379,16 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
 }
 
 private val HeroShape = RoundedCornerShape(12.dp)
+
+/** Session lengths the owner can pick, shortest first; short labels so six fit one row. */
+private val SESSION_LENGTHS = listOf(15 to "15m", 30 to "30m", 60 to "1h", 120 to "2h", 240 to "4h", 480 to "8h")
+
+/** A session length as a screen reader says it. */
+private fun spokenLength(minutes: Int): String = when {
+    minutes < 60 -> "$minutes minutes"
+    minutes == 60 -> "1 hour"
+    else -> "${minutes / 60} hours"
+}
 
 /** A faint engineering grid that fades down the card, and ember corner ticks: the hero's texture, as on the website. */
 private fun DrawScope.heroDecoration(live: Boolean) {

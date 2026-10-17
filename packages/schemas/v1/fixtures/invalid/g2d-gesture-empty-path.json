@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0314", "deadline_ms": 20000, "command": { "name": "input.gesture", "params": { "observation_id": "o_7", "strokes": [ { "points": [], "duration_ms": 300 } ] } } }

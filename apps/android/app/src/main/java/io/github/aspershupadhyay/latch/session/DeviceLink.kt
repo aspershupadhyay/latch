@@ -90,18 +90,29 @@ class DeviceLink(
         if (loop != null) return
         worker = scope.launch {
             for (envelope in commands) {
-                // onCommand answers every failure itself; this only guards the link against a bug there.
-                val reply = try {
-                    onCommand(envelope)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Outgoing.error(envelope.id, io.github.aspershupadhyay.latch.protocol.ErrorCode.INTERNAL, "the phone could not finish this")
+                // Screen commands run one at a time. Full-access ADB never touches the
+                // screen, so it runs beside them instead of making them wait (ADR-046).
+                if (envelope.command is io.github.aspershupadhyay.latch.protocol.Command.AdbShell) {
+                    launch { answer(envelope) }
+                } else {
+                    answer(envelope)
                 }
-                post(reply)
             }
         }
         loop = scope.launch(Dispatchers.IO) { run() }
+    }
+
+    /** Runs one command and posts its answer. */
+    private suspend fun answer(envelope: CommandEnvelope) {
+        // onCommand answers every failure itself; this only guards the link against a bug there.
+        val reply = try {
+            onCommand(envelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Outgoing.error(envelope.id, io.github.aspershupadhyay.latch.protocol.ErrorCode.INTERNAL, "the phone could not finish this")
+        }
+        post(reply)
     }
 
     /** Stops polling. With [sayBye], tells the gateway first so tools fail fast. */

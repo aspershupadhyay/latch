@@ -158,7 +158,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "open_link", "device_status", "ask_owner", "get_activity", "finish_task", "phone_control", "adb",
+  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "gesture", "press", "list_apps", "launch_app", "open_link", "device_status", "ask_owner", "get_activity", "finish_task", "phone_control", "adb",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
     "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
     "answer_approval"]);
@@ -229,6 +229,21 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.match(seqOut, /\n1\n/);
   assert.match(seqOut, /\n500\n/);
   assert.match(seqOut, /exit code 0/);
+  // Protocol 1.18: binary output as base64; a picture comes back as an image.
+  const shot = await client.callTool({ name: "adb", arguments: { command: "screencap -p", base64: true } });
+  assert.match(text(shot), /image\/png/);
+  assert.equal((shot.content as { type: string }[]).filter((c) => c.type === "image").length, 1);
+  const encoded = text(await client.callTool({ name: "adb", arguments: { command: "echo hi", base64: true } }));
+  assert.match(encoded, /--- stdout \(base64\) ---\naGkK/);
+
+  // Protocol 1.18: any gesture; a two-finger rotate reaches the phone.
+  const rotated = await client.callTool({ name: "gesture", arguments: { observation_id: obsId(text(screen)), strokes: [
+    { points: [{ x: 400, y: 1200 }, { x: 450, y: 1100 }, { x: 540, y: 1050 }], duration_ms: 400 },
+    { points: [{ x: 680, y: 1200 }, { x: 630, y: 1300 }, { x: 540, y: 1350 }], duration_ms: 400 },
+  ] } });
+  assert.ok(!rotated.isError, text(rotated));
+  const malformed = await client.callTool({ name: "gesture", arguments: { observation_id: obsId(text(rotated)), strokes: "swipe up" } });
+  assert.ok(malformed.isError && /strokes must be a list/.test(text(malformed)), text(malformed));
 
   screen = await client.callTool({ name: "launch_app", arguments: { package: "org.latch.demo.chat" } });
   screen = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n1", text: "hello from vercel" } });

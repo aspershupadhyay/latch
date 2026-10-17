@@ -47,6 +47,7 @@ class HomeActions(
     val start: () -> Unit = {},
     val stop: () -> Unit = {},
     val setPaused: (Boolean) -> Unit = {},
+    val extend: () -> Unit = {},
     val setMinutes: (Int) -> Unit = {},
     val answer: (String, ApprovalChoice) -> Unit = { _, _ -> },
     val openAccessibilitySettings: () -> Unit = {},

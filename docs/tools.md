@@ -2,7 +2,7 @@
 
 What an AI app can call once it is connected. The currently shipped ordinary tools below require their capability switches, app consent, and risk-based approvals.
 
-Gateways at protocol 1.17 offer **37 tools**. The first line of `list_devices` says how many yours has.
+Gateways at protocol 1.18 offer **38 tools**. The first line of `list_devices` says how many yours has.
 
 | Tool | What it does |
 |---|---|
@@ -12,6 +12,7 @@ Gateways at protocol 1.17 offer **37 tools**. The first line of `list_devices` s
 | `scroll_to` | Scrolls until a text is visible, in one call |
 | `wait_for` | Waits until a text appears (or disappears), in one call |
 | `pinch` | Zooms in or out with two fingers |
+| `gesture` | Any touch gesture with up to 10 fingers, each following its own path: rotate, two- or three-finger swipes, curved paths, edge swipes, press-then-drag. A finger that does not move is a tap and asks you exactly like `tap` would. Ends within 15 s; needs Latch 1.18 |
 | `list_apps`, `launch_app` | See and open installed apps; `launch_app` with `fresh` starts the app from its first screen |
 | `open_link` | Opens a web or app link straight in one app (a YouTube video, a Maps search) instead of tapping there; the same app rules as `launch_app`, message links ask you, and payment links always do |
 | `device_status` | Battery and charging, Wi-Fi or mobile data, free storage, orientation, whether the phone is locked, and Do Not Disturb; nothing personal |
@@ -41,10 +42,11 @@ Off until you turn it on. In **Access → Full ADB access**, switch it on and pa
 | `stdin` | Optional text piped to the command's standard input (at most 512 KiB) |
 | `timeout_ms` | Optional deadline you ask for. Without one, Latch sets none: the self-hosted gateway waits as long as the command runs; on Vercel a function can wait at most about 280 seconds |
 | `continue_from` | The cursor from a previous answer, to fetch the rest of a very large output. Give this instead of `command` |
+| `base64` | Return stdout as base64 of the exact bytes (Latch 1.18). A picture, such as `screencap -p`, comes back as an image the AI can see |
 
 - **Complete results.** The phone sends large output in frames and the gateway joins them; past 256 KiB in one answer you get a `continue_from` cursor for the rest. Nothing is cut silently. Unread cursors are kept for the four most recent results.
-- **Text only.** Output travels as UTF-8 text, so raw binary (for example `screencap -p`) is not byte-exact. Encode it on the phone instead: `screencap -p | base64`.
-- **One command at a time** per phone, like every other tool: a long-running command (say `logcat` without `-d`) keeps other tools waiting until it ends, you press **Stop**, or the AI app gives up (the gateway then cancels it on the phone).
+- **Binary output.** Without `base64`, output travels as UTF-8 text. With `base64: true` it is byte-exact, and an image is shown as an image.
+- **Runs beside the other tools** (Latch 1.18): a long-running command (say `logcat` without `-d`) no longer makes taps and screen reads wait, and several ADB commands can run at once. It ends when it finishes, you press **Stop**, or the AI app gives up (the gateway then cancels it on the phone). For jobs longer than your AI app waits, start them in the background (`nohup sh -c '…' > /data/local/tmp/out.txt 2>&1 &`) and read the file later.
 - **Stop and revoke.** **Stop** on the phone ends a running command at once. **Turn off** under Full ADB access forgets the pairing on Latch's side; to also revoke the key in Android, open **Developer options → Wireless debugging → Paired devices** and forget Latch, or turn wireless debugging off.
 - **Never logged.** Command output is returned only to the AI app that asked and is not written to the phone's Activity log or the gateway's audit list.
 
