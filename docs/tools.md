@@ -1,6 +1,8 @@
 # MCP tools
 
-What an AI app can call once it is connected. Every call goes through the same rules: the capability must be switched on, the app must be allowed, and risky actions still ask you on the phone.
+What an AI app can call once it is connected. The currently shipped ordinary tools below require their capability switches, app consent, and risk-based approvals.
+
+**Planned full-access ADB (R27, not implemented):** [ADR-046](adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) defines a separate owner-enabled wireless MCP bridge with the same device-side access as direct ADB. After initial owner authorization and Android pairing, it adds no per-command approvals, app/folder scope, mandatory expiry, command/output caps, quotas, or content filters. The ordinary-tool rules below must not be applied to that mode.
 
 | Tool | What it does |
 |---|---|

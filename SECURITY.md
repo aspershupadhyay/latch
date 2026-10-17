@@ -10,6 +10,8 @@ We aim to acknowledge reports within 3 working days and to agree a disclosure da
 
 ## In scope
 
+These bullets describe the current ordinary capability runtime. The planned, separately owner-enabled full-access ADB mode (R27, [ADR-046](docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp)) intentionally grants standard device-side ADB access without per-command approval, app/folder filters, mandatory expiry, or command quotas after initial authorization. Actions within that explicit grant are not a policy bypass. Unauthorized enablement, endpoint/pairing authentication bypass, wrong-device routing, credential leakage, and dispatch of new commands after owner Stop/revoke remain security concerns. Detached processes and completed side effects have the same best-effort cancellation limits as direct ADB; do not promise automatic rollback. The planned mode is not implemented by this documentation change.
+
 - Executing an action without the owner's capability, session, or approval (including after Stop, Pause, expiry, or revocation).
 - Reading or typing into password, PIN, OTP, or payment fields; leaking redacted content.
 - Agents observing or operating Latch itself, the notification shade, or the lock screen.

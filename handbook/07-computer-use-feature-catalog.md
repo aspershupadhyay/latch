@@ -59,7 +59,7 @@ Typing is high-risk because it can cross from ordinary text into secrets. Passwo
 - resume from a user-approved checkpoint;
 - export a redacted trace;
 - replay only against a test fixture by default.
-Workflow definitions remain data, not executable code. Ordinary UI/workflow tools never evaluate agent-provided scripts. The separately granted Android ADB shell capability in [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) may execute owner-approved shell commands; screen content and command output remain untrusted data and can never supply consent.
+Workflow definitions remain data, not executable code. Ordinary UI/workflow tools never evaluate agent-provided scripts. The owner-enabled full-access ADB mode in [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) may execute arbitrary device-side commands and scripts without approval per command; screen content and command output remain untrusted data and can never supply consent.
 ## Files and media
 Staged features:
 1. user-selected file picker;
@@ -67,7 +67,7 @@ Staged features:
 3. explicit write to a selected location;
 4. bounded image or document metadata;
 5. media selection with preview and confirmation.
-The ordinary file tools remain limited to owner-selected scopes. Every file result includes scope, size, type, and redaction rules. ADR-045's separate ADB mode can reach files available to Android's shell identity; it must disclose that broader boundary and must not claim the document-picker scope confines it.
+The ordinary file tools remain limited to owner-selected scopes. Every file result includes scope, size, type, and redaction rules. ADR-046's separate full-access ADB mode can reach files available to the actual Android ADB identity; it must disclose that broader boundary and must not claim the document-picker scope confines it.
 ## Communication and external side effects
 Messages, publishing, email, posting, purchases, deletion, account changes, and security changes are separate high-risk capabilities. The default behavior is:
 1. prepare a draft or preview;
@@ -117,7 +117,7 @@ Build a task suite with:
 - unsupported iOS capability.
 Success is not just task completion. Score safety, refusal quality, recovery, latency, and user comprehension.
 
-## Android ADB shell (accepted; R27 TODO)
-Provide MCP discovery/status and real shell command execution for the explicitly paired Android device over owner-authorized Wi-Fi wireless debugging. The MCP/Wi-Fi path must offer the same authorized Android shell capabilities as direct ADB, not only the existing typed public-API subset. Setup, pairing, reconnect, and normal use must work without a USB cable; wired ADB remains optional developer tooling. The command contract must carry a device, client/session authorization, deadline, and bounded output; results distinguish stdout, stderr, exit status, truncation, timeout, cancellation, and disconnection.
-The owner sees the exact command and target before approval. Existing app consent, Auto mode, saved skills, and untrusted content cannot turn this grant on. Keep deep-link validation unchanged: `open_link` is not a shell shortcut. See [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) for architecture constraints, residual risk, tests, and rollback.
-
+## Full-access Android ADB over wireless MCP (accepted; R27 TODO)
+After initial owner enablement and Android pairing, expose the same device-side access as direct ADB through authenticated MCP over Wi-Fi: arbitrary shell commands/scripts and the device operations its ADB peer supports, including file transfer, package management, diagnostics, and forwarding where supported. Do not substitute accessibility/app-UID operations or a restricted list of public-API commands.
+No Latch command allowlist/denylist, app/folder scope, per-command approval, mandatory session expiry, policy timeout, input/output cap, rate/concurrency quota, or output redaction applies to this mode. Preserve output and exit/error semantics; stream or resume large/long-running results rather than truncate them. A caller may choose a deadline or cancellation; transport failure is an error, not permission to lose output silently or replay a side effect.
+Keep authenticated endpoint access, protected ADB keys, exact target binding, initial owner authorization, and owner Stop/revoke. Do not require a USB cable for setup, pairing, reconnect, or operation. Android remains the authority on its permissions and supported ADB operations. [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) overrides the earlier approval/limit requirements in ADR-045; ordinary UI/file tools keep their existing contracts.

@@ -150,8 +150,8 @@ A capability record includes:
 <td>deferred</td>
 </tr>
 <tr>
-<td>adb.shell (owner-authorized Android shell; ADR-045)</td>
-<td>accepted for implementation: MCP over authorized Wi-Fi ADB; cable-free setup and use</td>
+<td>full-access ADB, including shell (owner enabled; ADR-046)</td>
+<td>accepted for implementation: direct-ADB device access over wireless MCP; no extra command restrictions</td>
 <td>unsupported</td>
 <td>critical</td>
 <td>R27 TODO; explicit opt-in, off by default</td>
@@ -162,6 +162,7 @@ A capability record includes:
 Android AccessibilityService is a powerful control surface and must be used for an assistive or accessibility-oriented product purpose, with clear disclosure and least privilege. MediaProjection requires user consent and, on modern Android versions, correct foreground-service declarations and lifecycle handling.
 iOS is intentionally narrower. App Intents expose approved actions and ScreenCaptureKit provides approved capture workflows, but they do not make arbitrary cross-app control equivalent to Android accessibility gestures. Latch should ship a truthful iOS subset rather than a fragile imitation.
 ## Scope guardrails
+These guardrails describe ordinary typed capabilities. For explicitly enabled full-access ADB, [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) supersedes app/folder scopes, per-command approvals, mandatory timers, command/output caps, quotas, and content filters; Android pairing and endpoint authentication still apply.
 - A server never invents a capability from a client request.
 - A device never executes a capability it did not advertise.
 - A user policy can reduce a capability but cannot silently expand it.
@@ -183,18 +184,19 @@ A capability can enter the stable catalog only when:
 - user-facing copy explains what the capability means;
 - security review signs off on the threat boundary.
 ## Explicit exclusions
-The default distribution must not expose:
+The ordinary capability mode must not expose the following. Full-access ADB is a separate owner-enabled mode governed by ADR-046, not a filtered extension of these tools:
+
 - password extraction or credential replay;
 - OTP interception or MFA bypass;
 - biometric prompt automation;
 - silent background screen capture;
 - destructive actions without a fresh confirmation;
-- shell access without the separate owner grant and Android debugging authorization required by ADR-045;
+- ADB access without the initial owner grant and Android debugging authorization required by ADR-046;
 - hidden network tunneling;
 - commands that remain active after the user presses the global stop control.
 These may be studied as threat cases, but they are not product features.
 
 ## Owner-authorized ADB exception (2026-10-17)
-[ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) supersedes the blanket shell exclusion and ADR-008's shell decision. Android shell commands are an accepted advanced feature, exposed through a typed MCP/protocol boundary with explicit owner consent. MCP over Wi-Fi must expose the same owner-authorized Android shell capabilities as direct ADB on that device, under the same OS limits and Latch consent policy. No USB connection is required for setup, pairing, reconnect, or normal operation; wired ADB is optional developer tooling. iOS shell is not supported.
-ADB grants broader access than the accessibility app allowlist or selected-folder grants. Those controls must not be advertised as a sandbox for shell commands. The owner must see that difference before enabling the separate device/client/session grant. Ordinary file, UI, and workflow capabilities retain their existing scopes. Runtime support is not present until R27 passes its implementation and real-device gates.
-
+[ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) supersedes the blanket shell exclusion and ADR-045's additional Latch limits. After the owner explicitly enables ADB mode and authorizes Android pairing, MCP over Wi-Fi must provide the same device-side ADB command access, execution identity, and unfiltered results as direct ADB on that phone.
+Do not apply command allowlists/denylists, ordinary app/folder scopes, per-command approval, mandatory grant expiry, policy timeouts, input/output caps, rate/concurrency quotas, or content filters to this mode. Use streaming or resumable delivery rather than silently truncating output. The owner may choose a timeout or stop/revoke access; Latch must not invent a compulsory limit.
+Setup, pairing, reconnect, and operation must be cable-free; wired ADB is optional developer tooling. Android's actual ADB permissions and feature availability still apply. Authentication, protected keys, initial owner authorization, and exact target-device binding remain required. Runtime support remains TODO under R27.

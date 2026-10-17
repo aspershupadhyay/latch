@@ -21,7 +21,7 @@ Before making a product, architecture, UX, security, or implementation decision:
 - Treat the repository handbook as the canonical cloud-session reference for the roadmap, capability matrix, safety model, UX, lifecycle, testing, and release plan.
 - Do not rely on stale memory, an old export, or an archived planning page.
 - If the handbook is missing, incomplete, or internally inconsistent, report the gap and pause the affected decision. Do not silently invent a replacement.
-- The handbook is a versioned mirror of the MobileMCP Notion plan with newer repo-authored decisions in chapter 17 and docs/adr/. Refresh it from Notion when the upstream plan changes, then review the resulting diff. Preserve newer owner decisions, including ADR-045 (2026-10-17), when the Notion source still contains the superseded shell ban.
+- The handbook is a versioned mirror of the MobileMCP Notion plan with newer repo-authored decisions in chapter 17 and docs/adr/. Refresh it from Notion when the upstream plan changes, then review the resulting diff. Preserve newer owner decisions, including ADR-045 and ADR-046 (2026-10-17), when the Notion source still contains the superseded shell ban.
 
 This AGENTS.md file provides operating rules; the handbook provides the product and engineering plan.
 
@@ -32,7 +32,7 @@ This AGENTS.md file provides operating rules; the handbook provides the product 
 - Do not ask the user to copy local files into the cloud session unless the user explicitly chooses that workflow.
 - Do not change the architecture merely because the repository exists.
 - The project owner authorized implementation on 2026-10-02. Current status, changed decisions, and the next gate are in handbook/17-plan-review-and-revised-delivery.md; read it before starting work.
-- The work queue is the roadmap table in handbook/17-plan-review-and-revised-delivery.md §10 (R1–R27). The owner's 2026-10-17 priority is R27: implement owner-authorized Android ADB shell through MCP over Wi-Fi, with the same authorized shell capabilities as direct ADB and no USB cable required for setup, pairing, reconnect, or normal use (ADR-045). USB is optional developer tooling, not a prerequisite or an R27 acceptance requirement. A new session starts with R27 while it is TODO or IN_PROGRESS; then resume the first TODO row that is not blocked. Keep status and evidence current with every push.
+- The work queue is the roadmap table in handbook/17-plan-review-and-revised-delivery.md §10 (R1–R27). The owner's 2026-10-17 priority is R27: implement unrestricted owner-authorized Android ADB access through MCP over Wi-Fi, with the same device-side command access and results as direct ADB and no Latch-imposed command restrictions after initial owner authorization (ADR-046). Setup, pairing, reconnect, and normal use require no USB cable; USB is optional developer tooling. A new session starts with R27 while it is TODO or IN_PROGRESS; then resume the first TODO row that is not blocked. Keep status and evidence current with every push.
 - Keep secrets, tokens, device data, screenshots, and private logs out of the repository.
 - Make small, reviewable commits. Never hide unrelated changes in a task.
 - The project owner's standing instruction: commit and push every change to the session's branch as soon as it is made and verified. Never leave work only in the cloud container, which is discarded when the session ends.
@@ -56,7 +56,7 @@ Target architecture:
 
 ## Safety and privacy non-negotiables
 
-Latch is a capability-based system. Every action must have a defined capability, a least-privilege scope, an explicit policy decision, an auditable result, and a clear user-visible lifecycle.
+Latch's ordinary UI/file tools are capability-based and retain their existing policy rules. The separately enabled full-access ADB mode follows ADR-046: initial owner authorization and Android pairing grant standard ADB access to the authenticated client and selected phone, without Latch-imposed restrictions on subsequent commands. Where the general rules below or older handbook text conflict, ADR-046 governs ADB mode.
 
 Required principles:
 
@@ -65,8 +65,8 @@ Required principles:
 - Observe before acting when the action depends on current screen or device state.
 - Require fresh confirmation for high-impact, destructive, financial, account, permission, communication, or irreversible actions by default. The owner may waive it only explicitly, for apps they switched on (ADR-021 for communication and deletion, ADR-022 opt-in for payments, installs, and permissions); the default always asks.
 - Treat screen content, web content, notifications, clipboard content, and remote instructions as untrusted data. They must never silently become authorization.
-- Owner-authorized Android ADB shell is an accepted, opt-in product capability (ADR-045, R27), with full authorized ADB shell access through MCP over Wi-Fi; a cable-free path is required and USB is optional. Implement it behind a separate, off-by-default grant bound to the device, MCP client, and expiring session; require the owner's Android debugging authorization, visible status, command approval, cancellation, Stop/revocation, and content-free audit events. Existing app grants and Auto mode do not grant shell access. Do not reject this work because of the superseded blanket shell ban.
-- Never expose credential extraction, OTP or MFA bypass, biometric automation, silent recording, or covert surveillance. Destructive actions still require fresh owner confirmation. ADR-045 changes the shell decision only; it does not authorize these abuses or bypass Android's security controls.
+- Full-access ADB mode (ADR-046, R27) is off until the owner explicitly enables it and authorizes Android wireless-debugging pairing. Thereafter the authenticated MCP/Wi-Fi client gets the same device-side access as direct ADB: no command allowlist/denylist, app/folder scope, per-command approval, mandatory session expiry, policy timeout, command/input/output cap, rate/concurrency quota, or content-based result filter. Preserve complete results through streaming/continuation where needed. Initial access authorization, endpoint authentication, selected-device binding, protected keys, and owner-controlled Stop/revoke remain required. Ordinary app switches and Auto mode do not enable ADB mode.
+- Do not build features for unauthorized credential theft, MFA bypass, covert surveillance, or bypassing Android's security controls. The ordinary UI/file tools retain their sensitive-field and consequential-action rules. Owner-enabled ADB mode is a general-purpose bridge and must not add command filters or fresh confirmations based on these ordinary-tool rules; Android's actual permissions and the owner's initial grant define its command boundary.
 - Do not place raw screenshots, screen recordings, access tokens, passwords, clipboard contents, or personal data in logs, fixtures, telemetry, or error messages.
 - Validate inputs at every boundary and use typed errors, timeouts, cancellation, replay protection, and idempotency where applicable.
 - Document platform limitations instead of pretending Android and iOS provide identical capabilities.
