@@ -139,6 +139,12 @@ val catalog = mapOf(
         "Open the Wi-Fi, internet, Bluetooth, volume, or NFC panel, or the airplane mode, location, display, battery, sound, notification, storage, or date and time settings. What it taps there is an ordinary action: the Settings app must be switched on, and risky buttons ask you. The notification shade itself stays off limits.",
         "medium", LatchIcons.Cloud,
     ),
+    Capability.ADB_SHELL to CapabilityCopy(
+        "Full ADB access", "Run any ADB shell command. Off by default.",
+        "Anything ADB can read on this phone — far more than the screen.",
+        "Run arbitrary ADB shell commands over wireless debugging, with the same power as a computer plugged in with ADB. There is no per-command check, allowlist, or filter once you turn it on and authorize Android's wireless debugging: only turn it on for a client you fully trust, and use Stop or turn it off to end it.",
+        "high", LatchIcons.Key,
+    ),
 )
 
 @Composable
