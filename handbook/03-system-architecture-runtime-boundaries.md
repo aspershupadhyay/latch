@@ -45,6 +45,7 @@ The gateway owns:
 - lifecycle of remote sessions;
 - logs and health endpoints.
 The gateway must not expose its own host shell. It may route owner-authorized Android ADB shell requests through the separate capability, consent, and execution boundary in [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp). MCP over Wi-Fi (ADR-042) and ADB wireless debugging are distinct transports; enabling one never authorizes the other.
+Once the owner grants ADB mode, MCP requests over Wi-Fi must reach a real Android shell executor with the same authorized shell capabilities as direct ADB. A transport choice must not reduce that capability set. The user-facing setup, pairing, reconnect, and execution path must work without USB or a mandatory laptop daemon. A cloud gateway routes through an authenticated reachable phone/executor; ordinary network connectivity alone supplies no Android privileges.
 ### Adapter plane
 Adapters translate external agent formats into the core contract. The MCP adapter is first-class. Future adapters must call the same policy and session APIs; they may not bypass them.
 ## Target repository shape

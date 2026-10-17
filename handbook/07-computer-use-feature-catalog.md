@@ -118,6 +118,6 @@ Build a task suite with:
 Success is not just task completion. Score safety, refusal quality, recovery, latency, and user comprehension.
 
 ## Android ADB shell (accepted; R27 TODO)
-Provide MCP discovery/status and command execution for the explicitly paired Android device, over owner-authorized Wi-Fi wireless debugging or USB ADB. The command contract must carry a device, client/session authorization, deadline, and bounded output; results distinguish stdout, stderr, exit status, truncation, timeout, cancellation, and disconnection.
+Provide MCP discovery/status and real shell command execution for the explicitly paired Android device over owner-authorized Wi-Fi wireless debugging. The MCP/Wi-Fi path must offer the same authorized Android shell capabilities as direct ADB, not only the existing typed public-API subset. Setup, pairing, reconnect, and normal use must work without a USB cable; wired ADB remains optional developer tooling. The command contract must carry a device, client/session authorization, deadline, and bounded output; results distinguish stdout, stderr, exit status, truncation, timeout, cancellation, and disconnection.
 The owner sees the exact command and target before approval. Existing app consent, Auto mode, saved skills, and untrusted content cannot turn this grant on. Keep deep-link validation unchanged: `open_link` is not a shell shortcut. See [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) for architecture constraints, residual risk, tests, and rollback.
 

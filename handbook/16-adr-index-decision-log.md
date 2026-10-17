@@ -75,5 +75,5 @@ When a future proposal arrives, ask:
 This index is complete only when each future cross-cutting decision has a place here.
 
 ## Repo-authored decisions
-The continuing decision log is [docs/adr/README.md](../docs/adr/README.md). ADR-045 accepts implementation of Android ADB shell through MCP with Wi-Fi wireless debugging and an authorized USB ADB host path. It supersedes ADR-008's blanket shell prohibition and the ADB rejection portions of ADR-041–043; the existing typed APIs and TLS Wi-Fi gateway remain supported. R27 in chapter 17 is the next implementation priority. Older Notion text must not restore the superseded prohibition during a handbook refresh.
+The continuing decision log is [docs/adr/README.md](../docs/adr/README.md). ADR-045 accepts implementation of Android ADB shell through MCP over Wi-Fi with direct-ADB shell capability parity. The owner's 2026-10-17 clarification requires cable-free setup, pairing, reconnect, and execution; USB is optional developer tooling and not part of R27's required acceptance gate. It supersedes ADR-008's blanket shell prohibition and the ADB rejection portions of ADR-041–043; the existing typed APIs and TLS Wi-Fi gateway remain supported. R27 in chapter 17 is the next implementation priority. Older Notion text must not restore the superseded prohibition during a handbook refresh.
 

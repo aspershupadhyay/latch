@@ -151,7 +151,7 @@ A capability record includes:
 </tr>
 <tr>
 <td>adb.shell (owner-authorized Android shell; ADR-045)</td>
-<td>accepted for implementation: authorized Wi-Fi / USB ADB</td>
+<td>accepted for implementation: MCP over authorized Wi-Fi ADB; cable-free setup and use</td>
 <td>unsupported</td>
 <td>critical</td>
 <td>R27 TODO; explicit opt-in, off by default</td>
@@ -195,6 +195,6 @@ The default distribution must not expose:
 These may be studied as threat cases, but they are not product features.
 
 ## Owner-authorized ADB exception (2026-10-17)
-[ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) supersedes the blanket shell exclusion and ADR-008's shell decision. Android shell commands are an accepted advanced feature, exposed through a typed MCP/protocol boundary with explicit owner consent. Wi-Fi wireless debugging and an owner-authorized USB ADB host are in scope; iOS shell is not.
+[ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) supersedes the blanket shell exclusion and ADR-008's shell decision. Android shell commands are an accepted advanced feature, exposed through a typed MCP/protocol boundary with explicit owner consent. MCP over Wi-Fi must expose the same owner-authorized Android shell capabilities as direct ADB on that device, under the same OS limits and Latch consent policy. No USB connection is required for setup, pairing, reconnect, or normal operation; wired ADB is optional developer tooling. iOS shell is not supported.
 ADB grants broader access than the accessibility app allowlist or selected-folder grants. Those controls must not be advertised as a sandbox for shell commands. The owner must see that difference before enabling the separate device/client/session grant. Ordinary file, UI, and workflow capabilities retain their existing scopes. Runtime support is not present until R27 passes its implementation and real-device gates.
 
