@@ -398,7 +398,7 @@ pub fn tool_definitions() -> Vec<Value> {
              two- or three-finger swipes, curved paths, edge swipes (back from the left edge, home \
              from the bottom), press-then-drag. A single point held is a long press; a finger \
              that does not move is a tap and asks the owner exactly like tap would. Coordinates \
-             are screen pixels of the latest observation; the whole gesture ends within 60 s. \
+             are screen pixels of the latest observation; the whole gesture ends within 15 s. \
              Prefer tap, swipe, scroll, and pinch when they fit. Needs Latch 1.18 on the phone. \
              Returns the new observation.",
             false,

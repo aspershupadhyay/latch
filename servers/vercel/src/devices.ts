@@ -429,10 +429,13 @@ export class Devices {
     let locked = false;
     const finish: BatchOp[] = [];
     try {
-      // One command at a time per phone: actions on a screen are inherently sequential.
+      // One screen command at a time per phone: actions on a screen are inherently
+      // sequential. Full-access ADB never touches the screen, so it runs beside them
+      // instead of waiting (ADR-046); the phone does the same.
       const lockUntil = started + QUEUE_WAIT_MS;
       let storeMs = -1;
       for (;;) {
+        if (command.name === "adb.shell") break;
         const attemptAt = Date.now();
         const got = await this.store.set(K.lock(id), lockToken, { px: CONFIRM_DEADLINE_MS + 15_000, nx: true });
         if (storeMs < 0) storeMs = Date.now() - attemptAt;
@@ -440,7 +443,7 @@ export class Devices {
         if (Date.now() > lockUntil) throw new ProtocolError("transport_unavailable", "the phone is busy with other commands");
         await sleep(100);
       }
-      locked = true;
+      locked = command.name !== "adb.shell";
       const lockWaitMs = Date.now() - started;
       const result = await this.run(id, command, options, (d) => { decision = d; }, finish);
       return { ...result, timing: { lock_wait_ms: lockWaitMs, phone_ms: result.phoneMs, total_ms: Date.now() - started, store_ms: storeMs, ...REGION } };
@@ -513,8 +516,6 @@ export class Devices {
     const send: BatchOp[] = [];
     // Whatever happens next, the old screen can no longer be trusted.
     if (changesScreen(command)) send.push({ op: "del", key: K.observation(id) });
-    // A long command keeps the phone's lock for as long as it may run.
-    if (deadlineMs > CONFIRM_DEADLINE_MS) send.push({ op: "pexpire", key: K.lock(id), px: deadlineMs + 15_000 });
     send.push(
       { op: "set", key: K.pending(commandId), value: JSON.stringify({ device: id, conn: live.conn }), px: deadlineMs + 10_000 },
       { op: "lpush", key: K.queue(id, live.conn), value: JSON.stringify(envelope), px: deadlineMs + 10_000 },

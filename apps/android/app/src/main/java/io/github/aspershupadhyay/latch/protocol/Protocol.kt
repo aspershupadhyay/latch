@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.16"
+    const val VERSION = "1.18"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -459,6 +459,9 @@ sealed interface Target {
     data class Point(val x: Int, val y: Int) : Target
 }
 
+/** One finger of an `input.gesture` (since 1.18): its path as (x, y) pairs, when it touches down, and how long it stays down. */
+data class Stroke(val points: List<Pair<Int, Int>>, val startMs: Int, val durationMs: Int)
+
 /**
  * System buttons and keys. Back, home, and recents since 1.0; the rest since
  * 1.15. The notification shade and quick settings are not offered: system UI
@@ -524,6 +527,18 @@ sealed interface Command {
     }
 
     /** Since 1.3: two fingers apart (zoom in) or together (zoom out) around a point. */
+    /**
+     * Since 1.18: any touch gesture, as up to [Limits.MAX_GESTURE_STROKES]
+     * fingers each following its own path over its own time window.
+     */
+    data class Gesture(
+        override val observationId: String,
+        val strokes: List<Stroke>,
+    ) : Command {
+        override val name = "input.gesture"
+        override val requiredCapabilities = listOf(Capability.INPUT_GESTURE)
+    }
+
     data class Pinch(
         override val observationId: String,
         val centerX: Int,
@@ -728,6 +743,8 @@ sealed interface Command {
         val stdin: String?,
         val timeoutMs: Int,
         val continueFrom: String?,
+        /** Since 1.18: return stdout as base64 of the exact bytes. */
+        val base64: Boolean = false,
     ) : Command {
         override val name = "adb.shell"
         override val requiredCapabilities = listOf(Capability.ADB_SHELL)
@@ -976,6 +993,21 @@ object GatewayParser {
                     if (params.containsKey("duration_ms")) params.int("duration_ms") else 300,
                 )
             }
+            "input.gesture" -> {
+                val strokes = params["strokes"] as? kotlinx.serialization.json.JsonArray ?: invalid("strokes is required")
+                Command.Gesture(
+                    params.str("observation_id"),
+                    strokes.map { raw ->
+                        val stroke = raw as? JsonObject ?: invalid("a stroke must be an object")
+                        val points = stroke["points"] as? kotlinx.serialization.json.JsonArray ?: invalid("a stroke needs points")
+                        Stroke(
+                            points.map { p -> (p as? JsonObject ?: invalid("a point must be {x, y}")).let { it.int("x") to it.int("y") } },
+                            if (stroke.containsKey("start_ms")) stroke.int("start_ms") else 0,
+                            stroke.int("duration_ms"),
+                        )
+                    },
+                )
+            }
             "input.swipe" -> {
                 val from = params.obj("from")
                 val to = params.obj("to")
@@ -1081,11 +1113,14 @@ object GatewayParser {
                     invalid("give either command_line or continue_from, not both")
                 }
                 if (commandLine != null && commandLine.isEmpty()) invalid("command_line must not be empty")
+                val base64 = params.bool("base64", false)
+                if (base64 && commandLine == null) invalid("base64 goes with command_line")
                 Command.AdbShell(
                     commandLine,
                     params.optStr("stdin"),
                     if (params["timeout_ms"] == null) 0 else params.int("timeout_ms"),
                     continueFrom,
+                    base64,
                 )
             }
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
@@ -1147,6 +1182,11 @@ object Limits {
     const val MAX_FIND_TEXT_CHARS = 200
     const val MAX_SCROLL_SWIPES = 20
     const val MAX_HOLD_MS = 3_000
+
+    /** Since 1.18: `input.gesture` bounds, as `latch_protocol::validate`. */
+    const val MAX_GESTURE_STROKES = 10
+    const val MAX_STROKE_POINTS = 64
+    const val MAX_GESTURE_MS = 15_000
     const val MIN_PINCH_SPAN = 20
     const val MAX_ASK_OWNER_CHARS = 300
     const val MAX_FILE_CHUNK_BYTES = 512 * 1024
@@ -1377,6 +1417,17 @@ object Validation {
                 val n = command.message.codePointCount(0, command.message.length)
                 if (n !in 1..Limits.MAX_ASK_OWNER_CHARS || command.message.isBlank()) invalid("message must be 1-${Limits.MAX_ASK_OWNER_CHARS} characters")
                 if (command.message.any { Character.isISOControl(it) && it != '\n' }) invalid("control characters")
+            }
+            is Command.Gesture -> {
+                id(command.observationId)
+                if (command.strokes.size !in 1..Limits.MAX_GESTURE_STROKES) invalid("a gesture has 1 to ${Limits.MAX_GESTURE_STROKES} fingers")
+                for (stroke in command.strokes) {
+                    if (stroke.points.size !in 1..Limits.MAX_STROKE_POINTS) invalid("a stroke needs 1 to ${Limits.MAX_STROKE_POINTS} points")
+                    stroke.points.forEach { (x, y) -> coordinate(x); coordinate(y) }
+                    if (stroke.startMs < 0 || stroke.durationMs < 1 || stroke.startMs.toLong() + stroke.durationMs > Limits.MAX_GESTURE_MS) {
+                        invalid("start_ms + duration_ms must be at most ${Limits.MAX_GESTURE_MS}")
+                    }
+                }
             }
             is Command.Pinch -> {
                 id(command.observationId)

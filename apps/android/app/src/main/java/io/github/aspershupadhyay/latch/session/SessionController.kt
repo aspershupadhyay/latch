@@ -129,8 +129,8 @@ class SessionController(
     @Volatile private var expiresAtMs = 0L
     private var expiryJob: Job? = null
     @Volatile private var runningCommandId: String? = null
-    /** The running `adb.shell` command's id and job, so a gateway cancel can stop it. */
-    @Volatile private var runningAdb: Pair<String, Job>? = null
+    /** Running `adb.shell` commands by id (they run in parallel), so a gateway cancel can stop one. */
+    private val runningAdb = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
     /** ADR-032: reads unlabeled buttons only while the owner's switch is on; one reader per service. */
     private fun labelReader(): LabelReader? {
@@ -394,11 +394,11 @@ class SessionController(
 
         override fun cancel(commandId: String) {
             scope.launch {
-                if (runningCommandId != commandId) return@launch
-                approvals.cancel()
                 // A full-access ADB command may run indefinitely (ADR-046); the
                 // gateway's cancel is how its caller stops it.
-                runningAdb?.takeIf { it.first == commandId }?.second?.cancel()
+                runningAdb[commandId]?.let { it.cancel(); return@launch }
+                if (runningCommandId != commandId) return@launch
+                approvals.cancel()
             }
         }
 
@@ -447,7 +447,9 @@ class SessionController(
      * error answer for the AI and a line in Activity.
      */
     private suspend fun runCommand(envelope: CommandEnvelope): String = withContext(Dispatchers.Default) {
-        runningCommandId = envelope.id
+        // ADB commands run beside the one screen command; only that one is "running".
+        val isAdb = envelope.command is Command.AdbShell
+        if (!isAdb) runningCommandId = envelope.id
         try {
             val command = envelope.command
             val data = if (command is Command.AdbShell) {
@@ -463,7 +465,7 @@ class SessionController(
                         val run = suspend { executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() } }
                         if (limit != null) withTimeout(limit) { run() } else run()
                     }
-                    runningAdb = envelope.id to job
+                    runningAdb[envelope.id] = job
                     try {
                         job.await()
                     } catch (e: CancellationException) {
@@ -471,7 +473,7 @@ class SessionController(
                         if (e is TimeoutCancellationException) throw e
                         throw ProtocolException(ErrorCode.CANCELLED, "the ADB command was cancelled")
                     } finally {
-                        runningAdb = null
+                        runningAdb.remove(envelope.id)
                     }
                 }
             } else {
@@ -498,7 +500,7 @@ class SessionController(
             log.add(ActivityKind.REFUSAL, "Could not finish ${envelope.command.name}: ${e.javaClass.simpleName}")
             Outgoing.error(envelope.id, ErrorCode.INTERNAL, "the phone could not finish this (${e.javaClass.simpleName}); observe and try again")
         } finally {
-            runningCommandId = null
+            if (!isAdb) runningCommandId = null
         }
     }
 }

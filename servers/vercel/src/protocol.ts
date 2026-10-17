@@ -458,7 +458,7 @@ export const LIMITS = {
   // Since 1.17 (ADR-046): generous transport-frame bounds, not command restrictions.
   maxAdbCommandChars: 128 * 1024, maxAdbStdinBytes: 512 * 1024,
   // Since 1.18: input.gesture, as latch_protocol::validate.
-  maxGestureStrokes: 10, maxStrokePoints: 64, maxGestureMs: 60_000,
+  maxGestureStrokes: 10, maxStrokePoints: 64, maxGestureMs: 15_000,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);

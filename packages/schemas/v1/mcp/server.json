@@ -470,7 +470,7 @@
         "readOnlyHint": false,
         "title": "Any touch gesture"
       },
-      "description": "Perform any touch gesture with up to 10 fingers: each stroke is one finger that touches down at its first point start_ms after the gesture begins, follows its points over duration_ms, and lifts at the last point. Rotate (two fingers circling), two- or three-finger swipes, curved paths, edge swipes (back from the left edge, home from the bottom), press-then-drag. A single point held is a long press; a finger that does not move is a tap and asks the owner exactly like tap would. Coordinates are screen pixels of the latest observation; the whole gesture ends within 60 s. Prefer tap, swipe, scroll, and pinch when they fit. Needs Latch 1.18 on the phone. Returns the new observation.",
+      "description": "Perform any touch gesture with up to 10 fingers: each stroke is one finger that touches down at its first point start_ms after the gesture begins, follows its points over duration_ms, and lifts at the last point. Rotate (two fingers circling), two- or three-finger swipes, curved paths, edge swipes (back from the left edge, home from the bottom), press-then-drag. A single point held is a long press; a finger that does not move is a tap and asks the owner exactly like tap would. Coordinates are screen pixels of the latest observation; the whole gesture ends within 15 s. Prefer tap, swipe, scroll, and pinch when they fit. Needs Latch 1.18 on the phone. Returns the new observation.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -493,7 +493,7 @@
               "properties": {
                 "duration_ms": {
                   "description": "How long this finger stays down while following its points.",
-                  "maximum": 60000,
+                  "maximum": 15000,
                   "minimum": 1,
                   "type": "integer"
                 },

@@ -65,9 +65,9 @@ pub const MAX_ADB_STDIN_BYTES: usize = 512 * 1024;
 pub const MAX_GESTURE_STROKES: usize = 10;
 /// Since 1.18: most points in one gesture finger's path.
 pub const MAX_STROKE_POINTS: usize = 64;
-/// Since 1.18: a whole gesture ends within this many ms (Android's own limit
-/// for one dispatched gesture).
-pub const MAX_GESTURE_MS: u32 = 60_000;
+/// Since 1.18: a whole gesture ends within this many ms, inside an ordinary
+/// command's 20 s deadline (Android itself allows 60 s).
+pub const MAX_GESTURE_MS: u32 = 15_000;
 
 /// A file or folder name: no path separators, control characters, or
 /// leading dot (hidden files), and not "." or "..".

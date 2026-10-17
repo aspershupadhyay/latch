@@ -1181,6 +1181,52 @@ class LatchAccessibilityService : AccessibilityService() {
         dispatch(builder.build())
     }
 
+    /**
+     * Since 1.18: any gesture, each finger following its own path over its own
+     * time window. Every point must be on screen and off Latch's own windows and
+     * the keyboard, and no finger may start in the status bar or on a sensitive
+     * element, as for swipe; policy has judged still fingers as taps already.
+     */
+    suspend fun gesture(observationId: String, strokes: List<io.github.aspershupadhyay.latch.protocol.Stroke>) {
+        val snap = requireFresh(observationId)
+        invalidate()
+        val all = strokes.flatMap { it.points }
+        movePillAside(*all.toTypedArray())
+        val screen = screenInfo()
+        for ((x, y) in all) {
+            if (x !in 0 until screen.width || y !in 0 until screen.height) {
+                throw ProtocolException(ErrorCode.INVALID_REQUEST, "a gesture point is outside the screen")
+            }
+            if (overlayBounds?.contains(x, y) == true) throw ProtocolException(ErrorCode.POLICY_REFUSED, "a gesture point is on the Latch stop button")
+            refuseOnApprovalCard(x, y)
+        }
+        strokes.forEach { stroke -> stroke.points.first().let { (x, y) -> checkGesturePoint(x, y, snap) } }
+        // Touches on the on-screen keyboard type text; text goes through type_text only.
+        keyboardBounds()?.let { keyboard ->
+            if (all.any { (x, y) -> keyboard.contains(x, y) }) {
+                throw ProtocolException(ErrorCode.POLICY_REFUSED, "the on-screen keyboard is where this gesture would run; press back to hide it")
+            }
+        }
+        if (cursorOn) {
+            val end = strokes.maxOf { it.startMs + it.durationMs }.toLong()
+            cursor.stroke(
+                strokes.map { s ->
+                    val (fx, fy) = s.points.first()
+                    val (tx, ty) = s.points.last()
+                    CursorOverlay.Stroke(fx.toFloat(), fy.toFloat(), tx.toFloat(), ty.toFloat())
+                },
+                end,
+            )
+        }
+        val builder = GestureDescription.Builder()
+        for (stroke in strokes) {
+            val path = Path()
+            stroke.points.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x.toFloat(), y.toFloat()) else path.lineTo(x.toFloat(), y.toFloat()) }
+            builder.addStroke(GestureDescription.StrokeDescription(path, stroke.startMs.toLong(), stroke.durationMs.toLong()))
+        }
+        dispatch(builder.build())
+    }
+
     suspend fun swipe(observationId: String, fromX: Int, fromY: Int, toX: Int, toY: Int, durationMs: Int, holdMs: Int = 0) {
         val snap = requireFresh(observationId)
         invalidate()

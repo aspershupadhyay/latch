@@ -15,8 +15,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -47,7 +45,8 @@ internal class AdbShellExecutor(
 ) : AdbShellBridge {
     private class Pending(val stdout: String, val stderr: String, val exitCode: Int)
 
-    private val lock = Mutex()
+    /** Guards [pending] and [cursorSeq]; commands themselves run in parallel, each on its own connection. */
+    private val lock = Any()
 
     /** Unread remainders by cursor, oldest first; abandoned ones are evicted past [MAX_PENDING]. */
     private val pending = object : LinkedHashMap<String, Pending>() {
@@ -55,9 +54,9 @@ internal class AdbShellExecutor(
     }
     private var cursorSeq = 0
 
-    override suspend fun run(command: Command.AdbShell): AdbResult = lock.withLock {
+    override suspend fun run(command: Command.AdbShell): AdbResult {
         command.continueFrom?.let { cursor ->
-            val part = pending.remove(cursor)
+            val part = synchronized(lock) { pending.remove(cursor) }
                 ?: throw ProtocolException(ErrorCode.INVALID_REQUEST, "no such adb.shell continuation (each cursor works once)")
             return frame(part.stdout, part.stderr, part.exitCode)
         }
@@ -106,7 +105,13 @@ internal class AdbShellExecutor(
         } finally {
             connection.close()
         }
-        frame(String(stdoutBytes.toByteArray(), Charsets.UTF_8), String(stderrBytes.toByteArray(), Charsets.UTF_8), exit)
+        // Since 1.18: base64 keeps binary output (screencap -p) byte for byte.
+        val stdout = if (command.base64) {
+            java.util.Base64.getEncoder().encodeToString(stdoutBytes.toByteArray())
+        } else {
+            String(stdoutBytes.toByteArray(), Charsets.UTF_8)
+        }
+        return frame(stdout, String(stderrBytes.toByteArray(), Charsets.UTF_8), exit)
     }
 
     /**
@@ -120,8 +125,9 @@ internal class AdbShellExecutor(
         if (outEnd == stdout.length && errEnd == stderr.length) {
             return AdbResult(stdout = stdout, stderr = stderr, exitCode = exit)
         }
-        val cursor = "adbc_${++cursorSeq}"
-        pending[cursor] = Pending(stdout.substring(outEnd), stderr.substring(errEnd), exit)
+        val cursor = synchronized(lock) {
+            "adbc_${++cursorSeq}".also { pending[it] = Pending(stdout.substring(outEnd), stderr.substring(errEnd), exit) }
+        }
         return AdbResult(stdout = stdout.substring(0, outEnd), stderr = stderr.substring(0, errEnd), cursor = cursor)
     }
 

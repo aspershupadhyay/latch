@@ -108,6 +108,8 @@ class AdbConnectionTest {
                 AdbMessage.read(serverIn)
                 finish(1)
             }
+            // Every byte value, which UTF-8 text would mangle.
+            command == "bin" -> { writeOut(ByteArray(256) { it.toByte() }); finish(0) }
             // Never finishes: only cancellation (which closes the connection) ends it.
             command == "hang" -> Unit
             else -> {
@@ -236,6 +238,22 @@ class AdbConnectionTest {
         error?.let { throw it }
     }
 
+    @Test fun aCommandDoesNotWaitBehindALongRunningOne() {
+        var error: Throwable? = null
+        val exec = executor { error = it }
+        runBlocking {
+            val long = async(kotlinx.coroutines.Dispatchers.Default) { exec.run(adb("hang")) }
+            delay(200)
+            // Each command has its own connection: this one finishes while "hang" still runs.
+            val quick = withTimeout(5_000) { exec.run(adb("echo beside")) }
+            assertEquals("beside\n", quick.stdout)
+            assertTrue(long.isActive)
+            long.cancel()
+            withTimeout(5_000) { long.join() }
+        }
+        error?.let { throw it }
+    }
+
     @Test fun anUnknownCursorIsAnInvalidRequest() {
         val exec = executor { }
         val e = runCatching { runBlocking { exec.run(adb(continueFrom = "adbc_404")) } }.exceptionOrNull()
@@ -248,6 +266,14 @@ class AdbConnectionTest {
         val oldest = runCatching { runBlocking { exec.run(adb(continueFrom = cursors.first())) } }.exceptionOrNull()
         assertTrue(oldest is ProtocolException)
         assertEquals(0, runBlocking { exec.run(adb(continueFrom = cursors.last())) }.exitCode)
+    }
+
+    @Test fun base64KeepsBinaryOutputByteForByte() {
+        var error: Throwable? = null
+        val result = runBlocking { executor { error = it }.run(Command.AdbShell("bin", null, 0, null, base64 = true)) }
+        error?.let { throw it }
+        assertTrue(java.util.Base64.getDecoder().decode(result.stdout).contentEquals(ByteArray(256) { it.toByte() }))
+        assertEquals(0, result.exitCode)
     }
 
     @Test fun keepsSurrogatePairsWhole() {
