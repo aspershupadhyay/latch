@@ -7,8 +7,8 @@
 import { SERVER } from "./generated/contract.js";
 import { renderLatestTask } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
-import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
-import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { ADB_PLATFORM_MAX_MS, ApprovalDeferred, COMMAND_DEADLINE_MS, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
+import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type AdbShellParams, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
@@ -272,8 +272,13 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     const continueFrom = argStr(args, "continue_from");
     const timeoutMs = argInt(args, "timeout_ms") ?? 0;
     const base64 = argBool(args, "base64", false);
-    if ((command !== undefined) === (continueFrom !== undefined)) {
-      throw bad("give either command or continue_from, not both (and not neither)");
+    const background = argBool(args, "background", false);
+    const job = argStr(args, "job");
+    // A Vercel function waits at most ADB_PLATFORM_MAX_MS; the job itself runs on regardless.
+    const waitMs = Math.min(argInt(args, "wait_ms") ?? 0, ADB_PLATFORM_MAX_MS - COMMAND_DEADLINE_MS);
+    const cancel = argBool(args, "cancel", false);
+    if ([command, continueFrom, job].filter((v) => v !== undefined).length !== 1) {
+      throw bad("give exactly one of command, continue_from, or job");
     }
     // Most aggregated stdout returned in one result before handing back a
     // cursor for the rest (ADR-046: the full result is never silently cut).
@@ -286,13 +291,19 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     let next = continueFrom;
     let first = true;
     let timing;
+    let jobId: string | undefined;
+    let jobState: AdbResult["job_state"];
     for (;;) {
-      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string; base64?: boolean } = {};
+      const params: AdbShellParams = {};
       if (first) {
         if (command !== undefined) params.command_line = command;
         if (base64) params.base64 = true;
         if (stdin !== undefined) params.stdin = stdin;
         if (timeoutMs) params.timeout_ms = timeoutMs;
+        if (background) params.background = true;
+        if (job !== undefined) params.job = job;
+        if (waitMs > 0) params.wait_ms = waitMs;
+        if (cancel) params.cancel = true;
       }
       if (next !== undefined) params.continue_from = next;
       first = false;
@@ -301,11 +312,25 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       const r = run.data as AdbResult;
       stdout += r.stdout;
       stderr += r.stderr;
+      if (r.job !== undefined) { jobId = r.job; jobState = r.job_state; }
       if (r.cursor === undefined) { exitCode = r.exit_code; break; }
       if (stdout.length >= BUDGET) { cursor = r.cursor; break; }
       next = r.cursor;
     }
-    let body = exitCode !== undefined ? `exit code ${exitCode}\n` : "(more output remains)\n";
+    // Since 1.20: a job's answer says where it stands and how to go on (same text as the Rust gateway).
+    let body = "";
+    if (jobId !== undefined && background) {
+      body += `Started job ${jobId} on the phone. Collect its output with adb {"job": "${jobId}", "wait_ms": 60000}; `
+        + `each call returns what it wrote since the last one. End it with adb {"job": "${jobId}", "cancel": true}.\n`;
+    } else if (jobId !== undefined && jobState === "cancelled") {
+      body += `job ${jobId} cancelled\n`;
+    } else if (jobId !== undefined && jobState === "running" && cursor === undefined) {
+      body += `job ${jobId} still running; call adb {"job": "${jobId}"} again for more\n`;
+    } else if (jobId !== undefined && exitCode !== undefined) {
+      body += `job ${jobId} finished, `;
+    }
+    if (exitCode !== undefined) body += `exit code ${exitCode}\n`;
+    else if (!(jobId !== undefined && cursor === undefined)) body += "(more output remains)\n";
     // Binary output that is a whole picture comes back as one the AI can see.
     const mime = base64 && exitCode !== undefined ? imageMime(Buffer.from(stdout, "base64")) : undefined;
     if (mime !== undefined) {
@@ -319,7 +344,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     }
     if (stdout) body += `\n--- stdout ---\n${stdout}${stdout.endsWith("\n") ? "" : "\n"}`;
     if (stderr) body += `\n--- stderr ---\n${stderr}${stderr.endsWith("\n") ? "" : "\n"}`;
-    if (!stdout && !stderr && exitCode !== undefined) body += "\n(no output)\n";
+    if (!stdout && !stderr && (exitCode !== undefined || jobId !== undefined) && !background) body += "\n(no output)\n";
     if (exitCode === undefined && cursor !== undefined) {
       body += `\nOutput reached ${BUDGET} bytes. Call adb again with continue_from="${cursor}" for the rest.`;
     }

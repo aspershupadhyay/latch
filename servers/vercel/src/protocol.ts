@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.19";
+export const PROTOCOL_VERSION = "1.20";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -174,7 +174,7 @@ export type Command =
   // Since 1.11: phone controls, one owner switch per group.
   | { name: "device.control"; params: { control: PhoneControl } }
   // Since 1.17 (ADR-046, R27): owner-enabled full-access ADB shell.
-  | { name: "adb.shell"; params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string; base64?: boolean } };
+  | { name: "adb.shell"; params: AdbShellParams };
 
 /** One finger of an `input.gesture` (since 1.18): its path, when it touches down, and how long it stays down. */
 export interface Stroke { points: { x: number; y: number }[]; start_ms?: number; duration_ms: number }
@@ -362,8 +362,17 @@ export const MAX_QUIET_MS = 1_000;
 /** Result of `ui.wait` (since 1.3). */
 export interface WaitResult { matched: boolean; observation: Observation }
 
+/** `adb.shell` parameters; `background`, `job`, `wait_ms`, `cancel` since 1.20 (ADR-049). */
+export interface AdbShellParams {
+  command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string; base64?: boolean;
+  background?: boolean; job?: string; wait_ms?: number; cancel?: boolean;
+}
+
+/** Since 1.20: where an `adb.shell` job stands. */
+export type AdbJobState = "running" | "finished" | "cancelled";
+
 /** Since 1.17 (ADR-046): one frame of an `adb.shell` result. */
-export interface AdbResult { stdout: string; stderr: string; exit_code?: number; cursor?: string }
+export interface AdbResult { stdout: string; stderr: string; exit_code?: number; cursor?: string; job?: string; job_state?: AdbJobState }
 
 /** Minor protocol version of a compatible `major.minor` string, or undefined. */
 export function minorVersion(version: string | undefined): number | undefined {
@@ -373,6 +382,7 @@ export function minorVersion(version: string | undefined): number | undefined {
 
 /** Lowest minor version a phone must speak to run this command exactly. */
 export function minMinorVersion(c: Command): number {
+  if (c.name === "adb.shell" && (c.params.background === true || c.params.job !== undefined)) return 20;
   if (c.name === "input.gesture" || (c.name === "adb.shell" && c.params.base64 === true)) return 18;
   if (c.name === "ui.wait" || c.name === "ui.scroll_to" || c.name === "input.pinch") return 3;
   if (c.name === "input.type" && c.params.submit === true) return 3;
@@ -705,8 +715,20 @@ export function validateCommand(c: Command): void {
       return;
     }
     case "adb.shell": {
-      const { command_line, stdin, continue_from } = c.params;
+      const { command_line, stdin, continue_from, job } = c.params;
       if (c.params.base64 === true && command_line === undefined) throw invalid("base64 goes with command_line; a continuation keeps the command's own encoding");
+      // Since 1.20: a job is started with command_line, then collected by its id.
+      if (c.params.background === true && (command_line === undefined || c.params.base64 === true)) {
+        throw invalid("background goes with command_line and without base64; write binary output to a file and read it afterwards");
+      }
+      if (((c.params.wait_ms ?? 0) > 0 || c.params.cancel === true) && job === undefined) throw invalid("wait_ms and cancel go with job");
+      if (job !== undefined) {
+        if (command_line !== undefined || continue_from !== undefined || stdin !== undefined) {
+          throw invalid("give job alone (with wait_ms or cancel), not with command_line, continue_from, or stdin");
+        }
+        id("job", job);
+        return;
+      }
       if (command_line !== undefined && continue_from !== undefined) throw invalid("give either command_line or continue_from, not both");
       if (command_line !== undefined) {
         if (command_line === "") throw invalid("command_line must not be empty");
@@ -922,9 +944,13 @@ export function parseCommand(raw: unknown): Command {
     case "task.done": return { name, params: p.summary !== undefined ? { summary: str("summary") } : {} };
     case "device.control": return { name, params: { control: parseControl(p.control) } };
     case "adb.shell": {
-      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string; base64?: boolean } = {};
+      const params: AdbShellParams = {};
       if (p.command_line !== undefined) params.command_line = str("command_line");
       if (p.base64 !== undefined) params.base64 = bool("base64", false);
+      if (p.background !== undefined) params.background = bool("background", false);
+      if (p.job !== undefined) params.job = str("job");
+      if (p.wait_ms !== undefined) params.wait_ms = int(p.wait_ms, "wait_ms");
+      if (p.cancel !== undefined) params.cancel = bool("cancel", false);
       if (p.stdin !== undefined) params.stdin = str("stdin");
       if (p.timeout_ms !== undefined) params.timeout_ms = int(p.timeout_ms, "timeout_ms");
       if (p.continue_from !== undefined) params.continue_from = str("continue_from");

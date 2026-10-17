@@ -966,13 +966,23 @@ export const SERVER = {
         "readOnlyHint": false,
         "title": "Run an ADB shell command"
       },
-      "description": "Full-access ADB mode (off by default; the owner enables it and authorizes Android wireless debugging). Runs one shell command line on the selected phone with the same command surface and results as direct ADB — Latch adds no allowlist, per-command approval, or output filter in this mode, and Android's own ADB permissions still bound it. `stdin` is optional data piped to the command. Large output arrives over several frames; the gateway joins them and, if the output is very large, returns a `continue_from` cursor for the rest. This is the selected phone, not the gateway host. Needs Latch 1.17 on the phone.",
+      "description": "Full-access ADB mode (off by default; the owner enables it and authorizes Android wireless debugging). Runs one shell command line on the selected phone with the same command surface and results as direct ADB — Latch adds no allowlist, per-command approval, or output filter in this mode, and Android's own ADB permissions still bound it. `stdin` is optional data piped to the command. Large output arrives over several frames; the gateway joins them and, if the output is very large, returns a `continue_from` cursor for the rest. For a command that runs longer than you can wait, pass `background: true`: it starts on the phone and you get a job id at once; then call adb with `job` (and `wait_ms` to wait for it) to collect what it wrote since you last looked, and the exit code when it finished; `cancel: true` ends it (Latch 1.20). This is the selected phone, not the gateway host. Needs Latch 1.17 on the phone.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "background": {
+            "default": false,
+            "description": "Start command as a job on the phone and answer at once with its id; collect it later with job. Needs Latch 1.20 on the phone.",
+            "type": "boolean"
+          },
           "base64": {
             "default": false,
             "description": "Return stdout as base64 of the exact bytes, for binary output. An image (e.g. `screencap -p`) comes back as an image. Needs Latch 1.18 on the phone.",
+            "type": "boolean"
+          },
+          "cancel": {
+            "default": false,
+            "description": "With job: end the job.",
             "type": "boolean"
           },
           "command": {
@@ -989,12 +999,22 @@ export const SERVER = {
             "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
             "type": "string"
           },
+          "job": {
+            "description": "A job id from a background start: returns the output written since you last collected, and the exit code once it finished. Give this instead of command.",
+            "maxLength": 64,
+            "type": "string"
+          },
           "stdin": {
             "description": "Optional data piped to the command's standard input.",
             "type": "string"
           },
           "timeout_ms": {
             "description": "Optional deadline you request for the command; 0 or omitted means none.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "wait_ms": {
+            "description": "With job: wait up to this long for the job to finish before answering with what it wrote so far.",
             "minimum": 0,
             "type": "integer"
           }

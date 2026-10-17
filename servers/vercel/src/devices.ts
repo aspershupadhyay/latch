@@ -522,7 +522,10 @@ export class Devices {
     const deadlineMs = command.name === "adb.shell"
       // ADR-046: no Latch-imposed deadline for full-access ADB, only one the caller
       // asked for, bounded by what a Vercel function can wait (platform limit).
-      ? (command.params.continue_from !== undefined ? COMMAND_DEADLINE_MS : Math.min(command.params.timeout_ms || ADB_PLATFORM_MAX_MS, ADB_PLATFORM_MAX_MS))
+      ? (command.params.continue_from !== undefined || command.params.background === true ? COMMAND_DEADLINE_MS
+        // Since 1.20: collecting a job waits up to wait_ms on the phone.
+        : command.params.job !== undefined ? Math.min((command.params.wait_ms ?? 0) + COMMAND_DEADLINE_MS, ADB_PLATFORM_MAX_MS)
+        : Math.min(command.params.timeout_ms || ADB_PLATFORM_MAX_MS, ADB_PLATFORM_MAX_MS))
       // The owner needs time for an approval, and for whatever they were asked to do.
       : confirm || resume || command.name === "owner.ask" ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
     const enabled = (c: string) => live.capabilities.some((s) => s.capability === c && s.status === "enabled");

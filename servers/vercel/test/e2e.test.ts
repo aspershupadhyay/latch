@@ -474,6 +474,39 @@ test("a lost answer arrives after a reconnect and the action runs once (R29)", a
   }
 });
 
+// ADR-049: a job starts on the phone, keeps running between calls, and is
+// collected later with its exit code; it can be cancelled. Same text as Rust.
+test("an adb job starts, runs on the phone, and is collected later (R29)", async () => {
+  const pairing = await api("/v1/admin/pairings", { method: "POST", body: JSON.stringify({ name: "Job phone" }) });
+  const worker = spawn(FAKE, [base, pairing.body.code, "--poll"], { stdio: "ignore" });
+  try {
+    await waitFor(async () => (await api("/v1/admin/devices")).body.devices.some((d: { connected: boolean; name: string }) => d.connected && d.name === "Job phone"), "phone to connect");
+    const device = (await api("/v1/admin/devices")).body.devices.find((d: { connected: boolean; name: string }) => d.connected && d.name === "Job phone").id as string;
+    const created = await api("/v1/admin/clients", { method: "POST", body: JSON.stringify({ name: "Job test" }) });
+    const client = new Client({ name: "latch-vercel-jobs", version: "0.1.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(created.body.mcp_url), {
+      requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
+    }));
+    const adb = async (args: Record<string, unknown>) => client.callTool({ name: "adb", arguments: { device_id: device, ...args } });
+    const started = text(await adb({ command: "sleep 1; echo built", background: true }));
+    const job = started.split(" ")[2]!;
+    assert.ok(started.startsWith(`Started job ${job} on the phone.`), started);
+    assert.ok(text(await adb({ job })).startsWith(`job ${job} still running`));
+    const done = text(await adb({ job, wait_ms: 5000 }));
+    assert.ok(done.startsWith(`job ${job} finished, exit code 0`), done);
+    assert.match(done, /--- stdout ---\nbuilt\n/);
+    const gone = await adb({ job });
+    assert.ok(gone.isError && /no such adb job/.test(text(gone)), text(gone));
+    const long = text(await adb({ command: "sleep 60; echo never", background: true })).split(" ")[2]!;
+    assert.ok(text(await adb({ job: long, cancel: true })).startsWith(`job ${long} cancelled`));
+    const both = await adb({ command: "id", job });
+    assert.ok(both.isError && /exactly one of command, continue_from, or job/.test(text(both)), text(both));
+    await client.close();
+  } finally {
+    worker.kill();
+  }
+});
+
 test("screen content and typed text reach the database only sealed (R20)", () => {
   const content = written.filter((w) => isSealedKey(w.key));
   assert.ok(content.some((w) => w.key.startsWith("latch:obs:")) && content.some((w) => w.key.startsWith("latch:q:")), "the session above wrote screens and commands");
