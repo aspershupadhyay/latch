@@ -73,6 +73,10 @@ class SessionController(
     private val transfers: PhoneTransfers? = null,
     /** Protocol 1.13: whether Android's battery optimisation applies to Latch; null when unknown. */
     private val batteryRestricted: () -> Boolean? = { null },
+    /** R27 (ADR-046): this phone's ADB identity, present once the device build wires it; null disables full-access ADB. */
+    private val adbKey: io.github.aspershupadhyay.latch.session.adb.AdbKey? = null,
+    /** R27 (ADR-046): cable-free wireless-debugging pairing; null where discovery is unavailable. */
+    private val adbWireless: io.github.aspershupadhyay.latch.session.adb.AdbWireless? = null,
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -87,9 +91,22 @@ class SessionController(
     /** Minor protocol version of the connected gateway; 1.4 relays approvals and waits for them. */
     @Volatile private var gatewayMinor = 0
 
+    /**
+     * R27 (ADR-046): full-access ADB runs each command over a fresh connection
+     * to the device's own adbd, reading the wireless-debugging endpoint fresh
+     * each time so re-pairing takes effect without a restart. Null (no key or
+     * no endpoint) leaves adb.shell refused as unsupported.
+     */
+    private val adbBridge: AdbShellBridge? = adbKey?.let { key ->
+        io.github.aspershupadhyay.latch.session.adb.AdbShellExecutor {
+            io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(settings.preferences.value.adbEndpoint, key)
+        }
+    }
+
     private val executor = CommandExecutor(
         bridge, approvals, log, grants, consequences, appName, autonomy, { gatewayMinor >= 4 }, files, transfers, ::labelReader,
         status = { bridge.service.value?.let { runCatching { PhoneControls.status(it) }.getOrNull() } },
+        adbShell = adbBridge,
     )
     private var reader: Pair<LatchAccessibilityService, ButtonReader>? = null
     private var link: DeviceLink? = null
@@ -132,6 +149,10 @@ class SessionController(
             when {
                 capability == Capability.DEVICE_INFO -> CapabilityStatus.ENABLED
                 capability !in prefs.enabled -> CapabilityStatus.DISABLED
+                // ADR-046: full-access ADB does not use the accessibility service; it
+                // needs a wireless-debugging endpoint from pairing instead.
+                capability == Capability.ADB_SHELL ->
+                    if (adbBridge != null && prefs.adbEndpoint != null) CapabilityStatus.ENABLED else CapabilityStatus.NEEDS_PERMISSION
                 !serviceOn -> CapabilityStatus.NEEDS_PERMISSION
                 // Brightness needs Android's "Modify system settings"; some phones have no flashlight.
                 else -> bridge.service.value?.let { PhoneControls.limit(it, capability) } ?: CapabilityStatus.ENABLED
@@ -219,6 +240,32 @@ class SessionController(
         scope.launch { closing?.stop(sayBye = true) }
         log.add(ActivityKind.SESSION, reason, by = if (reason.startsWith("You ") || reason == FORGOT) ActivityActor.OWNER else ActivityActor.LATCH)
         _state.value = if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle
+    }
+
+    /** Whether cable-free ADB pairing is available on this build. */
+    fun adbWirelessAvailable(): Boolean = adbWireless != null
+
+    /**
+     * R27 (ADR-046): pair with this phone's own adbd over Wi-Fi using the code
+     * from Developer options → Wireless debugging, then store the connect
+     * endpoint so full-access ADB can run. Returns a user-facing message.
+     */
+    suspend fun pairAdb(code: String, pairingHost: String?, pairingPort: Int?): String {
+        val wireless = adbWireless ?: return "Full ADB pairing is not available on this build."
+        return when (val result = wireless.pair(code.trim(), pairingHost?.trim()?.ifEmpty { null }, pairingPort)) {
+            is io.github.aspershupadhyay.latch.session.adb.AdbWireless.Result.Paired -> {
+                settings.update { it.copy(adbEndpoint = result.connectEndpoint) }
+                log.add(ActivityKind.SESSION, "You paired full ADB access over Wi-Fi", by = ActivityActor.OWNER)
+                "Paired. Full ADB access is ready over Wi-Fi."
+            }
+            is io.github.aspershupadhyay.latch.session.adb.AdbWireless.Result.Failed -> result.reason
+        }
+    }
+
+    /** Turns full ADB access off and forgets the paired endpoint. */
+    fun unpairAdb() {
+        settings.update { it.copy(adbEndpoint = null, enabled = it.enabled - Capability.ADB_SHELL) }
+        log.add(ActivityKind.SESSION, "You turned off full ADB access", by = ActivityActor.OWNER)
     }
 
     fun setPaused(value: Boolean) {

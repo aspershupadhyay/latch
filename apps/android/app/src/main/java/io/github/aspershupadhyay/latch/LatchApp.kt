@@ -109,9 +109,16 @@ class LatchApp : Application() {
         )
         val local = LocalSlots(dir = { java.io.File(cacheDir, "local") }, enabled = { settings.preferences.value.localTransfers })
         transfers = PhoneTransfers(files, http, local) { settings.pairing.value?.gatewayUrl }
-        session = SessionController(scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers) {
-            runCatching { !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) }.getOrNull()
-        }
+        val adbKey = runCatching { io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.key(filesDir) }.getOrNull()
+        val adbWireless = runCatching { io.github.aspershupadhyay.latch.session.adb.AdbWireless(this, filesDir) }.getOrNull()
+        session = SessionController(
+            scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers,
+            batteryRestricted = {
+                runCatching { !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) }.getOrNull()
+            },
+            adbKey = adbKey,
+            adbWireless = adbWireless,
+        )
         setup = GatewaySetup(http)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
