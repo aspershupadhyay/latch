@@ -61,6 +61,38 @@ class ConsequencesTest {
         assertTrue("too few tap cases checked: $checked", checked >= 8)
     }
 
+    /** A swipe that barely moves is judged as the tap it is, on the phone too. */
+    @Test
+    fun agreesWithSharedPolicyCasesOnSwipesThatAreTaps() {
+        val doc = Protocol.json.parseToJsonElement(shared("policy/cases.json")).jsonObject
+        val observation = Protocol.json.decodeFromJsonElement(Observation.serializer(), doc.getValue("observation"))
+        var checked = 0
+        for (case in doc.getValue("cases").jsonArray.map { it.jsonObject }) {
+            val command = case.getValue("command").jsonObject
+            if (command["name"]!!.jsonPrimitive.content != "input.swipe") continue
+            val params = command.getValue("params").jsonObject
+            val from = params.getValue("from").jsonObject
+            val to = params.getValue("to").jsonObject
+            val points = listOf(from, to).map { it.getValue("x").jsonPrimitive.int to it.getValue("y").jsonPrimitive.int }
+            if (!Consequences.isTapMovement(points)) continue
+            val expect = case.getValue("expect").jsonObject
+            val name = case.getValue("name").jsonPrimitive.content
+            val node = Consequences.nodeAt(observation.nodes, points[0].first, points[0].second)
+            if (expect.getValue("decision").jsonPrimitive.content == "deny") {
+                assertTrue(name, node?.sensitive == true)
+                checked++
+                continue
+            }
+            val longPress = (params["hold_ms"]?.jsonPrimitive?.int ?: 0) > 0
+            val judgement = consequences.judgeTap(observation, node, longPress)
+            assertEquals(name, Consequence.CONSEQUENTIAL, judgement.consequence)
+            assertEquals(name, expect.getValue("title").jsonPrimitive.content, judgement.title)
+            assertEquals(name, expect.getValue("remember").jsonPrimitive.content, judgement.rememberKey)
+            checked++
+        }
+        assertEquals(3, checked)
+    }
+
     @Test
     fun agreesWithSharedPolicyCasesOnTypeAndEnter() {
         val doc = Protocol.json.parseToJsonElement(shared("policy/cases.json")).jsonObject

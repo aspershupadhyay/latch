@@ -5,6 +5,7 @@ package io.github.aspershupadhyay.latch.policy
 import io.github.aspershupadhyay.latch.protocol.Observation
 import io.github.aspershupadhyay.latch.protocol.Rect
 import io.github.aspershupadhyay.latch.protocol.UiNode
+import kotlin.math.abs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -158,6 +159,18 @@ class Consequences(private val words: PolicyWords) {
 
     companion object {
         const val MAX_SCOPE_NODES = 64
+
+        /** Movement within this many pixels is a tap to Android, as `latch_policy::TAP_SLOP_PX`. */
+        const val TAP_SLOP_PX = 32
+
+        /** A press held at least this long is a long press, as `latch_policy::LONG_PRESS_MS`. */
+        const val LONG_PRESS_MS = 400
+
+        /** Whether a finger path never leaves the touch slop around its first point. */
+        fun isTapMovement(points: List<Pair<Int, Int>>): Boolean {
+            val (x0, y0) = points.firstOrNull() ?: return true
+            return points.all { (x, y) -> abs(x - x0) <= TAP_SLOP_PX && abs(y - y0) <= TAP_SLOP_PX }
+        }
         const val MAX_KEY_CHARS = 160
 
         private val PAYMENT_LINK_SCHEMES = setOf("upi", "paytmmp", "phonepe", "tez", "gpay")

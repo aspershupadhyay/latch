@@ -182,6 +182,12 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       const { from, to } = command.params;
       checkOnScreen(obs, from.x, from.y);
       checkOnScreen(obs, to.x, to.y);
+      // A swipe that barely moves is a tap to Android: judge it as one, so it
+      // cannot press Send or Pay without the approval a tap needs.
+      if (isTapMovement([from, to])) {
+        const held = (command.params.hold_ms ?? 0) > 0 || (command.params.duration_ms ?? 0) >= LONG_PRESS_MS;
+        return judgeTouch(obs, nodeAt(obs, from.x, from.y), held ? "Long-press" : "Tap");
+      }
       if (nodeAt(obs, from.x, from.y)?.sensitive) throw sensitive();
       // In a phone app a swipe can answer, decline, or place a call.
       const consequence: Consequence = obs.package !== undefined && isCallPackage(obs.package) ? "consequential" : "none";
@@ -195,18 +201,7 @@ function assess(command: Command, observation: Observation | undefined): Assessm
       let node: UiNode | undefined;
       if ("element" in t) node = resolve(obs, t.element);
       else { checkOnScreen(obs, t.x, t.y); node = nodeAt(obs, t.x, t.y); }
-      if (!node) {
-        return judged(classify([], obs.package), `${verb} on the screen${place(obs.package)}`, `${verb.toLowerCase()}|${obs.package ?? "?"}|`);
-      }
-      if (node.sensitive) throw sensitive();
-      const scope = scopeOf(obs, node);
-      const found = scope.map(ownLabel).find((l) => l !== undefined);
-      const label = found !== undefined ? shorten(found) : labelOf(node);
-      return judged(
-        classify(scope, obs.package),
-        `${verb} “${label}”${place(obs.package)}`,
-        `${verb.toLowerCase()}|${obs.package ?? "?"}|${label.toLowerCase()}`,
-      );
+      return judgeTouch(obs, node, verb);
     }
     case "input.type": {
       const obs = need();
@@ -270,6 +265,34 @@ function assess(command: Command, observation: Observation | undefined): Assessm
 }
 
 /** Most descendants of a tapped element that are read for its meaning. */
+/** Movement within this many pixels is a tap to Android (touch slop ~8 dp), as in `latch_policy::TAP_SLOP_PX`. */
+export const TAP_SLOP_PX = 32;
+/** A press held at least this long is a long press, as in `latch_policy::LONG_PRESS_MS`. */
+export const LONG_PRESS_MS = 400;
+
+/** Whether a finger path never leaves the touch slop around its first point. */
+export function isTapMovement(points: readonly { x: number; y: number }[]): boolean {
+  const first = points[0];
+  if (first === undefined) return true;
+  return points.every((p) => Math.abs(p.x - first.x) <= TAP_SLOP_PX && Math.abs(p.y - first.y) <= TAP_SLOP_PX);
+}
+
+/** The judgement of a touch on `node` (or on nothing): the same rules a tap gets, wherever the touch comes from. */
+function judgeTouch(obs: Observation, node: UiNode | undefined, verb: string): Assessment {
+  if (!node) {
+    return judged(classify([], obs.package), `${verb} on the screen${place(obs.package)}`, `${verb.toLowerCase()}|${obs.package ?? "?"}|`);
+  }
+  if (node.sensitive) throw sensitive();
+  const scope = scopeOf(obs, node);
+  const found = scope.map(ownLabel).find((l) => l !== undefined);
+  const label = found !== undefined ? shorten(found) : labelOf(node);
+  return judged(
+    classify(scope, obs.package),
+    `${verb} “${label}”${place(obs.package)}`,
+    `${verb.toLowerCase()}|${obs.package ?? "?"}|${label.toLowerCase()}`,
+  );
+}
+
 const MAX_SCOPE_NODES = 64;
 
 /**

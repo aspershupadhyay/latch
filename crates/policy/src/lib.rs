@@ -13,7 +13,8 @@
 
 use latch_protocol::{
     CapabilityState, CapabilityStatus, Command, ConfirmRequest, ErrorCode, FileLocation,
-    GlobalAction, Observation, ProtocolError, RiskLevel, SessionInfo, Target, UiNode, validate,
+    GlobalAction, Observation, Point, ProtocolError, RiskLevel, SessionInfo, Target, UiNode,
+    validate,
 };
 
 /// Actions must be planned against an observation at most this old.
@@ -72,6 +73,61 @@ pub enum Decision {
     Confirm(ConfirmRequest),
     /// Refuse without contacting the device.
     Deny(ProtocolError),
+}
+
+/// Movement within this many pixels is a tap to Android, whose touch slop is
+/// about 8 dp (24 px on a 3x screen); a little margin covers denser screens.
+pub const TAP_SLOP_PX: i32 = 32;
+
+/// A press held at least this long is a long press to Android.
+pub const LONG_PRESS_MS: u32 = 400;
+
+/// Whether a finger path never leaves the touch slop around its first point,
+/// so Android delivers it as a tap (or long press) on what is under it.
+pub fn is_tap_movement(points: &[Point]) -> bool {
+    let Some(first) = points.first() else {
+        return true;
+    };
+    points.iter().all(|p| {
+        (i64::from(p.x) - i64::from(first.x)).abs() <= i64::from(TAP_SLOP_PX)
+            && (i64::from(p.y) - i64::from(first.y)).abs() <= i64::from(TAP_SLOP_PX)
+    })
+}
+
+/// The judgement of a touch on `node` (or on nothing): the same rules a tap
+/// gets, wherever the touch comes from (tap, a swipe that does not move, or a
+/// gesture finger).
+fn judge_touch(
+    obs: &Observation,
+    node: Option<&UiNode>,
+    verb: &str,
+) -> Result<Assessment, ProtocolError> {
+    let package = obs.package.as_deref();
+    let Some(node) = node else {
+        return Ok(Assessment::judged(
+            classify(&[], package),
+            format!("{verb} on the screen{}", place(package)),
+            format!("{}|{}|", verb.to_lowercase(), package.unwrap_or("?")),
+        ));
+    };
+    if node.sensitive {
+        return Err(sensitive());
+    }
+    let scope = scope_of(obs, node);
+    let label = scope
+        .iter()
+        .find_map(|n| own_label(n))
+        .map_or_else(|| label_of(node), shorten);
+    Ok(Assessment::judged(
+        classify(&scope, package),
+        format!("{verb} “{label}”{}", place(package)),
+        format!(
+            "{}|{}|{}",
+            verb.to_lowercase(),
+            package.unwrap_or("?"),
+            label.to_lowercase()
+        ),
+    ))
 }
 
 fn deny(code: ErrorCode, message: impl Into<String>) -> Decision {
@@ -347,11 +403,25 @@ fn assess(
             )))
         }
         Command::Swipe {
-            from, to, hold_ms, ..
+            from,
+            to,
+            hold_ms,
+            duration_ms,
+            ..
         } => {
             let obs = observation.ok_or_else(internal_missing_observation)?;
             for (x, y) in [(from.x, from.y), (to.x, to.y)] {
                 check_on_screen(obs, x, y)?;
+            }
+            // A swipe that barely moves is a tap to Android: judge it as one,
+            // so it cannot press Send or Pay without the approval a tap needs.
+            if is_tap_movement(&[*from, *to]) {
+                let verb = if *hold_ms > 0 || *duration_ms >= LONG_PRESS_MS {
+                    "Long-press"
+                } else {
+                    "Tap"
+                };
+                return judge_touch(obs, obs.node_at(from.x, from.y), verb);
             }
             if let Some(node) = obs.node_at(from.x, from.y)
                 && node.sensitive
@@ -391,32 +461,7 @@ fn assess(
                     obs.node_at(*x, *y)
                 }
             };
-            let package = obs.package.as_deref();
-            let Some(node) = node else {
-                return Ok(Assessment::judged(
-                    classify(&[], package),
-                    format!("{verb} on the screen{}", place(package)),
-                    format!("{}|{}|", verb.to_lowercase(), package.unwrap_or("?")),
-                ));
-            };
-            if node.sensitive {
-                return Err(sensitive());
-            }
-            let scope = scope_of(obs, node);
-            let label = scope
-                .iter()
-                .find_map(|n| own_label(n))
-                .map_or_else(|| label_of(node), shorten);
-            Ok(Assessment::judged(
-                classify(&scope, package),
-                format!("{verb} “{label}”{}", place(package)),
-                format!(
-                    "{}|{}|{}",
-                    verb.to_lowercase(),
-                    package.unwrap_or("?"),
-                    label.to_lowercase()
-                ),
-            ))
+            judge_touch(obs, node, verb)
         }
         Command::TypeText {
             element,

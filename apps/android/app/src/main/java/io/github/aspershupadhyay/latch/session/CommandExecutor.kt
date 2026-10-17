@@ -771,7 +771,16 @@ class CommandExecutor(
             is Command.Tap -> service.tapContext(command.observationId, command.target)?.let {
                 consequences.judgeTap(it.observation, it.node, command.longPress, it.live, command.double, seen = readUnlabeled(service, it, command.target))
             }
-            is Command.Swipe -> consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
+            // A swipe that barely moves is a tap to Android: judge it as the tap it is.
+            is Command.Swipe -> if (Consequences.isTapMovement(listOf(command.fromX to command.fromY, command.toX to command.toY))) {
+                val target = Target.Point(command.fromX, command.fromY)
+                service.tapContext(command.observationId, target)?.let {
+                    val longPress = command.holdMs > 0 || command.durationMs >= Consequences.LONG_PRESS_MS
+                    consequences.judgeTap(it.observation, it.node, longPress, it.live, seen = readUnlabeled(service, it, target))
+                }
+            } else {
+                consequences.judgeSwipe(service.currentPackage(), drag = command.holdMs > 0)
+            }
             // Payment links ask every time; call, message, and mail links ask (protocol 1.15).
             is Command.OpenLink -> Consequences.judgeLink(command.url, command.packageName)
             is Command.TypeText -> if (!command.submit) {
