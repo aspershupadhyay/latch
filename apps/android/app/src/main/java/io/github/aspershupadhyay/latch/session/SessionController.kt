@@ -451,14 +451,17 @@ class SessionController(
         try {
             val command = envelope.command
             val data = if (command is Command.AdbShell) {
-                // ADR-046: no Latch-imposed time limit; only a deadline the caller
-                // asked for, a gateway cancel, or the owner's Stop ends it.
+                // ADR-046: no Latch-imposed time limit. The gateway's deadline is the
+                // caller's timeout_ms, its own platform limit, or none (u32 max);
+                // that, a gateway cancel, or the owner's Stop ends the command.
+                val limit = envelope.deadlineMs.takeIf { it in 1 until NO_DEADLINE_MS }
+                    ?: command.timeoutMs.takeIf { it > 0 }?.toLong()
                 // A supervisor scope, so a failed or cancelled command answers
                 // with an error instead of tearing down the command loop.
                 supervisorScope {
                     val job = async {
                         val run = suspend { executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() } }
-                        if (command.timeoutMs > 0) withTimeout(command.timeoutMs.toLong()) { run() } else run()
+                        if (limit != null) withTimeout(limit) { run() } else run()
                     }
                     runningAdb = envelope.id to job
                     try {
@@ -502,6 +505,9 @@ class SessionController(
 
 /** Extra time a command may take while the owner answers an approval (protocol 1.4 gateways). */
 private const val APPROVAL_GRACE_MS = 120_000L
+
+/** The `deadline_ms` a gateway sends for an `adb.shell` without any deadline (u32 max, ADR-046). */
+private const val NO_DEADLINE_MS = 4_294_967_295L
 
 /** Gateway address handling, shared by pairing and the session. */
 object Pairing {
