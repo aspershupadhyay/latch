@@ -4,6 +4,10 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 
 > **Privacy:** screen content passes through the gateway's memory while a session is active. Run it on infrastructure you trust. It never writes screen content to disk or logs.
 
+## Download
+
+No Rust needed: every merge to `main` publishes a ready-made gateway (~7 MB) next to the Android beta, at `https://github.com/aspershupadhyay/latch/releases/download/beta/<file>`: `latch-gateway-linux-x86_64`, `latch-gateway-macos-arm64` (Apple Silicon), `latch-gateway-macos-x86_64` (Intel Mac), or `latch-gateway-windows-x86_64.exe`. Check it against `latch-gateway.sha256`. On macOS and Linux run `chmod +x` on it once; macOS may ask you to allow it in System Settings → Privacy & Security. Building from source (`cargo build --release -p latch-gateway`) needs about 2 GB for the Rust toolchain while building.
+
 ## Configuration
 
 | Variable | Required | Meaning |
