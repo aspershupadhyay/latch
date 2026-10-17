@@ -110,4 +110,7 @@ class AdbKey private constructor(private val keyPair: KeyPair) {
         /** Wraps an existing key pair (tests, and callers that manage storage themselves). */
         fun of(keyPair: KeyPair) = AdbKey(keyPair)
     }
+
+    /** The Java public key, for a fake adbd in tests to verify our AUTH signature. */
+    internal fun javaPublicKeyForTest() = publicKey
 }
