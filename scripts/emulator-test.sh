@@ -6,6 +6,9 @@
 # by EmulatorGatewayTest. Needs ANDROID_HOME (scripts/setup-android-sdk.sh) and
 # hardware acceleration (/dev/kvm). Throwaway emulators only: the test switches
 # the accessibility service on with a shell command.
+#
+# LATCH_SOAK_MINUTES=N runs the soak instead (roadmap R29 e, SoakTest): the
+# same setup driven in a loop for N minutes, e.g. 480 for eight hours.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${ANDROID_HOME:?set ANDROID_HOME (scripts/setup-android-sdk.sh)}"
@@ -45,10 +48,15 @@ for scale in window_animation_scale transition_animation_scale animator_duration
 done
 "$adb" shell input keyevent 82 # dismiss the lock screen
 
+soak=()
+if [ -n "${LATCH_SOAK_MINUTES:-}" ]; then
+  soak=(-Pandroid.testInstrumentationRunnerArguments.soakMinutes="$LATCH_SOAK_MINUTES"
+    -Pandroid.testInstrumentationRunnerArguments.class=io.github.aspershupadhyay.latch.SoakTest)
+fi
 (cd apps/android && ./gradlew --no-daemon connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.gateway=http://10.0.2.2:8787 \
   -Pandroid.testInstrumentationRunnerArguments.ownerKey="$LATCH_ADMIN_TOKEN" \
-  -Pandroid.testInstrumentationRunnerArguments.mcpToken="$LATCH_MCP_TOKEN") || {
+  -Pandroid.testInstrumentationRunnerArguments.mcpToken="$LATCH_MCP_TOKEN" "${soak[@]}") || {
   "$adb" logcat -d >logcat.txt 2>/dev/null || true
   echo "== Latch and test lines from logcat" >&2
   grep -i -E "latch|TestRunner|AccessibilityManager|AndroidRuntime" logcat.txt | tail -80 >&2 || true
@@ -56,4 +64,9 @@ done
   tail -30 "$data/gateway.log" >&2 || true
   exit 1
 }
-echo "Emulator end-to-end passed."
+if [ -n "${LATCH_SOAK_MINUTES:-}" ]; then
+  "$adb" logcat -d -s LatchSoak:I | tee soak.txt
+  echo "Soak of $LATCH_SOAK_MINUTES minutes passed."
+else
+  echo "Emulator end-to-end passed."
+fi

@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+name: Soak
+
+# Roadmap R29 (e): the real app on an emulator, driven over MCP by the real
+# gateway for hours (SoakTest). A GitHub-hosted job ends at 6 hours, so this
+# runs 5.5 hours weekly; the eight-hour soak runs anywhere with KVM:
+#   LATCH_SOAK_MINUTES=480 scripts/emulator-test.sh
+on:
+  schedule:
+    - cron: "41 1 * * 6"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to soak (at most 330 here)"
+        default: "330"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soak
+  cancel-in-progress: false
+
+jobs:
+  soak:
+    name: Soak (real app, real gateway)
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Install Android SDK
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          scripts/setup-android-sdk.sh
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: scripts/emulator-test.sh
+        env:
+          LATCH_SOAK_MINUTES: ${{ inputs.minutes || 330 }}
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: soak-logs
+          path: |
+            gateway.log
+            emulator.log
+            logcat.txt
+            soak.txt
+            apps/android/app/build/reports/androidTests/
+          retention-days: 7

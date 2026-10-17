@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+# Fuzz targets for the protocol and policy parsers (roadmap R29 e).
+# Not part of the workspace: needs nightly. Run one with
+#   cargo +nightly fuzz run gateway_message -- -max_total_time=60
+[package]
+name = "latch-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.10"
+latch-protocol = { path = "../crates/protocol" }
+latch-policy = { path = "../crates/policy" }
+# Exact float parsing, so an untyped result's numbers survive a round trip
+# (the gateway reads them as the command's typed result afterwards).
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+
+[[bin]]
+name = "gateway_message"
+path = "fuzz_targets/gateway_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "device_message"
+path = "fuzz_targets/device_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "policy"
+path = "fuzz_targets/policy.rs"
+test = false
+doc = false
+bench = false

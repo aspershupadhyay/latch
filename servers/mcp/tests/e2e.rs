@@ -3414,3 +3414,71 @@ async fn an_adb_job_starts_runs_on_the_phone_and_is_collected_later() {
         "{refused}"
     );
 }
+
+/// R29 (e): a chaos run. The link loses answers (the connection drops),
+/// sends answers twice, delivers commands twice, and adds delays, from a
+/// fixed seed. Every call still gets its answer, and every action happens
+/// exactly once and in order (ADR-048), on both transports.
+#[tokio::test]
+async fn under_a_flaky_link_every_call_is_answered_and_every_action_happens_once() {
+    for (transport, seed) in [
+        (Transport::WebSocket, 0x5eed_0001),
+        (Transport::Poll, 0x5eed_0002),
+    ] {
+        let gw = start_gateway().await;
+        let mut fake = FakeState::new(&[Capability::ClipboardWrite]);
+        fake.chaos = Some(latch_fake_device::Chaos::new(seed));
+        let Phone {
+            state,
+            task,
+            token,
+            control: _first,
+        } = connect_phone_as(&gw, fake, transport, "Chaos phone").await;
+        // The phone reconnects whenever the link drops, as the app does.
+        let looper = {
+            let (state, addr) = (state.clone(), gw.addr);
+            tokio::spawn(async move {
+                let _ = task.await;
+                let mut controls = Vec::new();
+                loop {
+                    let (tx, rx) = mpsc::channel(4);
+                    controls.push(tx);
+                    let _ = match transport {
+                        Transport::WebSocket => {
+                            latch_fake_device::run(
+                                &format!("ws://{addr}/v1/device"),
+                                &token,
+                                state.clone(),
+                                rx,
+                            )
+                            .await
+                        }
+                        Transport::Poll => {
+                            latch_fake_device::run_poll(
+                                &format!("http://{addr}"),
+                                &token,
+                                state.clone(),
+                                rx,
+                            )
+                            .await
+                        }
+                    };
+                }
+            })
+        };
+        let wanted: Vec<String> = (0..40).map(|i| format!("chaos {i}")).collect();
+        for text in &wanted {
+            let (is_error, answer, _) = call(&gw, "set_clipboard", json!({ "text": text })).await;
+            assert!(!is_error, "{text}: {answer}");
+        }
+        looper.abort();
+        let s = state.lock().expect("lock");
+        assert_eq!(s.clipboard, wanted, "each action once, in order");
+        let chaos = s.chaos.as_ref().expect("chaos");
+        // The run really was flaky.
+        assert!(
+            chaos.lost > 0 && chaos.duplicated_answers > 0 && chaos.duplicated_commands > 0,
+            "{chaos:?}"
+        );
+    }
+}
