@@ -601,6 +601,10 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         onPhotosOn = { v -> app.settings.update { it.copy(photosOn = v) } },
         localTransfers = prefs.localTransfers,
         onLocalTransfers = { v -> app.settings.update { it.copy(localTransfers = v) } },
+        adbEndpoint = prefs.adbEndpoint,
+        adbWirelessAvailable = app.session.adbWirelessAvailable(),
+        onPairAdb = { code, host, port -> app.session.pairAdb(code, host, port) },
+        onUnpairAdb = app.session::unpairAdb,
         onAllowPhotos = {
             askPhotos.launch(
                 when {

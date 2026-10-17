@@ -17,17 +17,17 @@ import java.security.MessageDigest
  * exactly as RFC 8032 specifies.
  */
 internal object Ed25519 {
-    val P: BigInteger = BigInteger.TWO.pow(255).subtract(BigInteger.valueOf(19))
+    val P: BigInteger = BigInteger.valueOf(2).pow(255).subtract(BigInteger.valueOf(19))
 
     /** Group order of the base-point subgroup, ℓ = 2²⁵² + 27742317777372353535851937790883648493. */
-    val L: BigInteger = BigInteger.TWO.pow(252).add(BigInteger("27742317777372353535851937790883648493"))
+    val L: BigInteger = BigInteger.valueOf(2).pow(252).add(BigInteger("27742317777372353535851937790883648493"))
 
     /** d = −121665/121666 mod p. */
     private val D: BigInteger =
         BigInteger.valueOf(-121665).multiply(BigInteger.valueOf(121666).modInverse(P)).mod(P)
 
     /** √(−1) mod p = 2^((p−1)/4), for point decompression. */
-    private val SQRT_M1: BigInteger = BigInteger.TWO.modPow(P.subtract(BigInteger.ONE).shiftRight(2), P)
+    private val SQRT_M1: BigInteger = BigInteger.valueOf(2).modPow(P.subtract(BigInteger.ONE).shiftRight(2), P)
 
     /** The standard base point B. */
     val B: Point = Point(

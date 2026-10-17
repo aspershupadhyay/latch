@@ -24,24 +24,33 @@ internal object SocketAdbTransport {
     fun key(filesDir: File): AdbKey = AdbKey.loadOrCreate(File(filesDir, "adb/adbkey"))
 
     /**
-     * Opens a fresh plaintext connection to [endpoint] (`host:port`),
-     * authenticating with [key]. Throws when [endpoint] is absent or malformed;
-     * callers gate on a configured endpoint before reaching here.
+     * Opens a fresh connection to [endpoint], authenticating with [key]. A
+     * `tls://host:port` endpoint (Android wireless debugging) connects over TLS
+     * with the client certificate; a bare `host:port` uses the plaintext path
+     * (`adb tcpip`, and the CI emulator). Throws when [endpoint] is malformed.
      */
     fun connect(endpoint: String?, key: AdbKey): AdbConnection {
-        val (host, port) = parse(endpoint)
+        val target = parse(endpoint)
             ?: throw AdbProtocolException("no wireless-debugging endpoint is set for this device")
+        if (target.tls) {
+            val tls = AdbTls.socket(key, target.host, target.port)
+            return AdbConnection(tls.inputStream, tls.outputStream, key, closer = tls)
+        }
         val socket = Socket()
-        socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+        socket.connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS)
         return AdbConnection(socket.getInputStream(), socket.getOutputStream(), key, closer = socket)
     }
 
-    /** Parses `host:port`, defaulting a bare host to adbd's classic 5555; null when invalid. */
-    fun parse(endpoint: String?): Pair<String, Int>? {
-        val value = endpoint?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    data class Endpoint(val host: String, val port: Int, val tls: Boolean)
+
+    /** Parses `[tls://]host:port`, defaulting a bare host to adbd's classic 5555; null when invalid. */
+    fun parse(endpoint: String?): Endpoint? {
+        var value = endpoint?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val tls = value.startsWith("tls://")
+        if (tls) value = value.removePrefix("tls://")
         val host = value.substringBeforeLast(':', value)
         val port = if (':' in value) value.substringAfterLast(':').toIntOrNull() ?: return null else 5555
         if (host.isEmpty() || port !in 1..65535) return null
-        return host to port
+        return Endpoint(host, port, tls)
     }
 }

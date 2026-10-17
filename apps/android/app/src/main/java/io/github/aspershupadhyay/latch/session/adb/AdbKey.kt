@@ -113,4 +113,13 @@ class AdbKey private constructor(private val keyPair: KeyPair) {
 
     /** The Java public key, for a fake adbd in tests to verify our AUTH signature. */
     internal fun javaPublicKeyForTest() = publicKey
+
+    /** The RSA private key, for the wireless-debugging TLS client certificate. */
+    internal fun privateKey(): java.security.PrivateKey = keyPair.private
+
+    /**
+     * A stable self-signed certificate wrapping this key, presented as the TLS
+     * client certificate during ADB wireless pairing and connect (ADR-046).
+     */
+    internal val certificate: java.security.cert.X509Certificate by lazy { X509SelfSigned.create(keyPair) }
 }

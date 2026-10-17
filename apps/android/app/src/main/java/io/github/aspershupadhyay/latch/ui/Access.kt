@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,8 +41,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.aspershupadhyay.latch.session.PhoneControls
@@ -177,6 +181,11 @@ fun CapabilitiesScreen(
     onPhotosOn: (Boolean) -> Unit = {},
     localTransfers: Boolean = false,
     onLocalTransfers: (Boolean) -> Unit = {},
+    /** R27 (ADR-046): full-access ADB pairing. */
+    adbEndpoint: String? = null,
+    adbWirelessAvailable: Boolean = false,
+    onPairAdb: suspend (code: String, host: String?, port: Int?) -> String = { _, _, _ -> "" },
+    onUnpairAdb: () -> Unit = {},
     /** The open group page, hoisted so it survives a trip to the Apps list. */
     openGroup: AccessGroup? = null,
     onOpenGroup: ((AccessGroup?) -> Unit)? = null,
@@ -219,7 +228,10 @@ fun CapabilitiesScreen(
                         BrightnessPermission(Capability.CONTROL_BRIGHTNESS in enabled)
                         DoNotDisturbPermission(Capability.CONTROL_SOUND in enabled)
                     }
-                    AccessGroup.ADB -> CapabilityList(current, enabled, onToggle)
+                    AccessGroup.ADB -> {
+                        CapabilityList(current, enabled, onToggle)
+                        AdbPairing(adbEndpoint, adbWirelessAvailable, onPairAdb, onUnpairAdb)
+                    }
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
                 }
             }
@@ -577,6 +589,71 @@ private fun FastTransfers(on: Boolean, onChange: (Boolean) -> Unit) {
                 )
             },
         )
+    }
+}
+
+@Composable
+private fun AdbPairing(
+    endpoint: String?,
+    available: Boolean,
+    onPair: suspend (code: String, host: String?, port: Int?) -> String,
+    onUnpair: () -> Unit,
+) {
+    val signal = LocalSignal.current
+    SectionCaption("Wireless debugging")
+    if (!available) {
+        Card { ListRow(LatchIcons.Key, "Not available on this device", "Full ADB needs this build's wireless-debugging support.", tint = signal.text2) }
+        return
+    }
+    if (endpoint != null) {
+        Card {
+            ListRow(
+                LatchIcons.ShieldCheck, "Paired over Wi-Fi",
+                "This phone is paired for full ADB access. Turn it off to revoke.",
+                tint = signal.accent,
+                trailing = { TextButton(onClick = onUnpair) { Text("Turn off") } },
+            )
+        }
+        return
+    }
+    var code by rememberSaveable { mutableStateOf("") }
+    var hostPort by rememberSaveable { mutableStateOf("") }
+    var status by rememberSaveable { mutableStateOf<String?>(null) }
+    var busy by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "On this phone open Settings → Developer options → Wireless debugging → Pair device with a code. " +
+                    "Type the 6-digit code here. Leave the address blank to find the phone automatically, or enter the " +
+                    "pairing address it shows (host:port).",
+                style = MaterialTheme.typography.bodySmall,
+                color = signal.text2,
+            )
+            OutlinedTextField(
+                value = code, onValueChange = { code = it.filter(Char::isDigit).take(6) },
+                label = { Text("Pairing code") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = hostPort, onValueChange = { hostPort = it }, label = { Text("Pairing address (optional)") },
+                placeholder = { Text("192.168.1.20:37123") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = signal.text2) }
+            Button(
+                enabled = !busy && code.length == 6,
+                onClick = {
+                    busy = true
+                    status = "Pairing…"
+                    val host = hostPort.substringBeforeLast(':', "").ifBlank { null }
+                    val port = if (':' in hostPort) hostPort.substringAfterLast(':').toIntOrNull() else null
+                    scope.launch {
+                        status = onPair(code, host, port)
+                        busy = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Pair full ADB access" },
+            ) { Text(if (busy) "Pairing…" else "Pair") }
+        }
     }
 }
 
