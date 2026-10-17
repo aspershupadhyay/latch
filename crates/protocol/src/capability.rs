@@ -64,10 +64,19 @@ pub enum Capability {
     /// notifications, storage, and date and time settings.
     #[serde(rename = "control.panels")]
     ControlPanels,
+    /// Since 1.17 (ADR-046, R27): full-access ADB mode. When the owner
+    /// enables it and authorizes Android wireless debugging, the authenticated
+    /// client may run arbitrary ADB shell commands on the selected device with
+    /// the same command surface and results as direct ADB. Off by default;
+    /// unlike the other capabilities it is not UI/file-scoped, so the ordinary
+    /// per-command approval, allowlist, and output-redaction rules do not apply
+    /// to it (see ADR-046). Android's own ADB permissions still bound it.
+    #[serde(rename = "adb.shell")]
+    AdbShell,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 16] = [
+    pub const ALL: [Capability; 17] = [
         Capability::DeviceInfo,
         Capability::UiObserve,
         Capability::ScreenCapture,
@@ -84,6 +93,7 @@ impl Capability {
         Capability::ControlBrightness,
         Capability::ControlFlashlight,
         Capability::ControlPanels,
+        Capability::AdbShell,
     ];
 
     /// Stable wire identifier, e.g. `input.gesture`.
@@ -105,6 +115,7 @@ impl Capability {
             Capability::ControlBrightness => "control.brightness",
             Capability::ControlFlashlight => "control.flashlight",
             Capability::ControlPanels => "control.panels",
+            Capability::AdbShell => "adb.shell",
         }
     }
 
@@ -129,6 +140,9 @@ impl Capability {
             Capability::ControlBrightness => "set the screen brightness, rotation, and timeout",
             Capability::ControlFlashlight => "turn the flashlight on or off",
             Capability::ControlPanels => "open settings panels and pages",
+            Capability::AdbShell => {
+                "run arbitrary ADB shell commands (owner-enabled full-access mode)"
+            }
         }
     }
 }

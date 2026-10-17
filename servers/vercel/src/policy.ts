@@ -55,6 +55,18 @@ export function evaluate(command: Command, ctx: DeviceContext): Decision {
     return { kind: "deny", error: e as ProtocolError };
   }
   if (ctx.session.paused) return deny("device_unavailable", "the owner paused this session");
+  // ADR-046 (R27): full-access ADB is gated only on the owner enabling the
+  // mode and on owner Stop/pause (above). The ordinary session timer,
+  // approve-every-action, app allowlist, observation freshness, and
+  // consequential-action approval are deliberately not applied here.
+  if (command.name === "adb.shell") {
+    const status = ctx.capabilities.find((c) => c.capability === "adb.shell")?.status;
+    if (status === "enabled") return { kind: "allow", risk: "high" };
+    if (status === "unsupported" || status === undefined) {
+      return deny("unsupported_capability", "this device does not support full-access ADB ('adb.shell')");
+    }
+    return deny("permission_missing", "full-access ADB mode is off; the owner must enable 'adb.shell' and authorize Android wireless debugging in the Latch app");
+  }
   if (ctx.session.expires_at_ms <= ctx.nowMs) return deny("device_unavailable", "the session on the phone has ended");
 
   for (const capability of requiredCapabilities(command)) {
@@ -235,6 +247,8 @@ function assess(command: Command, observation: Observation | undefined): Assessm
     case "activity.list": return low("Read Latch's activity log");
     case "task.done": return low("Say the task is done");
     case "device.control": return medium(describeControl(command.params.control));
+    // Handled by its own branch in evaluate() before assess() runs.
+    case "adb.shell": return { risk: "high", title: "Run an ADB shell command", detail: AGENT_DETAIL };
     case "clipboard.set": return medium(`Copy ${[...command.params.text].length} characters to the clipboard`);
     case "file.mkdir": return medium(`Create the folder “${shorten(command.params.name)}”`);
     case "file.rename": return medium(`Rename a file to “${shorten(command.params.name)}”`);

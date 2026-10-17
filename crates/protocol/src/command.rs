@@ -682,6 +682,27 @@ pub enum Command {
     /// [`crate::ActionResult`]; a panel also brings the screen back.
     #[serde(rename = "device.control")]
     DeviceControl { control: PhoneControl },
+
+    /// Since 1.17 (ADR-046, R27): run one ADB shell command line on the
+    /// selected device in the owner-enabled full-access ADB mode. The line is
+    /// passed to the device's ADB executor unchanged — Latch applies no
+    /// allowlist, per-command approval, or output filter in this mode. `stdin`
+    /// is optional data piped to the command. `timeout_ms` is a deadline the
+    /// *caller* may request; Latch imposes none of its own (0 means none).
+    /// When output does not fit one frame the device returns a chunk with a
+    /// `cursor`; send `adb.shell` again with that `continue_from` (and no
+    /// `command_line`) for the next chunk. Answers with an [`crate::AdbResult`].
+    #[serde(rename = "adb.shell")]
+    AdbShell {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command_line: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stdin: Option<String>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        timeout_ms: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        continue_from: Option<String>,
+    },
 }
 
 fn default_activity_limit() -> u32 {
@@ -741,6 +762,7 @@ impl Command {
             Command::ListActivity { .. } => "activity.list",
             Command::TaskDone { .. } => "task.done",
             Command::DeviceControl { .. } => "device.control",
+            Command::AdbShell { .. } => "adb.shell",
         }
     }
 
@@ -792,6 +814,7 @@ impl Command {
             // Only hides Latch's own cursor and writes a log line.
             Command::TaskDone { .. } => vec![],
             Command::DeviceControl { control } => vec![control.capability()],
+            Command::AdbShell { .. } => vec![Capability::AdbShell],
         }
     }
 
@@ -812,6 +835,11 @@ impl Command {
                 | Command::OpenLocal { .. }
                 | Command::ListActivity { .. }
                 | Command::TaskDone { .. }
+                // ADR-046: full-access ADB is its own channel, outside the
+                // UI-action machinery (no observation, no screen, and — by the
+                // owner's decision — no strict-mode or consequential approval).
+                // Policy gates it directly on the capability and owner Stop.
+                | Command::AdbShell { .. }
         )
     }
 
@@ -887,6 +915,7 @@ impl Command {
             Command::OpenLocal { .. } => 14,
             Command::Global { action } => action.min_minor_version(),
             Command::LaunchApp { fresh: true, .. } | Command::OpenLink { .. } => 15,
+            Command::AdbShell { .. } => 17,
             _ => 0,
         }
     }

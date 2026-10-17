@@ -319,6 +319,28 @@ pub enum ActionEffect {
     NewApp,
 }
 
+/// Result of `adb.shell` (since 1.17, ADR-046).
+///
+/// The device returns ADB's own output verbatim. In the owner-enabled
+/// full-access mode Latch does not filter or redact it; the whole result goes
+/// only to the authenticated client and is kept out of persistent logs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdbResult {
+    /// Standard output of this chunk (empty string if none).
+    pub stdout: String,
+    /// Standard error of this chunk (empty string if none).
+    pub stderr: String,
+    /// The process exit status, once the command has finished. Absent while
+    /// more output remains — `cursor` is then set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// Present when the output was chunked to fit a frame: send `adb.shell`
+    /// again with this value as `continue_from` for the next chunk. Absent
+    /// when the command is complete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
 /// The owner's answer to `owner.ask` (since 1.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

@@ -158,7 +158,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
   }));
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "open_link", "device_status", "ask_owner", "get_activity", "finish_task", "phone_control",
+  assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "press", "list_apps", "launch_app", "open_link", "device_status", "ask_owner", "get_activity", "finish_task", "phone_control", "adb",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
     "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
     "answer_approval"]);
@@ -213,6 +213,22 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.match(text(waited), /^"Bluetooth" did not appear within 100 ms\. The screen:/);
   screen = await client.callTool({ name: "wait_for", arguments: { text: "battery" } });
   assert.match(text(screen), /^"battery" is on screen\./);
+
+  // Full-access ADB (R27, ADR-046): arbitrary command, exit code, stderr,
+  // stdin, and multi-frame output rejoined into one result — no per-command
+  // approval or filter. The fake phone enables adb.shell (Capability::ALL).
+  const model = text(await client.callTool({ name: "adb", arguments: { command: "getprop ro.product.model" } }));
+  assert.match(model, /exit code 0/);
+  assert.match(model, /Pixel 8/);
+  const missing = text(await client.callTool({ name: "adb", arguments: { command: "nope --x" } }));
+  assert.match(missing, /exit code 127/);
+  assert.match(missing, /not found/);
+  const piped = text(await client.callTool({ name: "adb", arguments: { command: "cat", stdin: "ping\n" } }));
+  assert.match(piped, /ping/);
+  const seqOut = text(await client.callTool({ name: "adb", arguments: { command: "seq 500" } }));
+  assert.match(seqOut, /\n1\n/);
+  assert.match(seqOut, /\n500\n/);
+  assert.match(seqOut, /exit code 0/);
 
   screen = await client.callTool({ name: "launch_app", arguments: { package: "org.latch.demo.chat" } });
   screen = await client.callTool({ name: "type_text", arguments: { observation_id: obsId(text(screen)), element_id: "n1", text: "hello from vercel" } });

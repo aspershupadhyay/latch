@@ -35,10 +35,10 @@ pub use files::{
     LocalDirection, LocalSlot, TransferState,
 };
 pub use message::{
-    ActionEffect, ActionResult, AppEntry, AppList, ApprovalChoice, ApprovalKind, ApprovalRequest,
-    CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway, GatewayToDevice,
-    Hello, NetworkKind, ObserveAfter, Orientation, Outcome, OwnerReply, SIGNING_CONTEXT,
-    SessionInfo, WaitResult, signing_input,
+    ActionEffect, ActionResult, AdbResult, AppEntry, AppList, ApprovalChoice, ApprovalKind,
+    ApprovalRequest, CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway,
+    GatewayToDevice, Hello, NetworkKind, ObserveAfter, Orientation, Outcome, OwnerReply,
+    SIGNING_CONTEXT, SessionInfo, WaitResult, signing_input,
 };
 pub use observation::{ListPosition, Observation, Rect, ScreenInfo, Screenshot, UiNode};
 
@@ -46,7 +46,7 @@ pub use observation::{ListPosition, Observation, Rect, ScreenInfo, Screenshot, U
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.16";
+pub const PROTOCOL_VERSION: &str = "1.17";
 
 /// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
 pub fn minor_version(version: &str) -> Option<u32> {

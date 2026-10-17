@@ -69,6 +69,30 @@ class ProtocolFixturesTest {
         assertEquals(null, observation.nodes.last().text)
     }
 
+    /** Protocol 1.17 (ADR-046, R27): the full-access ADB command and its result. */
+    @Test
+    fun parsesAdbShellCommandsAndResults() {
+        val all = fixtures("valid").toMap()
+        val run = (GatewayParser.parse(all.getValue("g2d-command-adb-shell.json")) as GatewayMessage.CommandMessage).envelope.command
+        assertEquals(Command.AdbShell("getprop ro.product.model", null, 0, null), run)
+        assertEquals(false, run.isAction)
+        assertEquals(listOf(Capability.ADB_SHELL), run.requiredCapabilities)
+        val stdin = (GatewayParser.parse(all.getValue("g2d-command-adb-shell-stdin.json")) as GatewayMessage.CommandMessage).envelope.command
+        assertEquals(Command.AdbShell("cat", "hello from the agent\n", 5000, null), stdin)
+        val next = (GatewayParser.parse(all.getValue("g2d-command-adb-shell-continue.json")) as GatewayMessage.CommandMessage).envelope.command
+        assertEquals(Command.AdbShell(null, null, 0, "chunk_7a1"), next)
+
+        val data = (Protocol.json.parseToJsonElement(all.getValue("d2g-result-adb-shell.json")) as kotlinx.serialization.json.JsonObject)["outcome"]!!
+            .let { (it as kotlinx.serialization.json.JsonObject)["data"]!! }
+        val result = Protocol.json.decodeFromJsonElement(AdbResult.serializer(), data)
+        assertEquals(AdbResult("Pixel 8\n", "", 0, null), result)
+        val chunkData = (Protocol.json.parseToJsonElement(all.getValue("d2g-result-adb-shell-chunk.json")) as kotlinx.serialization.json.JsonObject)["outcome"]!!
+            .let { (it as kotlinx.serialization.json.JsonObject)["data"]!! }
+        val chunk = Protocol.json.decodeFromJsonElement(AdbResult.serializer(), chunkData)
+        assertEquals("chunk_7a2", chunk.cursor)
+        assertEquals(null, chunk.exitCode)
+    }
+
     @Test
     fun parsesConfirmationRequests() {
         val all = fixtures("valid").toMap()

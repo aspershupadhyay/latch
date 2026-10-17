@@ -53,6 +53,12 @@ pub const MAX_CLIPBOARD_CHARS: usize = 10_000;
 pub const MAX_ACTIVITY_ENTRIES: u32 = 500;
 /// Since 1.8: longest `task.done` summary.
 pub const MAX_TASK_SUMMARY_CHARS: usize = 500;
+/// Since 1.17 (ADR-046): longest `adb.shell` command line. Generous, so it is
+/// a transport-frame bound and not a command restriction; a longer script can
+/// be piped through `stdin`.
+pub const MAX_ADB_COMMAND_CHARS: usize = 128 * 1024;
+/// Since 1.17: most bytes of `adb.shell` stdin in one frame (UTF-8 text).
+pub const MAX_ADB_STDIN_BYTES: usize = 512 * 1024;
 
 /// A file or folder name: no path separators, control characters, or
 /// leading dot (hidden files), and not "." or "..".
@@ -466,6 +472,50 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             )))
         }
         Command::DeviceControl { .. } => Ok(()),
+        Command::AdbShell {
+            command_line,
+            stdin,
+            continue_from,
+            ..
+        } => {
+            // Exactly one of: a new command line, or a continuation cursor.
+            match (command_line.as_deref(), continue_from.as_deref()) {
+                (Some(line), None) => {
+                    if line.is_empty() {
+                        return Err(invalid("command_line must not be empty"));
+                    }
+                    if line.chars().count() > MAX_ADB_COMMAND_CHARS {
+                        return Err(invalid(format!(
+                            "command_line must be at most {MAX_ADB_COMMAND_CHARS} characters"
+                        )));
+                    }
+                }
+                (None, Some(cursor)) => {
+                    if !is_valid_id(cursor) {
+                        return Err(invalid(
+                            "continue_from must be a cursor from a prior result",
+                        ));
+                    }
+                }
+                (Some(_), Some(_)) => {
+                    return Err(invalid(
+                        "give either command_line or continue_from, not both",
+                    ));
+                }
+                (None, None) => {
+                    return Err(invalid("command_line is required"));
+                }
+            }
+            if stdin
+                .as_ref()
+                .is_some_and(|s| s.len() > MAX_ADB_STDIN_BYTES)
+            {
+                return Err(invalid(format!(
+                    "stdin must be at most {MAX_ADB_STDIN_BYTES} bytes"
+                )));
+            }
+            Ok(())
+        }
         Command::DeviceInfo {} | Command::ListApps {} | Command::Global { .. } => Ok(()),
         Command::OpenLink { url, package } => {
             if !is_valid_package(package) {

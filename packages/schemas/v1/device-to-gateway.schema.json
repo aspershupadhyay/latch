@@ -281,6 +281,11 @@
           "description": "Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel; since\n1.15 also NFC and the airplane mode, location, display, battery, sound,\nnotifications, storage, and date and time settings.",
           "type": "string",
           "const": "control.panels"
+        },
+        {
+          "description": "Since 1.17 (ADR-046, R27): full-access ADB mode. When the owner\nenables it and authorizes Android wireless debugging, the authenticated\nclient may run arbitrary ADB shell commands on the selected device with\nthe same command surface and results as direct ADB. Off by default;\nunlike the other capabilities it is not UI/file-scoped, so the ordinary\nper-command approval, allowlist, and output-redaction rules do not apply\nto it (see ADR-046). Android's own ADB permissions still bound it.",
+          "type": "string",
+          "const": "adb.shell"
         }
       ]
     },

@@ -13,11 +13,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
-    ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AppList,
-    Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope, DeviceDescriptor,
-    DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello,
-    NetworkKind, Observation, Orientation, Outcome, OwnerReply, PROTOCOL_VERSION, PhoneControl,
-    ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target, WaitResult, validate,
+    ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList,
+    AdbResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
+    DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode, GatewayToDevice,
+    GlobalAction, Hello, NetworkKind, Observation, Orientation, Outcome, OwnerReply,
+    PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target,
+    WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -97,8 +98,24 @@ pub struct FakeState {
     pub local_slots: Vec<transfers::LocalSlot>,
     pub device_id: Option<String>,
     pub revoked: bool,
+    /// Since 1.17 (ADR-046): every `adb.shell` command line this session ran,
+    /// in order. Output is never stored — ADR-046 keeps ADB results out of logs.
+    pub adb_commands: Vec<String>,
+    /// Pending chunked `adb.shell` output, keyed by the cursor given to the client.
+    adb_chunks: std::collections::HashMap<String, AdbPending>,
+    adb_cursor_seq: u64,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
     observation_counter: u64,
+}
+
+/// Output of an `adb.shell` command that did not fit one frame and is being
+/// handed back a chunk at a time (protocol 1.17).
+#[derive(Debug, Clone)]
+struct AdbPending {
+    /// The remaining stdout bytes, still to be delivered.
+    stdout: Vec<u8>,
+    /// The exit status, sent with the final chunk.
+    exit_code: i32,
 }
 
 impl FakeState {
@@ -145,9 +162,17 @@ impl FakeState {
             local_slots: Vec::new(),
             device_id: None,
             revoked: false,
+            adb_commands: Vec::new(),
+            adb_chunks: std::collections::HashMap::new(),
+            adb_cursor_seq: 0,
             latest: None,
             observation_counter: 0,
         }
+    }
+
+    fn new_adb_cursor(&mut self) -> String {
+        self.adb_cursor_seq += 1;
+        format!("adbc_{}", self.adb_cursor_seq)
     }
 
     fn enabled(&self, capability: Capability) -> bool {
@@ -183,6 +208,151 @@ fn err(code: ErrorCode, message: &str) -> ProtocolError {
     ProtocolError::new(code, message)
 }
 
+/// Most stdout bytes the fake phone returns in one `adb.shell` frame; larger
+/// output is chunked and resumed with a cursor (protocol 1.17).
+const FAKE_ADB_CHUNK_BYTES: usize = 1024;
+
+/// A tiny deterministic stand-in for a device shell, enough to exercise the
+/// full-access ADB bridge end to end without a real phone: arbitrary command
+/// pass-through, stdin, exit codes, and multi-frame output. It is NOT a real
+/// shell — the Android executor runs the command against the device's own ADB.
+/// Returns (stdout, stderr, exit_code).
+fn run_fake_shell(line: &str, stdin: Option<&str>) -> (Vec<u8>, String, i32) {
+    let trimmed = line.trim();
+    let mut parts = trimmed.split_whitespace();
+    let cmd = parts.next().unwrap_or("");
+    let rest: Vec<&str> = parts.collect();
+    match cmd {
+        "" => (Vec::new(), String::new(), 0),
+        "true" => (Vec::new(), String::new(), 0),
+        "false" => (Vec::new(), String::new(), 1),
+        "echo" => (
+            format!("{}\n", rest.join(" ")).into_bytes(),
+            String::new(),
+            0,
+        ),
+        "cat" => (
+            stdin.unwrap_or_default().as_bytes().to_vec(),
+            String::new(),
+            0,
+        ),
+        "id" => (
+            b"uid=2000(shell) gid=2000(shell) groups=2000(shell)\n".to_vec(),
+            String::new(),
+            0,
+        ),
+        "getprop" => {
+            let value = match rest.first().copied() {
+                Some("ro.product.model") => "Pixel 8\n",
+                Some("ro.build.version.release") => "14\n",
+                _ => "\n",
+            };
+            (value.as_bytes().to_vec(), String::new(), 0)
+        }
+        "pm" if rest.first() == Some(&"list") && rest.get(1) == Some(&"packages") => (
+            b"package:com.android.settings\npackage:com.android.chrome\n".to_vec(),
+            String::new(),
+            0,
+        ),
+        "seq" => match parse_seq(&rest) {
+            Some((a, b)) => {
+                let mut out = String::new();
+                for n in a..=b {
+                    out.push_str(&n.to_string());
+                    out.push('\n');
+                }
+                (out.into_bytes(), String::new(), 0)
+            }
+            None => (Vec::new(), "usage: seq [first] last\n".to_owned(), 1),
+        },
+        other => (
+            Vec::new(),
+            format!("/system/bin/sh: {other}: inaccessible or not found\n"),
+            127,
+        ),
+    }
+}
+
+/// `seq N` or `seq A B`, bounded so the fixture shell cannot be made to run away.
+fn parse_seq(args: &[&str]) -> Option<(i64, i64)> {
+    let (a, b) = match args {
+        [n] => (1, n.parse().ok()?),
+        [a, b] => (a.parse().ok()?, b.parse().ok()?),
+        _ => return None,
+    };
+    if a > b || (b - a) > 100_000 {
+        return None;
+    }
+    Some((a, b))
+}
+
+/// First frame of a command's result: returns one chunk, and if stdout is
+/// larger than a frame, stores the remainder under a cursor for continuation.
+fn first_adb_chunk(
+    state: &mut FakeState,
+    stdout: Vec<u8>,
+    stderr: String,
+    exit_code: i32,
+) -> AdbResult {
+    if stdout.len() <= FAKE_ADB_CHUNK_BYTES {
+        return AdbResult {
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr,
+            exit_code: Some(exit_code),
+            cursor: None,
+        };
+    }
+    let head = stdout[..FAKE_ADB_CHUNK_BYTES].to_vec();
+    let tail = stdout[FAKE_ADB_CHUNK_BYTES..].to_vec();
+    let cursor = state.new_adb_cursor();
+    state.adb_chunks.insert(
+        cursor.clone(),
+        AdbPending {
+            stdout: tail,
+            exit_code,
+        },
+    );
+    AdbResult {
+        stdout: String::from_utf8_lossy(&head).into_owned(),
+        stderr,
+        exit_code: None,
+        cursor: Some(cursor),
+    }
+}
+
+/// A later frame for a `continue_from` cursor.
+fn next_adb_chunk(state: &mut FakeState, cursor: &str) -> Result<AdbResult, ProtocolError> {
+    let mut pending = state
+        .adb_chunks
+        .remove(cursor)
+        .ok_or_else(|| err(ErrorCode::InvalidRequest, "no such adb.shell continuation"))?;
+    if pending.stdout.len() <= FAKE_ADB_CHUNK_BYTES {
+        return Ok(AdbResult {
+            stdout: String::from_utf8_lossy(&pending.stdout).into_owned(),
+            stderr: String::new(),
+            exit_code: Some(pending.exit_code),
+            cursor: None,
+        });
+    }
+    let rest = pending.stdout.split_off(FAKE_ADB_CHUNK_BYTES);
+    let head = pending.stdout;
+    let exit_code = pending.exit_code;
+    let next = state.new_adb_cursor();
+    state.adb_chunks.insert(
+        next.clone(),
+        AdbPending {
+            stdout: rest,
+            exit_code,
+        },
+    );
+    Ok(AdbResult {
+        stdout: String::from_utf8_lossy(&head).into_owned(),
+        stderr: String::new(),
+        exit_code: None,
+        cursor: Some(next),
+    })
+}
+
 /// Device-side execution of one command. Mirrors what the Android app does.
 pub fn handle(
     state: &mut FakeState,
@@ -192,7 +362,11 @@ pub fn handle(
     if state.session.paused {
         return Err(err(ErrorCode::DeviceUnavailable, "session paused"));
     }
-    if state.session.expires_at_ms <= now_ms() {
+    // ADR-046: full-access ADB keeps working past the ordinary session timer;
+    // only owner Stop/pause (above) and revoke stop it.
+    if !matches!(envelope.command, Command::AdbShell { .. })
+        && state.session.expires_at_ms <= now_ms()
+    {
         return Err(err(ErrorCode::DeviceUnavailable, "session ended"));
     }
     for capability in envelope.command.required_capabilities() {
@@ -636,6 +810,23 @@ pub fn handle(
             state.executed.push("clipboard.set".into());
             serde_json::to_value(ActionResult::default())
                 .map_err(|_| err(ErrorCode::Internal, "encode"))
+        }
+        Command::AdbShell {
+            command_line,
+            stdin,
+            continue_from,
+            ..
+        } => {
+            state.executed.push("adb.shell".into());
+            let result = if let Some(cursor) = continue_from {
+                next_adb_chunk(state, cursor)?
+            } else {
+                let line = command_line.as_deref().unwrap_or_default();
+                state.adb_commands.push(line.to_owned());
+                let (stdout, stderr, exit_code) = run_fake_shell(line, stdin.as_deref());
+                first_adb_chunk(state, stdout, stderr, exit_code)
+            };
+            serde_json::to_value(result).map_err(|_| err(ErrorCode::Internal, "encode"))
         }
         Command::AskOwner { message } => {
             state.owner_questions.push(message.clone());

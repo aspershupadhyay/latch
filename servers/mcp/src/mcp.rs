@@ -549,6 +549,31 @@ pub fn tool_definitions() -> Vec<Value> {
             }),
             &["control"],
         ),
+        {
+            let mut adb = tool(
+                "adb",
+                "Run an ADB shell command",
+                "Full-access ADB mode (off by default; the owner enables it and authorizes \
+                 Android wireless debugging). Runs one shell command line on the selected phone \
+                 with the same command surface and results as direct ADB — Latch adds no \
+                 allowlist, per-command approval, or output filter in this mode, and Android's \
+                 own ADB permissions still bound it. `stdin` is optional data piped to the \
+                 command. Large output arrives over several frames; the gateway joins them and, \
+                 if the output is very large, returns a `continue_from` cursor for the rest. \
+                 This is the selected phone, not the gateway host. Needs Latch 1.17 on the phone.",
+                false,
+                json!({
+                    "device_id": device_id_schema(),
+                    "command": { "type": "string", "maxLength": latch_protocol::validate::MAX_ADB_COMMAND_CHARS, "description": "The shell command line to run, e.g. \"pm list packages\"." },
+                    "stdin": { "type": "string", "description": "Optional data piped to the command's standard input." },
+                    "timeout_ms": { "type": "integer", "minimum": 0, "description": "Optional deadline you request for the command; 0 or omitted means none." },
+                    "continue_from": { "type": "string", "maxLength": 64, "description": "A cursor from a previous result, to fetch the next chunk of its output. Give this instead of command." },
+                }),
+                &[],
+            );
+            adb["annotations"]["destructiveHint"] = json!(true);
+            adb
+        },
     ]
     .into_iter()
     .chain(files::definitions())
@@ -594,6 +619,96 @@ const ACTIVITY_KINDS: [&str; 10] = [
 ];
 
 /// `get_activity`: the phone's own log, one line per entry, marked as phone text.
+/// Most aggregated `adb.shell` stdout the gateway returns in one MCP result
+/// before handing back a `continue_from` cursor for the rest (ADR-046: the
+/// full result is preserved through continuation, never silently truncated).
+const ADB_RESULT_BUDGET: usize = 256 * 1024;
+
+/// `adb`: run one shell command on the phone in the owner-enabled full-access
+/// ADB mode, joining the device's output frames into one result.
+async fn adb_shell(
+    state: &Arc<AppState>,
+    args: &Value,
+    device_id: &str,
+) -> Result<Value, ProtocolError> {
+    let bad = |e: ArgError| ProtocolError::new(ErrorCode::InvalidRequest, e.0);
+    let command = arg_str(args, "command").map_err(bad)?.map(str::to_owned);
+    let stdin = arg_str(args, "stdin").map_err(bad)?.map(str::to_owned);
+    let continue_from = arg_str(args, "continue_from")
+        .map_err(bad)?
+        .map(str::to_owned);
+    let timeout_ms = u32::try_from(arg_int(args, "timeout_ms").map_err(bad)?.unwrap_or(0))
+        .map_err(|_| ProtocolError::new(ErrorCode::InvalidRequest, "timeout_ms is out of range"))?;
+    if command.is_some() == continue_from.is_some() {
+        return Err(ProtocolError::new(
+            ErrorCode::InvalidRequest,
+            "give either command or continue_from, not both (and not neither)",
+        ));
+    }
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut next = continue_from;
+    let mut first = true;
+    // The command may answer over several frames; join them, stopping at the
+    // result's end or once the budget is reached. `exit_code` is set only by
+    // the final frame; `cursor` is set only when more output is left.
+    let (exit_code, cursor): (Option<i32>, Option<String>) = loop {
+        let cmd = Command::AdbShell {
+            command_line: if first { command.clone() } else { None },
+            stdin: if first { stdin.clone() } else { None },
+            timeout_ms: if first { timeout_ms } else { 0 },
+            continue_from: next.clone(),
+        };
+        first = false;
+        let result = match devices::execute(state, device_id, cmd).await? {
+            Output::Adb(result) => result,
+            _ => {
+                return Err(ProtocolError::new(
+                    ErrorCode::Internal,
+                    "the phone answered adb.shell with something else",
+                ));
+            }
+        };
+        stdout.push_str(&result.stdout);
+        stderr.push_str(&result.stderr);
+        match result.cursor {
+            None => break (result.exit_code, None),
+            Some(c) if stdout.len() >= ADB_RESULT_BUDGET => break (None, Some(c)),
+            Some(c) => next = Some(c),
+        }
+    };
+
+    let mut body = String::new();
+    match exit_code {
+        Some(code) => body.push_str(&format!("exit code {code}\n")),
+        None => body.push_str("(more output remains)\n"),
+    }
+    if !stdout.is_empty() {
+        body.push_str(&format!("\n--- stdout ---\n{stdout}"));
+        if !stdout.ends_with('\n') {
+            body.push('\n');
+        }
+    }
+    if !stderr.is_empty() {
+        body.push_str(&format!("\n--- stderr ---\n{stderr}"));
+        if !stderr.ends_with('\n') {
+            body.push('\n');
+        }
+    }
+    if stdout.is_empty() && stderr.is_empty() && exit_code.is_some() {
+        body.push_str("\n(no output)\n");
+    }
+    if exit_code.is_none()
+        && let Some(c) = &cursor
+    {
+        body.push_str(&format!(
+            "\nOutput reached {ADB_RESULT_BUDGET} bytes. Call adb again with continue_from=\"{c}\" for the rest."
+        ));
+    }
+    Ok(text_result(body))
+}
+
 async fn activity(
     state: &Arc<AppState>,
     args: &Value,
@@ -972,6 +1087,9 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             devices::execute(state, &device_id, Command::DeviceControl { control }).await?;
             return Ok(text_result(format!("Done: {}.", control.describe())));
         }
+    }
+    if name == "adb" {
+        return adb_shell(state, args, &device_id).await;
     }
     if name == "get_activity" {
         return activity(state, args, &device_id).await;

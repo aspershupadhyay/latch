@@ -93,6 +93,14 @@ enum class Capability(val wire: String) {
     CONTROL_FLASHLIGHT("control.flashlight"),
     /** Since 1.11: open the Wi-Fi, internet, Bluetooth, or volume panel. */
     CONTROL_PANELS("control.panels"),
+
+    /**
+     * Since 1.17 (ADR-046, R27): full-access ADB mode. When the owner enables
+     * it and authorizes Android wireless debugging, the authenticated client
+     * runs arbitrary ADB shell commands with the same surface as direct ADB.
+     * Off by default; outside the ordinary UI/file scope and approval rules.
+     */
+    ADB_SHELL("adb.shell"),
     ;
 
     companion object {
@@ -243,6 +251,19 @@ data class ActionResult(
     val owner: String? = null,
     /** Since 1.9, with observe_after: none, changed, or new_app, judged after the screen settled. */
     val effect: String? = null,
+)
+
+/**
+ * Result of `adb.shell` (since 1.17, ADR-046). ADB's own output, verbatim and
+ * unfiltered, returned only to the authenticated client and never logged.
+ * While [cursor] is set more output remains; [exitCode] comes with the last chunk.
+ */
+@Serializable
+data class AdbResult(
+    val stdout: String,
+    val stderr: String,
+    @SerialName("exit_code") val exitCode: Int? = null,
+    val cursor: String? = null,
 )
 
 // ---- Files (since 1.6, ADR-026) ----
@@ -694,6 +715,24 @@ sealed interface Command {
         override val name = "device.control"
         override val requiredCapabilities = listOf(control.capability)
     }
+
+    /**
+     * Since 1.17 (ADR-046, R27): run one ADB shell command line on this device
+     * in the owner-enabled full-access mode. Either [commandLine] (a new
+     * command) or [continueFrom] (the cursor of a chunked result) is set, never
+     * both. Not a UI action: it has no observation and bypasses the ordinary
+     * approval rules (gated only on the owner enabling the mode and Stop).
+     */
+    data class AdbShell(
+        val commandLine: String?,
+        val stdin: String?,
+        val timeoutMs: Int,
+        val continueFrom: String?,
+    ) : Command {
+        override val name = "adb.shell"
+        override val requiredCapabilities = listOf(Capability.ADB_SHELL)
+        override val isAction = false
+    }
 }
 
 /** Since 1.11: a phone control; the same shapes as crates/protocol's `PhoneControl`. */
@@ -1035,6 +1074,20 @@ object GatewayParser {
             )
             "task.done" -> Command.TaskDone(params.optStr("summary"))
             "device.control" -> Command.DeviceControl(control(params.obj("control")))
+            "adb.shell" -> {
+                val commandLine = params.optStr("command_line")
+                val continueFrom = params.optStr("continue_from")
+                if ((commandLine != null) == (continueFrom != null)) {
+                    invalid("give either command_line or continue_from, not both")
+                }
+                if (commandLine != null && commandLine.isEmpty()) invalid("command_line must not be empty")
+                Command.AdbShell(
+                    commandLine,
+                    params.optStr("stdin"),
+                    if (params["timeout_ms"] == null) 0 else params.int("timeout_ms"),
+                    continueFrom,
+                )
+            }
             else -> throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "unknown command")
         }
     }
@@ -1109,6 +1162,9 @@ object Limits {
     const val MAX_CLIPBOARD_CHARS = 10_000
     const val MAX_ACTIVITY_ENTRIES = 500
     const val MAX_TASK_SUMMARY_CHARS = 500
+    /** Since 1.17 (ADR-046): generous transport-frame bounds, not command restrictions. */
+    const val MAX_ADB_COMMAND_CHARS = 128 * 1024
+    const val MAX_ADB_STDIN_BYTES = 512 * 1024
     /** Since 1.8: the activity kinds `activity.list` may ask for. */
     val ACTIVITY_KINDS = setOf("session", "connection", "screen", "action", "app", "approval", "refusal", "file", "folder", "task")
 
@@ -1304,6 +1360,18 @@ object Validation {
                 val n = command.text.codePointCount(0, command.text.length)
                 if (n !in 1..Limits.MAX_CLIPBOARD_CHARS) invalid("text must be 1-${Limits.MAX_CLIPBOARD_CHARS} characters")
                 if (command.text.any { Character.isISOControl(it) && it != '\n' && it != '\t' }) invalid("control characters")
+            }
+            is Command.AdbShell -> {
+                val line = command.commandLine
+                val cursor = command.continueFrom
+                if ((line != null) == (cursor != null)) invalid("give either command_line or continue_from, not both")
+                if (line != null) {
+                    if (line.isEmpty()) invalid("command_line must not be empty")
+                    if (line.codePointCount(0, line.length) > Limits.MAX_ADB_COMMAND_CHARS) invalid("command_line too long")
+                } else if (cursor != null && !Limits.isValidId(cursor)) {
+                    invalid("continue_from must be a cursor from a prior result")
+                }
+                command.stdin?.let { if (it.toByteArray(Charsets.UTF_8).size > Limits.MAX_ADB_STDIN_BYTES) invalid("stdin too long") }
             }
             is Command.AskOwner -> {
                 val n = command.message.codePointCount(0, command.message.length)

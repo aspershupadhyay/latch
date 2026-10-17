@@ -97,6 +97,10 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
         listOf(Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS),
         "With this on, the AI can set volumes, the ringer, and Do Not Disturb, play or pause media, change the brightness, rotation, and screen timeout, use the flashlight, and open settings panels and pages. Each group is its own switch, off until you turn it on.",
     ),
+    ADB(
+        "Full ADB access", LatchIcons.Key, listOf(Capability.ADB_SHELL),
+        "Off by default. With this on, and after you authorize Android wireless debugging, the AI can run any ADB shell command on this phone — the same power as a computer with ADB, with no per-command check. Only turn it on for a client you fully trust, and turn it off or use Stop to end it.",
+    ),
     WORKING(
         "While the AI works", LatchIcons.Phone, emptyList(),
         "What you see on the phone while a session runs. None of this gives the AI anything.",
@@ -110,6 +114,7 @@ private fun Signal.hueOf(group: AccessGroup) = when (group) {
     AccessGroup.FILES -> warning
     AccessGroup.SHARING -> accent2
     AccessGroup.CONTROLS -> mint
+    AccessGroup.ADB -> warning
     AccessGroup.WORKING -> text2
 }
 
@@ -119,6 +124,7 @@ private fun Signal.colorOf(group: AccessGroup) = when (group) {
     AccessGroup.FILES -> butter
     AccessGroup.SHARING -> pool
     AccessGroup.CONTROLS -> sage
+    AccessGroup.ADB -> butter
     AccessGroup.WORKING -> surface
 }
 
@@ -213,6 +219,7 @@ fun CapabilitiesScreen(
                         BrightnessPermission(Capability.CONTROL_BRIGHTNESS in enabled)
                         DoNotDisturbPermission(Capability.CONTROL_SOUND in enabled)
                     }
+                    AccessGroup.ADB -> CapabilityList(current, enabled, onToggle)
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
                 }
             }
@@ -280,6 +287,17 @@ private fun AccessOverview(
                 tint = signal.accent,
                 onClick = { open(AccessGroup.CONTROLS) },
                 onClickLabel = "Open ${AccessGroup.CONTROLS.title}",
+            )
+        }
+
+        Card {
+            ListRow(
+                AccessGroup.ADB.icon,
+                AccessGroup.ADB.title,
+                statusOf(AccessGroup.ADB, enabled),
+                tint = signal.warning,
+                onClick = { open(AccessGroup.ADB) },
+                onClickLabel = "Open ${AccessGroup.ADB.title}",
             )
         }
 

@@ -357,6 +357,7 @@ async fn mcp_handshake_and_discovery() {
             "get_activity",
             "finish_task",
             "phone_control",
+            "adb",
             "list_files",
             "read_file",
             "get_file_link",
@@ -942,6 +943,101 @@ async fn pause_stop_and_revoke_take_effect() {
     assert!(again.is_err());
 }
 
+#[tokio::test]
+async fn full_access_adb_runs_commands_without_extra_restrictions() {
+    let gw = start_gateway().await;
+
+    // Off by default: with the capability disabled, the command is refused and
+    // nothing runs on the phone.
+    let off = connect_phone(&gw, &[Capability::UiObserve]).await;
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "id"})).await;
+    assert!(is_error && text.contains("permission_missing"), "{text}");
+    assert!(off.state.lock().expect("lock").adb_commands.is_empty());
+    off.task.abort();
+
+    // Owner enables full-access ADB.
+    let phone = connect_phone(&gw, &[Capability::AdbShell]).await;
+
+    // Arbitrary command pass-through with its real exit code and stdout.
+    let (is_error, text, _) =
+        call(&gw, "adb", json!({"command": "getprop ro.product.model"})).await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.contains("exit code 0") && text.contains("Pixel 8"),
+        "{text}"
+    );
+
+    // A nonzero exit and stderr come straight back.
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "nope --flag"})).await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.contains("exit code 127") && text.contains("not found"),
+        "{text}"
+    );
+
+    // stdin is piped through.
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "cat", "stdin": "ping\n"})).await;
+    assert!(!is_error && text.contains("ping"), "{text}");
+
+    // Large output is chunked by the phone and rejoined by the gateway into one
+    // complete result; the phone ran the command exactly once.
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "seq 500"})).await;
+    assert!(!is_error, "{text}");
+    assert!(
+        text.contains("\n1\n") && text.contains("\n500\n") && text.contains("exit code 0"),
+        "{text}"
+    );
+    assert_eq!(
+        phone
+            .state
+            .lock()
+            .expect("lock")
+            .adb_commands
+            .iter()
+            .filter(|c| *c == "seq 500")
+            .count(),
+        1
+    );
+
+    // No per-command approval, even with "approve every action" on.
+    {
+        let mut s = phone.state.lock().expect("lock");
+        s.session.approve_every_action = true;
+        s.approval_requests.clear();
+    }
+    phone.control.send(Control::PushState).await.expect("push");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "echo hi"})).await;
+    assert!(!is_error && text.contains("hi"), "{text}");
+    assert!(
+        phone
+            .state
+            .lock()
+            .expect("lock")
+            .approval_requests
+            .is_empty(),
+        "full-access ADB must not ask per command"
+    );
+
+    // Keeps working past the ordinary session timer (ADR-046), while an
+    // ordinary tool is refused once the session has ended.
+    {
+        let mut s = phone.state.lock().expect("lock");
+        s.session.expires_at_ms = 1; // long past
+    }
+    phone.control.send(Control::PushState).await.expect("push");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "echo still-here"})).await;
+    assert!(!is_error && text.contains("still-here"), "{text}");
+
+    // Owner Stop still blocks it.
+    phone.control.send(Control::Stop).await.expect("stop");
+    phone.task.await.expect("join").expect("clean stop");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "id"})).await;
+    assert!(is_error && text.contains("device_unavailable"), "{text}");
+}
+
 // ---- HTTP long-poll transport (protocol 1.1), used by serverless gateways ----
 
 #[tokio::test]
@@ -1290,7 +1386,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.16, 36 tools.",
+        lines[0], "Latch gateway, protocol 1.17, 37 tools.",
         "{devices}"
     );
     let lines = &lines[1..];

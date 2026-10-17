@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0301", "deadline_ms": 30000, "command": { "name": "adb.shell", "params": { "command_line": "cat", "stdin": "hello from the agent\n", "timeout_ms": 5000 } } }

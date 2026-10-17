@@ -76,6 +76,13 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
                 serde_json::from_value::<latch_protocol::DeviceInfo>(data.clone())
                     .map_err(|e| e.to_string())?;
             }
+            DeviceToGateway::Result {
+                outcome: Outcome::Ok { data },
+                ..
+            } if data.get("stdout").is_some() => {
+                serde_json::from_value::<latch_protocol::AdbResult>(data.clone())
+                    .map_err(|e| e.to_string())?;
+            }
             _ => {}
         }
         let reparsed: DeviceToGateway =

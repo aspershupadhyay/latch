@@ -8,7 +8,7 @@ import { SERVER } from "./generated/contract.js";
 import { renderLatestTask } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ApprovalDeferred, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
-import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
@@ -265,6 +265,51 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     return withTiming(textResult(
       `Copied ${[...text].length} characters to the phone's clipboard. To paste, long-press the text box and tap Paste.`,
     ), run.timing);
+  }
+  if (name === "adb") {
+    const command = argStr(args, "command");
+    const stdin = argStr(args, "stdin");
+    const continueFrom = argStr(args, "continue_from");
+    const timeoutMs = argInt(args, "timeout_ms") ?? 0;
+    if ((command !== undefined) === (continueFrom !== undefined)) {
+      throw bad("give either command or continue_from, not both (and not neither)");
+    }
+    // Most aggregated stdout returned in one result before handing back a
+    // cursor for the rest (ADR-046: the full result is never silently cut).
+    const BUDGET = 256 * 1024;
+    let stdout = "";
+    let stderr = "";
+    let exitCode: number | undefined;
+    let cursor: string | undefined;
+    let next = continueFrom;
+    let first = true;
+    let timing;
+    for (;;) {
+      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string } = {};
+      if (first) {
+        if (command !== undefined) params.command_line = command;
+        if (stdin !== undefined) params.stdin = stdin;
+        if (timeoutMs) params.timeout_ms = timeoutMs;
+      }
+      if (next !== undefined) params.continue_from = next;
+      first = false;
+      const run = await execute(ctx, deviceId, { name: "adb.shell", params });
+      timing = run.timing;
+      const r = run.data as AdbResult;
+      stdout += r.stdout;
+      stderr += r.stderr;
+      if (r.cursor === undefined) { exitCode = r.exit_code; break; }
+      if (stdout.length >= BUDGET) { cursor = r.cursor; break; }
+      next = r.cursor;
+    }
+    let body = exitCode !== undefined ? `exit code ${exitCode}\n` : "(more output remains)\n";
+    if (stdout) body += `\n--- stdout ---\n${stdout}${stdout.endsWith("\n") ? "" : "\n"}`;
+    if (stderr) body += `\n--- stderr ---\n${stderr}${stderr.endsWith("\n") ? "" : "\n"}`;
+    if (!stdout && !stderr && exitCode !== undefined) body += "\n(no output)\n";
+    if (exitCode === undefined && cursor !== undefined) {
+      body += `\nOutput reached ${BUDGET} bytes. Call adb again with continue_from="${cursor}" for the rest.`;
+    }
+    return withTiming(textResult(body), timing);
   }
   if (name === "get_activity") {
     const task = args.task;
