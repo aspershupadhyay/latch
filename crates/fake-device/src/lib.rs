@@ -124,11 +124,91 @@ pub struct FakeState {
     pub lose_answer_to: Option<String>,
     /// How many answers were lost this way, so the binary knows to reconnect.
     pub lost_answers: u32,
+    /// R29 (e): a flaky link, reproducible from its seed.
+    pub chaos: Option<Chaos>,
     /// The protocol version the hello announces; `None` for this crate's.
     /// A phone below 1.19 does not remember answers and runs every id it gets.
     pub hello_protocol: Option<String>,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
     observation_counter: u64,
+}
+
+/// A flaky link between phone and gateway (R29 e): each answer may be
+/// delayed, lost with the connection, or sent twice, and each command may
+/// arrive twice, at the given rates (percent), from a fixed seed.
+#[derive(Debug, Clone)]
+pub struct Chaos {
+    pub seed: u64,
+    pub lose_answer_pct: u8,
+    pub duplicate_answer_pct: u8,
+    pub duplicate_command_pct: u8,
+    pub max_delay_ms: u64,
+    /// What happened, for the test to report.
+    pub lost: u32,
+    pub duplicated_answers: u32,
+    pub duplicated_commands: u32,
+}
+
+impl Chaos {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            seed: seed.max(1),
+            lose_answer_pct: 20,
+            duplicate_answer_pct: 20,
+            duplicate_command_pct: 20,
+            max_delay_ms: 30,
+            lost: 0,
+            duplicated_answers: 0,
+            duplicated_commands: 0,
+        }
+    }
+
+    /// xorshift64: deterministic and dependency-free.
+    fn next(&mut self) -> u64 {
+        let mut x = self.seed;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.seed = x;
+        x
+    }
+
+    fn roll(&mut self, pct: u8) -> bool {
+        self.next() % 100 < u64::from(pct)
+    }
+}
+
+/// What the link does to one answer under chaos.
+#[derive(Debug, Default)]
+struct Fate {
+    delay_ms: u64,
+    lose: bool,
+    twice: bool,
+    command_twice: bool,
+}
+
+fn fate(state: &Shared) -> Fate {
+    let mut s = lock(state);
+    let Some(c) = s.chaos.as_mut() else {
+        return Fate::default();
+    };
+    let delay_ms = if c.max_delay_ms > 0 {
+        c.next() % (c.max_delay_ms + 1)
+    } else {
+        0
+    };
+    let command_twice = c.roll(c.duplicate_command_pct);
+    let lose = c.roll(c.lose_answer_pct);
+    let twice = !lose && c.roll(c.duplicate_answer_pct);
+    c.lost += u32::from(lose);
+    c.duplicated_answers += u32::from(twice);
+    c.duplicated_commands += u32::from(command_twice);
+    Fate {
+        delay_ms,
+        lose,
+        twice,
+        command_twice,
+    }
 }
 
 /// Recent answers by command id (protocol 1.19, ADR-048), like the app's
@@ -315,6 +395,7 @@ impl FakeState {
             lose_answer_to: None,
             lost_answers: 0,
             hello_protocol: None,
+            chaos: None,
             latest: None,
             observation_counter: 0,
         }
@@ -1588,8 +1669,14 @@ pub async fn run(
                 lock(&state).device_id = Some(device_id);
             }
             GatewayToDevice::Command(envelope) => {
-                let outcome = answer(&state, &envelope).await;
-                if lose_answer(&state, &envelope) {
+                let fate = fate(&state);
+                let mut outcome = answer(&state, &envelope).await;
+                if fate.command_twice {
+                    // The same command delivered again: answered from memory, never run twice.
+                    outcome = answer(&state, &envelope).await;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(fate.delay_ms)).await;
+                if fate.lose || lose_answer(&state, &envelope) {
                     // The answer is lost with the connection; the phone remembers it.
                     return Ok(());
                 }
@@ -1597,7 +1684,11 @@ pub async fn run(
                     id: envelope.id,
                     outcome,
                 };
-                send(&mut sink, &encode(key.as_ref(), &connection, &result)?).await?;
+                let frame = encode(key.as_ref(), &connection, &result)?;
+                send(&mut sink, &frame).await?;
+                if fate.twice {
+                    send(&mut sink, &frame).await?;
+                }
             }
             GatewayToDevice::Cancel { .. } | GatewayToDevice::ApprovalAnswer { .. } => {}
             GatewayToDevice::Revoked { .. } => {
@@ -1711,16 +1802,24 @@ pub async fn run_poll(
             (200, body) => {
                 match serde_json::from_str::<GatewayToDevice>(&body).map_err(protocol)? {
                     GatewayToDevice::Command(envelope) => {
-                        let outcome = answer(&state, &envelope).await;
-                        if lose_answer(&state, &envelope) {
+                        let fate = fate(&state);
+                        let mut outcome = answer(&state, &envelope).await;
+                        if fate.command_twice {
+                            outcome = answer(&state, &envelope).await;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(fate.delay_ms)).await;
+                        if fate.lose || lose_answer(&state, &envelope) {
                             // The answer is lost with the connection; the phone remembers it.
                             return Ok(());
                         }
-                        post(DeviceToGateway::Result {
+                        let result = DeviceToGateway::Result {
                             id: envelope.id,
                             outcome,
-                        })
-                        .await?;
+                        };
+                        if fate.twice {
+                            post(result.clone()).await?;
+                        }
+                        post(result).await?;
                     }
                     GatewayToDevice::Revoked { .. } => {
                         lock(&state).revoked = true;

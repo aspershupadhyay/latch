@@ -33,6 +33,9 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            // R29 (e): JaCoCo line and branch coverage of the JVM unit tests
+            // (createDebugUnitTestCoverageReport; CI publishes the report).
+            enableUnitTestCoverage = true
             // Debug builds may talk to a gateway over plain http on a laptop or emulator.
             buildConfigField("boolean", "ALLOW_CLEARTEXT", "true")
             manifestPlaceholders["allowCleartext"] = "true"

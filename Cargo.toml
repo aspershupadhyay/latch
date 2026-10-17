@@ -8,6 +8,8 @@ members = [
     "crates/fake-device",
     "servers/mcp",
 ]
+# Needs nightly (cargo-fuzz); built and run by the fuzz job in CI.
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"
