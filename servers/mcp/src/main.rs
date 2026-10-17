@@ -15,6 +15,10 @@ USAGE:
     latch-gateway [serve]     Run the HTTP gateway (MCP at /mcp, phones at /v1/device, console at /)
     latch-gateway stdio       Speak MCP on stdin/stdout and serve phones over HTTP in the background
     latch-gateway gen-token   Print a new random token for LATCH_ADMIN_TOKEN or LATCH_MCP_TOKEN
+    latch-gateway check-phone [--url URL] [--device ID] [--quick] [--no-prompts] [--report FILE]
+                              Check a connected phone end to end over this gateway's MCP
+                              (needs LATCH_MCP_TOKEN; URL defaults to http://127.0.0.1:8787/mcp)
+                              and write a Markdown report with no screen content in it
     latch-gateway --version
 
 ENVIRONMENT:
@@ -58,6 +62,7 @@ async fn main() -> ExitCode {
             print!("{USAGE}");
             return ExitCode::SUCCESS;
         }
+        "check-phone" => return check_phone().await,
         "serve" | "stdio" => {}
         other => {
             eprintln!("unknown command: {other}\n\n{USAGE}");
@@ -212,4 +217,72 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
     tracing::info!("shutting down");
+}
+
+/// `latch-gateway check-phone`: the scripted real-device check (roadmap R29 f).
+async fn check_phone() -> ExitCode {
+    use latch_gateway::phone_check::{self, Owner, Target, Terminal, Unattended};
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let value = |flag: &str| {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let has = |flag: &str| args.iter().any(|a| a == flag);
+    let url = value("--url").unwrap_or_else(|| {
+        let bind = std::env::var("LATCH_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
+        format!("http://{}/mcp", bind.replace("0.0.0.0", "127.0.0.1"))
+    });
+    let token = value("--token")
+        .or_else(|| std::env::var("LATCH_MCP_TOKEN").ok())
+        .unwrap_or_default();
+    let mut target = match Target::parse(&url, &token) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("check-phone: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    target.device_id = value("--device");
+    let mut terminal = Terminal;
+    let mut unattended = Unattended;
+    let owner: &mut dyn Owner = if has("--no-prompts") {
+        &mut unattended
+    } else {
+        &mut terminal
+    };
+    let report = match phone_check::run(target, owner, has("--quick")).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("check-phone: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let at = phone_check::now_s();
+    let path = value("--report").unwrap_or_else(|| {
+        format!(
+            "latch-phone-check-{}.md",
+            phone_check::utc(at)
+                .replace([' ', ':'], "-")
+                .trim_end_matches("-UTC")
+        )
+    });
+    if let Err(e) = std::fs::write(&path, report.markdown(at)) {
+        eprintln!("check-phone: could not write {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+    println!(
+        "\n{} Report: {path}",
+        if report.passed() {
+            "Every step that ran passed."
+        } else {
+            "Some steps failed; the report says which."
+        }
+    );
+    if report.passed() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }

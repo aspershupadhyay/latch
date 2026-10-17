@@ -3277,3 +3277,63 @@ async fn a_phone_that_does_not_come_back_fails_after_the_grace() {
         "failed after the grace, not the deadline"
     );
 }
+
+/// R29 (f): `latch-gateway check-phone` against the fake phone. The steps that
+/// need the owner's hands are skipped; everything else passes, and the report
+/// names the model but never the phone's name or what was on its screen.
+#[tokio::test]
+async fn the_phone_check_passes_on_the_fake_phone_and_its_report_keeps_nothing_personal() {
+    use latch_gateway::phone_check::{self, Outcome, Target, Unattended};
+    let gw = start_gateway().await;
+    let _phone = connect_phone_named(
+        &gw,
+        &Capability::ALL,
+        Transport::WebSocket,
+        "Sparsh's phone",
+    )
+    .await;
+    let target = Target::parse(&format!("http://{}/mcp", gw.addr), MCP).expect("target");
+    let report = phone_check::run(target, &mut Unattended, true)
+        .await
+        .expect("check ran");
+    let outcome = |name: &str| {
+        report
+            .steps
+            .iter()
+            .find(|s| s.name.starts_with(name))
+            .map(|s| s.outcome.clone())
+            .unwrap_or_else(|| panic!("no step {name}"))
+    };
+    for name in [
+        "Phone ready",
+        "Read the screen",
+        "Rotate gesture",
+        "ADB identity",
+        "ADB large output",
+        "ADB screenshot",
+    ] {
+        assert_eq!(outcome(name), Outcome::Pass, "{name}: {report:?}");
+    }
+    for name in [
+        "ADB long-running",
+        "Answer survives",
+        "Stop ends",
+        "Reconnect after reboot",
+    ] {
+        assert!(
+            matches!(outcome(name), Outcome::Skip(_)),
+            "{name} needs the owner or --quick"
+        );
+    }
+    assert!(report.passed());
+    let markdown = report.markdown(phone_check::now_s());
+    assert!(
+        markdown.contains("Phone: Latch fake phone, app protocol 1.19"),
+        "{markdown}"
+    );
+    assert!(!markdown.contains("Sparsh"), "no phone name: {markdown}");
+    assert!(
+        markdown.contains("| Rotate gesture | R28 | PASS |"),
+        "{markdown}"
+    );
+}

@@ -102,6 +102,18 @@ Moving from the old debug test builds (package `…latch.debug`) to release buil
 
 ## Real-device gate (S4)
 
+### Scripted check first (R29 f)
+
+On the computer that runs the gateway, with the phone connected and full ADB access on (**Access → Full ADB access**, paired with a code):
+
+```
+LATCH_MCP_TOKEN=<your MCP token> latch-gateway check-phone
+```
+
+It drives the phone over MCP exactly as an AI app would and then asks you, one at a time, to turn Wi-Fi off and on during a question on the phone, to press Stop and Start, and to let it reboot the phone (type `s` to skip any). It checks: the phone is ready; the screen can be read; a two-finger rotate; `adb id` runs as `uid=2000(shell)`; `seq 1 100000` arrives whole (588 895 bytes over `continue_from`); `screencap -p` comes back as a PNG image; a 25-second command finishes; an answer survives a Wi-Fi drop and nothing runs twice (R29 a); Stop ends access and Start brings it back; after a reboot the phone reconnects without a cable and ADB works again. It writes `latch-phone-check-<date>.md`, which names the phone's model and app protocol but never its name, its screen, or command output, so it can be attached to the R21 issue as it is. Options: `--url http://127.0.0.1:8787/mcp` (the default follows `LATCH_BIND`), `--device <id>` when several phones are connected, `--quick` to skip the 25-second step, `--no-prompts` to skip every step that needs you, `--report <file>`. The exit code is 0 only when no step failed. The ready-made gateway downloads on the beta release include it.
+
+### Manual checklist
+
 Run on at least two phones (for example a Pixel-class device on Android 16 and a Samsung-class device on Android 14) and record model, Android version, app build, gateway build, and results in the release notes.
 
 1. Clean install → pair → only `device.info` enabled; `observe` from an MCP client returns `permission_missing`.
