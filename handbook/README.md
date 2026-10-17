@@ -10,7 +10,7 @@ last_fetched: "2026-10-01T22:10:12.779Z"
 	**Latch** is an open, user-controlled runtime that lets any MCP-capable AI observe and operate a user's phone through explicit capabilities, visible consent, and a portable protocol.
 </callout>
 ## Status
-**Planning state:** implementation authorized 2026-10-02 — see [chapter 17](./17-plan-review-and-revised-delivery.md). **Next implementation priority (2026-10-17): R27, owner-authorized Android ADB shell through MCP over Wi-Fi, with direct-ADB shell capability parity and no USB cable required for setup or use.** [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) supersedes the older shell exclusions; implementation is TODO.  
+**Planning state:** implementation authorized 2026-10-02 — see [chapter 17](./17-plan-review-and-revised-delivery.md). **Next implementation priority (2026-10-17): R27, owner-authorized Android ADB shell through MCP over Wi-Fi, with full device-side ADB access, no Latch-imposed command restrictions after owner authorization, and no USB cable required for setup or use.** [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) supersedes the old shell ban and ADR-045's extra command restrictions; implementation is TODO.  
 **Working product name:** Latch  
 **Working tagline:** Open device control for MCP-capable AI  
 **Source of truth:** this handbook and the linked chapter pages below  
@@ -44,7 +44,7 @@ agent      agent
 The internal device protocol is the stable product boundary. MCP is the primary integration adapter, not the only possible consumer. This lets the project support future agent runtimes, local desktop tools, and provider-specific adapters without rewriting the mobile apps.
 ## Non-negotiable quality bar
 - **User control:** every consequential action is visible, attributable, cancellable, and policy checked.
-- **Least privilege:** capabilities are separate, revocable, and scoped to a device, app, session, and time window.
+- **Least privilege:** ordinary capabilities are separate, revocable, and scoped to a device, app, session, and time window. The owner may instead explicitly enable full-access ADB under ADR-046, with no per-command Latch restrictions; that grant lasts until the owner disables or revokes it.
 - **Portable integration:** MCP server and protocol remain usable by any compliant client, not only one AI product.
 - **Honest platform support:** Android and iOS expose different capabilities; the product documents the difference instead of pretending parity.
 - **Local-first economics:** local operation and self-hosting are first-class. No mandatory Latch subscription is required for core functionality.

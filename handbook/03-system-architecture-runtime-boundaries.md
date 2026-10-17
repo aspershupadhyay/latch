@@ -44,8 +44,8 @@ The gateway owns:
 - policy decision forwarding;
 - lifecycle of remote sessions;
 - logs and health endpoints.
-The gateway must not expose its own host shell. It may route owner-authorized Android ADB shell requests through the separate capability, consent, and execution boundary in [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp). MCP over Wi-Fi (ADR-042) and ADB wireless debugging are distinct transports; enabling one never authorizes the other.
-Once the owner grants ADB mode, MCP requests over Wi-Fi must reach a real Android shell executor with the same authorized shell capabilities as direct ADB. A transport choice must not reduce that capability set. The user-facing setup, pairing, reconnect, and execution path must work without USB or a mandatory laptop daemon. A cloud gateway routes through an authenticated reachable phone/executor; ordinary network connectivity alone supplies no Android privileges.
+The gateway must not expose its own host shell. It may route owner-authorized Android ADB shell requests through the initial authorization and execution boundary in [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp). MCP over Wi-Fi (ADR-042) and ADB wireless debugging are distinct transports; enabling one never authorizes the other.
+Once the owner enables ADB mode, authenticated MCP requests over Wi-Fi must reach a real ADB executor with the same device-side command access, identity, and results as direct ADB. Do not route ADB requests through ordinary app/folder policy, approval-per-action, mandatory session expiry, command filters, fixed command/output limits, or rate/concurrency quotas. Use streaming, continuation, and backpressure to handle transport/memory constraints without silently restricting command semantics or discarding results. A transport choice must not reduce the capability set. The user-facing setup, pairing, reconnect, and execution path must work without USB or a mandatory laptop daemon. A cloud gateway routes through an authenticated reachable phone/executor; ordinary network connectivity alone supplies no Android privileges.
 ### Adapter plane
 Adapters translate external agent formats into the core contract. The MCP adapter is first-class. Future adapters must call the same policy and session APIs; they may not bypass them.
 ## Target repository shape
@@ -102,6 +102,7 @@ The user confirmation path is part of the protocol state machine. It is not a be
 - **Network ownership:** local network and user-hosted deployment are first-class. A stateful edge host may be documented as an optional deployment, not a mandatory service.
 Avoid legacy SSE assumptions. Revalidate the MCP specification and SDK behavior before each release.
 ## State machines
+The following states describe the ordinary capability runtime. ADR-046's full-access ADB grant ends when the owner disables or revokes it, not when an ordinary session timer expires. A caller may request cancellation or a timeout; a transport interruption must be reported without automatically replaying a command whose execution is uncertain.
 ### Session
 created → pairing → ready → active → awaiting_confirmation → paused → revoked → closed
 Transitions must be explicit, logged, and idempotent. Closing or revoking invalidates pending commands.

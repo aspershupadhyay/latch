@@ -37,7 +37,7 @@ Each architecture decision is a short record with context, decision, alternative
 **Risk:** setup may be harder for non-technical users.  
 **Mitigation:** guided pairing, setup wizard, exact provider instructions, and safe defaults.
 ## ADR-006 — Capability and policy model
-**Status:** accepted for planning  
+**Status:** accepted for ordinary capability mode; [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) defines the explicitly owner-enabled full-access ADB exception  
 **Decision:** every operation is typed, scoped, risk classified, permission checked, and audited.  
 **Why:** a generic remote-control tool cannot communicate or enforce meaningful safety.  
 **Reversal trigger:** none; the model can gain capabilities but cannot bypass the boundary.
@@ -48,7 +48,7 @@ Each architecture decision is a short record with context, decision, alternative
 **Risk:** iOS users wait longer.  
 **Mitigation:** build protocol and product shell so iOS can add its honest subset later.
 ## ADR-008 — No arbitrary shell
-**Status:** partially superseded on 2026-10-17 by [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) for owner-authorized Android ADB shell only; credential, MFA, and hidden-capture exclusions remain in force. The original planning decision below is historical.  
+**Status:** superseded for explicitly owner-enabled ADB access by ADR-045 and [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) (2026-10-17). The original planning decision below remains historical and ordinary tools keep their own restrictions; it must not be used to add filters to the full-access ADB bridge.  
 **Decision:** the default product never exposes arbitrary shell, credential extraction, MFA bypass, or hidden capture.  
 **Why:** these capabilities create unacceptable abuse and trust risk.  
 **Reversal trigger:** none for the default distribution; a separate research project would require a separate threat model.
@@ -75,5 +75,5 @@ When a future proposal arrives, ask:
 This index is complete only when each future cross-cutting decision has a place here.
 
 ## Repo-authored decisions
-The continuing decision log is [docs/adr/README.md](../docs/adr/README.md). ADR-045 accepts implementation of Android ADB shell through MCP over Wi-Fi with direct-ADB shell capability parity. The owner's 2026-10-17 clarification requires cable-free setup, pairing, reconnect, and execution; USB is optional developer tooling and not part of R27's required acceptance gate. It supersedes ADR-008's blanket shell prohibition and the ADB rejection portions of ADR-041–043; the existing typed APIs and TLS Wi-Fi gateway remain supported. R27 in chapter 17 is the next implementation priority. Older Notion text must not restore the superseded prohibition during a handbook refresh.
-
+The continuing decision log is [docs/adr/README.md](../docs/adr/README.md). ADR-045 accepted ADB over cable-free MCP/Wi-Fi. [ADR-046](../docs/adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp) supersedes ADR-045's extra per-command approval, expiry, scope, timeout, output, and quota restrictions: once the owner enables the mode and authorizes Android pairing, the authenticated client receives the same device-side ADB access and complete results as direct ADB. Initial owner authorization, endpoint authentication, protected keys, exact device binding, Android's own permissions, and owner Stop/revoke remain.
+R27 in chapter 17 is the next implementation priority. USB is optional developer tooling. Preserve the newer repo-authored decisions when importing older Notion material; historical bans or ordinary-tool policy must not restore ADB command restrictions. Runtime implementation remains TODO.
