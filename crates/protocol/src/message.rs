@@ -156,6 +156,14 @@ pub enum DeviceToGateway {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandEnvelope {
     /// Unique per gateway; used to correlate the result and for idempotency.
+    ///
+    /// Since 1.19 (ADR-048) a command runs at most once per id. When a phone
+    /// reconnects while a command is still in flight, the gateway sends the
+    /// same envelope again, with the same id, to a phone that said `hello`
+    /// with 1.19 or later. The phone must not run it twice: it answers again
+    /// with the answer it already gave, or, while the first run is still
+    /// going, sends that run's answer once it finishes. An id it ran but no
+    /// longer remembers is answered `cancelled` without running.
     pub id: String,
     /// Milliseconds the device may spend, including waiting for approval.
     pub deadline_ms: u32,

@@ -1468,7 +1468,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.18, 38 tools.",
+        lines[0], "Latch gateway, protocol 1.19, 38 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -3167,4 +3167,113 @@ async fn more_buttons_links_status_and_controls() {
     }
     let (_, text, _) = call(&gw, "device_status", json!({})).await;
     assert!(text.contains("- do not disturb: on"), "{text}");
+}
+
+/// Serves the same fake phone again (its state, its credential), as the app
+/// does after a network drop.
+fn reconnect(
+    gw: &Gateway,
+    state: &Shared,
+    token: &str,
+    transport: Transport,
+) -> mpsc::Sender<Control> {
+    let (control, rx) = mpsc::channel(4);
+    let (state, token, addr) = (state.clone(), token.to_owned(), gw.addr);
+    tokio::spawn(async move {
+        match transport {
+            Transport::WebSocket => {
+                latch_fake_device::run(&format!("ws://{addr}/v1/device"), &token, state, rx).await
+            }
+            Transport::Poll => {
+                latch_fake_device::run_poll(&format!("http://{addr}"), &token, state, rx).await
+            }
+        }
+    });
+    control
+}
+
+/// ADR-048: the phone pressed Home, then the network dropped before its answer
+/// arrived. After the phone reconnects the gateway sends the same command
+/// again; the phone answers from memory, so the AI gets the answer and Home
+/// was pressed exactly once.
+#[tokio::test]
+async fn a_lost_answer_arrives_after_a_reconnect_and_the_action_runs_once() {
+    for transport in [Transport::WebSocket, Transport::Poll] {
+        let gw = start_gateway().await;
+        let Phone {
+            state,
+            task,
+            token,
+            control: _stay,
+        } = connect_phone_with(&gw, &[Capability::NavGlobal], transport).await;
+        state.lock().expect("lock").drop_next_answer = true;
+        let (answer, _control) =
+            tokio::join!(call(&gw, "press", json!({"button": "home"})), async {
+                task.await.expect("join").expect("phone dropped cleanly");
+                reconnect(&gw, &state, &token, transport)
+            });
+        let (is_error, text, _) = answer;
+        assert!(!is_error, "{text}");
+        let s = state.lock().expect("lock");
+        assert_eq!(
+            s.pressed,
+            vec![latch_protocol::GlobalAction::Home],
+            "pressed once"
+        );
+        assert_eq!(
+            s.replayed.len(),
+            1,
+            "answered from memory after the reconnect"
+        );
+    }
+}
+
+/// A phone before 1.19 might run a command twice, so it is not sent again:
+/// the call fails as it always did, and says the action may have happened.
+#[tokio::test]
+async fn a_phone_before_1_19_is_never_sent_a_command_twice() {
+    let gw = start_gateway().await;
+    let mut fake = FakeState::new(&[Capability::NavGlobal]);
+    fake.hello_protocol = Some("1.18".into());
+    fake.drop_next_answer = true;
+    let Phone {
+        state,
+        task,
+        token,
+        control: _stay,
+    } = connect_phone_as(&gw, fake, Transport::WebSocket, "Old phone").await;
+    let (answer, _control) = tokio::join!(call(&gw, "press", json!({"button": "home"})), async {
+        task.await.expect("join").expect("phone dropped cleanly");
+        reconnect(&gw, &state, &token, Transport::WebSocket)
+    });
+    let (is_error, text, _) = answer;
+    assert!(is_error);
+    assert!(text.contains("may already have happened"), "{text}");
+    // Let the reconnect finish: nothing arrives again.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let s = state.lock().expect("lock");
+    assert_eq!(s.pressed.len(), 1);
+    assert!(s.replayed.is_empty());
+}
+
+/// A phone that drops off mid-command and stays away: the call fails once the
+/// reconnect grace is over, and tells the AI to look before repeating.
+#[tokio::test]
+async fn a_phone_that_does_not_come_back_fails_after_the_grace() {
+    let gw = start_gateway_with(|s| {
+        s.devices
+            .reconnect_grace_ms
+            .store(300, std::sync::atomic::Ordering::Relaxed);
+    })
+    .await;
+    let phone = connect_phone(&gw, &[Capability::NavGlobal]).await;
+    phone.state.lock().expect("lock").drop_next_answer = true;
+    let started = std::time::Instant::now();
+    let (is_error, text, _) = call(&gw, "press", json!({"button": "home"})).await;
+    assert!(is_error);
+    assert!(text.contains("observe before repeating it"), "{text}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "failed after the grace, not the deadline"
+    );
 }

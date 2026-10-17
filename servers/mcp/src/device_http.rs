@@ -183,7 +183,7 @@ pub async fn messages(
     };
     match message {
         DeviceToGateway::Result { id, outcome } => {
-            state.devices.resolve(&device_id, conn_id, &id, outcome);
+            state.devices.resolve(&device_id, &id, outcome);
         }
         DeviceToGateway::State {
             capabilities,
@@ -203,7 +203,7 @@ pub async fn messages(
             if validate::approval_request(&request).is_ok() {
                 state
                     .devices
-                    .approval_requested(&device_id, conn_id, &request.command_id);
+                    .approval_requested(&device_id, &request.command_id);
             }
         }
         DeviceToGateway::Hello(_) | DeviceToGateway::Signed { .. } => {

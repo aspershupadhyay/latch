@@ -190,7 +190,7 @@ async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
         };
         match message {
             DeviceToGateway::Result { id, outcome } => {
-                state.devices.resolve(&device_id, conn_id, &id, outcome);
+                state.devices.resolve(&device_id, &id, outcome);
             }
             DeviceToGateway::State {
                 capabilities,
@@ -213,7 +213,7 @@ async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
                 if validate::approval_request(&request).is_ok() {
                     state
                         .devices
-                        .approval_requested(&device_id, conn_id, &request.command_id);
+                        .approval_requested(&device_id, &request.command_id);
                 }
             }
             DeviceToGateway::Hello(_) | DeviceToGateway::Signed { .. } => {

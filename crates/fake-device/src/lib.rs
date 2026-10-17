@@ -109,8 +109,94 @@ pub struct FakeState {
     /// Pending chunked `adb.shell` output, keyed by the cursor given to the client.
     adb_chunks: std::collections::HashMap<String, AdbPending>,
     adb_cursor_seq: u64,
+    /// Since 1.19 (ADR-048): the answers to recent commands by id, so a
+    /// command the gateway sends again after a reconnect is not run twice.
+    answers: Answers,
+    /// Every command id answered from memory instead of being run again.
+    pub replayed: Vec<String>,
+    /// Lose the answer to the next command: run it, then drop the connection
+    /// before the answer is sent, as a flaky network does.
+    pub drop_next_answer: bool,
+    /// The protocol version the hello announces; `None` for this crate's.
+    /// A phone below 1.19 does not remember answers and runs every id it gets.
+    pub hello_protocol: Option<String>,
     latest: Option<(String, Screen, Vec<screens::Node>)>,
     observation_counter: u64,
+}
+
+/// Recent answers by command id (protocol 1.19, ADR-048), like the app's
+/// `RecentCommands`: the last [`Answers::KEPT`] answers, and the ids of older
+/// ones, so an id seen again is never run a second time.
+#[derive(Debug, Clone, Default)]
+struct Answers {
+    kept: std::collections::VecDeque<(String, Outcome)>,
+    forgotten: std::collections::VecDeque<String>,
+}
+
+impl Answers {
+    const KEPT: usize = 64;
+    const FORGOTTEN: usize = 1024;
+
+    /// What to send for `id` if it already ran: its answer, or `cancelled`
+    /// when the answer is no longer kept.
+    fn replay(&self, id: &str) -> Option<Outcome> {
+        if let Some((_, outcome)) = self.kept.iter().find(|(k, _)| k == id) {
+            return Some(outcome.clone());
+        }
+        self.forgotten.iter().any(|k| k == id).then(|| Outcome::Error {
+            error: ProtocolError::new(
+                ErrorCode::Cancelled,
+                "this command already ran on the phone and its answer is no longer kept, so it was not run again",
+            ),
+        })
+    }
+
+    fn remember(&mut self, id: String, outcome: Outcome) {
+        self.kept.push_back((id, outcome));
+        if self.kept.len() > Self::KEPT
+            && let Some((old, _)) = self.kept.pop_front()
+        {
+            self.forgotten.push_back(old);
+            if self.forgotten.len() > Self::FORGOTTEN {
+                self.forgotten.pop_front();
+            }
+        }
+    }
+}
+
+/// Runs one command, or answers it from memory if this id already ran (1.19).
+async fn answer(state: &Shared, envelope: &CommandEnvelope) -> Outcome {
+    let remembers = {
+        let s = lock(state);
+        let minor = s
+            .hello_protocol
+            .as_deref()
+            .map_or(Some(u32::MAX), latch_protocol::minor_version)
+            .unwrap_or(0);
+        minor >= 19
+    };
+    if remembers {
+        let mut s = lock(state);
+        if let Some(outcome) = s.answers.replay(&envelope.id) {
+            s.replayed.push(envelope.id.clone());
+            return outcome;
+        }
+    }
+    let outcome = match handle_async(state, envelope).await {
+        Ok(data) => Outcome::Ok { data },
+        Err(error) => Outcome::Error { error },
+    };
+    if remembers {
+        lock(state)
+            .answers
+            .remember(envelope.id.clone(), outcome.clone());
+    }
+    outcome
+}
+
+/// True once: the test asked to lose this answer (see [`FakeState::drop_next_answer`]).
+fn lose_answer(state: &Shared) -> bool {
+    std::mem::take(&mut lock(state).drop_next_answer)
 }
 
 /// Output of an `adb.shell` command that did not fit one frame and is being
@@ -172,6 +258,10 @@ impl FakeState {
             gestures: Vec::new(),
             adb_chunks: std::collections::HashMap::new(),
             adb_cursor_seq: 0,
+            answers: Answers::default(),
+            replayed: Vec::new(),
+            drop_next_answer: false,
+            hello_protocol: None,
             latest: None,
             observation_counter: 0,
         }
@@ -1294,7 +1384,10 @@ pub async fn run(
     let hello = {
         let s = lock(&state);
         DeviceToGateway::Hello(Hello {
-            protocol: PROTOCOL_VERSION.into(),
+            protocol: s
+                .hello_protocol
+                .clone()
+                .unwrap_or_else(|| PROTOCOL_VERSION.into()),
             device: descriptor(),
             capabilities: s.capabilities.clone(),
             session: s.session,
@@ -1353,10 +1446,11 @@ pub async fn run(
                 lock(&state).device_id = Some(device_id);
             }
             GatewayToDevice::Command(envelope) => {
-                let outcome = match handle_async(&state, &envelope).await {
-                    Ok(data) => Outcome::Ok { data },
-                    Err(error) => Outcome::Error { error },
-                };
+                let outcome = answer(&state, &envelope).await;
+                if lose_answer(&state) {
+                    // The answer is lost with the connection; the phone remembers it.
+                    return Ok(());
+                }
                 let result = DeviceToGateway::Result {
                     id: envelope.id,
                     outcome,
@@ -1385,7 +1479,10 @@ pub async fn run_poll(
     let hello = {
         let s = lock(&state);
         DeviceToGateway::Hello(Hello {
-            protocol: PROTOCOL_VERSION.into(),
+            protocol: s
+                .hello_protocol
+                .clone()
+                .unwrap_or_else(|| PROTOCOL_VERSION.into()),
             device: descriptor(),
             capabilities: s.capabilities.clone(),
             session: s.session,
@@ -1471,10 +1568,11 @@ pub async fn run_poll(
             (200, body) => {
                 match serde_json::from_str::<GatewayToDevice>(&body).map_err(protocol)? {
                     GatewayToDevice::Command(envelope) => {
-                        let outcome = match handle_async(&state, &envelope).await {
-                            Ok(data) => Outcome::Ok { data },
-                            Err(error) => Outcome::Error { error },
-                        };
+                        let outcome = answer(&state, &envelope).await;
+                        if lose_answer(&state) {
+                            // The answer is lost with the connection; the phone remembers it.
+                            return Ok(());
+                        }
                         post(DeviceToGateway::Result {
                             id: envelope.id,
                             outcome,
@@ -1542,6 +1640,25 @@ mod tests {
                 max_nodes: 400,
                 quiet_ms: None,
             }),
+        }
+    }
+
+    #[test]
+    fn an_id_seen_again_is_answered_from_memory_and_never_run_twice() {
+        let ok = |n: u32| Outcome::Ok {
+            data: serde_json::json!({ "n": n }),
+        };
+        let mut answers = Answers::default();
+        assert_eq!(answers.replay("c_0"), None, "a new id runs");
+        for n in 0..=Answers::KEPT as u32 {
+            answers.remember(format!("c_{n}"), ok(n));
+        }
+        // The newest answers come back exactly as first sent.
+        assert_eq!(answers.replay("c_64"), Some(ok(64)));
+        // The oldest no longer has its answer, but is still not run again.
+        match answers.replay("c_0") {
+            Some(Outcome::Error { error }) => assert_eq!(error.code, ErrorCode::Cancelled),
+            other => panic!("expected cancelled, got {other:?}"),
         }
     }
 
