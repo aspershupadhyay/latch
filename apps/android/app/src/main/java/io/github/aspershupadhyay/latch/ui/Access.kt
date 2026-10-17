@@ -188,6 +188,9 @@ fun CapabilitiesScreen(
     onUnpairAdb: () -> Unit = {},
     /** R29 (c): puts the pairing box in a notification and opens Developer options; false without notifications. */
     onPairFromNotification: () -> Boolean = { false },
+    /** R29 (b): whether full ADB also works on mobile data, and the switch for it. */
+    adbFixedPort: Boolean = false,
+    onAdbFixedPort: suspend (Boolean) -> String = { "" },
     /** The open group page, hoisted so it survives a trip to the Apps list. */
     openGroup: AccessGroup? = null,
     onOpenGroup: ((AccessGroup?) -> Unit)? = null,
@@ -232,7 +235,7 @@ fun CapabilitiesScreen(
                     }
                     AccessGroup.ADB -> {
                         CapabilityList(current, enabled, onToggle)
-                        AdbPairing(adbEndpoint, adbWirelessAvailable, onPairAdb, onUnpairAdb, onPairFromNotification)
+                        AdbPairing(adbEndpoint, adbWirelessAvailable, onPairAdb, onUnpairAdb, onPairFromNotification, adbFixedPort, onAdbFixedPort)
                     }
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
                 }
@@ -601,6 +604,8 @@ private fun AdbPairing(
     onPair: suspend (code: String, host: String?, port: Int?) -> String,
     onUnpair: () -> Unit,
     onPairFromNotification: () -> Boolean,
+    fixedPort: Boolean,
+    onFixedPort: suspend (Boolean) -> String,
 ) {
     val signal = LocalSignal.current
     SectionCaption("Wireless debugging")
@@ -616,6 +621,54 @@ private fun AdbPairing(
                 tint = signal.accent,
                 trailing = { TextButton(onClick = onUnpair) { Text("Turn off") } },
             )
+        }
+        // R29 (b): an opt-in, with its risk said where it is switched on.
+        var portStatus by rememberSaveable { mutableStateOf<String?>(null) }
+        var portBusy by remember { mutableStateOf(false) }
+        val portScope = rememberCoroutineScope()
+        Card {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ListRow(
+                    LatchIcons.Key,
+                    "Keep working on mobile data",
+                    if (fixedPort) {
+                        "On until this phone restarts: full ADB keeps working without Wi-Fi."
+                    } else {
+                        "Off: full ADB needs Wi-Fi, because Android's wireless debugging does."
+                    },
+                    tint = signal.warning,
+                    trailing = {
+                        LatchSwitch(
+                            checked = fixedPort,
+                            onCheckedChange = { on ->
+                                if (!portBusy) {
+                                    portBusy = true
+                                    portStatus = if (on) "Opening…" else "Closing…"
+                                    portScope.launch {
+                                        portStatus = try {
+                                            onFixedPort(on)
+                                        } finally {
+                                            portBusy = false
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.semantics { contentDescription = "Keep full ADB working on mobile data" },
+                        )
+                    },
+                )
+                Text(
+                    "This asks Android to also accept ADB on port 5555 of this phone, as \"adb tcpip 5555\" does, " +
+                        "until it restarts. Latch reaches it on the phone itself. While it is open, a device on the " +
+                        "same network that can reach this phone, such as one on public Wi-Fi, can try ADB too: it " +
+                        "gets in only with a key you allowed, and an unknown key makes Android ask you. Mobile " +
+                        "networks usually do not let others reach your phone at all. Switch on while Wi-Fi works; " +
+                        "turning it off closes the port at once.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = signal.text2,
+                )
+                portStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = signal.text2) }
+            }
         }
         return
     }

@@ -63,7 +63,16 @@ data class Preferences(
      * so full-access ADB reports needs_permission even when the switch is on.
      */
     val adbEndpoint: String? = null,
+    /**
+     * R29 (b): the owner asked Latch to also open adbd on [ADB_FIXED_PORT] so
+     * full ADB keeps working without Wi-Fi (on mobile data), until the phone
+     * restarts. Off by default; the risk is explained where it is switched on.
+     */
+    val adbFixedPort: Boolean = false,
 )
+
+/** R29 (b): the port `adb tcpip` opens, reached by Latch on the phone's own loopback. */
+const val ADB_FIXED_PORT = 5555
 
 /**
  * Small settings store on SharedPreferences, exposed as flows. Holds no
@@ -111,6 +120,7 @@ class Settings(context: Context) {
             photosOn = prefs.getBoolean("photos_on", true),
             localTransfers = prefs.getBoolean("local_transfers", false),
             adbEndpoint = prefs.getString("adb_endpoint", null),
+            adbFixedPort = prefs.getBoolean("adb_fixed_port", false),
             theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
     }
@@ -182,6 +192,7 @@ class Settings(context: Context) {
             putBoolean("photos_on", next.photosOn)
             putBoolean("local_transfers", next.localTransfers)
             if (next.adbEndpoint != null) putString("adb_endpoint", next.adbEndpoint) else remove("adb_endpoint")
+            putBoolean("adb_fixed_port", next.adbFixedPort)
             putString("theme", next.theme.name)
         }
         _preferences.value = next

@@ -611,6 +611,8 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         adbWirelessAvailable = app.session.adbWirelessAvailable(),
         onPairAdb = { code, host, port -> app.session.pairAdb(code, host, port) },
         onUnpairAdb = app.session::unpairAdb,
+        adbFixedPort = prefs.adbFixedPort,
+        onAdbFixedPort = { on -> app.session.setAdbFixedPort(on) },
         onPairFromNotification = {
             if (Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED

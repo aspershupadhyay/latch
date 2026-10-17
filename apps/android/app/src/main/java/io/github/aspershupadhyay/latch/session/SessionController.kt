@@ -114,9 +114,24 @@ class SessionController(
             try {
                 io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(saved, key)
             } catch (e: java.io.IOException) {
-                val fresh = adbWireless?.connectEndpoint()?.takeIf { it != saved } ?: throw e
-                settings.update { it.copy(adbEndpoint = fresh) }
-                io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(fresh, key)
+                val fresh = try {
+                    adbWireless?.connectEndpoint()?.takeIf { it != saved }
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    throw c
+                } catch (_: Exception) {
+                    null
+                }
+                when {
+                    fresh != null -> {
+                        settings.update { it.copy(adbEndpoint = fresh) }
+                        io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(fresh, key)
+                    }
+                    // R29 (b): without Wi-Fi, wireless debugging is off; the port the owner had
+                    // Latch open stays up until the phone restarts.
+                    settings.preferences.value.adbFixedPort ->
+                        io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect("127.0.0.1:${io.github.aspershupadhyay.latch.data.ADB_FIXED_PORT}", key)
+                    else -> throw e
+                }
             }
         }
     }
@@ -307,8 +322,60 @@ class SessionController(
         }
     }
 
+    /**
+     * R29 (b): asks adbd to also listen on [ADB_FIXED_PORT] (what `adb tcpip`
+     * does), so full ADB keeps working on mobile data until the phone restarts;
+     * or, when [on] is false, to close it again (`adb usb`). Needs a working
+     * wireless-debugging connection to ask. Returns a message for the owner.
+     */
+    suspend fun setAdbFixedPort(on: Boolean): String = withContext(Dispatchers.IO) {
+        val key = adbKey ?: return@withContext "Full ADB is not available on this build."
+        val endpoint = if (on) {
+            settings.preferences.value.adbEndpoint ?: return@withContext "Pair full ADB access first."
+        } else {
+            "127.0.0.1:${io.github.aspershupadhyay.latch.data.ADB_FIXED_PORT}"
+        }
+        val reply = try {
+            val connection = try {
+                io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(endpoint, key)
+            } catch (e: java.io.IOException) {
+                // Closing: the port may be gone already (a restart); then there is nothing to close.
+                if (!on) null else throw e
+            }
+            connection?.use {
+                it.connect()
+                it.service(if (on) "tcpip:${io.github.aspershupadhyay.latch.data.ADB_FIXED_PORT}" else "usb:")
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext if (on) {
+                "Could not open the port: ${e.message ?: e.javaClass.simpleName}. Keep Wi-Fi and wireless debugging on and try again."
+            } else {
+                settings.update { it.copy(adbFixedPort = false) }
+                "Latch no longer uses the port. It closes when the phone restarts."
+            }
+        }
+        settings.update { it.copy(adbFixedPort = on) }
+        log.add(
+            ActivityKind.SESSION,
+            if (on) "You let full ADB work on mobile data (port ${io.github.aspershupadhyay.latch.data.ADB_FIXED_PORT}, until restart)" else "You closed full ADB's mobile-data port",
+            by = ActivityActor.OWNER,
+        )
+        if (on) {
+            if (reply?.contains("restarting", ignoreCase = true) == true || reply?.contains("${io.github.aspershupadhyay.latch.data.ADB_FIXED_PORT}") == true) {
+                "Full ADB now also works on mobile data, until this phone restarts."
+            } else {
+                "adbd answered: ${reply?.take(120)?.trim().orEmpty()}"
+            }
+        } else {
+            "The mobile-data port is closed."
+        }
+    }
+
     /** Turns full ADB access off and forgets the paired endpoint. */
     fun unpairAdb() {
+        if (settings.preferences.value.adbFixedPort) scope.launch { setAdbFixedPort(false) }
         settings.update { it.copy(adbEndpoint = null, enabled = it.enabled - Capability.ADB_SHELL) }
         log.add(ActivityKind.SESSION, "You turned off full ADB access", by = ActivityActor.OWNER)
     }

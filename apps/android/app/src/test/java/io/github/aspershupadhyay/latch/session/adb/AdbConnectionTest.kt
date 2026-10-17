@@ -61,6 +61,11 @@ class AdbConnectionTest {
                 val remote = 100 + client
                 val service = String(message.payload, Charsets.UTF_8).trimEnd('\u0000')
                 val command = service.substringAfter("shell,v2,raw:")
+                // A service adbd does not offer is refused before it opens.
+                if (command == "nope:") {
+                    send(AdbMessage.of(AdbProtocol.A_CLSE, 0, client))
+                    continue
+                }
                 send(AdbMessage.of(AdbProtocol.A_OKAY, remote, client))
                 serveCommand(command, client, remote, serverIn, ::send)
             }
@@ -84,6 +89,16 @@ class AdbConnectionTest {
             send(AdbMessage.of(AdbProtocol.A_CLSE, remote, client))
         }
         when {
+            // R29 (b): adbd answers, then restarts and drops every connection.
+            command == "tcpip:5555" -> {
+                send(AdbMessage.of(AdbProtocol.A_WRTE, remote, client, "restarting in TCP mode port: 5555\n".toByteArray()))
+                throw java.io.IOException("adbd restarting")
+            }
+            command == "usb:" -> {
+                send(AdbMessage.of(AdbProtocol.A_WRTE, remote, client, "restarting in USB mode\n".toByteArray()))
+                AdbMessage.read(serverIn) // OKAY
+                send(AdbMessage.of(AdbProtocol.A_CLSE, remote, client))
+            }
             command.startsWith("echo ") -> { writeOut((command.removePrefix("echo ") + "\n").toByteArray()); finish(0) }
             command == "cat" -> {
                 val stdin = StringBuilder()
@@ -125,15 +140,19 @@ class AdbConnectionTest {
     private fun shellPacket(id: Byte, data: ByteArray): ByteArray =
         ByteBuffer.allocate(5 + data.size).order(ByteOrder.LITTLE_ENDIAN).put(id).putInt(data.size).put(data).array()
 
-    /** Wires a client executor whose every connection reaches a fresh fake adbd over two pipes. */
-    private fun executor(jobDir: java.io.File? = null, onError: (Throwable) -> Unit): AdbShellExecutor = AdbShellExecutor(jobDir) {
+    /** A client connection to a fresh fake adbd over two pipes. */
+    private fun connection(onError: (Throwable) -> Unit): AdbConnection {
         val toServer = PipedOutputStream()
         val serverIn = PipedInputStream(toServer, 4 * 1024 * 1024)
         val toClient = PipedOutputStream()
         val clientIn = PipedInputStream(toClient, 4 * 1024 * 1024)
         fakeAdbd(serverIn, toClient, onError)
-        AdbConnection(clientIn, toServer, key)
+        return AdbConnection(clientIn, toServer, key)
     }
+
+    /** Wires a client executor whose every connection reaches a fresh fake adbd. */
+    private fun executor(jobDir: java.io.File? = null, onError: (Throwable) -> Unit): AdbShellExecutor =
+        AdbShellExecutor(jobDir) { connection(onError) }
 
     private fun adb(command: String? = null, stdin: String? = null, continueFrom: String? = null) =
         Command.AdbShell(commandLine = command, stdin = stdin, timeoutMs = 0, continueFrom = continueFrom)
@@ -394,5 +413,32 @@ class AdbConnectionTest {
         assertEquals(1, AdbShellExecutor.utf8Prefix("a".toByteArray() + euro.copyOf(2)))
         assertEquals(4, AdbShellExecutor.utf8Prefix("a".toByteArray() + euro))
         assertEquals(0, AdbShellExecutor.utf8Prefix(ByteArray(0)))
+    }
+
+    // ---- R29 (b): services ----
+
+    @Test fun tcpipAnswersEvenThoughAdbdDropsTheConnectionToRestart() {
+        // The fake adbd ends with the restart, as the real one does; that is not an error here.
+        connection { }.use { c ->
+            c.connect()
+            assertEquals("restarting in TCP mode port: 5555\n", c.service("tcpip:5555"))
+        }
+    }
+
+    @Test fun usbClosesThePortAndAnswers() {
+        var error: Throwable? = null
+        connection { error = it }.use { c ->
+            c.connect()
+            assertEquals("restarting in USB mode\n", c.service("usb:"))
+        }
+        error?.let { throw it }
+    }
+
+    @Test fun aRefusedServiceIsAnError() {
+        connection { }.use { c ->
+            c.connect()
+            val e = runCatching { c.service("nope:") }.exceptionOrNull()
+            assertTrue("$e", e is AdbProtocolException)
+        }
     }
 }

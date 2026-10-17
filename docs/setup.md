@@ -154,7 +154,9 @@ For developers and power users: let your AI app run any `adb shell` command on t
 4. Or, without notifications: open Latch and Settings **side by side** (split screen), open **Pair device with a code** in Settings, type the 6 digits in Latch, and tap **Pair**. If Latch can't find the pairing service, type the address shown under the code (for example `192.168.1.20:37123`).
 5. When it says **Paired**, ask your AI: *"Run `getprop ro.product.model` on my phone with adb."*
 
-Android moves wireless debugging to a new port after a restart; Latch finds it again by itself as long as **Wireless debugging** is on. To revoke, tap **Turn off** in Latch and forget Latch under **Wireless debugging → Paired devices**. Details and limits: [the `adb` tool](tools.md#full-access-adb-adb).
+Android moves wireless debugging to a new port after a restart; Latch finds it again by itself as long as **Wireless debugging** is on.
+
+Wireless debugging needs Wi-Fi. To keep full ADB working on mobile data too, switch on **Keep working on mobile data** under Full ADB access while you are still on Wi-Fi. It does what `adb tcpip 5555` does, until the phone restarts. While it is on, other devices that can reach your phone, for example on public Wi-Fi, can try ADB as well: they get in only with a key you allowed (an unknown one makes Android ask you). Switch it off to close the port at once ([ADR-050](adr/README.md#adr-050--full-adb-on-mobile-data-an-opt-in-fixed-port-until-restart)). To revoke, tap **Turn off** in Latch and forget Latch under **Wireless debugging → Paired devices**. Details and limits: [the `adb` tool](tools.md#full-access-adb-adb).
 
 ## Step 8: Start a session and try it
 

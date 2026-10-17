@@ -151,6 +151,39 @@ internal class AdbConnection(
         }
     }
 
+    /**
+     * Runs one ADB service such as `tcpip:5555` or `usb:` and returns what
+     * adbd wrote back. Services that restart adbd close the connection right
+     * after answering, so the end of the stream counts as the end of the reply.
+     */
+    fun service(name: String): String {
+        val localId = nextLocalId++
+        send(AdbMessage.of(AdbProtocol.A_OPEN, localId, 0, "$name\u0000"))
+        val reply = StringBuilder()
+        var remoteId = 0
+        while (true) {
+            val message = try {
+                AdbMessage.read(input)
+            } catch (e: java.io.IOException) {
+                if (reply.isNotEmpty()) return reply.toString() else throw e
+            }
+            if (message.arg1 != localId) continue
+            when {
+                message.isCommand(AdbProtocol.A_OKAY) -> remoteId = message.arg0
+                message.isCommand(AdbProtocol.A_WRTE) -> {
+                    reply.append(String(message.payload, Charsets.UTF_8))
+                    runCatching { send(AdbMessage.of(AdbProtocol.A_OKAY, localId, remoteId)) }
+                }
+                message.isCommand(AdbProtocol.A_CLSE) -> {
+                    if (remoteId == 0) throw AdbProtocolException("adbd refused the service $name")
+                    runCatching { send(AdbMessage.of(AdbProtocol.A_CLSE, localId, remoteId)) }
+                    return reply.toString()
+                }
+                else -> throw AdbProtocolException("unexpected reply to $name: ${message.command}")
+            }
+        }
+    }
+
     /** Sends one shell-protocol packet inside a WRTE, waiting for adbd's flow-control OKAY. */
     private fun writeShellPacket(localId: Int, remoteId: Int, id: Byte, data: ByteArray) {
         val framed = ByteBuffer.allocate(5 + data.size).order(ByteOrder.LITTLE_ENDIAN)
