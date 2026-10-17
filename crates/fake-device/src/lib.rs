@@ -117,6 +117,10 @@ pub struct FakeState {
     /// Lose the answer to the next command: run it, then drop the connection
     /// before the answer is sent, as a flaky network does.
     pub drop_next_answer: bool,
+    /// Lose the answer to the first command with this name (`latch-fake-device --lose-answer`).
+    pub lose_answer_to: Option<String>,
+    /// How many answers were lost this way, so the binary knows to reconnect.
+    pub lost_answers: u32,
     /// The protocol version the hello announces; `None` for this crate's.
     /// A phone below 1.19 does not remember answers and runs every id it gets.
     pub hello_protocol: Option<String>,
@@ -194,9 +198,19 @@ async fn answer(state: &Shared, envelope: &CommandEnvelope) -> Outcome {
     outcome
 }
 
-/// True once: the test asked to lose this answer (see [`FakeState::drop_next_answer`]).
-fn lose_answer(state: &Shared) -> bool {
-    std::mem::take(&mut lock(state).drop_next_answer)
+/// True once: the test asked to lose this answer (see [`FakeState::drop_next_answer`]
+/// and [`FakeState::lose_answer_to`]).
+fn lose_answer(state: &Shared, envelope: &CommandEnvelope) -> bool {
+    let mut s = lock(state);
+    let named = s.lose_answer_to.as_deref() == Some(envelope.command.name());
+    if named {
+        s.lose_answer_to = None;
+    }
+    let lose = std::mem::take(&mut s.drop_next_answer) || named;
+    if lose {
+        s.lost_answers += 1;
+    }
+    lose
 }
 
 /// Output of an `adb.shell` command that did not fit one frame and is being
@@ -261,6 +275,8 @@ impl FakeState {
             answers: Answers::default(),
             replayed: Vec::new(),
             drop_next_answer: false,
+            lose_answer_to: None,
+            lost_answers: 0,
             hello_protocol: None,
             latest: None,
             observation_counter: 0,
@@ -1447,7 +1463,7 @@ pub async fn run(
             }
             GatewayToDevice::Command(envelope) => {
                 let outcome = answer(&state, &envelope).await;
-                if lose_answer(&state) {
+                if lose_answer(&state, &envelope) {
                     // The answer is lost with the connection; the phone remembers it.
                     return Ok(());
                 }
@@ -1569,7 +1585,7 @@ pub async fn run_poll(
                 match serde_json::from_str::<GatewayToDevice>(&body).map_err(protocol)? {
                     GatewayToDevice::Command(envelope) => {
                         let outcome = answer(&state, &envelope).await;
-                        if lose_answer(&state) {
+                        if lose_answer(&state, &envelope) {
                             // The answer is lost with the connection; the phone remembers it.
                             return Ok(());
                         }
