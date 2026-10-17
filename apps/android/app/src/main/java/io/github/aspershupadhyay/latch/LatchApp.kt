@@ -175,6 +175,12 @@ class LatchApp : Application() {
                 description = getString(R.string.channel_session_description)
             },
         )
+        // High, so the box shows over Settings' pairing dialog (R29 c).
+        manager.createNotificationChannel(
+            NotificationChannel(AdbPairingNotice.CHANNEL, getString(R.string.channel_pairing), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = getString(R.string.channel_pairing_description)
+            },
+        )
     }
 
     /** Keeps the overlay, the approval card, and the ongoing notification in step with the session. */

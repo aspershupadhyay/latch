@@ -11,6 +11,15 @@
     <string name="notification_paused">Paused. The AI client can do nothing until you resume.</string>
     <string name="notification_connecting">Connecting to your gateway…</string>
     <string name="action_stop">Stop</string>
+    <string name="channel_pairing">Full ADB pairing</string>
+    <string name="channel_pairing_description">A box to type the wireless-debugging pairing code without leaving Settings.</string>
+    <string name="pairing_notice_title">Type the pairing code here</string>
+    <string name="pairing_notice_text">In Wireless debugging, tap Pair device with a code. Leave that code on screen, pull this down, tap Enter code, and type the 6 digits.</string>
+    <string name="pairing_code_label">6-digit pairing code</string>
+    <string name="pairing_code_action">Enter code</string>
+    <string name="pairing_notice_bad_code">That is not a 6-digit code. Tap Enter code and type the 6 digits Android shows.</string>
+    <string name="pairing_notice_working">Pairing… keep the code on screen.</string>
+    <string name="pairing_notice_slow">Pairing is taking long. Keep the code on screen and try again, or pair from the Access tab.</string>
     <string name="channel_updates">App updates</string>
     <string name="channel_updates_description">Says when Latch has updated itself.</string>
     <string name="notification_updated">Latch updated to %1$s</string>

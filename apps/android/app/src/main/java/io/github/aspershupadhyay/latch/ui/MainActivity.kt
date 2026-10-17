@@ -577,6 +577,10 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         }
     }
     var photosAllowed by remember { mutableStateOf(app.files.photosAllowed()) }
+    // R29 (c): the pairing box lives in a notification.
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) io.github.aspershupadhyay.latch.AdbPairingNotice.show(context)
+    }
     val askPhotos = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         photosAllowed = app.files.photosAllowed()
         // Already answered "don't ask again": the owner changes it in Android's settings.
@@ -607,6 +611,25 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         adbWirelessAvailable = app.session.adbWirelessAvailable(),
         onPairAdb = { code, host, port -> app.session.pairAdb(code, host, port) },
         onUnpairAdb = app.session::unpairAdb,
+        onPairFromNotification = {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                false
+            } else if (io.github.aspershupadhyay.latch.AdbPairingNotice.show(context)) {
+                // Developer options; Wireless debugging is one tap inside (it has no public intent of its own).
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+                true
+            } else {
+                false
+            }
+        },
         onAllowPhotos = {
             askPhotos.launch(
                 when {

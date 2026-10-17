@@ -150,8 +150,8 @@ For developers and power users: let your AI app run any `adb shell` command on t
 
 1. Turn on **Developer options** (Settings → About phone → tap **Build number** seven times), then **Developer options → Wireless debugging** → on. Your phone must be on Wi-Fi.
 2. In Latch, open **Access → Full ADB access** and switch it on.
-3. Open Latch and Settings **side by side** (split screen). In Settings tap **Wireless debugging → Pair device with a code** and leave the code on screen: Android closes it when you leave Settings.
-4. In Latch, type the 6-digit code and tap **Pair**. Latch finds the phone's own pairing service by itself; if it can't, type the address shown under the code (for example `192.168.1.20:37123`).
+3. Tap **Pair from a notification**. Latch puts a box in your notifications and opens Developer options. Tap **Wireless debugging → Pair device with a code**, and while the code is on screen pull down the notifications, tap **Enter code** on Latch's box, and type the 6 digits. You never leave the dialog, so Android keeps the code open. Latch finds the phone's pairing service by itself and says **Paired** in the notification. A wrong code: tap **Enter code** again.
+4. Or, without notifications: open Latch and Settings **side by side** (split screen), open **Pair device with a code** in Settings, type the 6 digits in Latch, and tap **Pair**. If Latch can't find the pairing service, type the address shown under the code (for example `192.168.1.20:37123`).
 5. When it says **Paired**, ask your AI: *"Run `getprop ro.product.model` on my phone with adb."*
 
 Android moves wireless debugging to a new port after a restart; Latch finds it again by itself as long as **Wireless debugging** is on. To revoke, tap **Turn off** in Latch and forget Latch under **Wireless debugging → Paired devices**. Details and limits: [the `adb` tool](tools.md#full-access-adb-adb).

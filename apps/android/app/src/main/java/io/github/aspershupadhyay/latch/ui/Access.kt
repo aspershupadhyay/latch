@@ -186,6 +186,8 @@ fun CapabilitiesScreen(
     adbWirelessAvailable: Boolean = false,
     onPairAdb: suspend (code: String, host: String?, port: Int?) -> String = { _, _, _ -> "" },
     onUnpairAdb: () -> Unit = {},
+    /** R29 (c): puts the pairing box in a notification and opens Developer options; false without notifications. */
+    onPairFromNotification: () -> Boolean = { false },
     /** The open group page, hoisted so it survives a trip to the Apps list. */
     openGroup: AccessGroup? = null,
     onOpenGroup: ((AccessGroup?) -> Unit)? = null,
@@ -230,7 +232,7 @@ fun CapabilitiesScreen(
                     }
                     AccessGroup.ADB -> {
                         CapabilityList(current, enabled, onToggle)
-                        AdbPairing(adbEndpoint, adbWirelessAvailable, onPairAdb, onUnpairAdb)
+                        AdbPairing(adbEndpoint, adbWirelessAvailable, onPairAdb, onUnpairAdb, onPairFromNotification)
                     }
                     AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
                 }
@@ -598,6 +600,7 @@ private fun AdbPairing(
     available: Boolean,
     onPair: suspend (code: String, host: String?, port: Int?) -> String,
     onUnpair: () -> Unit,
+    onPairFromNotification: () -> Boolean,
 ) {
     val signal = LocalSignal.current
     SectionCaption("Wireless debugging")
@@ -622,10 +625,33 @@ private fun AdbPairing(
     // Not saveable: after a rotation the pairing coroutine is gone, so the button must be usable again.
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var noticeStatus by rememberSaveable { mutableStateOf<String?>(null) }
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                "Open Latch and Settings side by side (split screen). In Settings open Developer options → Wireless " +
+                "Easiest: tap below. Latch opens Developer options and puts a box in your notifications. Open " +
+                    "Wireless debugging → Pair device with a code, then pull down the notifications and type the " +
+                    "6 digits into Latch's box. The code stays on screen the whole time.",
+                style = MaterialTheme.typography.bodySmall,
+                color = signal.text2,
+            )
+            noticeStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = signal.text2) }
+            Button(
+                onClick = {
+                    noticeStatus = if (onPairFromNotification()) {
+                        null
+                    } else {
+                        "Latch cannot show notifications. Allow them in Android Settings → Apps → Latch → Notifications, or use the form below."
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Pair from a notification" },
+            ) { Text("Pair from a notification") }
+        }
+    }
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "Or open Latch and Settings side by side (split screen). In Settings open Developer options → Wireless " +
                     "debugging → Pair device with a code, and keep that code on screen: Android closes it when you leave. " +
                     "Type the 6-digit code here. Leave the address blank to find the phone automatically, or enter the " +
                     "pairing address it shows (host:port).",
