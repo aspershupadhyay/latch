@@ -726,6 +726,15 @@ async fn execute_inner(
                 continue_from: Some(_),
                 ..
             } => COMMAND_DEADLINE_MS,
+            // Since 1.20: a job starts and answers at once; collecting waits up to wait_ms.
+            Command::AdbShell {
+                background: true, ..
+            } => COMMAND_DEADLINE_MS,
+            Command::AdbShell {
+                job: Some(_),
+                wait_ms,
+                ..
+            } => wait_ms.saturating_add(COMMAND_DEADLINE_MS),
             Command::AdbShell { timeout_ms, .. } if *timeout_ms > 0 => *timeout_ms,
             Command::AdbShell { .. } => NO_DEADLINE_MS,
             // The owner needs time for an approval, and for whatever they were asked to do.

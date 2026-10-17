@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0320", "deadline_ms": 20000, "command": { "name": "adb.shell", "params": { "command_line": "logcat -d > /data/local/tmp/log.txt; wc -l /data/local/tmp/log.txt", "background": true } } }

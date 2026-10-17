@@ -1199,7 +1199,7 @@
           ]
         },
         {
-          "description": "Since 1.17 (ADR-046, R27): run one ADB shell command line on the\nselected device in the owner-enabled full-access ADB mode. The line is\npassed to the device's ADB executor unchanged — Latch applies no\nallowlist, per-command approval, or output filter in this mode. `stdin`\nis optional data piped to the command. `timeout_ms` is a deadline the\n*caller* may request; Latch imposes none of its own (0 means none).\nWhen output does not fit one frame the device returns a chunk with a\n`cursor`; send `adb.shell` again with that `continue_from` (and no\n`command_line`) for the next chunk. Answers with an [`crate::AdbResult`].",
+          "description": "Since 1.17 (ADR-046, R27): run one ADB shell command line on the\nselected device in the owner-enabled full-access ADB mode. The line is\npassed to the device's ADB executor unchanged — Latch applies no\nallowlist, per-command approval, or output filter in this mode. `stdin`\nis optional data piped to the command. `timeout_ms` is a deadline the\n*caller* may request; Latch imposes none of its own (0 means none).\nWhen output does not fit one frame the device returns a chunk with a\n`cursor`; send `adb.shell` again with that `continue_from` (and no\n`command_line`) for the next chunk. Answers with an [`crate::AdbResult`].\n\nSince 1.20 (ADR-049, R29 d) a command can run as a job: `background`\nwith `command_line` starts it and answers at once with its `job` id;\n`job` (instead of `command_line`) collects the output written since the\nlast collection, waiting up to `wait_ms` for the job to finish, and\n`cancel` with `job` ends it. The job keeps running on the phone between\ncalls and across reconnects, so a command can outlive any one request.",
           "type": "object",
           "properties": {
             "name": {
@@ -1209,8 +1209,16 @@
             "params": {
               "type": "object",
               "properties": {
+                "background": {
+                  "description": "Since 1.20: start `command_line` as a job and answer with its id at once.",
+                  "type": "boolean"
+                },
                 "base64": {
                   "description": "Since 1.18: return stdout as base64 of the exact bytes, for binary\noutput (`screencap -p`, `cat` of an image). stderr stays text.",
+                  "type": "boolean"
+                },
+                "cancel": {
+                  "description": "Since 1.20, with `job`: end the job; the answer has what was left unread.",
                   "type": "boolean"
                 },
                 "command_line": {
@@ -1225,6 +1233,13 @@
                     "null"
                   ]
                 },
+                "job": {
+                  "description": "Since 1.20: the job to collect (or cancel), from a `background` answer.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "stdin": {
                   "type": [
                     "string",
@@ -1232,6 +1247,12 @@
                   ]
                 },
                 "timeout_ms": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "wait_ms": {
+                  "description": "Since 1.20, with `job`: how long to wait for the job to finish\nbefore answering with the output so far (0: answer at once).",
                   "type": "integer",
                   "format": "uint32",
                   "minimum": 0

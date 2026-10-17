@@ -1,0 +1,1 @@
+{ "type": "result", "id": "c_0321", "outcome": { "status": "ok", "data": { "stdout": "1532 /data/local/tmp/log.txt\n", "stderr": "", "exit_code": 0, "job": "adbj_3", "job_state": "finished" } } }

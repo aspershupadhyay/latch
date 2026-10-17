@@ -1468,7 +1468,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.19, 38 tools.",
+        lines[0], "Latch gateway, protocol 1.20, 38 tools.",
         "{devices}"
     );
     let lines = &lines[1..];
@@ -3328,12 +3328,88 @@ async fn the_phone_check_passes_on_the_fake_phone_and_its_report_keeps_nothing_p
     assert!(report.passed());
     let markdown = report.markdown(phone_check::now_s());
     assert!(
-        markdown.contains("Phone: Latch fake phone, app protocol 1.19"),
+        markdown.contains("Phone: Latch fake phone, app protocol 1.20"),
         "{markdown}"
     );
     assert!(!markdown.contains("Sparsh"), "no phone name: {markdown}");
     assert!(
         markdown.contains("| Rotate gesture | R28 | PASS |"),
         "{markdown}"
+    );
+}
+
+/// R29 (d), ADR-049: a command that runs longer than one call waits starts as
+/// a job, keeps running on the phone, and is collected later, exit code and
+/// all; a job can be cancelled; an older phone is told to update.
+#[tokio::test]
+async fn an_adb_job_starts_runs_on_the_phone_and_is_collected_later() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &[Capability::AdbShell]).await;
+
+    let (is_error, started, _) = call(
+        &gw,
+        "adb",
+        json!({"command": "sleep 1; echo built", "background": true}),
+    )
+    .await;
+    assert!(!is_error, "{started}");
+    let job = started
+        .split_whitespace()
+        .nth(2)
+        .expect("Started job <id>")
+        .to_owned();
+    assert!(
+        started.starts_with(&format!("Started job {job} on the phone.")),
+        "{started}"
+    );
+
+    let (_, now, _) = call(&gw, "adb", json!({"job": job})).await;
+    assert!(
+        now.starts_with(&format!("job {job} still running")),
+        "{now}"
+    );
+
+    let (is_error, done, _) = call(&gw, "adb", json!({"job": job, "wait_ms": 5000})).await;
+    assert!(!is_error, "{done}");
+    assert!(
+        done.starts_with(&format!("job {job} finished, exit code 0")),
+        "{done}"
+    );
+    assert!(done.contains("--- stdout ---\nbuilt\n"), "{done}");
+
+    // Collected and finished: the id is gone.
+    let (is_error, gone, _) = call(&gw, "adb", json!({"job": job})).await;
+    assert!(is_error && gone.contains("no such adb job"), "{gone}");
+
+    let (_, long, _) = call(
+        &gw,
+        "adb",
+        json!({"command": "sleep 60; echo never", "background": true}),
+    )
+    .await;
+    let long = long.split_whitespace().nth(2).expect("id").to_owned();
+    let (is_error, cancelled, _) = call(&gw, "adb", json!({"job": long, "cancel": true})).await;
+    assert!(
+        !is_error && cancelled.starts_with(&format!("job {long} cancelled")),
+        "{cancelled}"
+    );
+
+    let (is_error, both, _) = call(&gw, "adb", json!({"command": "id", "job": job})).await;
+    assert!(
+        is_error && both.contains("exactly one of command, continue_from, or job"),
+        "{both}"
+    );
+    drop(phone);
+
+    // A phone before 1.20 cannot hold a job.
+    let gw = start_gateway().await;
+    let mut old = FakeState::new(&[Capability::AdbShell]);
+    old.hello_protocol = Some("1.19".into());
+    let _old = connect_phone_as(&gw, old, Transport::WebSocket, "Old phone").await;
+    let (is_error, refused, _) =
+        call(&gw, "adb", json!({"command": "id", "background": true})).await;
+    assert!(
+        is_error && refused.contains("too old for adb.shell"),
+        "{refused}"
     );
 }
