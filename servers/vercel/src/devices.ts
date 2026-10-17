@@ -15,6 +15,12 @@ import type { BatchOp, Store } from "./store.js";
 export const COMMAND_DEADLINE_MS = 20_000;
 export const CONFIRM_DEADLINE_MS = 120_000;
 export const POLL_STALE_MS = 45_000;
+/**
+ * Longest a full-access `adb.shell` command can run through this gateway: a
+ * Vercel function ends at its 300 s `maxDuration` (vercel.json). This is the
+ * platform's limit, not a Latch policy (ADR-046); the Rust gateway has none.
+ */
+export const ADB_PLATFORM_MAX_MS = 280_000;
 const QUEUE_WAIT_MS = 30_000;
 const OBSERVATION_TTL_MS = 120_000;
 /** A full screen stays the base for changes this long (R5); after that the next screen is shown in full. */
@@ -483,8 +489,12 @@ export class Devices {
     if (decision.kind === "deny") throw decision.error;
     setDecision(decision.kind);
     const confirm: ConfirmRequest | undefined = decision.kind === "confirm" ? decision.request : undefined;
-    // The owner needs time for an approval, and for whatever they were asked to do.
-    const deadlineMs = confirm || resume || command.name === "owner.ask" ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
+    const deadlineMs = command.name === "adb.shell"
+      // ADR-046: no Latch-imposed deadline for full-access ADB, only one the caller
+      // asked for, bounded by what a Vercel function can wait (platform limit).
+      ? (command.params.continue_from !== undefined ? COMMAND_DEADLINE_MS : Math.min(command.params.timeout_ms || ADB_PLATFORM_MAX_MS, ADB_PLATFORM_MAX_MS))
+      // The owner needs time for an approval, and for whatever they were asked to do.
+      : confirm || resume || command.name === "owner.ask" ? CONFIRM_DEADLINE_MS : COMMAND_DEADLINE_MS;
     const enabled = (c: string) => live.capabilities.some((s) => s.capability === c && s.status === "enabled");
     let observeAfter: ObserveAfter | undefined;
     if (options.observeAfter && changesScreen(command) && minor >= 2 && enabled("ui.observe")) {
@@ -503,6 +513,8 @@ export class Devices {
     const send: BatchOp[] = [];
     // Whatever happens next, the old screen can no longer be trusted.
     if (changesScreen(command)) send.push({ op: "del", key: K.observation(id) });
+    // A long command keeps the phone's lock for as long as it may run.
+    if (deadlineMs > CONFIRM_DEADLINE_MS) send.push({ op: "pexpire", key: K.lock(id), px: deadlineMs + 15_000 });
     send.push(
       { op: "set", key: K.pending(commandId), value: JSON.stringify({ device: id, conn: live.conn }), px: deadlineMs + 10_000 },
       { op: "lpush", key: K.queue(id, live.conn), value: JSON.stringify(envelope), px: deadlineMs + 10_000 },

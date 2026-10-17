@@ -39,8 +39,8 @@ before(async () => {
 
 after(() => {
   phone?.kill();
-  server.close();
-  rmSync(work, { recursive: true, force: true });
+  server?.close();
+  if (work) rmSync(work, { recursive: true, force: true });
 });
 
 async function api(path: string, init: RequestInit = {}) {

@@ -2,8 +2,15 @@
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 package io.github.aspershupadhyay.latch.session.adb
 
+import io.github.aspershupadhyay.latch.protocol.AdbResult
 import io.github.aspershupadhyay.latch.protocol.Command
+import io.github.aspershupadhyay.latch.protocol.ErrorCode
+import io.github.aspershupadhyay.latch.protocol.ProtocolException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -93,6 +100,16 @@ class AdbConnectionTest {
                 writeOut(stdin.toString().toByteArray()); finish(0)
             }
             command == "big" -> { writeOut(ByteArray(1_000_000) { 'x'.code.toByte() }); finish(0) }
+            // 2-byte characters across chunk edges, and control bytes that JSON escapes to 6 bytes.
+            command == "bigutf" -> { writeOut("é".repeat(500_000).toByteArray()); finish(0) }
+            command == "nul" -> { writeOut(ByteArray(300_000)); finish(0) }
+            command == "bigerr" -> {
+                send(AdbMessage.of(AdbProtocol.A_WRTE, remote, client, shellPacket(ShellProtocol.ID_STDERR, ByteArray(1_000_000) { 'e'.code.toByte() })))
+                AdbMessage.read(serverIn)
+                finish(1)
+            }
+            // Never finishes: only cancellation (which closes the connection) ends it.
+            command == "hang" -> Unit
             else -> {
                 send(AdbMessage.of(AdbProtocol.A_WRTE, remote, client, shellPacket(ShellProtocol.ID_STDERR, "not found\n".toByteArray())))
                 AdbMessage.read(serverIn)
@@ -104,14 +121,14 @@ class AdbConnectionTest {
     private fun shellPacket(id: Byte, data: ByteArray): ByteArray =
         ByteBuffer.allocate(5 + data.size).order(ByteOrder.LITTLE_ENDIAN).put(id).putInt(data.size).put(data).array()
 
-    /** Wires a client executor to a fresh fake adbd over two pipes. */
-    private fun executor(onError: (Throwable) -> Unit): AdbShellExecutor {
+    /** Wires a client executor whose every connection reaches a fresh fake adbd over two pipes. */
+    private fun executor(onError: (Throwable) -> Unit): AdbShellExecutor = AdbShellExecutor {
         val toServer = PipedOutputStream()
         val serverIn = PipedInputStream(toServer, 4 * 1024 * 1024)
         val toClient = PipedOutputStream()
         val clientIn = PipedInputStream(toClient, 4 * 1024 * 1024)
         fakeAdbd(serverIn, toClient, onError)
-        return AdbShellExecutor { AdbConnection(clientIn, toServer, key) }
+        AdbConnection(clientIn, toServer, key)
     }
 
     private fun adb(command: String? = null, stdin: String? = null, continueFrom: String? = null) =
@@ -162,5 +179,119 @@ class AdbConnectionTest {
         }
         assertEquals(1_000_000, total.length)
         assertTrue(total.all { it == 'x' })
+    }
+
+    /** Reads a whole result through its cursors, checking every frame fits the gateway's frame budget. */
+    private fun drain(exec: AdbShellExecutor, command: String): Pair<AdbResult, AdbResult> {
+        var frame = runBlocking { exec.run(adb(command)) }
+        val out = StringBuilder()
+        val err = StringBuilder()
+        while (true) {
+            val encoded = Json.encodeToString(AdbResult.serializer(), frame.copy(cursor = null, exitCode = null))
+            assertTrue("frame of ${encoded.toByteArray().size} bytes", encoded.toByteArray().size <= AdbShellExecutor.CHUNK_BYTES + 64)
+            out.append(frame.stdout)
+            err.append(frame.stderr)
+            val cursor = frame.cursor ?: break
+            assertNull(frame.exitCode)
+            frame = runBlocking { exec.run(adb(continueFrom = cursor)) }
+        }
+        return AdbResult(out.toString(), err.toString(), frame.exitCode) to frame
+    }
+
+    @Test fun neverSplitsAMultibyteCharacterAcrossChunks() {
+        var error: Throwable? = null
+        val (all, _) = drain(executor { error = it }, "bigutf")
+        error?.let { throw it }
+        assertEquals("é".repeat(500_000), all.stdout)
+        assertEquals(0, all.exitCode)
+    }
+
+    @Test fun sizesChunksByTheirJsonEncodingSoControlBytesFit() {
+        var error: Throwable? = null
+        val (all, _) = drain(executor { error = it }, "nul")
+        error?.let { throw it }
+        assertEquals(300_000, all.stdout.length)
+        assertTrue(all.stdout.all { it == '\u0000' })
+    }
+
+    @Test fun chunksLargeStderrToo() {
+        var error: Throwable? = null
+        val (all, _) = drain(executor { error = it }, "bigerr")
+        error?.let { throw it }
+        assertEquals(1_000_000, all.stderr.length)
+        assertEquals(1, all.exitCode)
+    }
+
+    @Test fun cancellingARunningCommandClosesTheConnectionAtOnce() {
+        var error: Throwable? = null
+        val exec = executor { error = it }
+        runBlocking {
+            val running = async { exec.run(adb("hang")) }
+            delay(200)
+            running.cancel()
+            // Blocked socket IO ignores cancellation unless the connection is closed.
+            withTimeout(5_000) { running.join() }
+            assertTrue(running.isCancelled)
+        }
+        error?.let { throw it }
+    }
+
+    @Test fun anUnknownCursorIsAnInvalidRequest() {
+        val exec = executor { }
+        val e = runCatching { runBlocking { exec.run(adb(continueFrom = "adbc_404")) } }.exceptionOrNull()
+        assertTrue(e is ProtocolException && e.code == ErrorCode.INVALID_REQUEST)
+    }
+
+    @Test fun abandonedResultsAreDroppedOldestFirst() {
+        val exec = executor { }
+        val cursors = (1..AdbShellExecutor.MAX_PENDING + 1).map { runBlocking { exec.run(adb("big")) }.cursor!! }
+        val oldest = runCatching { runBlocking { exec.run(adb(continueFrom = cursors.first())) } }.exceptionOrNull()
+        assertTrue(oldest is ProtocolException)
+        assertEquals(0, runBlocking { exec.run(adb(continueFrom = cursors.last())) }.exitCode)
+    }
+
+    @Test fun keepsSurrogatePairsWhole() {
+        val text = "a\uD83D\uDE00b" // a, one emoji (two UTF-16 units), b
+        assertEquals(1, AdbShellExecutor.fitting(text, 0, 4))
+        assertEquals(3, AdbShellExecutor.fitting(text, 0, 5))
+        assertEquals(6, AdbShellExecutor.jsonSize(text, 0, text.length))
+    }
+
+    /** Wireless debugging: adbd answers CNXN with STLS, and the handshake continues over TLS. */
+    @Test fun upgradesToTlsWhenAdbdAsks() {
+        val toServer = PipedOutputStream()
+        val serverIn = PipedInputStream(toServer, 1 shl 16)
+        val toClient = PipedOutputStream()
+        val clientIn = PipedInputStream(toClient, 1 shl 16)
+        var upgraded = false
+        var error: Throwable? = null
+        val server = thread {
+            try {
+                fun send(m: AdbMessage) { toClient.write(m.encode()); toClient.flush() }
+                assertTrue(AdbMessage.read(serverIn).isCommand(AdbProtocol.A_CNXN))
+                send(AdbMessage.of(AdbProtocol.A_STLS, AdbProtocol.STLS_VERSION, 0))
+                val reply = AdbMessage.read(serverIn)
+                assertTrue(reply.isCommand(AdbProtocol.A_STLS))
+                assertEquals(AdbProtocol.STLS_VERSION, reply.arg0)
+                // Over "TLS" (the same pipes here) adbd trusts the paired certificate and connects.
+                send(AdbMessage.of(AdbProtocol.A_CNXN, AdbProtocol.CONNECT_VERSION, AdbProtocol.MAX_PAYLOAD, "device::\u0000"))
+            } catch (t: Throwable) { error = t }
+        }
+        val connection = AdbConnection(clientIn, toServer, key, startTls = { upgraded = true; clientIn to toServer })
+        connection.connect()
+        server.join(5_000)
+        error?.let { throw it }
+        assertTrue(upgraded)
+        assertEquals("device::", connection.peerBanner)
+    }
+
+    @Test fun refusesStlsWithoutATlsTransport() {
+        val toServer = PipedOutputStream()
+        PipedInputStream(toServer, 1 shl 16)
+        val toClient = PipedOutputStream()
+        val clientIn = PipedInputStream(toClient, 1 shl 16)
+        toClient.write(AdbMessage.of(AdbProtocol.A_STLS, AdbProtocol.STLS_VERSION, 0).encode())
+        val e = runCatching { AdbConnection(clientIn, toServer, key).connect() }.exceptionOrNull()
+        assertTrue(e is AdbProtocolException)
     }
 }

@@ -22,16 +22,34 @@ import javax.net.ssl.X509TrustManager
  * Conscrypt; its exporter is reached reflectively, as it has no public JCA API.
  */
 internal object AdbTls {
-    private const val HANDSHAKE_TIMEOUT_MS = 10_000
+    /** Bounds connecting, the TLS handshake, and pairing/auth reads; never a running command. */
+    const val HANDSHAKE_TIMEOUT_MS = 10_000
 
-    /** Opens a TLS 1.3 socket to [host]:[port] presenting [key]'s client certificate. */
+    /**
+     * Opens a TLS 1.3 socket to [host]:[port] presenting [key]'s client
+     * certificate. Reads time out after [HANDSHAKE_TIMEOUT_MS] so a silent peer
+     * cannot hang setup; a caller that streams a command sets `soTimeout = 0`
+     * once authenticated.
+     */
     fun socket(key: AdbKey, host: String, port: Int): SSLSocket {
         val raw = Socket()
         raw.connect(InetSocketAddress(host, port), HANDSHAKE_TIMEOUT_MS)
+        raw.soTimeout = HANDSHAKE_TIMEOUT_MS
+        return upgrade(key, raw, host, port)
+    }
+
+    /**
+     * Switches an open plain connection to TLS 1.3 in place, presenting [key]'s
+     * client certificate: the pairing port does this at once, the connect port
+     * after adbd's `STLS`. Closing the returned socket closes [raw] too.
+     */
+    fun upgrade(key: AdbKey, raw: Socket, host: String, port: Int): SSLSocket {
         val socket = sslContext(key).socketFactory
             .createSocket(raw, host, port, true) as SSLSocket
         socket.enabledProtocols = arrayOf("TLSv1.3")
         socket.useClientMode = true
+        // Some TLS socket types keep their own read timeout: bound the handshake on both.
+        socket.soTimeout = HANDSHAKE_TIMEOUT_MS
         socket.startHandshake()
         return socket
     }

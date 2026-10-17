@@ -26,6 +26,10 @@ use crate::{AppState, audit::AuditEvent, now_ms, secret};
 pub const COMMAND_DEADLINE_MS: u32 = 20_000;
 /// Time the phone gets when the owner must approve first.
 pub const CONFIRM_DEADLINE_MS: u32 = 120_000;
+/// The deadline of a full-access `adb.shell` command whose caller set none
+/// (ADR-046): in effect unlimited. The command still ends when the phone
+/// disconnects, the owner stops it, or the caller goes away.
+pub const NO_DEADLINE_MS: u32 = u32::MAX;
 /// How long a command may wait behind other commands for the same device.
 const QUEUE_WAIT: Duration = Duration::from_secs(30);
 /// A polling phone that has not polled for this long is considered gone.
@@ -457,6 +461,35 @@ pub async fn execute_with(
 
 type Staged<T> = Result<(&'static str, T), (&'static str, ProtocolError)>;
 
+/// Cancels a sent command on the phone when dropped while still armed, which
+/// happens only when the future waiting for its answer is dropped (the MCP
+/// caller disconnected or cancelled). Every other path disarms it first.
+struct CancelOnDrop<'a> {
+    state: &'a AppState,
+    device_id: &'a str,
+    conn_id: u64,
+    id: Option<String>,
+}
+
+impl Drop for CancelOnDrop<'_> {
+    fn drop(&mut self) {
+        let Some(id) = self.id.take() else { return };
+        let tx = {
+            let mut live = self.state.devices.lock();
+            live.get_mut(self.device_id)
+                .filter(|l| l.conn_id == self.conn_id)
+                .map(|l| {
+                    l.pending.remove(&id);
+                    l.awaiting_owner.remove(&id);
+                    l.tx.clone()
+                })
+        };
+        if let Some(tx) = tx {
+            let _ = tx.try_send(GatewayToDevice::Cancel { id });
+        }
+    }
+}
+
 async fn execute_inner(
     state: &AppState,
     device_id: &str,
@@ -541,11 +574,20 @@ async fn execute_inner(
             Decision::Confirm(request) => ("confirm", Some(request)),
             Decision::Deny(error) => return Err(("deny", error)),
         };
-        // The owner needs time for an approval, and for whatever they were asked to do.
-        let deadline_ms = if confirm.is_some() || matches!(command, Command::AskOwner { .. }) {
-            CONFIRM_DEADLINE_MS
-        } else {
-            COMMAND_DEADLINE_MS
+        let deadline_ms = match &command {
+            // ADR-046: full-access ADB has no Latch-imposed deadline, only one
+            // the caller asked for. A continuation is answered from memory.
+            Command::AdbShell {
+                continue_from: Some(_),
+                ..
+            } => COMMAND_DEADLINE_MS,
+            Command::AdbShell { timeout_ms, .. } if *timeout_ms > 0 => *timeout_ms,
+            Command::AdbShell { .. } => NO_DEADLINE_MS,
+            // The owner needs time for an approval, and for whatever they were asked to do.
+            _ if confirm.is_some() || matches!(command, Command::AskOwner { .. }) => {
+                CONFIRM_DEADLINE_MS
+            }
+            _ => COMMAND_DEADLINE_MS,
         };
         if command.changes_screen() {
             // Whatever happens next, the old screen can no longer be trusted.
@@ -574,6 +616,15 @@ async fn execute_inner(
         (decision, deadline_ms, id, rx, l.conn_id, observe_after)
     };
 
+    // If the caller goes away (its request is dropped) before the phone answers,
+    // tell the phone to stop, so a long command does not hold its queue.
+    let mut abandon = CancelOnDrop {
+        state,
+        device_id,
+        conn_id,
+        id: Some(id.clone()),
+    };
+
     // A little grace on top of the device's own deadline for the network. A phone
     // that is waiting for the owner (protocol 1.4) gets one approval's worth more.
     let mut wait = Duration::from_millis(u64::from(deadline_ms) + 3_000);
@@ -590,6 +641,7 @@ async fn execute_inner(
             Err(_) => break None,
         }
     };
+    abandon.id = None;
     let outcome = match received {
         Some(outcome) => outcome,
         None => {

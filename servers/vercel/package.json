@@ -10,6 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "pretest": "cargo build --quiet -p latch-fake-device",
     "test": "tsx --test test/*.test.ts",
     "dev": "tsx src/local.ts",
     "smoke": "rm -rf .smoke && tsc --outDir .smoke --noEmit false && node scripts/smoke.mjs"

@@ -18,6 +18,7 @@ import io.github.aspershupadhyay.latch.policy.LabelReader
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.protocol.CapabilityState
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
+import io.github.aspershupadhyay.latch.protocol.Command
 import io.github.aspershupadhyay.latch.protocol.CommandEnvelope
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
 import io.github.aspershupadhyay.latch.protocol.HelloMessage
@@ -31,12 +32,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
@@ -94,12 +98,22 @@ class SessionController(
     /**
      * R27 (ADR-046): full-access ADB runs each command over a fresh connection
      * to the device's own adbd, reading the wireless-debugging endpoint fresh
-     * each time so re-pairing takes effect without a restart. Null (no key or
-     * no endpoint) leaves adb.shell refused as unsupported.
+     * each time so re-pairing takes effect without a restart. Android moves
+     * wireless debugging to a new port after a reboot or toggle; when the saved
+     * port refuses, the bridge finds the new one over mDNS and saves it, so
+     * reconnecting needs neither a cable nor a new pairing. Null (no key or no
+     * endpoint) leaves adb.shell refused as unsupported.
      */
     private val adbBridge: AdbShellBridge? = adbKey?.let { key ->
         io.github.aspershupadhyay.latch.session.adb.AdbShellExecutor {
-            io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(settings.preferences.value.adbEndpoint, key)
+            val saved = settings.preferences.value.adbEndpoint
+            try {
+                io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(saved, key)
+            } catch (e: java.io.IOException) {
+                val fresh = adbWireless?.connectEndpoint()?.takeIf { it != saved } ?: throw e
+                settings.update { it.copy(adbEndpoint = fresh) }
+                io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(fresh, key)
+            }
         }
     }
 
@@ -115,6 +129,8 @@ class SessionController(
     @Volatile private var expiresAtMs = 0L
     private var expiryJob: Job? = null
     @Volatile private var runningCommandId: String? = null
+    /** The running `adb.shell` command's id and job, so a gateway cancel can stop it. */
+    @Volatile private var runningAdb: Pair<String, Job>? = null
 
     /** ADR-032: reads unlabeled buttons only while the owner's switch is on; one reader per service. */
     private fun labelReader(): LabelReader? {
@@ -347,7 +363,13 @@ class SessionController(
         }
 
         override fun cancel(commandId: String) {
-            scope.launch { if (runningCommandId == commandId) approvals.cancel() }
+            scope.launch {
+                if (runningCommandId != commandId) return@launch
+                approvals.cancel()
+                // A full-access ADB command may run indefinitely (ADR-046); the
+                // gateway's cancel is how its caller stops it.
+                runningAdb?.takeIf { it.first == commandId }?.second?.cancel()
+            }
         }
 
         override fun approvalAnswer(nonce: String, choice: String) {
@@ -397,10 +419,34 @@ class SessionController(
     private suspend fun runCommand(envelope: CommandEnvelope): String = withContext(Dispatchers.Default) {
         runningCommandId = envelope.id
         try {
-            // A 1.4 gateway keeps waiting while the owner is asked, so the command may too.
-            val limit = envelope.deadlineMs.coerceIn(1_000, 180_000) + if (gatewayMinor >= 4) APPROVAL_GRACE_MS else 0
-            val data = withTimeout(limit) {
-                executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() }
+            val command = envelope.command
+            val data = if (command is Command.AdbShell) {
+                // ADR-046: no Latch-imposed time limit; only a deadline the caller
+                // asked for, a gateway cancel, or the owner's Stop ends it.
+                // A supervisor scope, so a failed or cancelled command answers
+                // with an error instead of tearing down the command loop.
+                supervisorScope {
+                    val job = async {
+                        val run = suspend { executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() } }
+                        if (command.timeoutMs > 0) withTimeout(command.timeoutMs.toLong()) { run() } else run()
+                    }
+                    runningAdb = envelope.id to job
+                    try {
+                        job.await()
+                    } catch (e: CancellationException) {
+                        ensureActive()
+                        if (e is TimeoutCancellationException) throw e
+                        throw ProtocolException(ErrorCode.CANCELLED, "the ADB command was cancelled")
+                    } finally {
+                        runningAdb = null
+                    }
+                }
+            } else {
+                // A 1.4 gateway keeps waiting while the owner is asked, so the command may too.
+                val limit = envelope.deadlineMs.coerceIn(1_000, 180_000) + if (gatewayMinor >= 4) APPROVAL_GRACE_MS else 0
+                withTimeout(limit) {
+                    executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() }
+                }
             }
             Outgoing.ok(envelope.id, data)
         } catch (e: ProtocolException) {

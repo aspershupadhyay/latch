@@ -618,7 +618,6 @@ const ACTIVITY_KINDS: [&str; 10] = [
     "task",
 ];
 
-/// `get_activity`: the phone's own log, one line per entry, marked as phone text.
 /// Most aggregated `adb.shell` stdout the gateway returns in one MCP result
 /// before handing back a `continue_from` cursor for the rest (ADR-046: the
 /// full result is preserved through continuation, never silently truncated).
@@ -709,6 +708,7 @@ async fn adb_shell(
     Ok(text_result(body))
 }
 
+/// `get_activity`: the phone's own log, one line per entry, marked as phone text.
 async fn activity(
     state: &Arc<AppState>,
     args: &Value,
