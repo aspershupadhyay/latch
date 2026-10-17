@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.16";
+export const PROTOCOL_VERSION = "1.17";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -48,6 +48,7 @@ export const CAPABILITIES = [
   "device.info", "ui.observe", "screen.capture", "input.gesture", "input.text", "nav.global", "app.launch",
   "file.read", "file.write", "app.share", "clipboard.write", "activity.read",
   "control.sound", "control.brightness", "control.flashlight", "control.panels",
+  "adb.shell",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type CapabilityStatus = "enabled" | "disabled" | "needs_permission" | "unsupported";
@@ -70,6 +71,7 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "control.brightness": "set the screen brightness, rotation, and timeout",
   "control.flashlight": "turn the flashlight on or off",
   "control.panels": "open settings panels and pages",
+  "adb.shell": "run arbitrary ADB shell commands (owner-enabled full-access mode)",
 };
 
 export interface SessionInfo {
@@ -169,7 +171,9 @@ export type Command =
   | { name: "activity.list"; params: { limit: number; kinds?: ActivityKind[]; since_ms?: number } }
   | { name: "task.done"; params: { summary?: string } }
   // Since 1.11: phone controls, one owner switch per group.
-  | { name: "device.control"; params: { control: PhoneControl } };
+  | { name: "device.control"; params: { control: PhoneControl } }
+  // Since 1.17 (ADR-046, R27): owner-enabled full-access ADB shell.
+  | { name: "adb.shell"; params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string } };
 
 /** Since 1.11: one phone control; the same shapes as crates/protocol's `PhoneControl`. */
 export const VOLUME_STREAMS = ["media", "ring", "notification", "alarm"] as const;
@@ -354,6 +358,9 @@ export const MAX_QUIET_MS = 1_000;
 /** Result of `ui.wait` (since 1.3). */
 export interface WaitResult { matched: boolean; observation: Observation }
 
+/** Since 1.17 (ADR-046): one frame of an `adb.shell` result. */
+export interface AdbResult { stdout: string; stderr: string; exit_code?: number; cursor?: string }
+
 /** Minor protocol version of a compatible `major.minor` string, or undefined. */
 export function minorVersion(version: string | undefined): number | undefined {
   const v = String(version ?? "");
@@ -372,6 +379,7 @@ export function minMinorVersion(c: Command): number {
   if (c.name === "nav.global") return ["back", "home", "recents"].includes(c.params.action) ? 0 : 15;
   if (c.name === "file.local") return 14;
   if (c.name === "device.control") return controlMinor(c.params.control);
+  if (c.name === "adb.shell") return 17;
   if (c.name === "activity.list" || c.name === "task.done") return 8;
   if (c.name === "file.fetch" || c.name === "file.push" || c.name === "file.transfer" || c.name === "clipboard.set") return 7;
   if (c.name.startsWith("file.") || c.name === "app.share") return 6;
@@ -407,12 +415,13 @@ export function requiredCapabilities(c: Command): Capability[] {
     // Only hides Latch's own cursor and writes a log line.
     case "task.done": return [];
     case "device.control": return [controlCapability(c.params.control)];
+    case "adb.shell": return ["adb.shell"];
   }
 }
 
 /** Asking the owner counts as an action: the owner changes the screen while answering. */
 export const isAction = (c: Command) =>
-  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read", "file.push", "file.transfer", "file.local", "activity.list", "task.done"].includes(c.name);
+  !["device.info", "ui.observe", "app.list", "ui.wait", "file.list", "file.preview", "file.read", "file.push", "file.transfer", "file.local", "activity.list", "task.done", "adb.shell"].includes(c.name);
 
 /** `file.write`, `file.fetch`, `file.mkdir`, `file.rename`, `file.delete`: changes made off screen. */
 export const isFileChange = (c: Command) => ["file.write", "file.fetch", "file.mkdir", "file.rename", "file.delete"].includes(c.name);
@@ -441,6 +450,8 @@ export const LIMITS = {
   maxFileChunkBytes: 512 * 1024, maxFileNameChars: 120, maxFileList: 200, maxShareFiles: 10, maxMimeChars: 100,
   maxLinkFileBytes: 4 * 1024 * 1024 * 1024, maxLinkUrlChars: 4_096, maxLinkHeaders: 8, maxClipboardChars: 10_000,
   maxActivityEntries: 500, maxTaskSummaryChars: 500,
+  // Since 1.17 (ADR-046): generous transport-frame bounds, not command restrictions.
+  maxAdbCommandChars: 128 * 1024, maxAdbStdinBytes: 512 * 1024,
 };
 
 const invalid = (message: string) => new ProtocolError("invalid_request", message);
@@ -673,6 +684,20 @@ export function validateCommand(c: Command): void {
       }
       return;
     }
+    case "adb.shell": {
+      const { command_line, stdin, continue_from } = c.params;
+      if (command_line !== undefined && continue_from !== undefined) throw invalid("give either command_line or continue_from, not both");
+      if (command_line !== undefined) {
+        if (command_line === "") throw invalid("command_line must not be empty");
+        if ([...command_line].length > LIMITS.maxAdbCommandChars) throw invalid(`command_line must be at most ${LIMITS.maxAdbCommandChars} characters`);
+      } else if (continue_from !== undefined) {
+        id("continue_from", continue_from);
+      } else {
+        throw invalid("command_line is required");
+      }
+      if (stdin !== undefined && Buffer.byteLength(stdin, "utf8") > LIMITS.maxAdbStdinBytes) throw invalid(`stdin must be at most ${LIMITS.maxAdbStdinBytes} bytes`);
+      return;
+    }
     case "clipboard.set": {
       const n = [...c.params.text].length;
       if (n === 0 || n > LIMITS.maxClipboardChars) throw invalid(`text must be 1-${LIMITS.maxClipboardChars} characters`);
@@ -856,6 +881,14 @@ export function parseCommand(raw: unknown): Command {
     }
     case "task.done": return { name, params: p.summary !== undefined ? { summary: str("summary") } : {} };
     case "device.control": return { name, params: { control: parseControl(p.control) } };
+    case "adb.shell": {
+      const params: { command_line?: string; stdin?: string; timeout_ms?: number; continue_from?: string } = {};
+      if (p.command_line !== undefined) params.command_line = str("command_line");
+      if (p.stdin !== undefined) params.stdin = str("stdin");
+      if (p.timeout_ms !== undefined) params.timeout_ms = int(p.timeout_ms, "timeout_ms");
+      if (p.continue_from !== undefined) params.continue_from = str("continue_from");
+      return { name, params };
+    }
     default: throw new ProtocolError("unsupported_capability", "unknown command");
   }
 }
