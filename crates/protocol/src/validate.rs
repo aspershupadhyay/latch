@@ -60,6 +60,15 @@ pub const MAX_ADB_COMMAND_CHARS: usize = 128 * 1024;
 /// Since 1.17: most bytes of `adb.shell` stdin in one frame (UTF-8 text).
 pub const MAX_ADB_STDIN_BYTES: usize = 512 * 1024;
 
+/// Since 1.18: most fingers in one `input.gesture` (Android takes up to 20;
+/// ten fingers is every real gesture).
+pub const MAX_GESTURE_STROKES: usize = 10;
+/// Since 1.18: most points in one gesture finger's path.
+pub const MAX_STROKE_POINTS: usize = 64;
+/// Since 1.18: a whole gesture ends within this many ms (Android's own limit
+/// for one dispatched gesture).
+pub const MAX_GESTURE_MS: u32 = 60_000;
+
 /// A file or folder name: no path separators, control characters, or
 /// leading dot (hidden files), and not "." or "..".
 pub fn is_valid_file_name(name: &str) -> bool {
@@ -472,12 +481,49 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             )))
         }
         Command::DeviceControl { .. } => Ok(()),
+        Command::Gesture {
+            observation_id,
+            strokes,
+        } => {
+            check_id("observation_id", observation_id)?;
+            if strokes.is_empty() || strokes.len() > MAX_GESTURE_STROKES {
+                return Err(invalid(format!(
+                    "a gesture has 1 to {MAX_GESTURE_STROKES} fingers (strokes)"
+                )));
+            }
+            for (i, stroke) in strokes.iter().enumerate() {
+                if stroke.points.is_empty() || stroke.points.len() > MAX_STROKE_POINTS {
+                    return Err(invalid(format!(
+                        "stroke {i} needs 1 to {MAX_STROKE_POINTS} points"
+                    )));
+                }
+                for p in &stroke.points {
+                    check_coordinate("x", p.x)?;
+                    check_coordinate("y", p.y)?;
+                }
+                if stroke.duration_ms == 0
+                    || u64::from(stroke.start_ms) + u64::from(stroke.duration_ms)
+                        > u64::from(MAX_GESTURE_MS)
+                {
+                    return Err(invalid(format!(
+                        "stroke {i}: duration_ms must be at least 1 and start_ms + duration_ms at most {MAX_GESTURE_MS}"
+                    )));
+                }
+            }
+            Ok(())
+        }
         Command::AdbShell {
             command_line,
             stdin,
             continue_from,
+            base64,
             ..
         } => {
+            if *base64 && command_line.is_none() {
+                return Err(invalid(
+                    "base64 goes with command_line; a continuation keeps the command's own encoding",
+                ));
+            }
             // Exactly one of: a new command line, or a continuation cursor.
             match (command_line.as_deref(), continue_from.as_deref()) {
                 (Some(line), None) => {

@@ -94,6 +94,12 @@ pub fn is_tap_movement(points: &[Point]) -> bool {
     })
 }
 
+/// How much an assessment asks of the owner: critical (no remember key)
+/// above consequential above the rest.
+fn severity(a: &Assessment) -> (RiskLevel, bool) {
+    (a.risk, a.risk == RiskLevel::High && a.remember.is_none())
+}
+
 /// The judgement of a touch on `node` (or on nothing): the same rules a tap
 /// gets, wherever the touch comes from (tap, a swipe that does not move, or a
 /// gesture finger).
@@ -401,6 +407,59 @@ fn assess(
                 "Pinch to zoom {way}{}",
                 place(obs.package.as_deref())
             )))
+        }
+        Command::Gesture { strokes, .. } => {
+            let obs = observation.ok_or_else(internal_missing_observation)?;
+            for p in strokes.iter().flat_map(|s| &s.points) {
+                check_on_screen(obs, p.x, p.y)?;
+            }
+            let package = obs.package.as_deref();
+            // Each finger that does not really move is a tap or long press on
+            // what is under it, judged exactly like one; the gesture needs the
+            // approval its most consequential finger needs.
+            let mut worst: Option<Assessment> = None;
+            for stroke in strokes {
+                let start = stroke.points[0];
+                let node = obs.node_at(start.x, start.y);
+                if node.is_some_and(|n| n.sensitive) {
+                    return Err(sensitive());
+                }
+                if is_tap_movement(&stroke.points) {
+                    let verb = if stroke.duration_ms >= LONG_PRESS_MS {
+                        "Long-press"
+                    } else {
+                        "Tap"
+                    };
+                    let touch = judge_touch(obs, node, verb)?;
+                    if worst
+                        .as_ref()
+                        .is_none_or(|w| severity(&touch) > severity(w))
+                    {
+                        worst = Some(touch);
+                    }
+                }
+            }
+            if let Some(touch) = worst
+                && touch.risk == RiskLevel::High
+            {
+                return Ok(touch);
+            }
+            // In a phone app a gesture can answer, decline, or place a call.
+            let consequence = if package.is_some_and(is_call_package) {
+                Consequence::Consequential
+            } else {
+                Consequence::None
+            };
+            let fingers = strokes.len();
+            Ok(Assessment::judged(
+                consequence,
+                format!(
+                    "Gesture with {fingers} finger{} on the screen{}",
+                    if fingers == 1 { "" } else { "s" },
+                    place(package)
+                ),
+                format!("gesture|{}|", package.unwrap_or("?")),
+            ))
         }
         Command::Swipe {
             from,

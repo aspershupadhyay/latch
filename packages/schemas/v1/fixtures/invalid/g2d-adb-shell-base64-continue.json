@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0316", "deadline_ms": 30000, "command": { "name": "adb.shell", "params": { "continue_from": "adbc_1", "base64": true } } }

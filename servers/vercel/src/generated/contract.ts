@@ -469,6 +469,91 @@ export const SERVER = {
         "idempotentHint": false,
         "openWorldHint": true,
         "readOnlyHint": false,
+        "title": "Any touch gesture"
+      },
+      "description": "Perform any touch gesture with up to 10 fingers: each stroke is one finger that touches down at its first point start_ms after the gesture begins, follows its points over duration_ms, and lifts at the last point. Rotate (two fingers circling), two- or three-finger swipes, curved paths, edge swipes (back from the left edge, home from the bottom), press-then-drag. A single point held is a long press; a finger that does not move is a tap and asks the owner exactly like tap would. Coordinates are screen pixels of the latest observation; the whole gesture ends within 60 s. Prefer tap, swipe, scroll, and pinch when they fit. Needs Latch 1.18 on the phone. Returns the new observation.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
+            "type": "string"
+          },
+          "observation_id": {
+            "description": "observation_id from the latest observe result (or the observation returned by the previous action).",
+            "type": "string"
+          },
+          "screenshot_after": {
+            "default": false,
+            "description": "Also return a screenshot of the screen after the action. Default false (element tree only).",
+            "type": "boolean"
+          },
+          "strokes": {
+            "description": "One entry per finger.",
+            "items": {
+              "properties": {
+                "duration_ms": {
+                  "description": "How long this finger stays down while following its points.",
+                  "maximum": 60000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "points": {
+                  "description": "The finger's path in order, e.g. [{\"x\":540,\"y\":1800},{\"x\":540,\"y\":600}].",
+                  "items": {
+                    "properties": {
+                      "x": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "y": {
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "start_ms": {
+                  "default": 0,
+                  "description": "When this finger touches down, from the start of the gesture.",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "points",
+                "duration_ms"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "observation_id",
+          "strokes"
+        ],
+        "type": "object"
+      },
+      "name": "gesture",
+      "title": "Any touch gesture"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
         "title": "Press a system button"
       },
       "description": "Press a system button or key: back, home, recents; lock_screen locks the phone (only the owner unlocks it); screenshot saves a screenshot to the phone's gallery (you do not receive it; use observe to see the screen); split_screen; dpad_up, dpad_down, dpad_left, dpad_right, dpad_center move focus and select on TV-style or keyboard-driven screens (Android 13+). The notification shade and quick settings stay off limits. Everything but back, home, and recents needs Latch 1.15 on the phone. Returns the new observation.",
@@ -885,6 +970,11 @@ export const SERVER = {
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "base64": {
+            "default": false,
+            "description": "Return stdout as base64 of the exact bytes, for binary output. An image (e.g. `screencap -p`) comes back as an image. Needs Latch 1.18 on the phone.",
+            "type": "boolean"
+          },
           "command": {
             "description": "The shell command line to run, e.g. \"pm list packages\".",
             "maxLength": 131072,

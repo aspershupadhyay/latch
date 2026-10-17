@@ -27,7 +27,7 @@ pub use capability::{Capability, CapabilityState, CapabilityStatus};
 pub use command::{
     Command, ConfirmRequest, Direction, GlobalAction, MAX_REMEMBER_CHARS, MAX_SCREEN_TIMEOUT_S,
     MIN_SCREEN_TIMEOUT_S, MediaAction, PhoneControl, Point, RingerMode, RiskLevel, RotationMode,
-    SettingsPanel, Target, VolumeStream,
+    SettingsPanel, Stroke, Target, VolumeStream,
 };
 pub use error::{ErrorCode, ProtocolError};
 pub use files::{
@@ -46,7 +46,7 @@ pub use observation::{ListPosition, Observation, Rect, ScreenInfo, Screenshot, U
 ///
 /// Peers are compatible when the major versions match. Minor versions only
 /// add optional fields, which every implementation must tolerate.
-pub const PROTOCOL_VERSION: &str = "1.17";
+pub const PROTOCOL_VERSION: &str = "1.18";
 
 /// Minor version of a compatible `major.minor` string, e.g. 3 for "1.3".
 pub fn minor_version(version: &str) -> Option<u32> {
