@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0303", "deadline_ms": 30000, "command": { "name": "adb.shell", "params": { "command_line": "id", "continue_from": "chunk_7a1" } } }

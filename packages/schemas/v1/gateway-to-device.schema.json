@@ -1165,6 +1165,48 @@
             "name",
             "params"
           ]
+        },
+        {
+          "description": "Since 1.17 (ADR-046, R27): run one ADB shell command line on the\nselected device in the owner-enabled full-access ADB mode. The line is\npassed to the device's ADB executor unchanged — Latch applies no\nallowlist, per-command approval, or output filter in this mode. `stdin`\nis optional data piped to the command. `timeout_ms` is a deadline the\n*caller* may request; Latch imposes none of its own (0 means none).\nWhen output does not fit one frame the device returns a chunk with a\n`cursor`; send `adb.shell` again with that `continue_from` (and no\n`command_line`) for the next chunk. Answers with an [`crate::AdbResult`].",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "adb.shell"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "command_line": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "continue_from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stdin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timeout_ms": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ]
         }
       ]
     },

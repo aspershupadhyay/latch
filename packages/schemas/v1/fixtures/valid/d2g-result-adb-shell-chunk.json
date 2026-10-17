@@ -1,0 +1,1 @@
+{ "type": "result", "id": "c_0302", "outcome": { "status": "ok", "data": { "stdout": "line 1\nline 2\n", "stderr": "", "cursor": "chunk_7a2" } } }

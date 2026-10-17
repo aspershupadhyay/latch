@@ -88,6 +88,30 @@ pub fn evaluate(command: &Command, ctx: &DeviceContext<'_>) -> Decision {
             "the owner paused this session",
         );
     }
+    // ADR-046 (R27): full-access ADB is gated only on the owner enabling the
+    // mode and on owner Stop/pause (checked just above). The ordinary session
+    // timer, approve-every-action, app allowlist, observation freshness, and
+    // consequential-action approval are deliberately not applied here.
+    if matches!(command, Command::AdbShell { .. }) {
+        return match ctx
+            .capabilities
+            .iter()
+            .find(|c| c.capability == latch_protocol::Capability::AdbShell)
+            .map(|c| c.status)
+        {
+            Some(CapabilityStatus::Enabled) => Decision::Allow {
+                risk: RiskLevel::High,
+            },
+            Some(CapabilityStatus::Unsupported) | None => deny(
+                ErrorCode::UnsupportedCapability,
+                "this device does not support full-access ADB ('adb.shell')",
+            ),
+            _ => deny(
+                ErrorCode::PermissionMissing,
+                "full-access ADB mode is off; the owner must enable 'adb.shell' and authorize Android wireless debugging in the Latch app",
+            ),
+        };
+    }
     if ctx.session.expires_at_ms <= ctx.now_ms {
         return deny(
             ErrorCode::DeviceUnavailable,
@@ -542,6 +566,13 @@ fn assess(
                 place(obs.package.as_deref())
             )))
         }
+        // Handled by its own branch in `evaluate` before `assess` is reached.
+        Command::AdbShell { .. } => Ok(Assessment {
+            risk: RiskLevel::High,
+            title: "Run an ADB shell command".into(),
+            detail: AGENT_DETAIL.into(),
+            remember: None,
+        }),
     }
 }
 
