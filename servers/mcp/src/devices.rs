@@ -6,7 +6,8 @@
 //! serialises commands per device, asks the policy engine, sends the command,
 //! and waits for the typed result or the deadline.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -35,11 +36,35 @@ const QUEUE_WAIT: Duration = Duration::from_secs(30);
 /// A polling phone that has not polled for this long is considered gone.
 /// Polls last at most 25 s, so this tolerates one slow round trip.
 pub const POLL_STALE_MS: u64 = 45_000;
+/// How long a command in flight waits for its phone to come back after the
+/// connection dropped (ADR-048). The app retries for 20 s before it gives an
+/// answer up; this leaves room for its reconnect on top.
+pub const RECONNECT_GRACE_MS: u64 = 30_000;
+/// The first protocol minor whose phones run each command id at most once,
+/// so a command in flight can be sent again after a reconnect (ADR-048).
+const RESEND_MINOR: u32 = 19;
+/// How often a waiting command checks whether its phone came back in time.
+const ORPHAN_CHECK: Duration = Duration::from_secs(1);
 
 /// Receiving half of a polled device's queue, plus when it last showed up.
 struct PollChannel {
     rx: Arc<tokio::sync::Mutex<mpsc::Receiver<GatewayToDevice>>>,
     last_seen_ms: u64,
+}
+
+/// A command sent to a phone and not answered yet.
+struct Inflight {
+    tx: oneshot::Sender<Outcome>,
+    /// Kept to send again, with the same id, to a phone that reconnects (1.19).
+    envelope: CommandEnvelope,
+}
+
+/// Commands whose phone dropped off while they ran (ADR-048). They wait for
+/// the phone's next hello, up to [`Registry::reconnect_grace_ms`].
+struct Orphaned {
+    since_ms: u64,
+    pending: HashMap<String, Inflight>,
+    awaiting_owner: HashSet<String>,
 }
 
 struct Live {
@@ -49,9 +74,9 @@ struct Live {
     capabilities: Vec<CapabilityState>,
     /// Session with `expires_at_ms` translated to the gateway clock.
     session: SessionInfo,
-    pending: HashMap<String, oneshot::Sender<Outcome>>,
+    pending: HashMap<String, Inflight>,
     /// Commands whose phone is waiting for the owner's approval (protocol 1.4).
-    awaiting_owner: std::collections::HashSet<String>,
+    awaiting_owner: HashSet<String>,
     /// Latest observation without its screenshot, and when it arrived.
     latest_observation: Option<(Arc<Observation>, u64)>,
     /// The last screen the AI was shown in full (roadmap R5), without its screenshot.
@@ -67,11 +92,26 @@ struct Live {
 /// AI apps whose last full screen is kept per phone connection; more start over.
 const MAX_SHOWN_BASES: usize = 8;
 
-#[derive(Default)]
 pub struct Registry {
     live: Mutex<HashMap<String, Live>>,
+    /// Commands in flight on a connection that dropped, by device (ADR-048).
+    /// Locked after `live` when both are needed.
+    orphans: Mutex<HashMap<String, Orphaned>>,
+    /// How long orphaned commands wait for their phone; [`RECONNECT_GRACE_MS`] unless a test sets it.
+    pub reconnect_grace_ms: AtomicU64,
     /// R24: the Wi-Fi address each phone last connected through, for its file links.
     link_bases: Mutex<HashMap<String, String>>,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            live: Mutex::default(),
+            orphans: Mutex::default(),
+            reconnect_grace_ms: AtomicU64::new(RECONNECT_GRACE_MS),
+            link_bases: Mutex::default(),
+        }
+    }
 }
 
 /// Public, redaction-safe view of a connected device.
@@ -131,14 +171,51 @@ impl Registry {
         // A poisoned lock means a panic mid-update; the map itself is still usable.
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         // Polled phones have no socket to close; they disappear by going quiet.
-        // Dropping the entry fails its pending commands with device_unavailable.
         let now = now_ms();
-        live.retain(|_, l| {
-            l.poll
-                .as_ref()
-                .is_none_or(|p| now.saturating_sub(p.last_seen_ms) <= POLL_STALE_MS)
-        });
+        let gone: Vec<(String, Live)> = live
+            .extract_if(|_, l| {
+                l.poll
+                    .as_ref()
+                    .is_some_and(|p| now.saturating_sub(p.last_seen_ms) > POLL_STALE_MS)
+            })
+            .collect();
+        for (device_id, l) in gone {
+            self.orphan(&device_id, l);
+        }
         live
+    }
+
+    fn orphans(&self) -> MutexGuard<'_, HashMap<String, Orphaned>> {
+        self.orphans.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A connection is gone. Its commands in flight wait for the phone to come
+    /// back if it runs each id at most once (1.19); otherwise they fail now with
+    /// device_unavailable, as they always did.
+    fn orphan(&self, device_id: &str, live: Live) {
+        let minor = latch_protocol::minor_version(&live.hello.protocol).unwrap_or(0);
+        if live.pending.is_empty() || minor < RESEND_MINOR {
+            return;
+        }
+        let mut orphans = self.orphans();
+        let entry = orphans
+            .entry(device_id.to_owned())
+            .or_insert_with(|| Orphaned {
+                since_ms: now_ms(),
+                pending: HashMap::new(),
+                awaiting_owner: HashSet::new(),
+            });
+        entry.pending.extend(live.pending);
+        entry.awaiting_owner.extend(live.awaiting_owner);
+    }
+
+    /// Fails the orphaned commands whose phone did not come back in time.
+    fn prune_orphans(&self) {
+        let grace = self.reconnect_grace_ms.load(Ordering::Relaxed);
+        let now = now_ms();
+        // Dropping an entry drops its waiters' senders: they report the phone gone.
+        self.orphans()
+            .retain(|_, o| now.saturating_sub(o.since_ms) <= grace);
     }
 
     /// Adds a connection, replacing (and thereby closing) any previous one.
@@ -152,7 +229,7 @@ impl Registry {
         // Random, not counted: a signed message is bound to its connection, and a
         // counter that restarts with the gateway would make old messages valid again.
         let conn_id = u64::from_le_bytes(crate::secret::random_bytes::<8>());
-        let live = Live {
+        let mut new = Live {
             conn_id,
             tx,
             poll: None,
@@ -160,13 +237,36 @@ impl Registry {
             session: to_gateway_clock(hello.session, hello.device_time_ms, now),
             hello,
             pending: HashMap::new(),
-            awaiting_owner: std::collections::HashSet::new(),
+            awaiting_owner: HashSet::new(),
             latest_observation: None,
             shown_base: HashMap::new(),
             command_lock: Arc::new(tokio::sync::Mutex::new(())),
             connected_at_ms: now,
         };
-        self.lock().insert(device_id.to_owned(), live);
+        let mut live = self.lock();
+        // ADR-048: commands still in flight on the previous connection, or on one
+        // that dropped a moment ago, carry over to this one instead of failing:
+        // the phone may have run them, and its answer can still arrive here.
+        if let Some(old) = live.remove(device_id) {
+            self.orphan(device_id, old);
+        }
+        let minor = latch_protocol::minor_version(&new.hello.protocol).unwrap_or(0);
+        // A phone that went back to an app before 1.19 might run them twice: they
+        // are dropped here and fail.
+        if let Some(carried) = self.orphans().remove(device_id)
+            && minor >= RESEND_MINOR
+        {
+            for inflight in carried.pending.values() {
+                // Same id: the phone answers from memory if it already ran it,
+                // and runs it only if the first copy never reached it.
+                let _ = new
+                    .tx
+                    .try_send(GatewayToDevice::Command(inflight.envelope.clone()));
+            }
+            new.pending = carried.pending;
+            new.awaiting_owner = carried.awaiting_owner;
+        }
+        live.insert(device_id.to_owned(), new);
         conn_id
     }
 
@@ -214,8 +314,21 @@ impl Registry {
         }
     }
 
-    /// Removes a connection if it is still the current one. Pending commands fail.
+    /// Removes a connection if it is still the current one. Its commands in
+    /// flight wait a while for the phone to come back (ADR-048).
     pub fn unregister(&self, device_id: &str, conn_id: u64) {
+        let mut live = self.lock();
+        if live.get(device_id).is_some_and(|l| l.conn_id == conn_id)
+            && let Some(old) = live.remove(device_id)
+        {
+            self.orphan(device_id, old);
+        }
+    }
+
+    /// The phone said `bye`: the owner pressed Stop, unpaired, or the session
+    /// ended. Its commands in flight fail now and are never sent again, not
+    /// even if the owner starts a new session a moment later.
+    pub fn said_bye(&self, device_id: &str, conn_id: u64) {
         let mut live = self.lock();
         if live.get(device_id).is_some_and(|l| l.conn_id == conn_id) {
             live.remove(device_id);
@@ -244,42 +357,77 @@ impl Registry {
         }
     }
 
-    pub fn resolve(&self, device_id: &str, conn_id: u64, command_id: &str, outcome: Outcome) {
-        let waiter = self
-            .lock()
-            .get_mut(device_id)
-            .filter(|l| l.conn_id == conn_id)
-            .and_then(|l| {
-                l.awaiting_owner.remove(command_id);
-                l.pending.remove(command_id)
-            });
+    /// The phone's answer to a command it was sent. It counts on whichever of
+    /// the phone's connections it arrives (ADR-048): an answer sent just before
+    /// a reconnect, or again after one, still reaches the waiting tool call.
+    /// Every connection is authenticated as this phone, and ids are random.
+    pub fn resolve(&self, device_id: &str, command_id: &str, outcome: Outcome) {
+        let waiter = {
+            let mut live = self.lock();
+            match live
+                .get_mut(device_id)
+                .and_then(|l| l.pending.remove(command_id).map(|w| (l, w)))
+            {
+                Some((l, waiter)) => {
+                    l.awaiting_owner.remove(command_id);
+                    Some(waiter)
+                }
+                None => self.orphans().get_mut(device_id).and_then(|o| {
+                    o.awaiting_owner.remove(command_id);
+                    o.pending.remove(command_id)
+                }),
+            }
+        };
         if let Some(waiter) = waiter {
-            let _ = waiter.send(outcome);
+            let _ = waiter.tx.send(outcome);
         }
     }
 
     /// The phone is waiting for the owner on a running command (protocol 1.4), so
     /// the command may outlive its normal deadline. This gateway does not relay
     /// answers from the AI app; the Vercel gateway does (ADR-023).
-    pub fn approval_requested(&self, device_id: &str, conn_id: u64, command_id: &str) {
+    pub fn approval_requested(&self, device_id: &str, command_id: &str) {
         if let Some(l) = self
             .lock()
             .get_mut(device_id)
-            .filter(|l| l.conn_id == conn_id && l.pending.contains_key(command_id))
+            .filter(|l| l.pending.contains_key(command_id))
         {
             l.awaiting_owner.insert(command_id.to_owned());
         }
     }
 
-    fn awaiting_owner(&self, device_id: &str, conn_id: u64, command_id: &str) -> bool {
-        self.lock()
-            .get(device_id)
-            .is_some_and(|l| l.conn_id == conn_id && l.awaiting_owner.contains(command_id))
+    fn awaiting_owner(&self, device_id: &str, command_id: &str) -> bool {
+        let live = self.lock();
+        live.get(device_id)
+            .is_some_and(|l| l.awaiting_owner.contains(command_id))
+            || self
+                .orphans()
+                .get(device_id)
+                .is_some_and(|o| o.awaiting_owner.contains(command_id))
     }
 
-    /// Tells a device it was revoked and drops its connection.
+    /// Stops waiting for a command's answer, and returns the phone's current
+    /// connection to tell it to cancel, if the phone is connected.
+    fn forget(&self, device_id: &str, command_id: &str) -> Option<mpsc::Sender<GatewayToDevice>> {
+        let mut live = self.lock();
+        if let Some(l) = live.get_mut(device_id) {
+            l.pending.remove(command_id);
+            l.awaiting_owner.remove(command_id);
+            return Some(l.tx.clone());
+        }
+        if let Some(o) = self.orphans().get_mut(device_id) {
+            o.pending.remove(command_id);
+            o.awaiting_owner.remove(command_id);
+        }
+        None
+    }
+
+    /// Tells a device it was revoked and drops its connection. Its commands in
+    /// flight fail at once: a revoked phone does not come back.
     pub fn kick(&self, device_id: &str, reason: &str) {
-        if let Some(live) = self.lock().remove(device_id) {
+        let removed = self.lock().remove(device_id);
+        self.orphans().remove(device_id);
+        if let Some(live) = removed {
             let _ = live.tx.try_send(GatewayToDevice::Revoked {
                 reason: reason.to_owned(),
             });
@@ -467,24 +615,13 @@ type Staged<T> = Result<(&'static str, T), (&'static str, ProtocolError)>;
 struct CancelOnDrop<'a> {
     state: &'a AppState,
     device_id: &'a str,
-    conn_id: u64,
     id: Option<String>,
 }
 
 impl Drop for CancelOnDrop<'_> {
     fn drop(&mut self) {
         let Some(id) = self.id.take() else { return };
-        let tx = {
-            let mut live = self.state.devices.lock();
-            live.get_mut(self.device_id)
-                .filter(|l| l.conn_id == self.conn_id)
-                .map(|l| {
-                    l.pending.remove(&id);
-                    l.awaiting_owner.remove(&id);
-                    l.tx.clone()
-                })
-        };
-        if let Some(tx) = tx {
+        if let Some(tx) = self.state.devices.forget(self.device_id, &id) {
             let _ = tx.try_send(GatewayToDevice::Cancel { id });
         }
     }
@@ -531,7 +668,7 @@ async fn execute_inner(
         )
     };
 
-    let (decision, deadline_ms, id, rx, conn_id, observe_after) = {
+    let (decision, deadline_ms, id, rx, observe_after) = {
         let mut live = state.devices.lock();
         let l = live.get_mut(device_id).ok_or_else(unavailable)?;
         let minor = latch_protocol::minor_version(&l.hello.protocol).unwrap_or(0);
@@ -603,15 +740,21 @@ async fn execute_inner(
         }
         let id = secret::new_id("c");
         let (tx, rx) = oneshot::channel();
-        l.pending.insert(id.clone(), tx);
-        let envelope = GatewayToDevice::Command(CommandEnvelope {
+        let envelope = CommandEnvelope {
             id: id.clone(),
             deadline_ms,
             command: command.clone(),
             confirm,
             observe_after,
-        });
-        if l.tx.try_send(envelope).is_err() {
+        };
+        l.pending.insert(
+            id.clone(),
+            Inflight {
+                tx,
+                envelope: envelope.clone(),
+            },
+        );
+        if l.tx.try_send(GatewayToDevice::Command(envelope)).is_err() {
             l.pending.remove(&id);
             return Err((
                 decision,
@@ -621,7 +764,7 @@ async fn execute_inner(
                 ),
             ));
         }
-        (decision, deadline_ms, id, rx, l.conn_id, observe_after)
+        (decision, deadline_ms, id, rx, observe_after)
     };
 
     // If the caller goes away (its request is dropped) before the phone answers,
@@ -629,22 +772,29 @@ async fn execute_inner(
     let mut abandon = CancelOnDrop {
         state,
         device_id,
-        conn_id,
         id: Some(id.clone()),
     };
 
     // A little grace on top of the device's own deadline for the network. A phone
     // that is waiting for the owner (protocol 1.4) gets one approval's worth more.
-    let mut wait = Duration::from_millis(u64::from(deadline_ms) + 3_000);
+    let mut until =
+        tokio::time::Instant::now() + Duration::from_millis(u64::from(deadline_ms) + 3_000);
     let mut extended = false;
     let mut rx = rx;
     let received = loop {
-        match tokio::time::timeout(wait, &mut rx).await {
+        // Wakes every second to fail commands whose phone dropped off and did not
+        // come back in time (ADR-048); the answer itself arrives at once.
+        let tick = until
+            .saturating_duration_since(tokio::time::Instant::now())
+            .min(ORPHAN_CHECK);
+        match tokio::time::timeout(tick, &mut rx).await {
             Ok(Ok(outcome)) => break Some(outcome),
-            Ok(Err(_)) => return Err((decision, unavailable().1)),
-            Err(_) if !extended && state.devices.awaiting_owner(device_id, conn_id, &id) => {
+            Ok(Err(_)) => return Err((decision, gone_before_answer(&command))),
+            Err(_) if tokio::time::Instant::now() < until => state.devices.prune_orphans(),
+            Err(_) if !extended && state.devices.awaiting_owner(device_id, &id) => {
                 extended = true;
-                wait = Duration::from_millis(u64::from(CONFIRM_DEADLINE_MS) + 3_000);
+                until = tokio::time::Instant::now()
+                    + Duration::from_millis(u64::from(CONFIRM_DEADLINE_MS) + 3_000);
             }
             Err(_) => break None,
         }
@@ -653,17 +803,7 @@ async fn execute_inner(
     let outcome = match received {
         Some(outcome) => outcome,
         None => {
-            let tx = {
-                let mut live = state.devices.lock();
-                live.get_mut(device_id)
-                    .filter(|l| l.conn_id == conn_id)
-                    .map(|l| {
-                        l.pending.remove(&id);
-                        l.awaiting_owner.remove(&id);
-                        l.tx.clone()
-                    })
-            };
-            if let Some(tx) = tx {
+            if let Some(tx) = state.devices.forget(device_id, &id) {
                 let _ = tx.try_send(GatewayToDevice::Cancel { id });
             }
             return Err((
@@ -693,12 +833,8 @@ async fn execute_inner(
             screenshot: None,
             ..obs.clone()
         };
-        if let Some(l) = state
-            .devices
-            .lock()
-            .get_mut(device_id)
-            .filter(|l| l.conn_id == conn_id)
-        {
+        // On whichever connection the phone is now: the answer may have come after a reconnect.
+        if let Some(l) = state.devices.lock().get_mut(device_id) {
             l.latest_observation = Some((Arc::new(cached), now_ms()));
         }
     };
@@ -796,6 +932,19 @@ async fn execute_inner(
         return Err((decision, latch_policy::screen_withheld(package)));
     }
     Ok((decision, output))
+}
+
+/// The phone went away with a command in flight and did not come back in
+/// time. An action may have happened anyway, so the AI must look first.
+fn gone_before_answer(command: &Command) -> ProtocolError {
+    ProtocolError::new(
+        ErrorCode::DeviceUnavailable,
+        if command.changes_screen() {
+            "the phone disconnected before answering; the action may already have happened, so observe before repeating it"
+        } else {
+            "the phone disconnected before answering"
+        },
+    )
 }
 
 fn truncate(s: &str, max: usize) -> String {

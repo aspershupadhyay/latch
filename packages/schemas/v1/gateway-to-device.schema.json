@@ -1269,7 +1269,7 @@
           "minimum": 0
         },
         "id": {
-          "description": "Unique per gateway; used to correlate the result and for idempotency.",
+          "description": "Unique per gateway; used to correlate the result and for idempotency.\n\nSince 1.19 (ADR-048) a command runs at most once per id. When a phone\nreconnects while a command is still in flight, the gateway sends the\nsame envelope again, with the same id, to a phone that said `hello`\nwith 1.19 or later. The phone must not run it twice: it answers again\nwith the answer it already gave, or, while the first run is still\ngoing, sends that run's answer once it finishes. An id it ran but no\nlonger remembers is answered `cancelled` without running.",
           "type": "string"
         },
         "observe_after": {

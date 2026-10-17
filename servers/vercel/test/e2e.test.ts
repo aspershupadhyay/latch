@@ -450,6 +450,30 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   await client.close();
 });
 
+// ADR-048: the phone pressed Home, then lost the answer with its connection and
+// reconnected. The gateway sends the same command again; the phone answers from
+// memory, so the AI gets its answer and Home ran exactly once.
+test("a lost answer arrives after a reconnect and the action runs once (R29)", async () => {
+  const pairing = await api("/v1/admin/pairings", { method: "POST", body: JSON.stringify({ name: "Flaky phone" }) });
+  const flaky = spawn(FAKE, [base, pairing.body.code, "--poll", "--lose-answer", "nav.global"], { stdio: "ignore" });
+  try {
+    await waitFor(async () => (await api("/v1/admin/devices")).body.devices.some((d: { connected: boolean }) => d.connected), "phone to connect");
+    const created = await api("/v1/admin/clients", { method: "POST", body: JSON.stringify({ name: "Reconnect test" }) });
+    const client = new Client({ name: "latch-vercel-reconnect", version: "0.1.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(created.body.mcp_url), {
+      requestInit: { headers: { authorization: `Bearer ${created.body.token}` } },
+    }));
+    const pressed = await client.callTool({ name: "press", arguments: { button: "home" } });
+    assert.ok(!pressed.isError, text(pressed));
+    const log = text(await client.callTool({ name: "get_activity", arguments: { limit: 50 } }));
+    assert.equal(log.match(/Ran nav\.global/g)?.length, 1, log);
+    assert.equal(flaky.exitCode, null, "the phone reconnected and is still serving");
+    await client.close();
+  } finally {
+    flaky.kill();
+  }
+});
+
 test("screen content and typed text reach the database only sealed (R20)", () => {
   const content = written.filter((w) => isSealedKey(w.key));
   assert.ok(content.some((w) => w.key.startsWith("latch:obs:")) && content.some((w) => w.key.startsWith("latch:q:")), "the session above wrote screens and commands");

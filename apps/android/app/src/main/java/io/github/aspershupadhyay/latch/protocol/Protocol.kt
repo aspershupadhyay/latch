@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.18"
+    const val VERSION = "1.19"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields

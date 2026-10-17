@@ -22,6 +22,27 @@ export const POLL_STALE_MS = 45_000;
  */
 export const ADB_PLATFORM_MAX_MS = 280_000;
 const QUEUE_WAIT_MS = 30_000;
+/**
+ * How long a command in flight waits for its phone to come back after it went
+ * quiet (ADR-048), on top of the 45 s this gateway takes to notice.
+ */
+export const RECONNECT_GRACE_MS = 30_000;
+/** The first protocol minor whose phones run each command id at most once (ADR-048). */
+const RESEND_MINOR = 19;
+
+/** What a phone's answer must match to count: the device it was sent to (any of its connections). */
+interface Pending { device: string; conn: string }
+
+/**
+ * The phone went away with a command in flight and did not come back in time.
+ * An action may have happened anyway, so the AI must look first. Same text as
+ * the Rust gateway.
+ */
+function goneBeforeAnswer(command: Command): ProtocolError {
+  return new ProtocolError("device_unavailable", changesScreen(command)
+    ? "the phone disconnected before answering; the action may already have happened, so observe before repeating it"
+    : "the phone disconnected before answering");
+}
 const OBSERVATION_TTL_MS = 120_000;
 /** A full screen stays the base for changes this long (R5); after that the next screen is shown in full. */
 const BASE_TTL_MS = 600_000;
@@ -144,6 +165,8 @@ export const K = {
   live: (id: string) => `latch:live:${id}`,
   queue: (id: string, conn: string) => `latch:q:${id}:${conn}`,
   pending: (cmd: string) => `latch:pending:${cmd}`,
+  /** The connection that said bye (ADR-048): its commands in flight fail at once. */
+  bye: (id: string) => `latch:bye:${id}`,
   result: (cmd: string) => `latch:result:${cmd}`,
   approval: (cmd: string) => `latch:approval:${cmd}`,
   deferred: (cmd: string) => `latch:deferred:${cmd}`,
@@ -263,6 +286,8 @@ export class Devices {
   async disconnect(id: string, conn: string, now: number) {
     const live = await this.live(id);
     if (live?.conn === conn) {
+      // Stop means stop: commands in flight fail now instead of waiting for a reconnect.
+      await this.store.set(K.bye(id), conn, { px: RECONNECT_GRACE_MS + POLL_STALE_MS });
       await this.store.del(K.live(id));
       await this.store.del(K.observation(id));
     }
@@ -290,8 +315,10 @@ export class Devices {
   }
 
   /**
-   * Records a phone's answer, if it belongs to a command sent on this
-   * connection and the connection is still current. Two round trips.
+   * Records a phone's answer, if it belongs to a command sent to this phone
+   * and `conn` is the phone's current connection. The command may have been
+   * sent on an earlier connection (ADR-048): an answer the phone could only
+   * deliver after a reconnect still reaches the tool call. Two round trips.
    * Returns false when the connection was replaced or expired.
    */
   async deliverResult(id: string, conn: string, commandId: string, outcome: Outcome): Promise<boolean> {
@@ -303,8 +330,8 @@ export class Devices {
     const live = rawLive ? (JSON.parse(rawLive) as Live) : undefined;
     if (live?.conn !== conn) return false;
     if (!pending) return true;
-    const p = JSON.parse(pending) as { device: string; conn: string };
-    if (p.device !== id || p.conn !== conn) return true;
+    const p = JSON.parse(pending) as Pending;
+    if (p.device !== id) return true;
     await this.store.set(K.result(commandId), JSON.stringify(outcome), { px: 60_000 });
     return true;
   }
@@ -320,8 +347,8 @@ export class Devices {
     ]);
     const live = rawLive ? (JSON.parse(rawLive) as Live) : undefined;
     if (live?.conn !== conn) return false;
-    const p = pending ? (JSON.parse(pending) as { device: string; conn: string }) : undefined;
-    if (p?.device !== id || p.conn !== conn) return true;
+    const p = pending ? (JSON.parse(pending) as Pending) : undefined;
+    if (p?.device !== id) return true;
     // The answer may take as long as an approval; keep the command's result deliverable.
     await this.store.batch([
       { op: "set", key: K.approval(request.command_id), value: JSON.stringify(request), px: CONFIRM_DEADLINE_MS + 15_000 },
@@ -529,13 +556,16 @@ export class Devices {
     let lastPresenceCheck = sentAt;
     let result: string | null = null;
     let approvalSeen = resume !== undefined;
+    // ADR-048: the connection the command is on now, and since when the phone has been away.
+    let conn = live.conn;
+    let goneSince: number | undefined;
     for (;;) {
       // Every few seconds the same round trip also checks the phone is still connected.
       const checkPresence = Date.now() - lastPresenceCheck > 3_000;
       const replies = await this.store.batch([
         { op: "getdel", key: K.result(commandId) },
         ...(approvalSeen ? [] : [{ op: "get" as const, key: K.approval(commandId) }]),
-        ...(checkPresence ? [{ op: "get" as const, key: K.live(id) }] : []),
+        ...(checkPresence ? [{ op: "get" as const, key: K.bye(id) }, { op: "get" as const, key: K.live(id) }] : []),
       ]);
       const got = replies[0];
       const approval = approvalSeen ? undefined : replies[1];
@@ -543,8 +573,28 @@ export class Devices {
       if (result) break;
       if (checkPresence) {
         lastPresenceCheck = Date.now();
-        const now = replies[replies.length - 1];
-        if (!now || (JSON.parse(now) as Live).conn !== live.conn) throw unavailable();
+        const raw = replies[replies.length - 1];
+        const now = raw ? (JSON.parse(raw) as Live) : undefined;
+        // A phone before 1.19 might run a command twice: it is never sent again (ADR-048).
+        const resends = minor >= RESEND_MINOR && (minorVersion(now?.protocol) ?? 0) >= RESEND_MINOR;
+        // The owner stopped the session: fail now, and never resend into the next one.
+        if (replies[replies.length - 2] === conn) throw goneBeforeAnswer(command);
+        if (!now) {
+          goneSince ??= Date.now();
+          if (minor < RESEND_MINOR || Date.now() - goneSince > RECONNECT_GRACE_MS) throw goneBeforeAnswer(command);
+        } else if (now.conn !== conn) {
+          if (!resends) throw goneBeforeAnswer(command);
+          // The phone reconnected: send the same command again, with the same id. It
+          // answers from memory if it ran it, and runs it if the first copy never arrived.
+          conn = now.conn;
+          goneSince = undefined;
+          await this.store.batch([
+            { op: "set", key: K.pending(commandId), value: JSON.stringify({ device: id, conn } satisfies Pending), px: Math.max(waitUntil - Date.now(), 0) + 10_000 },
+            { op: "lpush", key: K.queue(id, conn), value: JSON.stringify(envelope), px: Math.max(waitUntil - Date.now(), 0) + 10_000 },
+          ]);
+        } else {
+          goneSince = undefined;
+        }
       }
       if (!approvalSeen && approval) {
         approvalSeen = true;
@@ -556,14 +606,14 @@ export class Devices {
         if (request.remote && !options.askOwner && options.deferWhenAsked) {
           // The AI asks the user in the chat; answer_approval resumes this command.
           finish.push({ op: "del", key: K.approval(commandId) });
-          throw new ApprovalDeferred(request, id, live.conn);
+          throw new ApprovalDeferred(request, id, conn);
         }
         if (request.remote && options.askOwner) {
           // Ask in the AI app while the phone shows its own card; the first answer wins.
           void options.askOwner(request).then(async (choice) => {
             if (choice === undefined) return;
             await this.store.lpush(
-              K.queue(id, live.conn), JSON.stringify({ type: "approval_answer", nonce: request.nonce, choice }), CONFIRM_DEADLINE_MS,
+              K.queue(id, conn), JSON.stringify({ type: "approval_answer", nonce: request.nonce, choice }), CONFIRM_DEADLINE_MS,
             );
           }).catch(() => undefined);
         }
@@ -571,7 +621,7 @@ export class Devices {
       if (Date.now() > waitUntil) {
         finish.push(
           { op: "del", key: K.pending(commandId) },
-          { op: "lpush", key: K.queue(id, live.conn), value: JSON.stringify({ type: "cancel", id: commandId }), px: 60_000 },
+          { op: "lpush", key: K.queue(id, conn), value: JSON.stringify({ type: "cancel", id: commandId }), px: 60_000 },
         );
         throw new ProtocolError("deadline_exceeded", "the phone did not answer in time");
       }
@@ -586,7 +636,8 @@ export class Devices {
       const { screenshot: _drop, ...withoutScreenshot } = observation;
       finish.push({
         op: "set", key: K.observation(id),
-        value: JSON.stringify({ conn: live.conn, observation: withoutScreenshot, received_at_ms: Date.now() }), px: OBSERVATION_TTL_MS,
+        // On whichever connection the phone is now: the answer may have come after a reconnect.
+        value: JSON.stringify({ conn, observation: withoutScreenshot, received_at_ms: Date.now() }), px: OBSERVATION_TTL_MS,
       });
     };
     const malformed = () => new ProtocolError("internal", "the phone returned a malformed result");
