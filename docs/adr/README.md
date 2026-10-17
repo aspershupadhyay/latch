@@ -520,3 +520,16 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Recovery:** a phone below 1.20 is refused `background` and `job` by both gateways with the usual "update the app" message; ordinary `adb` calls are unchanged.
 
+## ADR-050 — Full ADB on mobile data: an opt-in fixed port until restart
+**Status:** accepted (2026-10-17, owner request R29 "ADB off Wi-Fi"); Android app, roadmap R29 (b) · *needs phone*.
+
+**Context:** full-access ADB runs over Android's wireless debugging (ADR-046), which Android ties to Wi-Fi: off Wi-Fi, on mobile data, `adb` stops working. Android's own answer is `adb tcpip 5555`: adbd also accepts classic ADB on a TCP port until the phone restarts.
+
+**Decision:** an owner switch, **Access → Full ADB access → Keep working on mobile data**, off by default. Switching it on asks adbd over Latch's authenticated wireless-debugging connection for the `tcpip:5555` service; Latch then reaches adbd on `127.0.0.1:5555`, on the phone itself, whenever the wireless-debugging endpoint does not answer and mDNS finds none. Switching it off asks for `usb:`, which closes the port at once; turning full ADB off does the same. The port closes by itself when the phone restarts, and the switch then has no effect until it is used again on Wi-Fi.
+
+**Threat review:** while open, adbd accepts connections on port 5555 on every network the phone is on, not only from Latch. A peer still needs an RSA key adbd trusts: Latch's own, or one the owner allowed; an unknown key makes Android ask the owner, who can deny. On mobile networks the phone is usually not reachable from outside (carrier NAT); on shared or public Wi-Fi other devices can reach the port and try. The connection is classic ADB, so it is authenticated but not encrypted on the network; Latch's own use never leaves the phone (loopback). The risk is stated next to the switch, the default is off, the port does not outlive a restart, and every change is in the Activity log.
+
+**Rejected:** keeping the port open across restarts (needs root); a VPN or tunnel (new infrastructure and permissions for one feature); opening the port without asking (the owner must choose the exposure).
+
+**Recovery:** switch it off, or restart the phone. Revoking ADB keys under Developer options also locks out any other key at once.
+
