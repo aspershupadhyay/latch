@@ -15,19 +15,27 @@ import java.nio.ByteOrder
  * the AUTH token/signature/public-key dance, and the per-command `shell,v2`
  * streams that carry separated stdout, stderr, and the true exit code — the
  * same results `adb shell` gives. The transport is injected as plain streams
- * so the handshake can be exercised against an in-process fake adbd; the
- * wireless path wraps the same streams in TLS after an STLS upgrade.
+ * so the handshake can be exercised against an in-process fake adbd.
+ *
+ * Android 11+ wireless debugging starts in plaintext like classic ADB: we send
+ * CNXN, adbd answers `STLS`, we answer `STLS`, and both sides switch the same
+ * socket to TLS ([startTls]); adbd then authenticates us by our TLS client
+ * certificate (pinned at pairing) and sends its CNXN.
  *
  * Not thread-safe: one command at a time, which is all the bridge needs.
  */
 internal class AdbConnection(
     rawIn: InputStream,
-    private val output: OutputStream,
+    private var output: OutputStream,
     private val key: AdbKey,
     private val features: String = "shell_v2,cmd",
     private val closer: java.io.Closeable? = null,
+    /** Called once the handshake succeeds, e.g. to lift the transport's handshake read timeout. */
+    private val onConnected: () -> Unit = {},
+    /** Upgrades the transport to TLS when adbd asks (`STLS`); returns the TLS streams. Null: plaintext only. */
+    private val startTls: (() -> Pair<InputStream, OutputStream>)? = null,
 ) : java.io.Closeable {
-    private val input = BufferedInputStream(rawIn)
+    private var input: InputStream = BufferedInputStream(rawIn)
 
     override fun close() {
         runCatching { input.close() }
@@ -60,6 +68,7 @@ internal class AdbConnection(
             when {
                 message.isCommand(AdbProtocol.A_CNXN) -> {
                     peerBanner = String(message.payload, Charsets.UTF_8).trimEnd('\u0000')
+                    onConnected()
                     return
                 }
                 message.isCommand(AdbProtocol.A_AUTH) && message.arg0 == AdbProtocol.AUTH_TOKEN -> {
@@ -77,8 +86,14 @@ internal class AdbConnection(
                         else -> throw AdbProtocolException("adbd did not authorize this key (authorize the client on the device)")
                     }
                 }
-                message.isCommand(AdbProtocol.A_STLS) ->
-                    throw AdbProtocolException("adbd requires TLS (wireless debugging); use a TLS transport")
+                message.isCommand(AdbProtocol.A_STLS) -> {
+                    val upgrade = startTls
+                        ?: throw AdbProtocolException("adbd requires TLS (wireless debugging); use a TLS transport")
+                    send(AdbMessage.of(AdbProtocol.A_STLS, AdbProtocol.STLS_VERSION, 0))
+                    val (tlsIn, tlsOut) = upgrade()
+                    input = BufferedInputStream(tlsIn)
+                    output = tlsOut
+                }
                 else -> throw AdbProtocolException("unexpected message during connect: ${message.command}")
             }
         }

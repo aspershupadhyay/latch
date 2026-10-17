@@ -88,23 +88,38 @@ class AdbKey private constructor(private val keyPair: KeyPair) {
             0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
         )
 
-        /** Loads the key stored at [file], generating and saving a new 2048-bit RSA key the first time. */
+        /**
+         * Loads the key stored at [file], generating and saving a new 2048-bit
+         * RSA key the first time. The file is written to a temporary name and
+         * renamed, so a crash mid-write never leaves a half key; an unreadable
+         * file is replaced (the owner pairs wireless debugging again) rather
+         * than disabling full ADB for good.
+         */
         fun loadOrCreate(file: File): AdbKey {
             if (file.exists()) {
-                val spec = PKCS8EncodedKeySpec(Base64.getDecoder().decode(file.readText().trim()))
-                val factory = KeyFactory.getInstance("RSA")
-                val priv = factory.generatePrivate(spec) as RSAPrivateKey
-                val pub = factory.generatePublic(
-                    RSAPublicKeySpec(priv.modulus, (priv as? java.security.interfaces.RSAPrivateCrtKey)?.publicExponent ?: BigInteger.valueOf(65537)),
-                )
-                return AdbKey(KeyPair(pub, priv))
+                runCatching { load(file) }.onSuccess { return it }
             }
             val pair = KeyPairGenerator.getInstance("RSA").apply { initialize(MODULUS_BITS) }.generateKeyPair()
             file.parentFile?.mkdirs()
-            file.writeText(Base64.getEncoder().encodeToString(pair.private.encoded))
-            file.setReadable(false, false)
-            file.setReadable(true, true)
+            val temp = File(file.parentFile, "${file.name}.tmp")
+            temp.writeText(Base64.getEncoder().encodeToString(pair.private.encoded))
+            temp.setReadable(false, false)
+            temp.setReadable(true, true)
+            if (!temp.renameTo(file)) {
+                temp.delete()
+                throw java.io.IOException("could not save the ADB key")
+            }
             return AdbKey(pair)
+        }
+
+        private fun load(file: File): AdbKey {
+            val spec = PKCS8EncodedKeySpec(Base64.getDecoder().decode(file.readText().trim()))
+            val factory = KeyFactory.getInstance("RSA")
+            val priv = factory.generatePrivate(spec) as RSAPrivateKey
+            val pub = factory.generatePublic(
+                RSAPublicKeySpec(priv.modulus, (priv as? java.security.interfaces.RSAPrivateCrtKey)?.publicExponent ?: BigInteger.valueOf(65537)),
+            )
+            return AdbKey(KeyPair(pub, priv))
         }
 
         /** Wraps an existing key pair (tests, and callers that manage storage themselves). */

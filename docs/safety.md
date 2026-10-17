@@ -9,7 +9,8 @@ We built Latch so the AI can't sneak around you:
 - **The phone double-checks.** Even if the gateway missed a risky button, the phone checks the same rules on what it sees right now and asks you anyway.
 - **Passwords, PINs, one-time codes, and card numbers are hidden** from the AI, and it can't type into those boxes.
 - **Off-limits areas:** the AI can't touch the Latch app itself, your notification shade, or your lock screen.
-- **No sneaky stuff exists in the app:** no file access, no reading notifications, no command line.
+- **No sneaky stuff exists in the app:** no reading notifications, and no file access beyond the folders and photos you share.
+- **Full ADB access is the one exception, and it is yours to give.** It stays off until you switch it on *and* pair Android's wireless debugging. Then the AI app gets the same power as a computer running `adb` on your phone, with no per-command check, by design ([ADR-046](adr/README.md#adr-046--unrestricted-owner-authorized-adb-over-wireless-mcp)). Only turn it on for an AI app you fully trust. **Stop** ends a running command at once; **Turn off** (and forgetting Latch under *Wireless debugging → Paired devices*) revokes it. ADB output is never written to any log.
 - **Fast transfers on the same Wi-Fi (off until you switch them on)** open a listener on your Wi-Fi for one file at a time: a random address that closes after that file or 15 minutes. Only scrambled (encrypted) bytes cross your Wi-Fi, and a changed file is never kept.
 - **Screen text can't boss the AI around.** Text on screen is treated as plain information, never as instructions.
 

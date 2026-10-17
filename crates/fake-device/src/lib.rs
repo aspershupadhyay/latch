@@ -101,6 +101,9 @@ pub struct FakeState {
     /// Since 1.17 (ADR-046): every `adb.shell` command line this session ran,
     /// in order. Output is never stored — ADR-046 keeps ADB results out of logs.
     pub adb_commands: Vec<String>,
+    /// The envelope deadline of each new `adb.shell` command, in order, so
+    /// tests can check gateways impose none of their own (ADR-046).
+    pub adb_deadlines: Vec<u32>,
     /// Pending chunked `adb.shell` output, keyed by the cursor given to the client.
     adb_chunks: std::collections::HashMap<String, AdbPending>,
     adb_cursor_seq: u64,
@@ -163,6 +166,7 @@ impl FakeState {
             device_id: None,
             revoked: false,
             adb_commands: Vec::new(),
+            adb_deadlines: Vec::new(),
             adb_chunks: std::collections::HashMap::new(),
             adb_cursor_seq: 0,
             latest: None,
@@ -361,6 +365,13 @@ pub fn handle(
     validate::envelope(envelope)?;
     if state.session.paused {
         return Err(err(ErrorCode::DeviceUnavailable, "session paused"));
+    }
+    if let Command::AdbShell {
+        command_line: Some(_),
+        ..
+    } = &envelope.command
+    {
+        state.adb_deadlines.push(envelope.deadline_ms);
     }
     // ADR-046: full-access ADB keeps working past the ordinary session timer;
     // only owner Stop/pause (above) and revoke stop it.

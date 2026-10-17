@@ -6,6 +6,8 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import java.io.File
+import java.net.InetAddress
+import java.net.NetworkInterface
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -36,26 +38,44 @@ class AdbWireless(
     suspend fun pair(code: String, pairingHost: String?, pairingPort: Int?): Result {
         val pairing = when {
             pairingHost != null && pairingPort != null -> SocketAdbTransport.Endpoint(pairingHost, pairingPort, tls = true)
-            else -> discover(SERVICE_PAIRING) ?: return Result.Failed("No wireless-debugging pairing service found on this network")
+            else -> discover(SERVICE_PAIRING) ?: return Result.Failed("No wireless-debugging pairing service found on this phone. Keep the pairing code dialog open and try again.")
         }
-        runCatching { PairingSession.pair(key, pairing.host, pairing.port, code) }
+        runCatching { PairingSession.pair(key, pairing.host, pairing.port, code.trim()) }
             .onFailure { return Result.Failed("Pairing failed: ${it.message ?: it.javaClass.simpleName}") }
-        val connect = discover(SERVICE_CONNECT)
+        val connect = connectEndpoint()
             ?: return Result.Failed("Paired, but could not find the connect service; enter the connect address shown under Wireless debugging")
-        return Result.Paired("tls://${connect.host}:${connect.port}")
+        return Result.Paired(connect)
     }
 
-    /** Resolves the first instance of an adbd mDNS [serviceType] to a host and port. */
+    /**
+     * This phone's current wireless-debugging connect endpoint as
+     * `tls://127.0.0.1:port`, or null when wireless debugging is off. Android
+     * picks a new port whenever wireless debugging restarts (a reboot, a toggle,
+     * a new network), so the bridge calls this to reconnect without a cable or
+     * a new pairing. Loopback keeps working when the Wi-Fi address changes.
+     */
+    suspend fun connectEndpoint(): String? =
+        discover(SERVICE_CONNECT)?.let { "tls://$LOOPBACK:${it.port}" }
+
+    /**
+     * Resolves the first instance of an adbd mDNS [serviceType] that this phone
+     * itself advertises, to a host and port. Other phones on the same Wi-Fi with
+     * wireless debugging on advertise the same service types; they are skipped,
+     * so pairing and connecting stay bound to this device.
+     */
     // resolveService/host are deprecated at API 34; the callback replacement is API 34+ while minSdk is 30.
     @Suppress("DEPRECATION")
     private suspend fun discover(serviceType: String): SocketAdbTransport.Endpoint? {
         val nsd = context.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return null
+        val own = localAddresses()
         val resolved = CompletableDeferred<SocketAdbTransport.Endpoint?>()
         val listener = object : NsdManager.DiscoveryListener {
             override fun onServiceFound(info: NsdServiceInfo) {
                 nsd.resolveService(info, object : NsdManager.ResolveListener {
                     override fun onServiceResolved(resolvedInfo: NsdServiceInfo) {
-                        val host = resolvedInfo.host?.hostAddress ?: return
+                        val address = resolvedInfo.host ?: return
+                        if (own.isNotEmpty() && address !in own && !address.isLoopbackAddress) return
+                        val host = address.hostAddress ?: return
                         if (!resolved.isCompleted) resolved.complete(SocketAdbTransport.Endpoint(host, resolvedInfo.port, tls = true))
                     }
                     override fun onResolveFailed(resolvedInfo: NsdServiceInfo, errorCode: Int) {}
@@ -75,9 +95,17 @@ class AdbWireless(
         }
     }
 
+    /** Every address of this phone's network interfaces, to tell its own adbd from another device's. */
+    private fun localAddresses(): Set<InetAddress> = runCatching {
+        NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .flatMap { it.inetAddresses.toList() }
+            .toSet()
+    }.getOrDefault(emptySet())
+
     companion object {
         private const val SERVICE_PAIRING = "_adb-tls-pairing._tcp"
         private const val SERVICE_CONNECT = "_adb-tls-connect._tcp"
         private const val DISCOVERY_TIMEOUT_MS = 8_000L
+        private const val LOOPBACK = "127.0.0.1"
     }
 }

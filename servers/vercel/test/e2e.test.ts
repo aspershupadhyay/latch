@@ -83,7 +83,7 @@ before(async () => {
 
 after(() => {
   phone?.kill();
-  server.close();
+  server?.close();
 });
 
 async function waitFor(check: () => Promise<boolean>, what: string) {

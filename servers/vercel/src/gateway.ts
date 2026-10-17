@@ -123,6 +123,13 @@ function bounded(value: unknown, max: number): value is string {
   return typeof value === "string" && value.trim() !== "" && [...value].length <= max && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
 }
 
+/**
+ * Largest MCP request body: room for the biggest `adb` call the protocol
+ * accepts (a 128 Ki-character command line and 512 KiB of stdin, even when
+ * JSON escaping inflates them), under Vercel's 4.5 MB request limit.
+ */
+const MCP_BODY_BYTES = 4 * 1024 * 1024;
+
 async function readJson(request: Request, limit: number): Promise<unknown> {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > limit) throw new ProtocolError("invalid_request", "body too large");
@@ -403,7 +410,7 @@ export class Gateway {
     if (!caller) return this.mcpUnauthorized(request, token !== undefined);
     let message: unknown;
     try {
-      message = await readJson(request, 256 * 1024);
+      message = await readJson(request, MCP_BODY_BYTES);
     } catch {
       return json(400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
     }

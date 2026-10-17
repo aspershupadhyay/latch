@@ -20,16 +20,30 @@ const PAGE_HTML: &str = include_str!("page/index.html");
 const PAGE_CSS: &str = include_str!("page/gateway.css");
 const ROBOTS_TXT: &str = include_str!("page/robots.txt");
 
+/// Largest MCP request body: room for the biggest `adb` call the protocol
+/// accepts (a 128 Ki-character command line and 512 KiB of stdin, even when
+/// JSON escaping inflates them), which the general 256 KiB limit refused.
+const MCP_BODY_BYTES: usize = 4 * 1024 * 1024;
+
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(page))
         .route("/gateway.css", get(page_css))
         .route("/robots.txt", get(robots_txt))
         .route("/healthz", get(health))
-        .route("/mcp", post(mcp_post).get(mcp_other).delete(mcp_other))
+        .route(
+            "/mcp",
+            post(mcp_post)
+                .get(mcp_other)
+                .delete(mcp_other)
+                .layer(DefaultBodyLimit::max(MCP_BODY_BYTES)),
+        )
         .route(
             "/mcp/{token}",
-            post(mcp_post_link).get(mcp_other).delete(mcp_other),
+            post(mcp_post_link)
+                .get(mcp_other)
+                .delete(mcp_other)
+                .layer(DefaultBodyLimit::max(MCP_BODY_BYTES)),
         )
         .route("/v1/pair", post(pair))
         .route("/v1/info", get(device_http::info))

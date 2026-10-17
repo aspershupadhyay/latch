@@ -470,14 +470,15 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
         is SessionState.Active -> when {
             pending != null -> Triple(Phase.ACTIVE, "Your answer is needed", "The AI waits until you answer below.")
             s.paused -> Triple(Phase.PAUSED, "Paused", "The AI can't see or do anything until you resume.")
+            now >= s.expiresAtMs -> Triple(Phase.ACTIVE, "Only full ADB access is on", "The session time ended, so the AI can only run ADB commands. Stop ends it.")
             else -> Triple(Phase.ACTIVE, "Your AI can work now", "Only in the apps you allowed. Stop ends everything at once.")
         }
         is SessionState.Revoked -> Triple(Phase.REVOKED, "Revoked", s.reason)
         is SessionState.Failed -> Triple(Phase.FAILED, "Stopped", s.message)
     }
     val minutesLeft = when (val s = state) {
-        is SessionState.Active -> ((s.expiresAtMs - now) / 60_000).coerceAtLeast(0) + 1
-        is SessionState.Reconnecting -> ((s.expiresAtMs - now) / 60_000).coerceAtLeast(0) + 1
+        is SessionState.Active -> if (now >= s.expiresAtMs) null else (s.expiresAtMs - now) / 60_000 + 1
+        is SessionState.Reconnecting -> if (now >= s.expiresAtMs) null else (s.expiresAtMs - now) / 60_000 + 1
         else -> null
     }
     val statuses = remember(prefs, service, now) { app.session.capabilityStatuses() }
