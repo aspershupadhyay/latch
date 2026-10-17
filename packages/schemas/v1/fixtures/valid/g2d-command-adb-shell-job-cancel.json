@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0322", "deadline_ms": 20000, "command": { "name": "adb.shell", "params": { "job": "adbj_3", "cancel": true } } }

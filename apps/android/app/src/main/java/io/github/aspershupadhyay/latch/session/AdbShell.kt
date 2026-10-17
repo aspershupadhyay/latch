@@ -22,4 +22,7 @@ import io.github.aspershupadhyay.latch.protocol.Command
  */
 interface AdbShellBridge {
     suspend fun run(command: Command.AdbShell): AdbResult
+
+    /** Since 1.20 (ADR-049): owner Stop ends every background job and deletes its output. */
+    fun stopJobs() = Unit
 }

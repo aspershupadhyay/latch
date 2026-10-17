@@ -579,6 +579,55 @@ pub async fn run(mut target: Target, owner: &mut dyn Owner, quick: bool) -> Resu
         String::new(),
     );
 
+    // 6b. A job: starts at once, keeps running on the phone, collected later (R29 d).
+    let started = Instant::now();
+    let outcome = if !adb_on {
+        skip_adb()
+    } else {
+        match run
+            .client
+            .call(
+                "adb",
+                json!({ "command": "sleep 3; echo job-done", "background": true }),
+            )
+            .await
+        {
+            Ok(a) if !a.error && a.text.starts_with("Started job ") => {
+                let id = a
+                    .text
+                    .split_whitespace()
+                    .nth(2)
+                    .unwrap_or_default()
+                    .to_owned();
+                match run
+                    .client
+                    .call("adb", json!({ "job": id, "wait_ms": 30_000 }))
+                    .await
+                {
+                    Ok(done)
+                        if done
+                            .text
+                            .starts_with(&format!("job {id} finished, exit code 0"))
+                            && done.text.contains("job-done") =>
+                    {
+                        Outcome::Pass
+                    }
+                    Ok(done) => Outcome::Fail(first_line(&done.text)),
+                    Err(e) => Outcome::Fail(e),
+                }
+            }
+            Ok(a) => Outcome::Fail(first_line(&a.text)),
+            Err(e) => Outcome::Fail(e),
+        }
+    };
+    run.record(
+        "ADB job, collected later",
+        "R29d",
+        started,
+        outcome,
+        String::new(),
+    );
+
     // 7. An answer survives a Wi-Fi drop and nothing runs twice (R29 a). ADB cannot be
     //    used here: Android turns wireless debugging off with Wi-Fi. A question to the
     //    owner can: it stays open on the phone while Wi-Fi is off, the owner's Done

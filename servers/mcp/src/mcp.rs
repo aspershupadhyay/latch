@@ -608,6 +608,10 @@ pub fn tool_definitions() -> Vec<Value> {
                  own ADB permissions still bound it. `stdin` is optional data piped to the \
                  command. Large output arrives over several frames; the gateway joins them and, \
                  if the output is very large, returns a `continue_from` cursor for the rest. \
+                 For a command that runs longer than you can wait, pass `background: true`: it \
+                 starts on the phone and you get a job id at once; then call adb with `job` (and \
+                 `wait_ms` to wait for it) to collect what it wrote since you last looked, and \
+                 the exit code when it finished; `cancel: true` ends it (Latch 1.20). \
                  This is the selected phone, not the gateway host. Needs Latch 1.17 on the phone.",
                 false,
                 json!({
@@ -617,6 +621,10 @@ pub fn tool_definitions() -> Vec<Value> {
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "Optional deadline you request for the command; 0 or omitted means none." },
                     "continue_from": { "type": "string", "maxLength": 64, "description": "A cursor from a previous result, to fetch the next chunk of its output. Give this instead of command." },
                     "base64": { "type": "boolean", "default": false, "description": "Return stdout as base64 of the exact bytes, for binary output. An image (e.g. `screencap -p`) comes back as an image. Needs Latch 1.18 on the phone." },
+                    "background": { "type": "boolean", "default": false, "description": "Start command as a job on the phone and answer at once with its id; collect it later with job. Needs Latch 1.20 on the phone." },
+                    "job": { "type": "string", "maxLength": 64, "description": "A job id from a background start: returns the output written since you last collected, and the exit code once it finished. Give this instead of command." },
+                    "wait_ms": { "type": "integer", "minimum": 0, "description": "With job: wait up to this long for the job to finish before answering with what it wrote so far." },
+                    "cancel": { "type": "boolean", "default": false, "description": "With job: end the job." },
                 }),
                 &[],
             );
@@ -716,6 +724,11 @@ async fn adb_shell(
         .map_err(bad)?
         .map(str::to_owned);
     let base64 = arg_bool(args, "base64", false).map_err(bad)?;
+    let background = arg_bool(args, "background", false).map_err(bad)?;
+    let job = arg_str(args, "job").map_err(bad)?.map(str::to_owned);
+    let wait_ms = u32::try_from(arg_int(args, "wait_ms").map_err(bad)?.unwrap_or(0))
+        .map_err(|_| ProtocolError::new(ErrorCode::InvalidRequest, "wait_ms is out of range"))?;
+    let cancel = arg_bool(args, "cancel", false).map_err(bad)?;
     let budget = if base64 {
         ADB_BASE64_BUDGET
     } else {
@@ -723,10 +736,15 @@ async fn adb_shell(
     };
     let timeout_ms = u32::try_from(arg_int(args, "timeout_ms").map_err(bad)?.unwrap_or(0))
         .map_err(|_| ProtocolError::new(ErrorCode::InvalidRequest, "timeout_ms is out of range"))?;
-    if command.is_some() == continue_from.is_some() {
+    if [command.is_some(), continue_from.is_some(), job.is_some()]
+        .iter()
+        .filter(|given| **given)
+        .count()
+        != 1
+    {
         return Err(ProtocolError::new(
             ErrorCode::InvalidRequest,
-            "give either command or continue_from, not both (and not neither)",
+            "give exactly one of command, continue_from, or job",
         ));
     }
 
@@ -737,6 +755,7 @@ async fn adb_shell(
     // The command may answer over several frames; join them, stopping at the
     // result's end or once the budget is reached. `exit_code` is set only by
     // the final frame; `cursor` is set only when more output is left.
+    let mut job_seen: (Option<String>, Option<latch_protocol::AdbJobState>) = (None, None);
     let (exit_code, cursor): (Option<i32>, Option<String>) = loop {
         let cmd = Command::AdbShell {
             command_line: if first { command.clone() } else { None },
@@ -744,6 +763,10 @@ async fn adb_shell(
             timeout_ms: if first { timeout_ms } else { 0 },
             continue_from: next.clone(),
             base64: first && base64,
+            background: first && background,
+            job: if first { job.clone() } else { None },
+            wait_ms: if first { wait_ms } else { 0 },
+            cancel: first && cancel,
         };
         first = false;
         let result = match devices::execute(state, device_id, cmd).await? {
@@ -757,6 +780,9 @@ async fn adb_shell(
         };
         stdout.push_str(&result.stdout);
         stderr.push_str(&result.stderr);
+        if result.job.is_some() {
+            job_seen = (result.job.clone(), result.job_state);
+        }
         match result.cursor {
             None => break (result.exit_code, None),
             Some(c) if stdout.len() >= budget => break (None, Some(c)),
@@ -765,8 +791,24 @@ async fn adb_shell(
     };
 
     let mut body = String::new();
+    // Since 1.20: a job's answer says where it stands and how to go on.
+    match (&job_seen.0, job_seen.1) {
+        (Some(id), _) if background => body.push_str(&format!(
+            "Started job {id} on the phone. Collect its output with adb {{\"job\": \"{id}\", \"wait_ms\": 60000}}; \
+             each call returns what it wrote since the last one. End it with adb {{\"job\": \"{id}\", \"cancel\": true}}.\n"
+        )),
+        (Some(id), Some(latch_protocol::AdbJobState::Cancelled)) => {
+            body.push_str(&format!("job {id} cancelled\n"));
+        }
+        (Some(id), Some(latch_protocol::AdbJobState::Running)) if cursor.is_none() => body.push_str(&format!(
+            "job {id} still running; call adb {{\"job\": \"{id}\"}} again for more\n"
+        )),
+        (Some(id), _) if exit_code.is_some() => body.push_str(&format!("job {id} finished, ")),
+        _ => {}
+    }
     match exit_code {
         Some(code) => body.push_str(&format!("exit code {code}\n")),
+        None if job_seen.0.is_some() && cursor.is_none() => {}
         None => body.push_str("(more output remains)\n"),
     }
     // Binary output that is a whole picture comes back as one the AI can see.
@@ -804,7 +846,11 @@ async fn adb_shell(
             body.push('\n');
         }
     }
-    if stdout.is_empty() && stderr.is_empty() && exit_code.is_some() {
+    if stdout.is_empty()
+        && stderr.is_empty()
+        && (exit_code.is_some() || job_seen.0.is_some())
+        && !background
+    {
         body.push_str("\n(no output)\n");
     }
     if exit_code.is_none()

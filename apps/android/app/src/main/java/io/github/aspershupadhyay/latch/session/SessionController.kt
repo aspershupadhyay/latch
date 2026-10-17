@@ -83,6 +83,8 @@ class SessionController(
     private val adbWireless: io.github.aspershupadhyay.latch.session.adb.AdbWireless? = null,
     /** Protocol 1.19 (ADR-048): command ids already run, kept across sessions and restarts. */
     private val recentCommands: RecentCommands = RecentCommands(),
+    /** Protocol 1.20 (ADR-049): where background ADB jobs write their output until it is collected. */
+    private val adbJobDir: java.io.File? = null,
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -107,7 +109,7 @@ class SessionController(
      * endpoint) leaves adb.shell refused as unsupported.
      */
     private val adbBridge: AdbShellBridge? = adbKey?.let { key ->
-        io.github.aspershupadhyay.latch.session.adb.AdbShellExecutor {
+        io.github.aspershupadhyay.latch.session.adb.AdbShellExecutor(adbJobDir) {
             val saved = settings.preferences.value.adbEndpoint
             try {
                 io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(saved, key)
@@ -148,6 +150,8 @@ class SessionController(
         approvals.onRequested = ::offerApproval
         scope.launch {
             combine(settings.preferences, bridge.service) { _, _ -> Unit }.collect {
+                // Turning full ADB off ends its background jobs, as Stop does (ADR-049).
+                if (!adbActive()) adbBridge?.stopJobs()
                 // Past the timer only full ADB kept the link up; once it is off, end it.
                 if (wanted && expiresAtMs > 0 && System.currentTimeMillis() >= expiresAtMs && !adbActive()) {
                     stop("Session time ended")
@@ -273,6 +277,8 @@ class SessionController(
         // File ids live for one session.
         transfers?.cancelAll()
         files?.reset()
+        // Stop ends full-access ADB, background jobs included (ADR-046, ADR-049).
+        adbBridge?.stopJobs()
         val closing = link
         link = null
         // Tell the gateway right away so tool calls fail fast instead of timing out.

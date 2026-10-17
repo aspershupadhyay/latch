@@ -347,6 +347,23 @@ pub struct AdbResult {
     /// when the command is complete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// Since 1.20: the job this answer is about (a `background` start or a collection).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+    /// Since 1.20: the job's state once everything it wrote so far was read.
+    /// `running` also while output is left to collect; `finished` comes with
+    /// `exit_code`; after `finished` or `cancelled` the job id is forgotten.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_state: Option<AdbJobState>,
+}
+
+/// Since 1.20 (ADR-049): where an `adb.shell` job stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdbJobState {
+    Running,
+    Finished,
+    Cancelled,
 }
 
 /// The owner's answer to `owner.ask` (since 1.5).

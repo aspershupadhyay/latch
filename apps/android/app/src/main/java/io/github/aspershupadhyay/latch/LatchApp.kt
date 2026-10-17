@@ -119,6 +119,7 @@ class LatchApp : Application() {
             adbKey = adbKey,
             adbWireless = adbWireless,
             recentCommands = io.github.aspershupadhyay.latch.session.RecentCommands(java.io.File(filesDir, "session/recent-commands.txt")),
+            adbJobDir = java.io.File(cacheDir, "adb-jobs"),
         )
         setup = GatewaySetup(http)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())

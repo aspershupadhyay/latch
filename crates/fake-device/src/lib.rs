@@ -14,11 +14,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
     ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList,
-    AdbResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
-    DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode, GatewayToDevice,
-    GlobalAction, Hello, NetworkKind, Observation, Orientation, Outcome, OwnerReply,
-    PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target,
-    WaitResult, validate,
+    AdbJobState, AdbResult, AppList, Capability, CapabilityState, CapabilityStatus, Command,
+    CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode,
+    GatewayToDevice, GlobalAction, Hello, NetworkKind, Observation, Orientation, Outcome,
+    OwnerReply, PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo, Screenshot, SessionInfo,
+    Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -109,6 +109,9 @@ pub struct FakeState {
     /// Pending chunked `adb.shell` output, keyed by the cursor given to the client.
     adb_chunks: std::collections::HashMap<String, AdbPending>,
     adb_cursor_seq: u64,
+    /// Since 1.20: `adb.shell` jobs by id. A job whose line starts with
+    /// `sleep N;` finishes N seconds after it started, so tests can see one running.
+    adb_jobs: std::collections::HashMap<String, FakeJob>,
     /// Since 1.19 (ADR-048): the answers to recent commands by id, so a
     /// command the gateway sends again after a reconnect is not run twice.
     answers: Answers,
@@ -221,6 +224,39 @@ struct AdbPending {
     stdout: Vec<u8>,
     /// The exit status, sent with the final chunk.
     exit_code: i32,
+    /// Since 1.20: the job these bytes belong to, if any.
+    job: Option<String>,
+}
+
+/// A simulated `adb.shell` job (protocol 1.20).
+#[derive(Debug, Clone)]
+struct FakeJob {
+    done_at_ms: u64,
+    stdout: Vec<u8>,
+    stderr: String,
+    exit_code: i32,
+}
+
+/// Runs a job's line: `sleep N; rest` (or `&&`) finishes N seconds from now.
+fn start_fake_job(line: &str, stdin: Option<&str>) -> FakeJob {
+    let (delay_s, rest) = line
+        .trim()
+        .strip_prefix("sleep ")
+        .and_then(|r| {
+            let (n, rest) = r.split_once([';', '&'])?;
+            Some((
+                n.trim().parse::<u64>().ok()?,
+                rest.trim_start_matches('&').trim(),
+            ))
+        })
+        .unwrap_or((0, line));
+    let (stdout, stderr, exit_code) = run_fake_shell(rest, stdin);
+    FakeJob {
+        done_at_ms: now_ms() + delay_s * 1_000,
+        stdout,
+        stderr,
+        exit_code,
+    }
 }
 
 impl FakeState {
@@ -272,6 +308,7 @@ impl FakeState {
             gestures: Vec::new(),
             adb_chunks: std::collections::HashMap::new(),
             adb_cursor_seq: 0,
+            adb_jobs: std::collections::HashMap::new(),
             answers: Answers::default(),
             replayed: Vec::new(),
             drop_next_answer: false,
@@ -415,13 +452,17 @@ fn first_adb_chunk(
     stdout: Vec<u8>,
     stderr: String,
     exit_code: i32,
+    job: Option<String>,
 ) -> AdbResult {
+    let finished = job.as_ref().map(|_| AdbJobState::Finished);
     if stdout.len() <= FAKE_ADB_CHUNK_BYTES {
         return AdbResult {
             stdout: String::from_utf8_lossy(&stdout).into_owned(),
             stderr,
             exit_code: Some(exit_code),
             cursor: None,
+            job_state: finished,
+            job,
         };
     }
     let head = stdout[..FAKE_ADB_CHUNK_BYTES].to_vec();
@@ -432,6 +473,7 @@ fn first_adb_chunk(
         AdbPending {
             stdout: tail,
             exit_code,
+            job: job.clone(),
         },
     );
     AdbResult {
@@ -439,6 +481,8 @@ fn first_adb_chunk(
         stderr,
         exit_code: None,
         cursor: Some(cursor),
+        job_state: job.as_ref().map(|_| AdbJobState::Running),
+        job,
     }
 }
 
@@ -454,17 +498,21 @@ fn next_adb_chunk(state: &mut FakeState, cursor: &str) -> Result<AdbResult, Prot
             stderr: String::new(),
             exit_code: Some(pending.exit_code),
             cursor: None,
+            job_state: pending.job.as_ref().map(|_| AdbJobState::Finished),
+            job: pending.job,
         });
     }
     let rest = pending.stdout.split_off(FAKE_ADB_CHUNK_BYTES);
     let head = pending.stdout;
     let exit_code = pending.exit_code;
+    let job = pending.job;
     let next = state.new_adb_cursor();
     state.adb_chunks.insert(
         next.clone(),
         AdbPending {
             stdout: rest,
             exit_code,
+            job: job.clone(),
         },
     );
     Ok(AdbResult {
@@ -472,6 +520,8 @@ fn next_adb_chunk(state: &mut FakeState, cursor: &str) -> Result<AdbResult, Prot
         stderr: String::new(),
         exit_code: None,
         cursor: Some(next),
+        job_state: job.as_ref().map(|_| AdbJobState::Running),
+        job,
     })
 }
 
@@ -950,11 +1000,67 @@ pub fn handle(
             stdin,
             continue_from,
             base64,
+            background,
+            job,
+            cancel,
             ..
         } => {
             state.executed.push("adb.shell".into());
             let result = if let Some(cursor) = continue_from {
                 next_adb_chunk(state, cursor)?
+            } else if let Some(id) = job {
+                // Since 1.20: collect or cancel a job.
+                let Some(running) = state.adb_jobs.get(id).cloned() else {
+                    return Err(err(
+                        ErrorCode::InvalidRequest,
+                        "no such adb job (it finished and was collected, or the owner pressed Stop)",
+                    ));
+                };
+                if *cancel {
+                    state.adb_jobs.remove(id);
+                    AdbResult {
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        exit_code: None,
+                        cursor: None,
+                        job: Some(id.clone()),
+                        job_state: Some(AdbJobState::Cancelled),
+                    }
+                } else if now_ms() < running.done_at_ms {
+                    AdbResult {
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        exit_code: None,
+                        cursor: None,
+                        job: Some(id.clone()),
+                        job_state: Some(AdbJobState::Running),
+                    }
+                } else {
+                    state.adb_jobs.remove(id);
+                    first_adb_chunk(
+                        state,
+                        running.stdout,
+                        running.stderr,
+                        running.exit_code,
+                        Some(id.clone()),
+                    )
+                }
+            } else if *background {
+                let line = command_line.as_deref().unwrap_or_default();
+                state.adb_commands.push(line.to_owned());
+                state.adb_cursor_seq += 1;
+                let id = format!("adbj_{}", state.adb_cursor_seq);
+                state
+                    .adb_jobs
+                    .insert(id.clone(), start_fake_job(line, stdin.as_deref()));
+                AdbResult {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: None,
+                    cursor: None,
+                    job: Some(id),
+                    job_state: Some(AdbJobState::Running),
+                }
             } else {
                 let line = command_line.as_deref().unwrap_or_default();
                 state.adb_commands.push(line.to_owned());
@@ -965,7 +1071,7 @@ pub fn handle(
                 } else {
                     stdout
                 };
-                first_adb_chunk(state, stdout, stderr, exit_code)
+                first_adb_chunk(state, stdout, stderr, exit_code, None)
             };
             serde_json::to_value(result).map_err(|_| err(ErrorCode::Internal, "encode"))
         }
@@ -1171,6 +1277,24 @@ pub async fn handle_async(
             .iter()
             .any(|t| t.id == id && !t.finished)
     };
+    // Since 1.20: collecting a job waits up to wait_ms for it to finish.
+    if let Command::AdbShell {
+        job: Some(id),
+        wait_ms,
+        cancel: false,
+        ..
+    } = &envelope.command
+    {
+        let until = now_ms() + u64::from(*wait_ms);
+        while now_ms() < until
+            && lock(state)
+                .adb_jobs
+                .get(id)
+                .is_some_and(|j| now_ms() < j.done_at_ms)
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
     if let Command::TransferStatus {
         transfer,
         wait_ms,
@@ -1434,6 +1558,8 @@ pub async fn run(
                         send(&mut sink, &encode(key.as_ref(), &connection, &message)?).await?;
                     }
                     Some(Control::Stop) | None => {
+                        // Stop ends full-access ADB, jobs included (ADR-046, ADR-049).
+                        lock(&state).adb_jobs.clear();
                         let bye = DeviceToGateway::Bye { reason: "user_stopped".into() };
                         send(&mut sink, &encode(key.as_ref(), &connection, &bye)?).await?;
                         let _ = sink.close().await;
@@ -1572,6 +1698,7 @@ pub async fn run_poll(
                         post(message).await?;
                     }
                     Some(Control::Stop) | None => {
+                        lock(&state).adb_jobs.clear();
                         post(DeviceToGateway::Bye { reason: "user_stopped".into() }).await?;
                         return Ok(());
                     }

@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0325", "deadline_ms": 20000, "command": { "name": "adb.shell", "params": { "command_line": "screenrecord -", "background": true, "base64": true } } }

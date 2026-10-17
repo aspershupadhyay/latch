@@ -704,6 +704,13 @@ pub enum Command {
     /// When output does not fit one frame the device returns a chunk with a
     /// `cursor`; send `adb.shell` again with that `continue_from` (and no
     /// `command_line`) for the next chunk. Answers with an [`crate::AdbResult`].
+    ///
+    /// Since 1.20 (ADR-049, R29 d) a command can run as a job: `background`
+    /// with `command_line` starts it and answers at once with its `job` id;
+    /// `job` (instead of `command_line`) collects the output written since the
+    /// last collection, waiting up to `wait_ms` for the job to finish, and
+    /// `cancel` with `job` ends it. The job keeps running on the phone between
+    /// calls and across reconnects, so a command can outlive any one request.
     #[serde(rename = "adb.shell")]
     AdbShell {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -718,6 +725,19 @@ pub enum Command {
         /// output (`screencap -p`, `cat` of an image). stderr stays text.
         #[serde(default, skip_serializing_if = "is_false")]
         base64: bool,
+        /// Since 1.20: start `command_line` as a job and answer with its id at once.
+        #[serde(default, skip_serializing_if = "is_false")]
+        background: bool,
+        /// Since 1.20: the job to collect (or cancel), from a `background` answer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        job: Option<String>,
+        /// Since 1.20, with `job`: how long to wait for the job to finish
+        /// before answering with the output so far (0: answer at once).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        wait_ms: u32,
+        /// Since 1.20, with `job`: end the job; the answer has what was left unread.
+        #[serde(default, skip_serializing_if = "is_false")]
+        cancel: bool,
     },
 }
 
@@ -945,6 +965,10 @@ impl Command {
             Command::OpenLocal { .. } => 14,
             Command::Global { action } => action.min_minor_version(),
             Command::LaunchApp { fresh: true, .. } | Command::OpenLink { .. } => 15,
+            Command::AdbShell {
+                background: true, ..
+            }
+            | Command::AdbShell { job: Some(_), .. } => 20,
             Command::Gesture { .. } | Command::AdbShell { base64: true, .. } => 18,
             Command::AdbShell { .. } => 17,
             _ => 0,

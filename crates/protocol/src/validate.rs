@@ -517,12 +517,36 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
             stdin,
             continue_from,
             base64,
+            background,
+            job,
+            wait_ms,
+            cancel,
             ..
         } => {
             if *base64 && command_line.is_none() {
                 return Err(invalid(
                     "base64 goes with command_line; a continuation keeps the command's own encoding",
                 ));
+            }
+            // Since 1.20: a job is started with command_line, then collected by its id.
+            if *background && (command_line.is_none() || *base64) {
+                return Err(invalid(
+                    "background goes with command_line and without base64; write binary output to a file and read it afterwards",
+                ));
+            }
+            if (*wait_ms > 0 || *cancel) && job.is_none() {
+                return Err(invalid("wait_ms and cancel go with job"));
+            }
+            if let Some(id) = job {
+                if command_line.is_some() || continue_from.is_some() || stdin.is_some() {
+                    return Err(invalid(
+                        "give job alone (with wait_ms or cancel), not with command_line, continue_from, or stdin",
+                    ));
+                }
+                if !is_valid_id(id) {
+                    return Err(invalid("job must be an id from a background answer"));
+                }
+                return Ok(());
             }
             // Exactly one of: a new command line, or a continuation cursor.
             match (command_line.as_deref(), continue_from.as_deref()) {

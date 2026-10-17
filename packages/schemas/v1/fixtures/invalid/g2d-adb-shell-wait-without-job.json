@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0324", "deadline_ms": 20000, "command": { "name": "adb.shell", "params": { "command_line": "id", "wait_ms": 1000 } } }
