@@ -165,6 +165,8 @@ export const K = {
   live: (id: string) => `latch:live:${id}`,
   queue: (id: string, conn: string) => `latch:q:${id}:${conn}`,
   pending: (cmd: string) => `latch:pending:${cmd}`,
+  /** The connection that said bye (ADR-048): its commands in flight fail at once. */
+  bye: (id: string) => `latch:bye:${id}`,
   result: (cmd: string) => `latch:result:${cmd}`,
   approval: (cmd: string) => `latch:approval:${cmd}`,
   deferred: (cmd: string) => `latch:deferred:${cmd}`,
@@ -284,6 +286,8 @@ export class Devices {
   async disconnect(id: string, conn: string, now: number) {
     const live = await this.live(id);
     if (live?.conn === conn) {
+      // Stop means stop: commands in flight fail now instead of waiting for a reconnect.
+      await this.store.set(K.bye(id), conn, { px: RECONNECT_GRACE_MS + POLL_STALE_MS });
       await this.store.del(K.live(id));
       await this.store.del(K.observation(id));
     }
@@ -561,7 +565,7 @@ export class Devices {
       const replies = await this.store.batch([
         { op: "getdel", key: K.result(commandId) },
         ...(approvalSeen ? [] : [{ op: "get" as const, key: K.approval(commandId) }]),
-        ...(checkPresence ? [{ op: "get" as const, key: K.live(id) }] : []),
+        ...(checkPresence ? [{ op: "get" as const, key: K.bye(id) }, { op: "get" as const, key: K.live(id) }] : []),
       ]);
       const got = replies[0];
       const approval = approvalSeen ? undefined : replies[1];
@@ -573,6 +577,8 @@ export class Devices {
         const now = raw ? (JSON.parse(raw) as Live) : undefined;
         // A phone before 1.19 might run a command twice: it is never sent again (ADR-048).
         const resends = minor >= RESEND_MINOR && (minorVersion(now?.protocol) ?? 0) >= RESEND_MINOR;
+        // The owner stopped the session: fail now, and never resend into the next one.
+        if (replies[replies.length - 2] === conn) throw goneBeforeAnswer(command);
         if (!now) {
           goneSince ??= Date.now();
           if (minor < RESEND_MINOR || Date.now() - goneSince > RECONNECT_GRACE_MS) throw goneBeforeAnswer(command);

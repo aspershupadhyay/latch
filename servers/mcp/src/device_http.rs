@@ -195,7 +195,7 @@ pub async fn messages(
                 .update_state(&device_id, conn_id, capabilities, session, device_time_ms);
         }
         DeviceToGateway::Bye { .. } => {
-            state.devices.unregister(&device_id, conn_id);
+            state.devices.said_bye(&device_id, conn_id);
             state.store().touch(&device_id, now_ms());
             tracing::info!(device_id, "device said bye");
         }

@@ -485,3 +485,20 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Rejected:** letting gestures bypass tap judgement (it would undo the consequential-action rule for ordinary tools); a 60 s gesture (it would outlive the command deadline and look like a failure).
 
 **Recovery:** a phone below 1.18 is refused `input.gesture` and `base64` by both gateways, with the usual "update the app" message; every other tool is unchanged.
+
+## ADR-048 — A command survives a reconnect and runs at most once
+**Status:** accepted (2026-10-17, owner request R29 "no repeated actions"); protocol 1.19, roadmap R29 (a).
+
+**Context:** when the phone's network dropped after it ran an action but before its answer arrived, the phone kept its answer and posted it on the next connection (for 20 s), but both gateways discarded answers that arrived on a connection other than the one the command was sent on, and told the AI "the phone disconnected". The AI then repeated the action: a tap, a sent message, or a payment step done twice. A command whose first copy was lost on the way to the phone also failed instead of being delivered. Handbook ch. 04 requires that a reconnect does not duplicate a non-idempotent action, and ch. 08 forbids automatically replaying an uncertain side effect.
+
+**Decision:**
+- **Gateways (Rust and Vercel):** a command in flight belongs to the phone, not to one connection. When the phone reconnects, the command carries over; an answer counts on any of the phone's authenticated connections (command ids are random). A phone on 1.19 or later is sent each carried-over command again, with the **same id**. A phone that dropped off without a new hello gets a grace of 30 s (the Vercel gateway notices a quiet phone after 45 s and adds the same grace); then the call fails `device_unavailable` with "the action may already have happened, so observe before repeating it".
+- **Phones (Android and the fake phone):** each id runs at most once. A repeated id that is still running is ignored (that run answers); one that already answered gets the same answer from memory; one whose answer is no longer kept is answered `cancelled` without running. Android keeps its last 64 answers (at most 8 MiB, since they can hold screenshots) in memory only, and appends the ids alone, random tokens with no personal data, to `files/session/recent-commands.txt` (newest 1024, excluded from backups), so a command that ran just before Android stopped the app is not run again by the restarted app.
+- **Stop means stop:** when the phone says `bye` (owner Stop, unpair, session end), its commands in flight fail at once and are never sent into a later session. Revocation also fails them at once.
+- **Older phones:** a phone below 1.19 does not remember ids, so it is never sent a command twice; its commands fail on disconnect exactly as before (with the clearer message).
+
+**Why resending is safe:** the phone, not the gateway, decides whether to act, and it acts only on an id it has never seen. A command it never received still carries its `observation_id`, so if the screen changed meanwhile it is refused as stale rather than acted on blindly.
+
+**Rejected:** retrying in the AI client (it cannot know whether the action happened); a gateway-side result cache (the gateway cannot know whether a lost command ran); persisting answers on the phone (they hold screen content, which never goes to disk).
+
+**Recovery:** if the phone's journal file is lost, only the restart case loses protection; memory still protects every reconnect. Reverting the change restores the old fail-on-disconnect behavior; a 1.19 phone talking to an older gateway is simply never sent a command twice.

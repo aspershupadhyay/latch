@@ -325,6 +325,16 @@ impl Registry {
         }
     }
 
+    /// The phone said `bye`: the owner pressed Stop, unpaired, or the session
+    /// ended. Its commands in flight fail now and are never sent again, not
+    /// even if the owner starts a new session a moment later.
+    pub fn said_bye(&self, device_id: &str, conn_id: u64) {
+        let mut live = self.lock();
+        if live.get(device_id).is_some_and(|l| l.conn_id == conn_id) {
+            live.remove(device_id);
+        }
+    }
+
     pub fn update_state(
         &self,
         device_id: &str,

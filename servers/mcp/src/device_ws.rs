@@ -207,6 +207,7 @@ async fn serve(state: Arc<AppState>, device_id: String, socket: WebSocket) {
             }
             DeviceToGateway::Bye { reason } => {
                 tracing::info!(device_id, reason = %reason.chars().take(32).collect::<String>(), "device said bye");
+                state.devices.said_bye(&device_id, conn_id);
                 break;
             }
             DeviceToGateway::ApprovalRequest(request) => {

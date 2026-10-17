@@ -150,7 +150,7 @@ impl Answers {
         self.forgotten.iter().any(|k| k == id).then(|| Outcome::Error {
             error: ProtocolError::new(
                 ErrorCode::Cancelled,
-                "this command already ran on the phone and its answer is no longer kept, so it was not run again",
+                "the phone already received this command and no longer has its answer, so it did not run it again; observe to see what happened",
             ),
         })
     }
