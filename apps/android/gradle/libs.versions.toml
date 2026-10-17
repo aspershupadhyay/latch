@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 # Pinned toolchain and libraries. Update deliberately; see docs/platform/android.md.
 [versions]
-agp = "8.13.2"
+agp = "9.4.1"
 kotlin = "2.4.20"
 composeBom = "2026.06.01"   # 2026.08+ needs compileSdk 37 (AGP 9)
 activityCompose = "1.13.0"
