@@ -11,6 +11,44 @@ Owner request (2026-10-17): watch the phone's live screen and control it from th
 - **Watch the AI work live:** while an AI session runs, the mirror shows what the AI does as it does it, so the owner can follow along from the laptop.
 - **Interrupt or take over at any time:** Pause, Stop, or simply start using the phone from the mirror; the AI waits until the owner gives control back.
 
+## How it looks and works in the browser
+
+**Opening it**
+1. In the Latch app, tap **Mirror on computer**. The phone shows a link and a QR code to the owner's own gateway page (`https://<gateway>/mirror`, or the same-Wi-Fi address).
+2. Open it on the laptop in Chrome, Edge, or Safari (or scan the QR code).
+3. The phone asks Android's "Share your screen?" consent. Tap **Start**. The live screen appears within about a second.
+
+**Layout**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ Latch · Pixel 8          ● Live  42 ms         [⏸ Pause] [■ Stop] │
+├────────────────────────────────┬─────────────────────────────────┤
+│                                │  AI is working                  │
+│      ┌───────────────┐         │  ▶ Tapping "Search"             │
+│      │               │         │                                 │
+│      │  live phone   │         │  Recent steps                   │
+│      │    screen     │         │  ✓ Opened YouTube               │
+│      │ (AI cursor    │         │  ✓ Typed "lofi beats"           │
+│      │  visible)     │         │  ⏳ Waiting for you:             │
+│      │               │         │     Send message? [Allow] [No]  │
+│      └───────────────┘         │                                 │
+│   [◀ Back] [● Home] [▢ Apps]   │  [Take over] [Let AI continue]  │
+└────────────────────────────────┴─────────────────────────────────┘
+```
+
+- **Centre:** the phone's live screen inside a phone frame. It follows rotation and fills the window in full-screen mode.
+- **Top bar:** the phone's name; a green **Live** dot with the measured delay (it turns amber, then red, as the network slows); **Pause** and **Stop**.
+- **Right panel:** the AI's current step, its recent steps, and any approval waiting (answerable with **Allow** or **No**). It hides when no AI session runs.
+- **Under the phone:** Back, Home, and Recents.
+
+**Using it**
+- Click to tap, drag to swipe or drag, scroll with the wheel or trackpad, type on the keyboard (into the focused field on the phone).
+- The first click or key **pauses the AI automatically**. Both the page and the phone show "You're in control". **Let AI continue** hands control back.
+- **Stop** ends everything, as the phone's Stop does.
+- Protected screens (`FLAG_SECURE`) show a grey card, "This screen is protected by the app", instead of a frozen or black picture.
+- Without WebCodecs, the same layout shows a screenshot that refreshes a few times a second; every control still works.
+
 ## Works on any computer
 
 The viewer is a web page, so it needs no app install and runs on Windows, macOS, Linux, and ChromeOS, and also on a tablet or another phone.
