@@ -90,6 +90,11 @@
             android:name=".StopReceiver"
             android:exported="false" />
 
+        <!-- R29 (c): the pairing code typed into Latch's notification. -->
+        <receiver
+            android:name=".AdbPairingReceiver"
+            android:exported="false" />
+
         <!-- Android restarts nothing after Latch updates itself; this says the update finished. -->
         <receiver
             android:name=".UpdatedReceiver"
