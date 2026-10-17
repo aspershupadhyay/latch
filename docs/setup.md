@@ -158,7 +158,7 @@ Android moves wireless debugging to a new port after a restart; Latch finds it a
 
 ## Step 8: Start a session and try it
 
-1. On the app's **Home** tab, pick how long (15, 30, 60, or 120 minutes) and tap **Start session**.
+1. On the app's **Home** tab, pick how long (15 minutes to 8 hours) and tap **Start session**. Need more time? Tap the **+** button next to Stop while it runs.
 2. A red **● Latch · Stop** button stays on your screen. **Tap it any time to stop everything instantly.**
 3. Ask your AI something simple: *"What's on my phone screen right now?"*
 

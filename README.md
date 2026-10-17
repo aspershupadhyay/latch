@@ -44,9 +44,10 @@ flowchart LR
 |---|---|
 | **Works with any AI app** | One MCP address for Claude, ChatGPT, Cursor, Codex, VS Code, and the rest. Each AI app signs in with OAuth, which you approve on the phone, or gets its own key. |
 | **You stay in charge** | Every app is off until you switch it on. Send, Pay, Install, and permission prompts ask you first. Password, PIN, and one-time-code fields are refused. Text on screen is treated as data, never as an instruction. |
+| **Every gesture** | Tap, double-tap, long-press, swipe, drag, pinch, and any multi-finger gesture (rotate, edge swipes, curved paths). A finger that does not move is judged as the tap it is, so a gesture can never press Send without asking you. |
 | **Fast loops** | Actions return only what changed on screen. `run_steps` and saved skills do several steps in one call. `wait_for` and `scroll_to` replace polling. |
 | **Sees what others miss** | Icon-only buttons are read on the phone, so an unlabeled "Send" still asks you before the AI taps it. |
-| **Full ADB, no cable** | Optional and off by default: pair Android's wireless debugging once, and your AI app runs any `adb shell` command on the phone over Wi-Fi, with complete output and real exit codes. You turn it on; Stop ends it. |
+| **Full ADB, no cable** | Optional and off by default: pair Android's wireless debugging once, and your AI app runs any `adb shell` command on the phone over Wi-Fi, with complete output, real exit codes, and binary output such as screenshots. ADB commands run beside the other tools instead of blocking them. You turn it on; Stop ends it. |
 | **Files without the cloud** | Whole files, up to 2 GB, move between your computer and the phone over encrypted 15-minute links. The storage in between only ever holds encrypted bytes. |
 | **Yours to run** | A free Vercel deploy or a small container. Messages from the phone are signed by a key kept in its keystore. Latch itself collects nothing. AGPL-3.0. |
 
@@ -85,7 +86,7 @@ Sources and the full comparison: [security page](https://aspershupadhyay.github.
 | [Setup](docs/setup.md) | Install, deploy, connect an AI, choose what it may do, files, skills |
 | [Troubleshooting](docs/troubleshooting.md) | Play Protect, Restricted setting, sessions that drop, slow actions, updating your gateway |
 | [Safety and privacy](docs/safety.md) | What the AI can and cannot do, and what is stored where |
-| [MCP tools](docs/tools.md) | All 37 tools an AI app can call, including full-access ADB |
+| [MCP tools](docs/tools.md) | All 38 tools an AI app can call, including any gesture and full-access ADB |
 | [Run on Vercel](docs/operations/vercel.md) · [Self-host](docs/operations/gateway.md) | Operating either gateway, owner key rotation, big files |
 | [QA and emulators](docs/operations/qa.md) | Fake phones, emulators, several phones, the Python client |
 | [Device protocol](docs/protocol/v1.md) · [Decisions](docs/adr/README.md) | The phone ↔ gateway contract and why it looks the way it does |

@@ -3,7 +3,7 @@
 We built Latch so the AI can't sneak around you:
 
 - **Everything starts off.** You switch on each power yourself.
-- **Sessions end on their own** when the timer runs out, and the red **Stop** button is always on screen.
+- **Sessions end on their own** when the timer runs out (15 minutes to 8 hours; tap **+** next to Stop to extend), and the red **Stop** button is always on screen.
 - **Only the apps you pick.** The AI can use an app only after you switch it on (or say yes when it first asks). In apps you switched on it doesn't ask again; anywhere else, before the AI taps things like *Send, Post, Call, Delete,* a card pops up on your phone. Tap **Allow once**, or save your answer: **This session**, or **Always in Instagram** (for example).
 - **Money, installs, permissions, and deleting accounts ask.** Buttons like *Pay, Buy, Transfer, Install,* Android permission prompts, and *Delete account* ask every time, unless you yourself switch on **Also allow payments and permissions** (off until you do).
 - **The phone double-checks.** Even if the gateway missed a risky button, the phone checks the same rules on what it sees right now and asks you anyway.
