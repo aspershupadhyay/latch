@@ -962,23 +962,31 @@ async fn full_access_adb_runs_commands_without_extra_restrictions() {
     let (is_error, text, _) =
         call(&gw, "adb", json!({"command": "getprop ro.product.model"})).await;
     assert!(!is_error, "{text}");
-    assert!(text.contains("exit code 0") && text.contains("Pixel 8"), "{text}");
+    assert!(
+        text.contains("exit code 0") && text.contains("Pixel 8"),
+        "{text}"
+    );
 
     // A nonzero exit and stderr come straight back.
     let (is_error, text, _) = call(&gw, "adb", json!({"command": "nope --flag"})).await;
     assert!(!is_error, "{text}");
-    assert!(text.contains("exit code 127") && text.contains("not found"), "{text}");
+    assert!(
+        text.contains("exit code 127") && text.contains("not found"),
+        "{text}"
+    );
 
     // stdin is piped through.
-    let (is_error, text, _) =
-        call(&gw, "adb", json!({"command": "cat", "stdin": "ping\n"})).await;
+    let (is_error, text, _) = call(&gw, "adb", json!({"command": "cat", "stdin": "ping\n"})).await;
     assert!(!is_error && text.contains("ping"), "{text}");
 
     // Large output is chunked by the phone and rejoined by the gateway into one
     // complete result; the phone ran the command exactly once.
     let (is_error, text, _) = call(&gw, "adb", json!({"command": "seq 500"})).await;
     assert!(!is_error, "{text}");
-    assert!(text.contains("\n1\n") && text.contains("\n500\n") && text.contains("exit code 0"), "{text}");
+    assert!(
+        text.contains("\n1\n") && text.contains("\n500\n") && text.contains("exit code 0"),
+        "{text}"
+    );
     assert_eq!(
         phone
             .state
@@ -1002,7 +1010,12 @@ async fn full_access_adb_runs_commands_without_extra_restrictions() {
     let (is_error, text, _) = call(&gw, "adb", json!({"command": "echo hi"})).await;
     assert!(!is_error && text.contains("hi"), "{text}");
     assert!(
-        phone.state.lock().expect("lock").approval_requests.is_empty(),
+        phone
+            .state
+            .lock()
+            .expect("lock")
+            .approval_requests
+            .is_empty(),
         "full-access ADB must not ask per command"
     );
 

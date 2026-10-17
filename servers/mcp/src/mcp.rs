@@ -634,7 +634,9 @@ async fn adb_shell(
     let bad = |e: ArgError| ProtocolError::new(ErrorCode::InvalidRequest, e.0);
     let command = arg_str(args, "command").map_err(bad)?.map(str::to_owned);
     let stdin = arg_str(args, "stdin").map_err(bad)?.map(str::to_owned);
-    let continue_from = arg_str(args, "continue_from").map_err(bad)?.map(str::to_owned);
+    let continue_from = arg_str(args, "continue_from")
+        .map_err(bad)?
+        .map(str::to_owned);
     let timeout_ms = u32::try_from(arg_int(args, "timeout_ms").map_err(bad)?.unwrap_or(0))
         .map_err(|_| ProtocolError::new(ErrorCode::InvalidRequest, "timeout_ms is out of range"))?;
     if command.is_some() == continue_from.is_some() {

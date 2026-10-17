@@ -13,12 +13,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
-    ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList, AdbResult,
-    AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
-    DeviceDescriptor,
-    DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode, GatewayToDevice, GlobalAction, Hello,
-    NetworkKind, Observation, Orientation, Outcome, OwnerReply, PROTOCOL_VERSION, PhoneControl,
-    ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target, WaitResult, validate,
+    ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList,
+    AdbResult, AppList, Capability, CapabilityState, CapabilityStatus, Command, CommandEnvelope,
+    DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode, GatewayToDevice,
+    GlobalAction, Hello, NetworkKind, Observation, Orientation, Outcome, OwnerReply,
+    PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo, Screenshot, SessionInfo, Target,
+    WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -226,7 +226,11 @@ fn run_fake_shell(line: &str, stdin: Option<&str>) -> (Vec<u8>, String, i32) {
         "" => (Vec::new(), String::new(), 0),
         "true" => (Vec::new(), String::new(), 0),
         "false" => (Vec::new(), String::new(), 1),
-        "echo" => (format!("{}\n", rest.join(" ")).into_bytes(), String::new(), 0),
+        "echo" => (
+            format!("{}\n", rest.join(" ")).into_bytes(),
+            String::new(),
+            0,
+        ),
         "cat" => (
             stdin.unwrap_or_default().as_bytes().to_vec(),
             String::new(),
@@ -259,11 +263,7 @@ fn run_fake_shell(line: &str, stdin: Option<&str>) -> (Vec<u8>, String, i32) {
                 }
                 (out.into_bytes(), String::new(), 0)
             }
-            None => (
-                Vec::new(),
-                "usage: seq [first] last\n".to_owned(),
-                1,
-            ),
+            None => (Vec::new(), "usage: seq [first] last\n".to_owned(), 1),
         },
         other => (
             Vec::new(),

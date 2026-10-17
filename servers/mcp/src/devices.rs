@@ -693,9 +693,7 @@ async fn execute_inner(
             validate::local_slot(&slot).map_err(|e| (decision, e))?;
             Output::Local(slot)
         }
-        Command::AdbShell { .. } => {
-            Output::Adb(serde_json::from_value(data).map_err(malformed)?)
-        }
+        Command::AdbShell { .. } => Output::Adb(serde_json::from_value(data).map_err(malformed)?),
         Command::ListActivity { limit, .. } => {
             let mut list: ActivityList = serde_json::from_value(data).map_err(malformed)?;
             // Phone text: bounded before it reaches the AI.
