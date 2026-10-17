@@ -150,11 +150,11 @@ A capability record includes:
 <td>deferred</td>
 </tr>
 <tr>
-<td>arbitrary shell</td>
-<td>no</td>
-<td>no</td>
+<td>adb.shell (owner-authorized Android shell; ADR-045)</td>
+<td>accepted for implementation: authorized Wi-Fi / USB ADB</td>
+<td>unsupported</td>
 <td>critical</td>
-<td>never default</td>
+<td>R27 TODO; explicit opt-in, off by default</td>
 </tr>
 </table>
 “yes” means an implementation path exists, not that the platforms provide identical behavior. The capability registry is the authority.
@@ -189,7 +189,12 @@ The default distribution must not expose:
 - biometric prompt automation;
 - silent background screen capture;
 - destructive actions without a fresh confirmation;
-- arbitrary shell or developer-mode shortcuts;
+- shell access without the separate owner grant and Android debugging authorization required by ADR-045;
 - hidden network tunneling;
 - commands that remain active after the user presses the global stop control.
 These may be studied as threat cases, but they are not product features.
+
+## Owner-authorized ADB exception (2026-10-17)
+[ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) supersedes the blanket shell exclusion and ADR-008's shell decision. Android shell commands are an accepted advanced feature, exposed through a typed MCP/protocol boundary with explicit owner consent. Wi-Fi wireless debugging and an owner-authorized USB ADB host are in scope; iOS shell is not.
+ADB grants broader access than the accessibility app allowlist or selected-folder grants. Those controls must not be advertised as a sandbox for shell commands. The owner must see that difference before enabling the separate device/client/session grant. Ordinary file, UI, and workflow capabilities retain their existing scopes. Runtime support is not present until R27 passes its implementation and real-device gates.
+

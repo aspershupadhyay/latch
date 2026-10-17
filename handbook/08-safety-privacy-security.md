@@ -138,3 +138,15 @@ No public beta without:
 - documented disclosure policy;
 - emergency stop measured on supported devices;
 - no known critical vulnerability without an owner and mitigation.
+
+## Owner-authorized Android ADB mode (ADR-045; 2026-10-17)
+ADB shell is accepted for implementation as a separate, off-by-default advanced capability, not prohibited merely because it uses a shell. [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) records the changed owner decision and R27's delivery gate.
+
+- The owner must enable Android debugging, authorize the ADB peer, and separately grant Latch shell access for the named device, MCP client, and expiring session. App switches and Auto mode are insufficient.
+- Treat every shell request as critical. Show the exact command and target for fresh owner approval; neither the agent nor command output may approve it. Verify that ADB input cannot operate Latch's approval UI or enable its own grant.
+- Android shell permissions exceed ordinary app/file scopes. A command denylist, keyword filter, or accessibility redaction cannot make arbitrary shell a least-privilege sandbox. Keep credential extraction, OTP/MFA bypass, covert capture, and security-control bypass outside the supported product; disclose the residual risk before enablement.
+- Stop, pause, revoke, expiry, and connection loss must prevent new dispatch and cancel Latch-managed work. Test process cleanup and queued commands; do not claim closing an ADB channel reverses completed effects or reliably kills detached work. Report uncertain execution without automatic retry.
+- Keep ADB keys and pairing codes out of logs and the repository. Do not expose adbd or the host's ADB server to the public internet. Use authenticated wireless-debugging pairing for Wi-Fi; do not silently enable legacy TCP debugging.
+- Bound command duration, input, output, and concurrency. Command output is sensitive untrusted data: return it only to the authorized client, label it as data, and keep command bodies/stdout/stderr out of Activity, telemetry, diagnostics, and persistent storage by default.
+- Before release, prove the approval boundary, wrong-client/device refusals, timeout, Stop/revocation, and recovery on actual supported hardware. Record limitations honestly; gate an unsafe execution path instead of disabling existing UI/file controls.
+

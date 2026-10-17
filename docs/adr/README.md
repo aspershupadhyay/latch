@@ -283,6 +283,7 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Reversal trigger:** the field turning out to be wrong on common phones (for example, vendor battery managers that report exemption but still stop the app).
 
 ## ADR-041 — Same-Wi-Fi fast lane for whole files
+> **2026-10-17 update:** the ADB rejection below is historical and superseded by [ADR-045](#adr-045--owner-authorized-adb-shell-through-mcp). This ADR's existing implementation remains supported; it is not a current ban on opt-in ADB.
 **Status:** accepted (2026-10-16, roadmap R23; owner: "yes add R23"); built in the protocol, both gateways, and the Android app · **Protocol:** 1.14 · **Builds on:** ADR-027 (files by encrypted link)
 **Problem:** a whole file between the owner's computer and phone travels computer → storage → phone (ADR-027), so it moves at the slower of the two internet uploads, twice. On the same Wi-Fi the two devices could talk directly, typically 20–80 MB/s on home Wi-Fi, so a 1 GB video takes seconds instead of minutes. AirDrop gets its speed this way (local discovery plus a direct peer-to-peer link).
 **Options considered:**
@@ -317,6 +318,7 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Reversal trigger:** a common phone or network where opening a local listener is blocked or flagged, or an owner-visible failure the fallback does not hide.
 
 ## ADR-042 — The gateway on the owner's own computer, reached over the Wi-Fi
+> **2026-10-17 update:** the ADB rejection below is historical and superseded by [ADR-045](#adr-045--owner-authorized-adb-shell-through-mcp). This ADR's existing implementation remains supported; it is not a current ban on opt-in ADB.
 **Status:** accepted (2026-10-16, roadmap R24; owner: "make it compatible so that we can connect the MCP server as well through Wi-Fi") · **Protocol:** unchanged (1.14) · **Builds on:** ADR-029 (private gateway), ADR-041 (same-Wi-Fi files)
 **Problem:** an AI app on the owner's computer (Claude Code, Claude Desktop, Cursor) can already start the gateway itself (`latch-gateway stdio`), but a phone could reach it only over plain `http://`, which release builds refuse (and should: screen text and the phone's token would cross the Wi-Fi readable). A cloud gateway works, but every action then makes two trips over the internet, and the screen leaves the home.
 **Options considered:**
@@ -345,6 +347,7 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Reversal trigger:** a phone whose TLS stack does not pass the host to the trust manager (pairing then fails closed), or owners finding the address step too hard.
 
 ## ADR-043 — More of what an ADB test agent does, through the phone's own APIs
+> **2026-10-17 update:** the ADB rejection below is historical and superseded by [ADR-045](#adr-045--owner-authorized-adb-shell-through-mcp). This ADR's existing implementation remains supported; it is not a current ban on opt-in ADB.
 **Status:** accepted (2026-10-16, roadmap R25; owner: "don't give the adb level access, at least give some safe command access that can be done by the artemis") · **Protocol:** 1.15 · **Builds on:** ADR-021 and ADR-022 (owner consent per app), ADR-035 (phone controls)
 **Problem:** ADB-tethered agents such as ARTEMIS reach the phone through a shell, so they can press any key, open any app screen by link, read the battery and network, and change settings. Latch reaches the phone only through its accessibility service and ordinary app permissions, so AIs spent several taps on things one call could do, and could not read basic state before a long task.
 **Options considered:**
@@ -400,3 +403,41 @@ ADR-001 to ADR-010 live in [handbook chapter 16](../../handbook/16-adr-index-dec
 **Not covered:** invoking the apps' own actions (needs a policy review of action names first), memory of learned names per app, and reading inside web pages beyond what Chrome exposes.
 **Checks:** shared fixture `packages/schemas/v1/mcp/render-rich-*` (every new fact, covered menu, reading note) byte-identical in Rust and TS; protocol validation for sensitive words, action count, and percent on both gateways; a policy case for a consequential guessed label; fake-phone e2e on both gateways (state words, headings; marks asked only with a screenshot); Android JVM tests for labels, actions, covered windows, and marks.
 **Reversal trigger:** guessed labels misleading the AI more often than they help in the R10 evaluation runs, or a common app whose state words or action names carry secrets.
+
+## ADR-045 — Owner-authorized ADB shell through MCP
+**Status:** accepted for implementation (2026-10-17, owner request); **implementation:** TODO, roadmap R27. **Protocol:** unchanged by this documentation decision; version the addition when built.
+
+**Context:** the owner now requests Android ADB shell support in Latch, exposed to MCP clients and usable with Wi-Fi wireless debugging and authorized USB ADB. Earlier decisions prevented an implementation session from proceeding. This decision supersedes ADR-008's shell prohibition, the ADB rejection portions of ADR-041/042, and ADR-043's 2026-10-16 refusal of ADB-level access. It does not remove their existing file-transfer, TLS, or typed Android capabilities. The older Notion mirror still has the former prohibition; preserve this newer repo-authored decision when syncing.
+
+**Decision:**
+- Build a real optional ADB shell capability, provisionally `adb.shell`, behind a typed, versioned MCP/device contract. This is shell execution on the explicitly selected Android device, never arbitrary execution on the gateway host. iOS reports unsupported.
+- Keep it off by default, separately granted to a device, MCP client, and expiring session. Existing app switches, Auto mode, file grants, and saved workflows do not grant it.
+- The owner enables Developer options/debugging and authorizes the ADB peer using Android's consent/pairing flow. Wi-Fi uses authenticated wireless-debugging pairing; USB requires an authorized host with physical access. Do not automate consent, publish debugging ports, or silently fall back to legacy TCP debugging.
+- Treat shell commands as critical and show the exact command and target for fresh owner approval. Design and test an approval channel the ADB agent cannot operate. Existing overlay protection cannot be assumed sufficient once shell input exists.
+- Return bounded stdout/stderr, exit status, truncation, timeout/cancellation, and transport failures. Bind each request to the device/client/session and deadline, limit concurrency, and never retry an uncertain side effect automatically.
+- Stop, pause, expiry, revoke, and connection loss end dispatch and cancel Latch-managed work. Document and test process cleanup; disconnected/detached processes and completed side effects must not be falsely reported as stopped or rolled back.
+- ADB authority exceeds Android app permissions and Latch's app/file allowlists. This mode must explain that difference. A command blacklist is not a sandbox; ordinary UI redaction does not cover arbitrary command output. Credential extraction, OTP/MFA bypass, biometric automation, covert capture, and bypassing Android authorization remain excluded. Keep raw commands/output and ADB credentials out of persistent audit/telemetry by default.
+
+**Execution boundary and feasibility:**
+MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's Wi-Fi gateway does not create ADB privileges. Prefer the existing gateway/device structure; prove an owner-authorized executor before choosing an additional component. A serverless/cloud gateway cannot run USB ADB or reach an arbitrary home LAN directly. Both gateways must share the contract and authorization behavior, forwarding only to a verified reachable executor or returning an explicit unsupported/unavailable result. An optional owner-controlled USB/ADB host is permitted; ordinary cloud Latch remains usable without one. An on-phone wireless-debugging executor is a feasibility question to validate, not a capability claimed by this ADR.
+
+**Alternatives:** retaining only ADR-043's typed public APIs does not satisfy the owner's requested shell feature. Exposing an unrestricted host shell or silently inheriting existing app consent is rejected. Keep typed APIs as the simpler path when they already solve a task.
+
+**Threat review and release gate:**
+| Risk | Required control or evidence |
+|---|---|
+| Injected agent or stolen MCP key requests a shell | Separate grant; device/client/session binding; fresh owner approval; deny/expiry/revoke tests |
+| ADB input approves its own command or changes its own grant | Prove the approval/grant boundary on a real device before release; do not rely only on serialized accessibility commands |
+| Wrong phone, stolen ADB key, or exposed debugging service | Explicit target binding, owner pairing, protected keys, documented forget/revoke recovery; no public ADB endpoint |
+| Shell crosses app/file boundaries or returns secrets | Explicit broader-access disclosure; no claim that allowlists or keyword filters sandbox it; sensitive output controls and no content logging |
+| Timeout, disconnect, detached work, or replay | Bounded resources, managed-process cleanup tests, no automatic retry after uncertain execution, honest residual-state reporting |
+| Gateway parity or old-client drift | Shared fixtures/policy cases, Rust and TS MCP tests, capability/version negotiation, structured unsupported results |
+
+**Acceptance:** complete R27's tests and document measured limitations: real harmless execution via MCP over Wi-Fi and USB, disabled and ungranted refusal, owner denial, wrong-client/device refusal, expiry, output cap, timeout, disconnection, Stop/revoke, restart/reconnect without duplicate execution, and protection against self-approval. Keep the feature IN_REVIEW if hardware evidence is missing. Existing no-shell tests must become authorization/unsupported tests in the implementation, not simply be removed.
+
+**Rollback:** turn the shell grant off, cancel managed work and pending approvals, disconnect the executor, and guide the owner to forget/revoke its ADB key in Android. Existing typed UI/file features continue. Completed system changes are not automatically undone.
+
+**Reversal trigger:** the chosen execution path cannot enforce an independent owner-approval boundary or honestly stop managed work, leaks credentials/output, or requires exposing ADB publicly. Gate that backend and record the concrete limitation; the superseded blanket prohibition is not itself a blocker.
+
+**Platform reference (checked 2026-10-17):** [Android Debug Bridge documentation](https://developer.android.com/tools/adb) describes shell access, USB authorization, wireless-debugging pairing, and forgetting paired hosts. It does not establish that Latch has implemented or verified any of these paths.
+

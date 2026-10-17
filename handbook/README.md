@@ -10,7 +10,7 @@ last_fetched: "2026-10-01T22:10:12.779Z"
 	**Latch** is an open, user-controlled runtime that lets any MCP-capable AI observe and operate a user's phone through explicit capabilities, visible consent, and a portable protocol.
 </callout>
 ## Status
-**Planning state:** implementation authorized 2026-10-02 — see [chapter 17](./17-plan-review-and-revised-delivery.md)  
+**Planning state:** implementation authorized 2026-10-02 — see [chapter 17](./17-plan-review-and-revised-delivery.md). **Next implementation priority (2026-10-17): R27, owner-authorized Android ADB shell through MCP, Wi-Fi wireless debugging, and USB ADB.** [ADR-045](../docs/adr/README.md#adr-045--owner-authorized-adb-shell-through-mcp) supersedes the older shell exclusions; implementation is TODO.  
 **Working product name:** Latch  
 **Working tagline:** Open device control for MCP-capable AI  
 **Source of truth:** this handbook and the linked chapter pages below  
