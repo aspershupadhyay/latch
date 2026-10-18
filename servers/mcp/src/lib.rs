@@ -19,6 +19,7 @@ pub mod devices;
 mod http;
 pub mod links;
 pub mod mcp;
+pub mod mirror;
 pub mod oauth;
 pub mod pairing;
 pub mod phone_check;
@@ -28,7 +29,7 @@ pub mod store;
 pub mod transfers;
 pub mod wifi;
 
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use config::Config;
@@ -52,6 +53,8 @@ pub struct AppState {
     oauth: Mutex<oauth::OAuth>,
     /// Roadmap R18: tool calls each AI app may make per minute (0: no limit).
     pub calls_per_minute: u32,
+    /// Live mirrors: phone streams and the owner's browser (roadmap R30).
+    pub mirrors: Arc<mirror::Mirrors>,
     /// Tool calls in the current minute, per caller key.
     calls: Mutex<std::collections::HashMap<String, (u64, u32)>>,
 }
@@ -74,6 +77,7 @@ impl AppState {
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(DEFAULT_CALLS_PER_MINUTE),
             calls: Mutex::new(std::collections::HashMap::new()),
+            mirrors: Arc::new(mirror::Mirrors::default()),
         }
     }
 

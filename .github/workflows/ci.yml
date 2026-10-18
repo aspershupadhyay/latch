@@ -59,7 +59,7 @@ jobs:
         run: npm audit --audit-level=moderate
 
   site:
-    name: Website and license headers
+    name: Website, license headers, mirror page
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -67,6 +67,8 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/check-site.mjs
+      # R30: the live mirror page's frame parsing, codec string, and input mapping.
+      - run: node --test servers/mcp/tests/mirror-page.test.cjs
       - run: python3 scripts/headers.py --check
 
   vercel:

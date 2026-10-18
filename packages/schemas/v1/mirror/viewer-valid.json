@@ -1,0 +1,88 @@
+[
+ {
+  "t": "touch",
+  "phase": "down",
+  "x": 10,
+  "y": 20
+ },
+ {
+  "t": "touch",
+  "phase": "move",
+  "x": 16384,
+  "y": 0
+ },
+ {
+  "t": "touch",
+  "phase": "up",
+  "x": 540,
+  "y": 1200
+ },
+ {
+  "t": "touch",
+  "phase": "cancel",
+  "x": 0,
+  "y": 0
+ },
+ {
+  "t": "wheel",
+  "x": 540,
+  "y": 1200,
+  "dx": 0,
+  "dy": -400
+ },
+ {
+  "t": "text",
+  "text": "héllo 😀"
+ },
+ {
+  "t": "key",
+  "key": "backspace"
+ },
+ {
+  "t": "key",
+  "key": "enter"
+ },
+ {
+  "t": "key",
+  "key": "left"
+ },
+ {
+  "t": "button",
+  "name": "back"
+ },
+ {
+  "t": "button",
+  "name": "home"
+ },
+ {
+  "t": "button",
+  "name": "recents"
+ },
+ {
+  "t": "control",
+  "action": "pause"
+ },
+ {
+  "t": "control",
+  "action": "resume"
+ },
+ {
+  "t": "control",
+  "action": "stop"
+ },
+ {
+  "t": "control",
+  "action": "end"
+ },
+ {
+  "t": "ping",
+  "at": 1234.5
+ },
+ {
+  "t": "sync"
+ },
+ {
+  "t": "codec",
+  "codec": "jpeg"
+ }
+]

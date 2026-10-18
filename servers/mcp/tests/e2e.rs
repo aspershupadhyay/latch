@@ -3482,3 +3482,389 @@ async fn under_a_flaky_link_every_call_is_answered_and_every_action_happens_once
         );
     }
 }
+
+// ---- Live mirror (R30, ADR-051) ----
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+use futures_util::{SinkExt, StreamExt};
+use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+const VIEWER_KEY: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO-_";
+
+/// What arrives next on a mirror socket: text, a frame, or the close code.
+#[derive(Debug, PartialEq)]
+enum Got {
+    Text(Value),
+    Frame(Vec<u8>),
+    Closed(u16),
+}
+
+async fn next(ws: &mut Ws) -> Got {
+    loop {
+        let message = tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("a mirror message in time");
+        match message {
+            Some(Ok(WsMessage::Text(t))) => {
+                return Got::Text(serde_json::from_str(&t).expect("json"));
+            }
+            Some(Ok(WsMessage::Binary(b))) => return Got::Frame(b.to_vec()),
+            Some(Ok(WsMessage::Close(frame))) => {
+                return Got::Closed(frame.map_or(1005, |f| u16::from(f.code)));
+            }
+            Some(Ok(_)) => continue,
+            Some(Err(_)) | None => return Got::Closed(1006),
+        }
+    }
+}
+
+/// The next text message of kind `t`, skipping others.
+async fn next_of(ws: &mut Ws, t: &str) -> Value {
+    loop {
+        match next(ws).await {
+            Got::Text(v) if v["t"] == t => return v,
+            Got::Closed(code) => panic!("closed ({code}) waiting for {t}"),
+            _ => {}
+        }
+    }
+}
+
+async fn send_json(ws: &mut Ws, value: Value) {
+    ws.send(WsMessage::Text(value.to_string().into()))
+        .await
+        .expect("send");
+}
+
+/// Opens the phone's mirror socket and starts a mirror with `key`, signed with
+/// the fake phone's device key as the app signs it. Returns the socket and `ready`.
+async fn start_mirror(gw: &Gateway, phone: &Phone, key: &str, signed: bool) -> (Ws, Got) {
+    let mut request =
+        tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(format!(
+            "ws://{}/v1/mirror/phone",
+            gw.addr
+        ))
+        .expect("request");
+    request.headers_mut().insert(
+        "authorization",
+        format!("Bearer {}", phone.token).parse().expect("header"),
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(request)
+        .await
+        .expect("mirror socket");
+    let challenge = next_of(&mut ws, "challenge").await;
+    assert_eq!(challenge["version"], 1);
+    let connection = challenge["connection"].as_str().expect("connection");
+    let start = json!({"t": "start", "version": 1, "key": key}).to_string();
+    let device_key = phone.state.lock().expect("lock").device_key.clone();
+    let message = match (signed, device_key) {
+        (true, Some(k)) => k.seal_text(connection, &start),
+        _ => start,
+    };
+    ws.send(WsMessage::Text(message.into()))
+        .await
+        .expect("start");
+    let ready = next(&mut ws).await;
+    (ws, ready)
+}
+
+async fn open_viewer(gw: &Gateway) -> Ws {
+    let (ws, _) = tokio_tungstenite::connect_async(format!("ws://{}/v1/mirror/view", gw.addr))
+        .await
+        .expect("viewer socket");
+    ws
+}
+
+async fn join(gw: &Gateway, how: Value) -> (Ws, Got) {
+    let mut ws = open_viewer(gw).await;
+    let mut message = json!({"t": "join", "codecs": ["h264", "jpeg"]});
+    for (k, v) in how.as_object().expect("object") {
+        message[k] = v.clone();
+    }
+    send_json(&mut ws, message).await;
+    let answer = next(&mut ws).await;
+    (ws, answer)
+}
+
+fn frame(key: bool, ts: u64, payload: &[u8]) -> Vec<u8> {
+    let mut f = vec![1, u8::from(key)];
+    f.extend_from_slice(&ts.to_be_bytes());
+    f.extend_from_slice(payload);
+    f
+}
+
+#[tokio::test]
+async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &[]).await;
+
+    // A phone with a device key must sign its start.
+    let (_unsigned, refused) = start_mirror(&gw, &phone, VIEWER_KEY, false).await;
+    assert_eq!(refused, Got::Closed(4401));
+
+    let (mut ph, ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    let Got::Text(ready) = ready else {
+        panic!("ready: {ready:?}")
+    };
+    assert_eq!(ready["t"], "ready");
+    let code = ready["code"].as_str().expect("code").to_owned();
+    assert!(code.len() == 6 && code.bytes().all(|b| b.is_ascii_digit()));
+    assert_eq!(ready["urls"][0], format!("http://{}/mirror", gw.addr));
+
+    // A wrong code and a made-up link are refused without saying more.
+    let wrong = if code == "000000" { "000001" } else { "000000" };
+    let (_w, got) = join(&gw, json!({"code": wrong})).await;
+    assert_eq!(got, Got::Closed(4401));
+    let (_w, got) = join(
+        &gw,
+        json!({"key": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}),
+    )
+    .await;
+    assert_eq!(got, Got::Closed(4401));
+
+    // The code joins once and is exchanged for the key, for reconnects.
+    let (mut viewer, joined) = join(&gw, json!({"code": code})).await;
+    let Got::Text(joined) = joined else {
+        panic!("joined: {joined:?}")
+    };
+    assert_eq!(joined["t"], "joined");
+    assert_eq!(joined["key"], VIEWER_KEY);
+    assert_eq!(joined["device"], "Test phone");
+    assert_eq!(joined["codec"], "h264");
+    assert_eq!(next_of(&mut ph, "code").await["code"], Value::Null);
+    let on = next_of(&mut ph, "viewer").await;
+    assert_eq!(
+        (on["on"].clone(), on["codec"].clone()),
+        (json!(true), json!("h264"))
+    );
+    let (_w, got) = join(&gw, json!({"code": code})).await;
+    assert_eq!(got, Got::Closed(4401), "a code works once");
+
+    // Screen size and frames reach the browser byte for byte.
+    send_json(&mut ph, json!({"t": "screen", "w": 1080, "h": 2400})).await;
+    assert_eq!(next_of(&mut viewer, "screen").await["w"], 1080);
+    let key_frame = frame(
+        true,
+        1,
+        &[0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f, 0, 0, 1, 0x65, 9],
+    );
+    let delta = frame(false, 2, &[0, 0, 1, 0x41, 7]);
+    ph.send(WsMessage::Binary(key_frame.clone().into()))
+        .await
+        .expect("frame");
+    ph.send(WsMessage::Binary(delta.clone().into()))
+        .await
+        .expect("frame");
+    assert_eq!(next(&mut viewer).await, Got::Frame(key_frame));
+    assert_eq!(next(&mut viewer).await, Got::Frame(delta));
+
+    // Input goes to the phone as validated, rebuilt messages; anything else is dropped.
+    send_json(&mut viewer, json!({"t": "shell", "command": "id"})).await;
+    send_json(
+        &mut viewer,
+        json!({"t": "touch", "phase": "down", "x": 10, "y": 20, "extra": 1}),
+    )
+    .await;
+    send_json(
+        &mut viewer,
+        json!({"t": "touch", "phase": "down", "x": 10, "y": 20}),
+    )
+    .await;
+    send_json(&mut viewer, json!({"t": "text", "text": "hi"})).await;
+    send_json(&mut viewer, json!({"t": "control", "action": "pause"})).await;
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "touch", "phase": "down", "x": 10, "y": 20}))
+    );
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "text", "text": "hi"}))
+    );
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "control", "action": "pause"}))
+    );
+
+    // The link takes over from another window; the first one is told why.
+    let (mut second, got) = join(&gw, json!({"key": VIEWER_KEY})).await;
+    assert!(
+        matches!(got, Got::Text(ref v) if v["t"] == "joined"),
+        "{got:?}"
+    );
+    assert_eq!(next(&mut viewer).await, Got::Closed(4409));
+    assert_eq!(
+        next_of(&mut second, "screen").await["h"],
+        2400,
+        "the latest screen size first"
+    );
+
+    // The phone's network drops: the browser waits, and the picture comes back.
+    drop(ph);
+    assert_eq!(next_of(&mut second, "phone").await["online"], false);
+    let (mut ph, ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    assert!(
+        matches!(ready, Got::Text(ref v) if v["t"] == "ready"),
+        "{ready:?}"
+    );
+    assert_eq!(next_of(&mut second, "phone").await["online"], true);
+    assert_eq!(next_of(&mut ph, "viewer").await["on"], true);
+
+    // Ending on the phone ends it in the browser, and the link stops working.
+    send_json(&mut ph, json!({"t": "end"})).await;
+    assert_eq!(next(&mut second).await, Got::Closed(4410));
+    let (_w, got) = join(&gw, json!({"key": VIEWER_KEY})).await;
+    assert_eq!(got, Got::Closed(4401));
+}
+
+#[tokio::test]
+async fn a_slow_browser_skips_to_a_key_frame_instead_of_falling_behind() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &[]).await;
+    let (mut ph, ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    let Got::Text(ready) = ready else {
+        panic!("{ready:?}")
+    };
+    let (mut viewer, _) = join(&gw, json!({"code": ready["code"]})).await;
+    next_of(&mut ph, "viewer").await;
+
+    // The browser reads nothing while the phone sends far more than any buffer holds.
+    let payload = vec![7u8; 256 * 1024];
+    ph.send(WsMessage::Binary(frame(true, 0, &payload).into()))
+        .await
+        .expect("send");
+    let mut ts = 0u64;
+    let mut asked = false;
+    while ts < 400 {
+        ts += 1;
+        ph.send(WsMessage::Binary(frame(false, ts, &payload).into()))
+            .await
+            .expect("send");
+        if let Ok(Some(Ok(WsMessage::Text(t)))) =
+            tokio::time::timeout(Duration::from_millis(1), ph.next()).await
+            && t.contains("\"sync\"")
+        {
+            asked = true;
+            break;
+        }
+    }
+    assert!(
+        asked,
+        "the phone is asked for a key frame once frames are dropped"
+    );
+
+    // Now the browser reads while the phone keeps streaming, answering each
+    // request with a key frame. Frames arrive in order; after a gap, the next
+    // one is always a key frame, never a delta the browser could not decode.
+    let mut last: Option<u64> = None;
+    let mut healed = false;
+    let mut sync_wanted = true;
+    for _ in 0..2_000 {
+        ts += 1;
+        let key = std::mem::take(&mut sync_wanted);
+        ph.send(WsMessage::Binary(frame(key, ts, b"small").into()))
+            .await
+            .expect("send");
+        while let Ok(Some(Ok(m))) = tokio::time::timeout(Duration::from_millis(1), ph.next()).await
+        {
+            if matches!(m, WsMessage::Text(ref t) if t.contains("\"sync\"")) {
+                sync_wanted = true;
+            }
+        }
+        while let Ok(Some(Ok(m))) =
+            tokio::time::timeout(Duration::from_millis(1), viewer.next()).await
+        {
+            let WsMessage::Binary(f) = m else { continue };
+            let got = u64::from_be_bytes(f[2..10].try_into().expect("ts"));
+            let is_key = f[1] & 1 == 1;
+            if let Some(prev) = last {
+                assert!(got > prev, "in order");
+                if got != prev + 1 {
+                    assert!(
+                        is_key,
+                        "after a gap ({prev} → {got}) the next frame is a key frame"
+                    );
+                    healed = true;
+                }
+            }
+            last = Some(got);
+        }
+        if healed && last == Some(ts) {
+            return;
+        }
+    }
+    panic!("the browser never caught up (healed: {healed}, last: {last:?}, sent: {ts})");
+}
+
+#[tokio::test]
+async fn the_mirror_page_is_locked_down_and_other_sites_cannot_connect() {
+    let gw = start_gateway().await;
+    let (status, head, body) = get_raw(&gw, "/mirror").await;
+    assert_eq!(status, 200);
+    assert!(
+        head.contains("script-src 'self'") && head.contains("connect-src 'self'"),
+        "{head}"
+    );
+    assert!(head.contains("frame-ancestors 'none'"));
+    assert!(body.contains("/mirror.js"));
+    let (status, head, _) = get_raw(&gw, "/mirror.js").await;
+    assert_eq!(status, 200);
+    assert!(head.contains("content-type: text/javascript"));
+
+    let mut request =
+        tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(format!(
+            "ws://{}/v1/mirror/view",
+            gw.addr
+        ))
+        .expect("request");
+    request
+        .headers_mut()
+        .insert("origin", "https://evil.example".parse().expect("origin"));
+    assert!(tokio_tungstenite::connect_async(request).await.is_err());
+
+    // A phone's mirror needs its device token.
+    let mut request =
+        tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(format!(
+            "ws://{}/v1/mirror/phone",
+            gw.addr
+        ))
+        .expect("request");
+    request
+        .headers_mut()
+        .insert("authorization", "Bearer dev_wrong".parse().expect("header"));
+    assert!(tokio_tungstenite::connect_async(request).await.is_err());
+}
+
+#[tokio::test]
+async fn revoking_the_phone_ends_its_mirror() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &[]).await;
+    let (mut ph, ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    let Got::Text(ready) = ready else {
+        panic!("{ready:?}")
+    };
+    let (mut viewer, _) = join(&gw, json!({"code": ready["code"]})).await;
+    next_of(&mut ph, "viewer").await;
+    let device_id = phone
+        .state
+        .lock()
+        .expect("lock")
+        .device_id
+        .clone()
+        .expect("id");
+    let (status, _) = http(
+        &gw,
+        "DELETE",
+        &format!("/v1/admin/devices/{device_id}"),
+        Some(ADMIN),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, 204);
+    assert_eq!(next(&mut viewer).await, Got::Closed(4410));
+    loop {
+        if let Got::Closed(_) = next(&mut ph).await {
+            break;
+        }
+    }
+}
