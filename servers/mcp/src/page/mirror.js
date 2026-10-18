@@ -53,12 +53,28 @@ function codecFromSps(sps) {
   return `avc1.${hex(sps[1])}${hex(sps[2])}${hex(sps[3])}`;
 }
 
-/** A point on the drawn picture as phone pixels; null outside it. */
-function mapPoint(clientX, clientY, rect, screen) {
+/**
+ * Where the picture is drawn inside an element showing it with object-fit:
+ * contain: the element's rect less the bars around a picture of another shape.
+ */
+function containedRect(rect, pictureW, pictureH) {
+  if (!(pictureW > 0 && pictureH > 0) || rect.width <= 0 || rect.height <= 0) return rect;
+  const scale = Math.min(rect.width / pictureW, rect.height / pictureH);
+  const width = pictureW * scale;
+  const height = pictureH * scale;
+  return { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height };
+}
+
+/**
+ * A point on the drawn picture as phone pixels; null outside it. With
+ * `turned`, the picture is shown a quarter turn clockwise.
+ */
+function mapPoint(clientX, clientY, rect, screen, turned = false) {
   if (!screen || rect.width <= 0 || rect.height <= 0) return null;
-  const fx = (clientX - rect.left) / rect.width;
-  const fy = (clientY - rect.top) / rect.height;
+  let fx = (clientX - rect.left) / rect.width;
+  let fy = (clientY - rect.top) / rect.height;
   if (fx < 0 || fy < 0 || fx > 1 || fy > 1) return null;
+  if (turned) [fx, fy] = [fy, 1 - fx];
   return {
     x: Math.min(screen.w - 1, Math.max(0, Math.round(fx * screen.w))),
     y: Math.min(screen.h - 1, Math.max(0, Math.round(fy * screen.h))),
@@ -66,8 +82,14 @@ function mapPoint(clientX, clientY, rect, screen) {
 }
 
 /** Wheel movement in phone pixels, so a scroll moves the picture as far as on the page. */
-function wheelPixels(event, rect, screen) {
+function wheelPixels(event, rect, screen, turned = false) {
   const unit = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? rect.height : 1;
+  if (turned) {
+    // Shown a quarter turn clockwise: the page's down is the phone's left.
+    const sx = screen.w / Math.max(1, rect.height);
+    const sy = screen.h / Math.max(1, rect.width);
+    return { dx: Math.round(event.deltaY * unit * sx), dy: Math.round(-event.deltaX * unit * sy) };
+  }
   const sx = screen.w / Math.max(1, rect.width);
   const sy = screen.h / Math.max(1, rect.height);
   return { dx: Math.round(event.deltaX * unit * sx), dy: Math.round(event.deltaY * unit * sy) };
@@ -116,7 +138,7 @@ function keyFromHash(hash) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    parseFrame, nalUnits, findSps, codecFromSps, mapPoint, wheelPixels, keyMessage, pasteMessages,
+    parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, pasteMessages,
     latencyClass, normalizeCode, keyFromHash,
   };
 }
@@ -305,12 +327,24 @@ if (typeof document !== 'undefined') {
     waitKey = true;
   }
 
+  // Rotate view: the picture a quarter turn clockwise, for a landscape video on a
+  // phone whose rotation is locked.
+  let turned = false;
+
   function draw(source, width, height) {
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
+    const cw = turned ? height : width;
+    const ch = turned ? width : height;
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
     }
-    ctx.drawImage(source, 0, 0, width, height);
+    if (turned) {
+      ctx.setTransform(0, 1, -1, 0, height, 0);
+      ctx.drawImage(source, 0, 0, width, height);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    } else {
+      ctx.drawImage(source, 0, 0, width, height);
+    }
     lastFrameAt = performance.now();
     uncover();
   }
@@ -431,8 +465,13 @@ if (typeof document !== 'undefined') {
   let pendingMove = null;
   let lastPoint = null;
 
+  /** The picture's rect on the page: object-fit: contain may add bars, e.g. in full screen. */
+  function pictureRect() {
+    return containedRect(canvas.getBoundingClientRect(), canvas.width, canvas.height);
+  }
+
   function point(event) {
-    return mapPoint(event.clientX, event.clientY, canvas.getBoundingClientRect(), screen);
+    return mapPoint(event.clientX, event.clientY, pictureRect(), screen, turned);
   }
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -478,10 +517,10 @@ if (typeof document !== 'undefined') {
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
     if (!screen) return;
-    const rect = canvas.getBoundingClientRect();
+    const rect = pictureRect();
     const p = point(event) || lastPoint;
     if (!p) return;
-    const d = wheelPixels(event, rect, screen);
+    const d = wheelPixels(event, rect, screen, turned);
     wheel.dx += d.dx;
     wheel.dy += d.dy;
     lastPoint = p;
@@ -538,7 +577,14 @@ if (typeof document !== 'undefined') {
   $('end').addEventListener('click', () => send({ t: 'control', action: 'end' }));
   $('full').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
-    else $('frame').requestFullscreen().catch(() => toast('Full screen is not available here.'));
+    // The phone and its buttons together, so Back, Home and Recents stay at hand.
+    else $('phone').requestFullscreen({ navigationUI: 'hide' }).catch(() => toast('Full screen is not available here.'));
+  });
+  $('rotate').addEventListener('click', () => {
+    turned = !turned;
+    $('rotate').setAttribute('aria-pressed', String(turned));
+    // Ask for a fresh key frame so the turned picture appears at once.
+    send({ t: 'sync' });
   });
   $('over-again').addEventListener('click', () => {
     if (key) { show('app'); connect({ key }); } else show('join');

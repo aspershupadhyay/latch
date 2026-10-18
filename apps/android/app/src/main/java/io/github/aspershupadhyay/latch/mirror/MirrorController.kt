@@ -259,7 +259,8 @@ class MirrorController(
 
     private fun screen(): MirrorCapture.Screen {
         val dpi = context.resources.displayMetrics.densityDpi
-        bridge.service.value?.screen()?.let { s -> return MirrorCapture.Screen(s.width, s.height, dpi, s.rotation) }
+        // The display itself, not a window's metrics: a service's window metrics can stay
+        // portrait after the phone turns, which squeezed landscape video into a tall frame.
         val display = context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")

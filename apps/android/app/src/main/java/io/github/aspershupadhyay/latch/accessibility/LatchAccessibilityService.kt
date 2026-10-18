@@ -1687,11 +1687,13 @@ class LatchAccessibilityService : AccessibilityService() {
         if (node.packageName?.toString() == packageName) return "Latch's own screen can't be used from the mirror."
         if (node.isPassword) return "Type passwords on the phone itself."
         val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
-        val result = edit(current, node.textSelectionStart, node.textSelectionEnd) ?: return null
+        val (start, end) = mirrorSelection(node, current)
+        val result = edit(current, start, end) ?: return null
         invalidate()
         val text = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, result.text) }
         if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text)) return "That field did not take the text."
         mirrorSelect(node, result.cursor)
+        mirrorLastEdit = result
         return null
     }
 
@@ -1699,7 +1701,10 @@ class LatchAccessibilityService : AccessibilityService() {
     fun mirrorCursor(position: (String, Int, Int) -> Int): String? {
         val node = mirrorField() ?: return MIRROR_NO_FIELD
         val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
-        mirrorSelect(node, position(current, node.textSelectionStart, node.textSelectionEnd))
+        val (start, end) = mirrorSelection(node, current)
+        val cursor = position(current, start, end)
+        mirrorSelect(node, cursor)
+        mirrorLastEdit = io.github.aspershupadhyay.latch.mirror.TextEdit.Result(current, cursor)
         return null
     }
 
@@ -1717,7 +1722,20 @@ class LatchAccessibilityService : AccessibilityService() {
         return performGlobalAction(action)
     }
 
-    private fun mirrorField(): AccessibilityNodeInfo? = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable }
+    // Fresh, not the cached copy: a cached field keeps its old cursor, and quick
+    // typing then landed at the start of the field (WhatsApp).
+    private fun mirrorField(): AccessibilityNodeInfo? =
+        findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.also { it.refresh() }?.takeIf { it.isEditable }
+
+    /** What the mirror last wrote; its cursor wins while the field still holds that text. */
+    private var mirrorLastEdit: io.github.aspershupadhyay.latch.mirror.TextEdit.Result? = null
+
+    private fun mirrorSelection(node: AccessibilityNodeInfo, current: String): Pair<Int, Int> {
+        val last = mirrorLastEdit
+        if (last != null && last.text == current) return last.cursor to last.cursor
+        mirrorLastEdit = null
+        return node.textSelectionStart to node.textSelectionEnd
+    }
 
     private fun mirrorSelect(node: AccessibilityNodeInfo, cursor: Int) {
         val args = Bundle().apply {
