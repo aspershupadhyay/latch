@@ -181,7 +181,12 @@ class MirrorController(
         projection.registerCallback(callback, handler)
         projectionCallback = callback
         capture = try {
-            MirrorCapture(projection, handler, ::screen, ::sendFrame) { problem -> scope.launch { notice(problem) } }
+            MirrorCapture(projection, handler, ::screen, ::sendFrame) { problem -> scope.launch { notice(problem) } }.also {
+                // The phone's sound too, when the owner allowed audio recording (ADR-055).
+                val audioAllowed = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (audioAllowed) it.audio = MirrorAudio(projection, ::sendFrame)
+            }
         } catch (e: Exception) {
             fail("The screen could not be captured (${e.javaClass.simpleName}).")
             return
@@ -259,7 +264,8 @@ class MirrorController(
 
     private fun screen(): MirrorCapture.Screen {
         val dpi = context.resources.displayMetrics.densityDpi
-        bridge.service.value?.screen()?.let { s -> return MirrorCapture.Screen(s.width, s.height, dpi, s.rotation) }
+        // The display itself, not a window's metrics: a service's window metrics can stay
+        // portrait after the phone turns, which squeezed landscape video into a tall frame.
         val display = context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")

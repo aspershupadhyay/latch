@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- ADR-055: the phone's sound in the live mirror (playback capture, never calls or the microphone). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Roadmap R16: brightness, only after the owner allows "Modify system settings" for Latch. -->
     <uses-permission
         android:name="android.permission.WRITE_SETTINGS"

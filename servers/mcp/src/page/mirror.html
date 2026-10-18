@@ -47,7 +47,7 @@
     </header>
 
     <div class="stage">
-      <section class="phone-col">
+      <section id="phone" class="phone-col">
         <div id="frame" class="frame">
           <canvas id="screen" tabindex="0" aria-label="Phone screen. Click to tap, drag to swipe, scroll to scroll, and type to type into the field in focus on the phone. Escape is Back."></canvas>
           <div id="cover" class="cover" hidden><p id="cover-text">Waiting for the picture…</p></div>
@@ -57,6 +57,8 @@
           <button type="button" data-button="home" aria-label="Home" title="Home"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg></button>
           <button type="button" data-button="recents" aria-label="Recent apps" title="Recent apps"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
           <span class="sep" aria-hidden="true"></span>
+          <button type="button" id="sound" aria-label="Sound on" aria-pressed="true" title="Phone sound (videos, music; never calls)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
+          <button type="button" id="rotate" aria-label="Rotate view" aria-pressed="false" title="Rotate view (for landscape videos)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button>
           <button type="button" id="full" aria-label="Full screen" title="Full screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         </nav>
       </section>
