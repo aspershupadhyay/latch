@@ -3732,9 +3732,13 @@ async fn a_slow_browser_skips_to_a_key_frame_instead_of_falling_behind() {
     ph.send(WsMessage::Binary(frame(true, 0, &payload).into()))
         .await
         .expect("send");
+    // The gateway asks at most every 250 ms (every second while it waits for a key
+    // frame), so bound the stream by time, not by a frame count a fast runner
+    // finishes before the first request is due.
     let mut ts = 0u64;
     let mut asked = false;
-    while ts < 400 {
+    let until = tokio::time::Instant::now() + Duration::from_secs(10);
+    while tokio::time::Instant::now() < until {
         ts += 1;
         ph.send(WsMessage::Binary(frame(false, ts, &payload).into()))
             .await
