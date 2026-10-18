@@ -74,6 +74,11 @@ On the phone, tap **Start** on Home first (a session). Then ask your AI:
 | **Mirror on computer** | Phone: Home → **Mirror on computer** → **Start** (entire screen). Mac: open **http://127.0.0.1:8787/mirror** in Chrome, Edge, or Safari and type the 6-digit code | The live screen. Click, drag, scroll, and type on it. Your first click pauses the AI, and **Let AI continue** resumes it |
 | Everything at once | In a second Terminal: `. ~/.latch/latch.env && latch-gateway check-phone` | It runs each check, asks you for the steps it needs, and writes `latch-phone-check-<date>.md` (no personal content). Send that file back so the roadmap can be marked done |
 
+## Update the gateway, or start over
+
+- **Update:** run the install command from step 2 again. Your keys and pairing stay. Then `latch-start`. With `latch-autostart on`, restart it: `latch-autostart off && latch-autostart on`.
+- **Start over (forget phones, keys, and the Wi-Fi certificate):** stop the gateway (Ctrl-C, or `latch-autostart off`), then `rm -rf ~/.latch`, run the install command again, and `latch-start`. On the phone: **Settings → Disconnect** (or **Forget** under Connect), then scan the new QR code.
+
 ## If something fails
 
 - **The phone can't connect** (address or connection error): the Mac and phone must be on the same Wi-Fi. Allow `latch-gateway` in **System Settings → Network → Firewall → Options**. If the Mac's Wi-Fi address changed (`latch-start` prints the new one), enter it again; the pin stays the same.

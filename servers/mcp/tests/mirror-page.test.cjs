@@ -25,7 +25,8 @@ test('frames are split into header and payload, and malformed ones refused', () 
   assert.equal(f.ts, 123456);
   assert.deepEqual(Array.from(f.data), [0, 0, 1, 0x65]);
   assert.equal(m.parseFrame(frame(1, 0, 1, [9])).key, false);
-  assert.equal(m.parseFrame(frame(3, 0, 1, [9])), null, 'unknown kind');
+  assert.equal(m.parseFrame(frame(3, 0, 1, [9])).kind, 3, 'sound (ADR-055)');
+  assert.equal(m.parseFrame(frame(9, 0, 1, [9])), null, 'unknown kind');
   assert.equal(m.parseFrame(new ArrayBuffer(10)), null, 'header only');
   assert.equal(m.parseFrame('text'), null);
 });

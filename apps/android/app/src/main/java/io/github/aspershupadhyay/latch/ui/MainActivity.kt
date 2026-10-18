@@ -562,6 +562,10 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
         val data = result.data
         if (result.resultCode == android.app.Activity.RESULT_OK && data != null) app.mirror.allowed(result.resultCode, data) else app.mirror.declined()
     }
+    // ADR-055: the phone's sound in the mirror needs audio recording; the picture works without it.
+    val mirrorAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        mirrorConsent.launch(app.mirror.consentIntent())
+    }
 
     HomeScreen(
         HomeState(
@@ -627,7 +631,11 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
                     ) {
                         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
-                    mirrorConsent.launch(app.mirror.consentIntent())
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        mirrorConsent.launch(app.mirror.consentIntent())
+                    } else {
+                        mirrorAudio.launch(Manifest.permission.RECORD_AUDIO)
+                    }
                 }
             },
             stopMirror = { app.mirror.stop() },

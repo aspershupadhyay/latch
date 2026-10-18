@@ -60,7 +60,8 @@ button.danger { color: var(--red); }
 .phone-col:fullscreen canvas { width: 100%; height: 100%; max-width: none; border-radius: 0; }
 .phone-col:fullscreen .keys { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); opacity: 0.35; transition: opacity 0.2s; }
 .phone-col:fullscreen .keys:hover, .phone-col:fullscreen .keys:focus-within { opacity: 1; }
-.keys button[aria-pressed="true"] { color: var(--ember); }
+#rotate[aria-pressed="true"] { color: var(--ember); }
+#sound[aria-pressed="false"] { color: var(--muted); opacity: 0.6; }
 canvas {
   display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain;
   border-radius: 26px; background: #000; touch-action: none; cursor: pointer;

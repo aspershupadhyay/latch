@@ -625,3 +625,12 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Limits:** the QR code needs a terminal with Unicode block characters (it is drawn black on white, so dark and light themes both scan; `NO_COLOR` draws it for dark themes). A gateway without a private address on the Wi-Fi prints no code until `latch-gateway pair` finds one.
 
 **Rollback:** the hosted relay and the owner-key path are unchanged; an older app ignores `owner_key` and still accepts an owner key typed in the old screen. An older gateway has no setup codes: the app's typed owner-key path still works with it.
+
+## ADR-055 — The phone's sound in the live mirror
+**Status:** accepted (2026-10-18, owner request "video and music sound from the phone … asap") · **Builds on:** ADR-051 (live mirror) · **Protocol:** additive mirror frame kind 3
+
+**Decision:** while someone watches, the phone captures what apps play (`AudioPlaybackCaptureConfiguration` with usages media, game, unknown) under the same screen-share consent, and sends 20 ms frames of raw 48 kHz stereo 16-bit PCM as mirror frame kind 3. Raw PCM needs no encoder or decoder, so it adds no delay; at about 1.5 Mbit/s it suits the home Wi-Fi the self-hosted gateway serves. The gateway relays sound frames without key-frame logic and drops one when the viewer is behind. The page plays them with Web Audio, keeping about 40 ms queued and jumping forward when more than 150 ms piles up; a speaker button mutes. Starting the mirror asks once for audio recording (`RECORD_AUDIO`); without it the picture works silently.
+
+**Limits:** Android lets no ordinary app capture calls or a call's microphone, and apps that opt out of capture stay silent. No sound from the computer reaches the phone.
+
+**Threat review:** the sound goes only to the viewer who entered the mirror's code or key, like the picture; nothing is stored or logged.

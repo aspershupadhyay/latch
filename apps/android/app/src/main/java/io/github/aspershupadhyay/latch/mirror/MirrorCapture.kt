@@ -41,6 +41,9 @@ class MirrorCapture(
 ) {
     data class Screen(val width: Int, val height: Int, val dpi: Int, val rotation: Int)
 
+    /** The phone's sound, while someone watches (ADR-055); null without permission. */
+    var audio: MirrorAudio? = null
+
     private var display: VirtualDisplay? = null
     private var encoder: MediaCodec? = null
     private var reader: ImageReader? = null
@@ -61,6 +64,7 @@ class MirrorCapture(
 
     /** Starts sending [kind] frames (a viewer joined, or switched to stills). */
     fun start(kind: Codec) {
+        audio?.start()
         stopOutput()
         codec = kind
         val s = screen()
@@ -82,6 +86,7 @@ class MirrorCapture(
 
     /** No one watches: stop encoding. The projection and display stay for the next viewer. */
     fun stop() {
+        audio?.stop()
         stopOutput()
         codec = null
     }
@@ -109,6 +114,7 @@ class MirrorCapture(
     }
 
     fun release() {
+        audio?.stop()
         stopOutput()
         display?.release()
         display = null

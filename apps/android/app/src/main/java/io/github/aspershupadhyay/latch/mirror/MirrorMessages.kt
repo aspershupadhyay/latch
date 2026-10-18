@@ -46,6 +46,8 @@ object MirrorMessages {
     const val VERSION = 1
     const val KIND_H264: Byte = 1
     const val KIND_JPEG: Byte = 2
+    /** 48 kHz stereo 16-bit little-endian PCM, 20 ms per frame (ADR-055). */
+    const val KIND_PCM: Byte = 3
     const val HEADER_BYTES = 10
     const val MAX_COORDINATE = 16_384
     const val MAX_TEXT_CHARS = 256

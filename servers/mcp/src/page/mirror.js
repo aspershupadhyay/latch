@@ -10,6 +10,7 @@
 
 const KIND_H264 = 1;
 const KIND_JPEG = 2;
+const KIND_PCM = 3;
 const FLAG_KEY = 1;
 const HEADER_BYTES = 10;
 
@@ -18,7 +19,7 @@ function parseFrame(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength <= HEADER_BYTES) return null;
   const view = new DataView(buffer);
   const kind = view.getUint8(0);
-  if (kind !== KIND_H264 && kind !== KIND_JPEG) return null;
+  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM) return null;
   const flags = view.getUint8(1);
   const ts = Number(view.getBigUint64(2));
   return { kind, key: (flags & FLAG_KEY) !== 0, ts, data: new Uint8Array(buffer, HEADER_BYTES) };
@@ -331,6 +332,44 @@ if (typeof document !== 'undefined') {
   // phone whose rotation is locked.
   let turned = false;
 
+  // ---- Sound (ADR-055): 48 kHz stereo 16-bit PCM, played as it comes ----
+
+  let audio = null;
+  let audioAt = 0;
+  let soundOn = true;
+
+  /** Browsers start sound only after a click or key: called from both. */
+  function wakeAudio() {
+    if (!soundOn) return;
+    if (!audio && typeof AudioContext === 'function') {
+      try { audio = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 }); } catch { audio = null; }
+    }
+    if (audio && audio.state === 'suspended') audio.resume().catch(() => {});
+  }
+
+  function playPcm(bytes) {
+    if (!soundOn || !audio || audio.state !== 'running') return;
+    const samples = Math.floor(bytes.byteLength / 4);
+    if (!samples) return;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, samples * 4);
+    const buffer = audio.createBuffer(2, samples, 48000);
+    const left = buffer.getChannelData(0);
+    const right = buffer.getChannelData(1);
+    for (let i = 0; i < samples; i++) {
+      left[i] = view.getInt16(i * 4, true) / 32768;
+      right[i] = view.getInt16(i * 4 + 2, true) / 32768;
+    }
+    const now = audio.currentTime;
+    // Keep about 40 ms queued: enough to ride out Wi-Fi jitter, and when the
+    // queue grows past 150 ms, jump forward instead of playing late.
+    if (audioAt < now + 0.01 || audioAt > now + 0.15) audioAt = now + 0.04;
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audio.destination);
+    source.start(audioAt);
+    audioAt += buffer.duration;
+  }
+
   function draw(source, width, height) {
     const cw = turned ? height : width;
     const ch = turned ? width : height;
@@ -382,6 +421,10 @@ if (typeof document !== 'undefined') {
   function onFrame(buffer) {
     const frame = parseFrame(buffer);
     if (!frame) return;
+    if (frame.kind === KIND_PCM) {
+      playPcm(frame.data);
+      return;
+    }
     if (frame.kind === KIND_JPEG) {
       createImageBitmap(new Blob([frame.data], { type: 'image/jpeg' }))
         .then((bitmap) => { draw(bitmap, bitmap.width, bitmap.height); bitmap.close(); })
@@ -475,6 +518,7 @@ if (typeof document !== 'undefined') {
   }
 
   canvas.addEventListener('pointerdown', (event) => {
+    wakeAudio();
     if (pointerId !== null || event.button !== 0) return;
     const p = point(event);
     if (!p) return;
@@ -543,6 +587,7 @@ if (typeof document !== 'undefined') {
   }
 
   document.addEventListener('keydown', (event) => {
+    wakeAudio();
     if ($('app').hidden || event.target instanceof HTMLInputElement) return;
     if (event.target instanceof HTMLButtonElement && (event.key === 'Enter' || event.key === ' ')) return;
     const m = keyMessage(event);
@@ -580,6 +625,14 @@ if (typeof document !== 'undefined') {
     // The phone and its buttons together, so Back, Home and Recents stay at hand.
     else $('phone').requestFullscreen({ navigationUI: 'hide' }).catch(() => toast('Full screen is not available here.'));
   });
+  $('sound').addEventListener('click', () => {
+    soundOn = !soundOn;
+    $('sound').setAttribute('aria-pressed', String(soundOn));
+    $('sound').setAttribute('aria-label', soundOn ? 'Sound on' : 'Sound off');
+    if (soundOn) wakeAudio();
+    else if (audio) audio.suspend().catch(() => {});
+  });
+  document.addEventListener('click', wakeAudio);
   $('rotate').addEventListener('click', () => {
     turned = !turned;
     $('rotate').setAttribute('aria-pressed', String(turned));

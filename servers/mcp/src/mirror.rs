@@ -44,6 +44,8 @@ pub const FRAME_HEADER_BYTES: usize = 10;
 pub const KIND_H264: u8 = 1;
 /// A JPEG still, for browsers without WebCodecs.
 pub const KIND_JPEG: u8 = 2;
+/// The phone's sound: 48 kHz stereo 16-bit PCM, 20 ms a frame (ADR-055).
+pub const KIND_PCM: u8 = 3;
 pub const FLAG_KEY: u8 = 1;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -322,6 +324,12 @@ impl Mirrors {
         let Some(viewer) = session.viewer.as_mut() else {
             return;
         };
+        if frame.first() == Some(&KIND_PCM) {
+            // Sound never waits for a key frame; when the viewer is behind, a dropped
+            // 20 ms is better than late sound.
+            let _ = viewer.video.try_send(frame);
+            return;
+        }
         let now = now_ms();
         let mut want_sync = false;
         if viewer.waiting_key && !key {
@@ -658,7 +666,7 @@ fn phone_kind(raw: &str) -> Option<String> {
 pub fn valid_frame(frame: &[u8]) -> bool {
     frame.len() > FRAME_HEADER_BYTES
         && frame.len() <= MAX_FRAME_BYTES
-        && matches!(frame[0], KIND_H264 | KIND_JPEG)
+        && matches!(frame[0], KIND_H264 | KIND_JPEG | KIND_PCM)
 }
 
 // ---- The phone's socket ----
@@ -1098,6 +1106,8 @@ mod tests {
         let mut frame = vec![KIND_H264, FLAG_KEY, 0, 0, 0, 0, 0, 0, 0, 1];
         assert!(!valid_frame(&frame), "no payload");
         frame.push(0);
+        assert!(valid_frame(&frame));
+        frame[0] = KIND_PCM;
         assert!(valid_frame(&frame));
         frame[0] = 9;
         assert!(!valid_frame(&frame));
