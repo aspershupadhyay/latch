@@ -18,6 +18,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### New for owners
 
+- **Mirror on computer:** see the phone's screen live in your computer's browser and use it with mouse and keyboard; watch the AI's steps and take over with one click (R30, ADR-051). Needs the self-hosted gateway; on the gateway's own computer it stays on your Wi-Fi.
 - **Every gesture:** the new `gesture` tool does any touch gesture with up to 10 fingers (rotate, two- and three-finger swipes, edge swipes, curved paths, press-then-drag), and still asks you before a finger presses Send or Pay (R28, protocol 1.18).
 - **Full ADB, more like a cable:** binary output with `base64` (a screenshot comes back as an image), and ADB commands run beside the other tools instead of making them wait (R28).
 - **Longer sessions:** 4- and 8-hour sessions, and a one-tap **+** next to Stop to extend while it runs.

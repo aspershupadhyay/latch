@@ -691,10 +691,11 @@ struct SignedEnvelope {
 fn open_start(raw: &str, key: Option<&str>, connection: &str) -> Result<Start, &'static str> {
     let payload = match serde_json::from_str::<SignedEnvelope>(raw) {
         Ok(env) if env.kind == "signed" => {
-            let Some(key) = key else {
-                return Err("this phone has no device key yet; connect it once first");
-            };
-            if !signing::verify(key, connection, &env.payload, &env.sig) {
+            // A phone whose key the gateway has not learned yet (it never
+            // connected its device link) is trusted as an unsigned one is.
+            if let Some(key) = key
+                && !signing::verify(key, connection, &env.payload, &env.sig)
+            {
                 return Err(signing::Refused::BadSignature.message());
             }
             env.payload

@@ -41,6 +41,8 @@ data class HomeState(
     val slowRelayMs: Int? = null,
     /** In-app update of Latch itself. */
     val update: UpdateState = UpdateState.Idle,
+    /** Live mirror to the owner's browser (R30). */
+    val mirror: io.github.aspershupadhyay.latch.mirror.MirrorStatus = io.github.aspershupadhyay.latch.mirror.MirrorStatus(),
 )
 
 class HomeActions(
@@ -60,6 +62,9 @@ class HomeActions(
     val openGatewayUpdateHelp: () -> Unit = {},
     val openRelaySpeedHelp: () -> Unit = {},
     val installUpdate: (UpdateInfo) -> Unit = {},
+    val startMirror: () -> Unit = {},
+    val stopMirror: () -> Unit = {},
+    val copyMirrorLink: () -> Unit = {},
 )
 
 data class ConnectState(

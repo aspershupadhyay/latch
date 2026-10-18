@@ -550,6 +550,7 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 - **Gateway:** relays bytes. It never decodes, stores, or logs a frame. A browser that falls behind loses frames up to the next key frame, which the phone is asked for; video is never queued. A phone that drops off keeps its viewer for 15 s and resumes with the same key. Browser messages pass only as validated, rebuilt `touch`/`wheel`/`text`/`key`/`button`/`control`/`ping`/`sync`/`codec` messages; cross-site WebSocket upgrades are refused. Revoking the phone ends its mirror.
 - **Input** is the owner's own, performed through the accessibility service: taps and live drags (`dispatchGesture` with `continueStroke`), scrolling, typing into the focused field, Back, Home, Recents. It is logged as the owner's. The first input while an AI session runs pauses the AI ("You're in control"); **Let AI continue** resumes it, and stale observations are already refused, so the AI looks again first.
 - **AI layer:** the page shows the session state and the latest Activity lines (who, app, one-line summary; never screen or typed text) as the phone sends them.
+- **No `screen.mirror` device capability** (the draft had one): mirroring is not a device-protocol command and no AI client can ask for it. The owner's tap on **Mirror on computer** and Android's consent each time are the switch, and the foreground notification is the indicator.
 
 **Threat review:**
 | Who | Can they… | Why not, or what limits it |

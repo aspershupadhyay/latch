@@ -482,6 +482,11 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
         else -> null
     }
     val statuses = remember(prefs, service, now) { app.session.capabilityStatuses() }
+    val mirror by app.mirror.status.collectAsStateWithLifecycle()
+    val mirrorConsent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) app.mirror.allowed(result.resultCode, data) else app.mirror.declined()
+    }
 
     HomeScreen(
         HomeState(
@@ -504,6 +509,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             outdatedGateway = outdatedGateway,
             slowRelayMs = slowRelayMs,
             update = update,
+            mirror = mirror,
         ),
         HomeActions(
             start = {
@@ -535,8 +541,33 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             openGatewayUpdateHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, GATEWAY_UPDATE_HELP.toUri())) },
             openRelaySpeedHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, RELAY_SPEED_HELP.toUri())) },
             installUpdate = { info -> installUpdate(app, context, info) },
+            startMirror = {
+                val reason = app.mirror.unavailableReason()
+                if (reason != null) {
+                    android.widget.Toast.makeText(context, reason, android.widget.Toast.LENGTH_LONG).show()
+                    if (service == null) openSetup()
+                } else {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    mirrorConsent.launch(app.mirror.consentIntent())
+                }
+            },
+            stopMirror = { app.mirror.stop() },
+            copyMirrorLink = { mirror.link?.let { copySensitive(context, "Latch mirror link", it) } },
         ),
     )
+}
+
+/** Copies a secret, marked sensitive so Android does not show it in the clipboard preview (Android 13+). */
+private fun copySensitive(context: Context, label: String, value: String) {
+    val clip = android.content.ClipData.newPlainText(label, value)
+    if (Build.VERSION.SDK_INT >= 33) {
+        clip.description.extras = android.os.PersistableBundle().apply { putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true) }
+    }
+    context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(clip)
 }
 
 /**
