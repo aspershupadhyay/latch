@@ -29,21 +29,21 @@ latch-start
 
 It prints:
 
-- **Owner key** (`lgt_…`): the app asks for it once. Never give it to an AI app.
-- **AI app key** and the ready-made `claude mcp add` command.
-- **Phones on this Wi-Fi … enter `https://192.168.x.x:8788#pin=…`**: the address for the phone.
+- The ready-made `claude mcp add` command for your AI app.
+- **Connect your phone**: a **QR code**, and under it the address (`https://192.168.x.x:8788#pin=…`) and a single-use **setup code** (`K7QX-M2PD`) in case the camera can't read it. The code works once and expires after 15 minutes; `latch-gateway pair` (in another Terminal, after `. ~/.latch/latch.env`) shows a new one.
+- Where AI apps, the live mirror, and the console are on this computer.
 
 If macOS asks whether `latch-gateway` may accept incoming connections, choose **Allow** (the phone connects on port 8788). Leave this Terminal window open while you use Latch. Stop it with Ctrl-C.
 
-**Don't want to start it by hand?** Run `latch-autostart on` once: the gateway then runs in the background and starts again when you log in (`latch-autostart off` undoes it, `latch-autostart status` checks). `latch-start` then just shows the keys and the phone's address.
+**Don't want to start it by hand?** Run `latch-autostart on` once: the gateway then runs in the background and starts again when you log in (`latch-autostart off` undoes it, `latch-autostart status` checks). `latch-start` then just shows a new QR code.
 
 The address and its `#pin=` stay the same across restarts. If your router gives the computer a new address, the phone finds the gateway again by itself (it checks the pin, so no other device can pass for it); you don't pair again.
 
 ## 4. Pair the phone
 
 1. Open Latch → **Set up Latch** → **Computer on Wi-Fi** → **Continue**.
-2. **Address for this phone:** the whole `https://192.168.x.x:8788#pin=…` line, including `#pin=`. Typing it is error-prone; AirDrop or message it to yourself and paste it.
-3. **Owner key:** the `lgt_…` key. Then tap **Connect**.
+2. Tap **Scan QR code**, allow the camera once, and point it at the QR code in the Terminal. The phone connects and becomes the owner of this gateway: no key to copy.
+3. Can't scan? Tap **Can't scan? Enter it by hand** and type the address and the setup code shown under the QR code. (An owner key, `lgt_…`, also works in the code field.)
 4. Follow **Set up your phone**: notifications, **screen access** (the accessibility service), and battery. On Android 13+, if the screen-access switch is greyed out: **Settings → Apps → Latch → ⋮ → Allow restricted settings**, then try again. Latch shows this step.
 
 ### Switch between Wi-Fi and the hosted relay
@@ -78,6 +78,7 @@ On the phone, tap **Start** on Home first (a session). Then ask your AI:
 
 - **The phone can't connect** (address or connection error): the Mac and phone must be on the same Wi-Fi. Allow `latch-gateway` in **System Settings → Network → Firewall → Options**. If the Mac's Wi-Fi address changed (`latch-start` prints the new one), enter it again; the pin stays the same.
 - **Wrong pin / certificate refused:** paste the address exactly, with `#pin=`.
+- **"That code is wrong, used, or expired":** setup codes work once, for 15 minutes. Run `. ~/.latch/latch.env && latch-gateway pair` for a new QR code.
 - **ADB `pairing failed`:** update Latch (step 1). Keep **Wireless debugging** on and the phone on Wi-Fi, and type the code while Settings still shows it (it changes each time you open the dialog).
 - **Mirror: "this relay cannot mirror":** the phone is paired with a Vercel relay. Pair it with the gateway on your Mac (step 4).
 - **Mirror shows a black screen:** the app on the phone protects its screen (banking, passwords). Android blocks every capture there.

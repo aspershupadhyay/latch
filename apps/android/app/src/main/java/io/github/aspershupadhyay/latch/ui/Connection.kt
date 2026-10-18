@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +45,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.data.ConnectionKind
@@ -77,7 +77,8 @@ const val GATEWAY_INSTALL_COMMAND =
 
 data class WifiGatewayState(
     val address: String,
-    val ownerKey: String,
+    /** The setup code under the QR code; an owner key (lgt_…) is accepted too. */
+    val code: String,
     val busy: Boolean,
     val error: String?,
     val installCopied: Boolean = false,
@@ -88,7 +89,9 @@ class WifiGatewayActions(
     val copyInstall: () -> Unit = {},
     val copyStart: () -> Unit = {},
     val setAddress: (String) -> Unit = {},
-    val setOwnerKey: (String) -> Unit = {},
+    val setCode: (String) -> Unit = {},
+    /** Opens the camera on the gateway's QR code (ADR-054). */
+    val scan: () -> Unit = {},
     val connect: () -> Unit = {},
     val back: () -> Unit = {},
 )
@@ -172,10 +175,12 @@ fun ChooseConnectionScreen(onChoose: (ConnectionKind) -> Unit, onBack: () -> Uni
     }
 }
 
-/** Onboarding for the gateway on the owner's computer (ADR-042): install, start, enter what it printed. */
+/** Onboarding for the gateway on the owner's computer (ADR-042, ADR-054): install, start, scan its QR code. */
 @Composable
 fun WifiGatewayScreen(state: WifiGatewayState, actions: WifiGatewayActions) {
     val signal = LocalSignal.current
+    // Typing is the fallback: open when there is already something typed.
+    var byHand by rememberSaveable { mutableStateOf(state.address.isNotBlank() || state.code.isNotBlank()) }
     Box(Modifier.fillMaxSize().background(signal.canvas)) {
         Column(
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
@@ -184,7 +189,7 @@ fun WifiGatewayScreen(state: WifiGatewayState, actions: WifiGatewayActions) {
             TextButton(onClick = actions.back) { Text("‹ Back", color = signal.accent) }
             ScreenTitle("Connect over Wi-Fi", "Run the Latch gateway on your computer. The phone and the computer must be on the same Wi-Fi.")
 
-            WifiStep(1, state.installCopied, "Install the gateway", "On your Mac or Linux computer, open Terminal and run this once. It checks the download and makes your keys.") {
+            WifiStep(1, state.installCopied, "Install the gateway", "On your Mac or Linux computer, open Terminal and run this once.") {
                 CopyRow("Install command", GATEWAY_INSTALL_COMMAND, actions.copyInstall)
                 Text(
                     "Windows: download latch-gateway-windows-x86_64.exe from the beta release instead.",
@@ -192,42 +197,54 @@ fun WifiGatewayScreen(state: WifiGatewayState, actions: WifiGatewayActions) {
                 )
             }
 
-            WifiStep(2, state.startCopied, "Start it", "It prints your owner key and the address for this phone.") {
+            WifiStep(2, state.startCopied, "Start it", "It shows a QR code for this phone.") {
                 CopyRow("Start command", "latch-start", actions.copyStart)
                 Text(
-                    "Tired of starting it by hand? Run latch-autostart on once, and it keeps running in the background, also after a restart.",
+                    "Already running, or the code expired? Run latch-gateway pair for a new QR code. To keep it running after a restart, run latch-autostart on once.",
                     style = MaterialTheme.typography.bodySmall, color = signal.text2,
                 )
             }
 
-            WifiStep(3, false, "Enter what it printed", "Same address every time: if your computer gets a new one on the Wi-Fi, this phone finds it again by itself.") {
-                LabeledField(
-                    label = "Address for this phone",
-                    hint = "The whole line after “Phones on this Wi-Fi”, including #pin=…",
-                    value = state.address,
-                    onValueChange = actions.setAddress,
-                    placeholder = "https://192.168.1.5:8788#pin=…",
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                )
-                LabeledField(
-                    label = "Owner key",
-                    hint = "The key after “Owner key” (it starts with lgt_). The phone asks for it only once.",
-                    value = state.ownerKey,
-                    onValueChange = actions.setOwnerKey,
-                    topic = HelpTopic.SECRET_KEY,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                state.error?.let { Text(it, color = signal.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+            WifiStep(3, false, "Scan the QR code", "Point the camera at the code in the terminal. That's all: no keys to copy.") {
                 PrimaryButton(
-                    if (state.busy) "Connecting…" else "Connect",
-                    actions.connect,
+                    if (state.busy) "Connecting…" else "Scan QR code",
+                    actions.scan,
                     Modifier.fillMaxWidth(),
-                    enabled = !state.busy && state.address.isNotBlank() && state.ownerKey.isNotBlank(),
+                    enabled = !state.busy,
                 )
+                if (!byHand) {
+                    state.error?.let { Text(it, color = signal.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                    TextButton(onClick = { byHand = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Can't scan? Enter it by hand", color = signal.accent)
+                    }
+                } else {
+                    LabeledField(
+                        label = "Address",
+                        hint = "The line after “Address” under the QR code, including #pin=…",
+                        value = state.address,
+                        onValueChange = actions.setAddress,
+                        placeholder = "https://192.168.1.5:8788#pin=…",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    )
+                    LabeledField(
+                        label = "Setup code",
+                        hint = "The 8-letter code under the QR code, like K7QX-M2PD.",
+                        value = state.code,
+                        onValueChange = actions.setCode,
+                        placeholder = "K7QX-M2PD",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    )
+                    state.error?.let { Text(it, color = signal.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                    SecondaryButton(
+                        if (state.busy) "Connecting…" else "Connect",
+                        actions.connect,
+                        Modifier.fillMaxWidth(),
+                        enabled = !state.busy && state.address.isNotBlank() && (state.code.isNotBlank() || "&code=" in state.address),
+                    )
+                }
             }
             Text(
-                "Tip: AirDrop or message the address to yourself and paste it; typing it is error-prone.",
+                "Same address every time: if your computer gets a new one on the Wi-Fi, this phone finds it again by itself.",
                 style = MaterialTheme.typography.bodySmall, color = signal.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
             )
         }

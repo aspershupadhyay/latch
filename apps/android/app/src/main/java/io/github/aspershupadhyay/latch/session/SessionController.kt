@@ -813,6 +813,28 @@ object Pairing {
         return Address(url, pin)
     }
 
+    /** What the Wi-Fi gateway's QR code holds (ADR-054): the address with pin, and a single-use setup code. */
+    data class Setup(val address: String, val code: String?)
+
+    /**
+     * Splits `https://IP:PORT#pin=…&code=K7QXM2PD` into the address [parse]
+     * reads and the code. Anything without `&code=` in its fragment is
+     * returned whole, with no code.
+     */
+    fun splitSetup(input: String): Setup {
+        val trimmed = input.trim()
+        val at = trimmed.indexOf("&code=")
+        if (at < 0 || '#' !in trimmed.substring(0, at)) return Setup(trimmed, null)
+        val code = trimmed.substring(at + 6).filter { it.isLetterOrDigit() }.uppercase()
+        return Setup(trimmed.substring(0, at), code.takeIf { it.length == 8 })
+    }
+
+    /** True for a pairing or setup code (8 letters and digits, dashes and spaces allowed), false for an owner key. */
+    fun isCode(input: String): Boolean {
+        val trimmed = input.trim()
+        return trimmed.length <= 11 && trimmed.all { it.isLetterOrDigit() || it == '-' || it == ' ' } && trimmed.count { it.isLetterOrDigit() } == 8
+    }
+
     /** Adds https:// when the owner typed a bare host. Returns null for anything unusable. */
     fun normalize(input: String, allowCleartext: Boolean): String? {
         val trimmed = input.trim().trimEnd('/')

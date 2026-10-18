@@ -75,6 +75,13 @@
             </intent-filter>
         </activity>
 
+        <!-- ADR-054: the QR scanner for Wi-Fi setup, upright like the rest of the app.
+             It asks for the camera itself, only when the owner taps Scan. -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="fullSensor"
+            tools:replace="screenOrientation" />
+
         <!-- Only the system can bind: BIND_ACCESSIBILITY_SERVICE is a signature permission. -->
         <service
             android:name=".accessibility.LatchAccessibilityService"

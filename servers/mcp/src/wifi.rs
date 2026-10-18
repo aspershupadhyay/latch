@@ -88,6 +88,14 @@ pub fn load_or_create(data_dir: &Path) -> io::Result<WifiTls> {
     })
 }
 
+/// The pin of the certificate a running gateway made, without making one.
+pub fn existing_pin(data_dir: &Path) -> io::Result<String> {
+    let key_der = std::fs::read(data_dir.join("wifi").join("key.der"))?;
+    let key = rcgen::KeyPair::try_from(key_der.as_slice())
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(pin_of(&rcgen::PublicKeyData::subject_public_key_info(&key)))
+}
+
 /// Writes a file only its owner can read, from the moment it exists.
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
@@ -168,6 +176,7 @@ mod tests {
         let first = load_or_create(&dir).expect("create");
         let again = load_or_create(&dir).expect("load");
         assert_eq!(first.pin, again.pin, "the phone's pin survives a restart");
+        assert_eq!(existing_pin(&dir).expect("pin"), first.pin);
         assert_eq!(first.pin.len(), 43, "base64url of 32 bytes");
         #[cfg(unix)]
         {

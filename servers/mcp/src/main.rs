@@ -5,7 +5,8 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use latch_gateway::{AppState, Config, mcp, router, secret, store::Store, wifi};
+use latch_gateway::terminal::{self, PhoneSetup, Style, Summary};
+use latch_gateway::{AppState, Config, mcp, now_ms, router, secret, store::Store, wifi};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 const USAGE: &str = "\
@@ -14,6 +15,8 @@ latch-gateway — connect MCP-capable AI clients to phones you control
 USAGE:
     latch-gateway [serve]     Run the HTTP gateway (MCP at /mcp, phones at /v1/device, console at /)
     latch-gateway stdio       Speak MCP on stdin/stdout and serve phones over HTTP in the background
+    latch-gateway pair        Show a new QR code and setup code for a phone on this Wi-Fi
+                              (the gateway must be running; uses LATCH_ADMIN_TOKEN)
     latch-gateway gen-token   Print a new random token for LATCH_ADMIN_TOKEN or LATCH_MCP_TOKEN
     latch-gateway check-phone [--url URL] [--device ID] [--quick] [--no-prompts] [--report FILE]
                               Check a connected phone end to end over this gateway's MCP
@@ -33,22 +36,50 @@ ENVIRONMENT:
     RUST_LOG                log filter (default info)
 ";
 
+/// Short, local-time log lines: `14:02:07  INFO phone connected device_id=…`.
+/// Must run before the runtime starts threads: reading the local UTC offset
+/// is only sound while the process has one thread.
 fn init_logging() {
+    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let timer = tracing_subscriber::fmt::time::OffsetTime::new(
+        offset,
+        time::macros::format_description!("[hour]:[minute]:[second]"),
+    );
     // Logs go to stderr so stdout stays clean for MCP in stdio mode.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                // rustls reports every refused TLS handshake (the phone's search for a
+                // moved gateway makes many); they are not the owner's problem.
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,rustls=off")),
         )
         .with_writer(std::io::stderr)
+        .with_timer(timer)
+        .with_target(false)
+        .compact()
         // Colour codes only help humans at a terminal; container log collectors get plain text.
         .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
         .init();
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "serve".into());
+    if mode == "serve" || mode == "stdio" {
+        init_logging();
+    }
+    match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime.block_on(run(mode)),
+        Err(e) => {
+            eprintln!("cannot start: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run(mode: String) -> ExitCode {
     match mode.as_str() {
         "gen-token" => {
             println!("{}", secret::new_token("lgt"));
@@ -63,6 +94,7 @@ async fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         "check-phone" => return check_phone().await,
+        "pair" => return pair().await,
         "serve" | "stdio" => {}
         other => {
             eprintln!("unknown command: {other}\n\n{USAGE}");
@@ -70,7 +102,6 @@ async fn main() -> ExitCode {
         }
     }
     let stdio = mode == "stdio";
-    init_logging();
 
     let config = match Config::from_env(stdio) {
         Ok(c) => c,
@@ -99,7 +130,7 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    tracing::info!(%bind, mode, "latch gateway listening");
+    tracing::debug!(%bind, mode, "listening");
 
     let app = router(state.clone());
     // Expired file links lose their keys and stored bytes within a minute, even when idle.
@@ -114,9 +145,23 @@ async fn main() -> ExitCode {
             }
         })
     };
+    let mut summary = Summary {
+        version: env!("CARGO_PKG_VERSION"),
+        stdio,
+        bind,
+        data_dir: &state.config.data_dir,
+        phone: None,
+        wifi_without_address: None,
+    };
     let wifi = match state.config.wifi_bind {
         Some(addr) => match start_wifi(&state, addr, app.clone()).await {
-            Ok(task) => Some(task),
+            Ok((task, port, address)) => {
+                match address {
+                    Some(address) => summary.phone = phone_setup(&state, address),
+                    None => summary.wifi_without_address = Some(port),
+                }
+                Some(task)
+            }
             Err(e) => {
                 eprintln!("cannot serve phones on the Wi-Fi at {addr}: {e}");
                 return ExitCode::FAILURE;
@@ -124,6 +169,7 @@ async fn main() -> ExitCode {
         },
         None => None,
     };
+    eprint!("{}", terminal::summary(Style::detect(), &summary));
     let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
 
     if stdio {
@@ -150,28 +196,80 @@ async fn main() -> ExitCode {
     }
 }
 
-/// R24: the TLS listener for phones on the same Wi-Fi, and the address to enter in the app.
+/// R24: the TLS listener for phones on the same Wi-Fi. Returns its port and,
+/// when this computer has a private address, the address with pin for the app.
 async fn start_wifi(
     state: &Arc<AppState>,
     addr: std::net::SocketAddr,
     app: axum::Router,
-) -> std::io::Result<tokio::task::JoinHandle<()>> {
+) -> std::io::Result<(tokio::task::JoinHandle<()>, u16, Option<String>)> {
     let tls = wifi::load_or_create(&state.config.data_dir)?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let port = listener.local_addr()?.port();
-    let address = match wifi::lan_ip() {
-        Some(ip) => wifi::phone_address(ip, port, &tls.pin),
-        None => format!(
-            "https://<this computer's Wi-Fi address>:{port}#pin={}",
-            tls.pin
-        ),
+    let address = wifi::lan_ip().map(|ip| wifi::phone_address(ip, port, &tls.pin));
+    tracing::debug!(%addr, "serving phones on the Wi-Fi");
+    Ok((
+        tokio::spawn(wifi::serve(listener, tls.config, app)),
+        port,
+        address,
+    ))
+}
+
+/// A single-use setup code for the owner's phone, shown as a QR code (ADR-054).
+fn phone_setup(state: &AppState, address: String) -> Option<PhoneSetup> {
+    match state.pairings.lock() {
+        Ok(mut pairings) => match pairings.create_owner(now_ms()) {
+            Ok((code, _)) => Some(PhoneSetup { address, code }),
+            Err(e) => {
+                tracing::warn!(error = %e, "no setup code");
+                None
+            }
+        },
+        Err(_) => None,
+    }
+}
+
+/// `latch-gateway pair`: a new setup code from the gateway running here.
+async fn pair() -> ExitCode {
+    let config = match Config::from_env(true) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("latch-gateway pair: {e}");
+            return ExitCode::from(2);
+        }
     };
-    tracing::info!(%addr, "serving phones on the Wi-Fi");
-    // stderr, so stdio mode keeps stdout for MCP.
-    eprintln!(
-        "Phones on this Wi-Fi: in the Latch app, choose \"Computer on Wi-Fi\" and enter\n    {address}\n  (it stays the same across restarts; if this computer's address changes, the app finds it again)"
-    );
-    Ok(tokio::spawn(wifi::serve(listener, tls.config, app)))
+    let port = config.wifi_bind.unwrap_or(wifi::DEFAULT_BIND).port();
+    let pin = match wifi::existing_pin(&config.data_dir) {
+        Ok(pin) => pin,
+        Err(_) => {
+            eprintln!(
+                "latch-gateway pair: no Wi-Fi certificate in {}. Start the gateway with LATCH_WIFI=1 (latch-start does) and use the same LATCH_DATA_DIR.",
+                config.data_dir.display()
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(ip) = wifi::lan_ip() else {
+        eprintln!(
+            "latch-gateway pair: this computer has no address on a home Wi-Fi. Join one and try again."
+        );
+        return ExitCode::FAILURE;
+    };
+    let code = match terminal::request_owner_code(config.bind, &config.admin_token).await {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("latch-gateway pair: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let setup = PhoneSetup {
+        address: wifi::phone_address(ip, port, &pin),
+        code,
+    };
+    eprintln!();
+    eprint!("{}", terminal::phone_block(Style::detect(), &setup));
+    eprintln!();
+    ExitCode::SUCCESS
 }
 
 /// Newline-delimited JSON-RPC on stdin/stdout, per the MCP stdio transport.
