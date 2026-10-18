@@ -611,15 +611,40 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ViewerMessage {
-    Touch { phase: Phase, x: i32, y: i32 },
-    Wheel { x: i32, y: i32, dx: i32, dy: i32 },
-    Text { text: String },
-    Key { key: Key },
-    Button { name: Button },
-    Control { action: Action },
-    Ping { at: f64 },
+    Touch {
+        phase: Phase,
+        x: i32,
+        y: i32,
+    },
+    Wheel {
+        x: i32,
+        y: i32,
+        dx: i32,
+        dy: i32,
+    },
+    Text {
+        text: String,
+    },
+    Key {
+        key: Key,
+    },
+    Button {
+        name: Button,
+    },
+    Control {
+        action: Action,
+    },
+    Ping {
+        at: f64,
+    },
     Sync,
-    Codec { codec: Codec },
+    Codec {
+        codec: Codec,
+    },
+    /// The viewer plays the phone's sound: the phone's own speaker goes quiet (ADR-055).
+    Sound {
+        on: bool,
+    },
 }
 
 impl ViewerMessage {
@@ -1055,7 +1080,12 @@ mod tests {
                 y: 20
             })
         );
+        assert_eq!(
+            ViewerMessage::parse(r#"{"t":"sound","on":true}"#),
+            Some(ViewerMessage::Sound { on: true })
+        );
         for bad in [
+            r#"{"t":"sound","on":"yes"}"#,
             r#"{"t":"touch","phase":"down","x":-1,"y":20}"#,
             r#"{"t":"touch","phase":"down","x":10,"y":20,"extra":1}"#,
             r#"{"t":"touch","phase":"hover","x":10,"y":20}"#,

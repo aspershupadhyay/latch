@@ -286,7 +286,12 @@ if (typeof document !== 'undefined') {
       case 'phone':
         phoneOnline = Boolean(m.online);
         if (!phoneOnline) cover('The phone lost its connection. Waiting for it to come back…');
-        else cover('Waiting for the picture…');
+        else {
+          cover('Waiting for the picture…');
+          // A phone that came back has its speaker on again: tell it once more.
+          phoneTold = null;
+          tellPhoneSound();
+        }
         break;
       case 'screen':
         if (Number.isInteger(m.w) && Number.isInteger(m.h) && m.w > 0 && m.h > 0) screen = { w: m.w, h: m.h };
@@ -344,7 +349,17 @@ if (typeof document !== 'undefined') {
     if (!audio && typeof AudioContext === 'function') {
       try { audio = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 }); } catch { audio = null; }
     }
-    if (audio && audio.state === 'suspended') audio.resume().catch(() => {});
+    if (audio && audio.state === 'suspended') audio.resume().then(tellPhoneSound).catch(() => {});
+    else tellPhoneSound();
+  }
+
+  // The phone's speaker goes quiet only while this page really plays its sound.
+  let phoneTold = null;
+  function tellPhoneSound() {
+    const playing = soundOn && !!audio && audio.state === 'running';
+    if (playing === phoneTold) return;
+    phoneTold = playing;
+    send({ t: 'sound', on: playing });
   }
 
   function playPcm(bytes) {
@@ -630,7 +645,10 @@ if (typeof document !== 'undefined') {
     $('sound').setAttribute('aria-pressed', String(soundOn));
     $('sound').setAttribute('aria-label', soundOn ? 'Sound on' : 'Sound off');
     if (soundOn) wakeAudio();
-    else if (audio) audio.suspend().catch(() => {});
+    else {
+      tellPhoneSound();
+      if (audio) audio.suspend().catch(() => {});
+    }
   });
   document.addEventListener('click', wakeAudio);
   $('rotate').addEventListener('click', () => {
