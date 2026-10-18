@@ -11,7 +11,11 @@
 # not notarized; chmod cannot change that. Files fetched with curl carry no
 # quarantine flag. The script also checks the file against the published
 # SHA-256, and creates your keys once in ~/.latch/latch.env (readable by you only)
-# plus `latch-start`, which starts the gateway for phones on this Wi-Fi.
+# plus `latch-start`, which starts the gateway for phones on this Wi-Fi, and
+# `latch-autostart on|off|status`, which keeps it running in the background
+# (a LaunchAgent on macOS, a systemd user service on Linux) so it need not be
+# started by hand. The address and pin stay the same across restarts; if the
+# computer gets a new address on the Wi-Fi, the app finds it again by its pin.
 #
 # Options (environment): LATCH_INSTALL_DIR (default ~/.local/bin),
 # LATCH_HOME (default ~/.latch), LATCH_RELEASE (default the beta download URL).
@@ -88,9 +92,86 @@ echo "AI app key (Claude Code: claude mcp add --transport http latch http://127.
 echo "    \$LATCH_MCP_TOKEN"
 echo "Mirror page on this computer: http://127.0.0.1:8787/mirror"
 echo
+if [ -x "$bin_dir/latch-autostart" ] && [ "\$("$bin_dir/latch-autostart" status 2>/dev/null | cut -c1-2)" = "on" ] || [ "\$("$bin_dir/latch-autostart" status 2>/dev/null)" = "active" ]; then
+  echo "The gateway already runs in the background (latch-autostart). Address for the phone:"
+  grep -A1 "Phones on this Wi-Fi" "$home/gateway.log" 2>/dev/null | tail -1 || true
+  exit 0
+fi
 exec "$bin_dir/latch-gateway" serve
 EOF
 chmod 755 "$bin_dir/latch-start"
+
+cat >"$bin_dir/latch-autostart" <<EOF
+#!/bin/sh
+# Keeps the Latch gateway running in the background, also after a restart or log-in.
+#   latch-autostart on | off | status
+set -eu
+label=io.github.aspershupadhyay.latch-gateway
+log="$home/gateway.log"
+case "\$(uname -s)" in
+  Darwin)
+    plist="\$HOME/Library/LaunchAgents/\$label.plist"
+    case "\${1:-status}" in
+      on)
+        mkdir -p "\$HOME/Library/LaunchAgents"
+        cat >"\$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>\$label</string>
+  <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>. "$home/latch.env" &amp;&amp; exec "$bin_dir/latch-gateway" serve</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>\$log</string>
+  <key>StandardOutPath</key><string>\$log</string>
+</dict></plist>
+PLIST
+        launchctl bootout "gui/\$(id -u)/\$label" 2>/dev/null || true
+        launchctl bootstrap "gui/\$(id -u)" "\$plist"
+        echo "The gateway now runs in the background and starts when you log in. Log: \$log" ;;
+      off)
+        launchctl bootout "gui/\$(id -u)/\$label" 2>/dev/null || true
+        rm -f "\$plist"
+        echo "The gateway no longer runs in the background." ;;
+      status)
+        if launchctl print "gui/\$(id -u)/\$label" >/dev/null 2>&1; then echo "on (log: \$log)"; else echo off; fi ;;
+      *) echo "usage: latch-autostart on|off|status" >&2; exit 2 ;;
+    esac ;;
+  *)
+    unit="\$HOME/.config/systemd/user/latch-gateway.service"
+    case "\${1:-status}" in
+      on)
+        mkdir -p "\$HOME/.config/systemd/user"
+        cat >"\$unit" <<UNIT
+[Unit]
+Description=Latch gateway
+After=network-online.target
+
+[Service]
+ExecStart=/bin/sh -c '. "$home/latch.env" && exec "$bin_dir/latch-gateway" serve'
+Restart=always
+RestartSec=3
+StandardOutput=append:\$log
+StandardError=append:\$log
+
+[Install]
+WantedBy=default.target
+UNIT
+        systemctl --user daemon-reload
+        systemctl --user enable --now latch-gateway.service
+        echo "The gateway now runs in the background. Log: \$log"
+        echo "To keep it running while you are logged out: loginctl enable-linger \$USER" ;;
+      off)
+        systemctl --user disable --now latch-gateway.service 2>/dev/null || true
+        rm -f "\$unit"
+        systemctl --user daemon-reload
+        echo "The gateway no longer runs in the background." ;;
+      status) systemctl --user is-active latch-gateway.service || true ;;
+      *) echo "usage: latch-autostart on|off|status" >&2; exit 2 ;;
+    esac ;;
+esac
+EOF
+chmod 755 "$bin_dir/latch-autostart"
 
 echo
 echo "Installed $("$bin_dir/latch-gateway" --version) in $bin_dir"
@@ -99,3 +180,4 @@ case ":$PATH:" in
   *) echo "Add it to your PATH:  echo 'export PATH=\"$bin_dir:\$PATH\"' >> ~/.zshrc && export PATH=\"$bin_dir:\$PATH\"" ;;
 esac
 echo "Start it with:  latch-start"
+echo "Or keep it running in the background, also after a restart:  latch-autostart on"

@@ -8,6 +8,11 @@ Every merge to `main` publishes a [beta build](https://github.com/aspershupadhya
 
 The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-review-and-revised-delivery.md).
 
+### Added
+
+- **Choose how your AI reaches the phone** when you set up Latch: **Hosted relay** (your free Vercel relay, works anywhere) or **Computer on Wi-Fi** (the gateway on your computer, nothing leaves home). Switch any time in **Connect**; Latch keeps both, so switching back asks for no key (R31, ADR-052).
+- **The Wi-Fi gateway keeps its address**: when your computer gets a new address on the Wi-Fi, the phone finds it again by its pin, without pairing again. `latch-autostart on` keeps the gateway running in the background, also after a restart.
+
 ### Fixed
 
 - **Wireless-ADB pairing failed on every phone** with `pairing failed: org.conscrypt.Conscrypt`: the app looked for a TLS class that exists only off Android. It now uses Android's own exporter (Android 12+ public API; Android 11 through its TLS socket), with an on-device test in the emulator job.

@@ -19,7 +19,26 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** Where this phone is paired. The token itself lives in [TokenVault]. */
 /** [pin]: for a gateway on the owner's Wi-Fi (R24), the SHA-256 of its certificate's key. */
-data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String, val pin: String? = null)
+data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String, val pin: String? = null) {
+    val kind: ConnectionKind get() = ConnectionKind.of(this)
+}
+
+/**
+ * How the AI reaches this phone. The owner can keep one of each and switch
+ * between them without pairing again: the one not in use is kept, with its
+ * keys, in its own Keystore-sealed slot.
+ */
+enum class ConnectionKind(val title: String, val short: String, val inSentence: String) {
+    /** A relay on the internet, such as the owner's Vercel relay: works on any network. */
+    HOSTED("Hosted relay", "Hosted", "hosted relay"),
+    /** The gateway on the owner's computer on the same Wi-Fi (ADR-042), trusted by its pin. */
+    WIFI("Computer on Wi-Fi", "Wi-Fi", "computer on Wi-Fi"),
+    ;
+
+    companion object {
+        fun of(pairing: Pairing) = if (pairing.pin != null) WIFI else HOSTED
+    }
+}
 
 /** A folder the owner shares with the AI: its Storage Access Framework tree URI and its name. */
 data class FolderGrant(val uri: String, val name: String)
@@ -78,7 +97,7 @@ const val ADB_FIXED_PORT = 5555
  * Small settings store on SharedPreferences, exposed as flows. Holds no
  * screen data, ever.
  */
-class Settings(context: Context) {
+class Settings(private val context: Context) {
     private val prefs = context.getSharedPreferences("latch", Context.MODE_PRIVATE)
     private val vault = TokenVault(context, "latch_device_token")
     /** Present only when this phone's owner also owns the gateway. */
@@ -93,6 +112,10 @@ class Settings(context: Context) {
     private val _pairing = MutableStateFlow(readPairing())
     val pairing: StateFlow<Pairing?> = _pairing.asStateFlow()
 
+    private val _saved = MutableStateFlow(ConnectionKind.entries.mapNotNull { k -> readSaved(k)?.let { k to it } }.toMap())
+    /** Connections kept for switching back, by kind; never the one in use. */
+    val saved: StateFlow<Map<ConnectionKind, Pairing>> = _saved.asStateFlow()
+
     private val _preferences = MutableStateFlow(readPreferences())
     val preferences: StateFlow<Preferences> = _preferences.asStateFlow()
 
@@ -100,6 +123,96 @@ class Settings(context: Context) {
         val url = prefs.getString("gateway_url", null) ?: return null
         val id = prefs.getString("device_id", null) ?: return null
         return Pairing(url, id, prefs.getString("device_name", null) ?: "This phone", prefs.getString("gateway_pin", null))
+    }
+
+    private fun slot(kind: ConnectionKind, field: String) = "saved_${kind.name.lowercase()}_$field"
+    private fun savedToken(kind: ConnectionKind) = TokenVault(context, "latch_saved_${kind.name.lowercase()}_token")
+    private fun savedOwnerKey(kind: ConnectionKind) = TokenVault(context, "latch_saved_${kind.name.lowercase()}_owner")
+
+    private fun readSaved(kind: ConnectionKind): Pairing? {
+        val url = prefs.getString(slot(kind, "gateway_url"), null) ?: return null
+        val id = prefs.getString(slot(kind, "device_id"), null) ?: return null
+        return Pairing(url, id, prefs.getString(slot(kind, "device_name"), null) ?: "This phone", prefs.getString(slot(kind, "pin"), null))
+    }
+
+    /**
+     * Keeps the connection in use in its kind's slot, with its device token and
+     * owner key, and leaves this phone unpaired so another can be set up. The
+     * phone's own choices (switches, setup) stay as they are.
+     */
+    fun keepActive() {
+        val active = _pairing.value ?: return
+        val token = vault.load() ?: return
+        val kind = active.kind
+        savedToken(kind).store(token)
+        val owner = ownerVault.load()
+        if (owner != null) savedOwnerKey(kind).store(owner) else savedOwnerKey(kind).clear()
+        prefs.edit {
+            putString(slot(kind, "gateway_url"), active.gatewayUrl)
+            putString(slot(kind, "device_id"), active.deviceId)
+            putString(slot(kind, "device_name"), active.name)
+            if (active.pin != null) putString(slot(kind, "pin"), active.pin) else remove(slot(kind, "pin"))
+        }
+        _saved.value = _saved.value + (kind to active)
+        clearActive()
+    }
+
+    /**
+     * Makes the kept [kind] the connection in use, keeping the current one in
+     * its own slot first. False when nothing of that kind is kept.
+     */
+    fun restore(kind: ConnectionKind): Boolean {
+        val target = _saved.value[kind] ?: return false
+        val token = savedToken(kind).load() ?: return false.also { dropSaved(kind) }
+        val owner = savedOwnerKey(kind).load()
+        dropSaved(kind)
+        if (_pairing.value != null) keepActive()
+        vault.store(token)
+        if (owner != null) ownerVault.store(owner) else ownerVault.clear()
+        _isOwner.value = owner != null
+        _ownerKeyVersion.value += 1
+        writeActive(target)
+        return true
+    }
+
+    /** Forgets a kept connection. Returns it, so its device key can be deleted too. */
+    fun dropSaved(kind: ConnectionKind): Pairing? {
+        val gone = _saved.value[kind]
+        savedToken(kind).clear()
+        savedOwnerKey(kind).clear()
+        prefs.edit { listOf("gateway_url", "device_id", "device_name", "pin").forEach { remove(slot(kind, it)) } }
+        _saved.value = _saved.value - kind
+        return gone
+    }
+
+    /** The gateway on the Wi-Fi moved to a new address (R24): same keys, new address. */
+    fun moveGateway(url: String) {
+        val active = _pairing.value ?: return
+        writeActive(active.copy(gatewayUrl = url))
+    }
+
+    private fun writeActive(pairing: Pairing) {
+        prefs.edit {
+            putString("gateway_url", pairing.gatewayUrl)
+            putString("device_id", pairing.deviceId)
+            putString("device_name", pairing.name)
+            if (pairing.pin != null) putString("gateway_pin", pairing.pin) else remove("gateway_pin")
+        }
+        _pairing.value = pairing
+    }
+
+    private fun clearActive() {
+        vault.clear()
+        ownerVault.clear()
+        _isOwner.value = false
+        _ownerKeyVersion.value += 1
+        prefs.edit {
+            remove("gateway_url")
+            remove("device_id")
+            remove("device_name")
+            remove("gateway_pin")
+        }
+        _pairing.value = null
     }
 
     private fun readPreferences(): Preferences {
@@ -139,13 +252,7 @@ class Settings(context: Context) {
 
     fun savePairing(pairing: Pairing, token: String) {
         vault.store(token)
-        prefs.edit {
-            putString("gateway_url", pairing.gatewayUrl)
-            putString("device_id", pairing.deviceId)
-            putString("device_name", pairing.name)
-            if (pairing.pin != null) putString("gateway_pin", pairing.pin) else remove("gateway_pin")
-        }
-        _pairing.value = pairing
+        writeActive(pairing)
     }
 
     fun token(): String? = vault.load()
@@ -159,19 +266,11 @@ class Settings(context: Context) {
         _ownerKeyVersion.value += 1
     }
 
+    /** Forgets the connection in use. A kept connection of the other kind stays kept. */
     fun forgetPairing() {
-        vault.clear()
-        ownerVault.clear()
-        _isOwner.value = false
-        prefs.edit {
-            remove("gateway_url")
-            remove("device_id")
-            remove("device_name")
-            remove("gateway_pin")
-            remove("setup_done")
-        }
+        clearActive()
+        prefs.edit { remove("setup_done") }
         _preferences.value = _preferences.value.copy(setupDone = false)
-        _pairing.value = null
     }
 
     fun update(transform: (Preferences) -> Preferences) {

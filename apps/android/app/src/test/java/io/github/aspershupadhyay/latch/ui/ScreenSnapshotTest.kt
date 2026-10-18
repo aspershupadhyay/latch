@@ -72,6 +72,16 @@ class ScreenSnapshotTest {
 
     @Test fun welcome() = snap { WelcomeScreen({}, {}) }
 
+    @Test fun welcome_saved() = snap {
+        WelcomeScreen({}, {}, saved = mapOf(io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED to "latch-gateway-ada.vercel.app"))
+    }
+
+    @Test fun chooseConnection() = snap { ChooseConnectionScreen({}, {}) }
+
+    @Test fun wifiGateway() = snap {
+        WifiGatewayScreen(WifiGatewayState("https://192.168.1.5:8788#pin=" + "A".repeat(43), "", busy = false, error = null, installCopied = true), WifiGatewayActions())
+    }
+
     @Test fun createGateway() = snap {
         CreateGatewayScreen(CreateGatewayState("lok_" + "a".repeat(64), keyCopied = true, deployOpened = false, address = "", busy = false, error = null), CreateGatewayActions())
     }
@@ -118,6 +128,8 @@ class ScreenSnapshotTest {
                 "https://latch-gateway-ada.vercel.app/mcp", isOwner = true,
                 clients = listOf(McpClient("m_1", "Claude on laptop", now, now), McpClient("m_2", "ChatGPT", now, null)),
                 loading = false, error = null, created = null,
+                connection = io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED, host = "latch-gateway-ada.vercel.app",
+                saved = mapOf(io.github.aspershupadhyay.latch.data.ConnectionKind.WIFI to "192.168.1.5:8788"),
             ),
             ConnectActions(),
         )

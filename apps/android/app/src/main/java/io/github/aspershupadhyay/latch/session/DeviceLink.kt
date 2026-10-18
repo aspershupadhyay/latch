@@ -70,7 +70,12 @@ class DeviceLink(
         fun approvalAnswer(nonce: String, choice: String) = Unit
     }
 
-    private val base = gatewayUrl.trimEnd('/')
+    @Volatile private var base = gatewayUrl.trimEnd('/')
+
+    /** The gateway moved to [url] (a Wi-Fi gateway with a new address); the next attempt uses it. */
+    fun moveTo(url: String) {
+        base = url.trimEnd('/')
+    }
     private val json = "application/json".toMediaType()
     // Long polls wait up to 25 s on the gateway; leave room for slow networks.
     private val pollClient = http.newBuilder().readTimeout(40, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()

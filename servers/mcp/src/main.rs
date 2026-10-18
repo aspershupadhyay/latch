@@ -169,7 +169,7 @@ async fn start_wifi(
     tracing::info!(%addr, "serving phones on the Wi-Fi");
     // stderr, so stdio mode keeps stdout for MCP.
     eprintln!(
-        "Phones on this Wi-Fi: in the Latch app, tap \"I have a code or a relay already\" and enter\n    {address}"
+        "Phones on this Wi-Fi: in the Latch app, choose \"Computer on Wi-Fi\" and enter\n    {address}\n  (it stays the same across restarts; if this computer's address changes, the app finds it again)"
     );
     Ok(tokio::spawn(wifi::serve(listener, tls.config, app)))
 }

@@ -571,3 +571,25 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Checks:** Rust: validation, key and frame unit tests; e2e on a real gateway: signed start required, code once and exchanged for the key, frames byte for byte, invalid input dropped, take-over from another window, phone reconnect within the grace, end, revocation, cross-site refusal, locked-down page, and a slow browser that skips to a key frame (never a delta after a gap). Node: frame parsing, SPS to codec string on a real x264 key frame, coordinate and wheel mapping, keys, paste. Android JVM tests for the message parser (shared fixtures), stroke planning, text editing, encoder sizing, and the bitrate governor. *Needs phone:* encode time and glass-to-glass delay on two phones, H.264 decode in Chrome/Edge/Safari, and how live drags feel.
 
 **Recovery:** Stop on the phone, its notification, Android's own capture chip, or **End mirroring** on the page ends it at once; revoking the phone ends it at the gateway. Removing the routes disables the feature without touching the device protocol.
+
+## ADR-052 — Two ways to connect, both kept; a Wi-Fi gateway found again at a new address
+**Status:** accepted (2026-10-18, owner request R31 "give the user the option to connect through Wi-Fi or the hosted gateway … switch back and forth … it saves the data so the phone won't ask … the gateway creates a new URL each time") · **Builds on:** ADR-012 (phone dials out), ADR-029 (Vercel relay), ADR-037 (device keys), ADR-042 (the gateway on the owner's computer) · **Protocol:** unchanged
+
+**Problem:** onboarding offered only "make a Vercel relay" or a generic "I have a code or a relay"; the Wi-Fi gateway was hidden behind the second. Changing from one to the other meant **Disconnect**, which deletes the device token and the owner key, so switching back needed the key again. And the Wi-Fi address carries the computer's DHCP address, which routers change, so the owner had to copy a new address and pair again.
+
+**Decision:**
+- **Choice in onboarding:** **Set up Latch** opens *How should your AI reach this phone?* with two cards: **Hosted relay** (the Vercel flow as before) and **Computer on Wi-Fi** (install command, `latch-start`, then the address with `#pin=` and the owner key; a pin is required on this path).
+- **Both kept:** the phone keeps at most one connection of each kind (kind = has a pin → Wi-Fi, else hosted). The one not in use lives in its own slot: address, device id, pin in preferences; device token and owner key in their own Keystore-sealed `TokenVault`s; the per-pairing device-signing key (ADR-037) is not deleted. **Connect → How your AI reaches this phone** switches with one tap (the session stops first; approval grants of the session are cleared), or, when the other kind is not set up yet, keeps this one and opens onboarding at that kind. The first screen lists kept connections ("no key needed"). **Disconnect** forgets only the connection in use; **Forget** on a kept one deletes its keys and signing key. A new pairing of a kind replaces the kept one of that kind.
+- **Same address across restarts:** the gateway's certificate (and so the pin) and keys were already kept (`LATCH_DATA_DIR/wifi`, `~/.latch/latch.env`). When a Wi-Fi gateway stops answering (second failed attempt, then every fifth), the phone tries the same port on the other addresses of its own /24, nearest to the old one first, 32 at a time, and accepts only a TLS handshake whose certificate key matches the pin; it then saves the new address and the link continues. Nothing is sent to any other host. `latch-autostart on|off|status` (installed with the gateway) keeps it running as a LaunchAgent or systemd user service, so it need not be started by hand.
+
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| Another device on the Wi-Fi | pose as the gateway after the computer moved | Accepted only with the pinned key; its private key never leaves the owner's computer |
+| A network observer | learn something from the search | It sees TLS handshakes to port 8788 on the local /24 and nothing else; no token or data is sent before the pin matches |
+| Someone with the unlocked phone | use a kept connection | Same as the one in use: the tokens are Keystore-sealed and usable only by Latch; Forget deletes them |
+| An AI app | switch the phone's connection | No tool or route; only the owner's taps in the app switch |
+
+**Limits:** the search covers the phone's /24 only; a gateway on another network or a larger subnet needs the new address entered. Kept connections are this phone's only, not backed up.
+
+**Rollback:** an older app reads only the connection in use and ignores the kept slot; nothing on the gateways changed.
