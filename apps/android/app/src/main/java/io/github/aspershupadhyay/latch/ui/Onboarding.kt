@@ -231,7 +231,7 @@ fun JoinGatewayScreen(state: JoinState, actions: JoinActions) {
                 if (state.mode == JoinMode.OWNER_KEY) {
                     LabeledField(
                         label = "Secret key",
-                        hint = "The key you pasted into Vercel when you made this relay. It starts with lok_",
+                        hint = "The owner key: the one you pasted into Vercel (it starts with lok_), or the one latch-start prints for a relay on your computer (lgt_…).",
                         value = state.secret,
                         onValueChange = actions.setSecret,
                         topic = HelpTopic.SECRET_KEY,

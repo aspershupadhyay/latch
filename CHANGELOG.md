@@ -8,6 +8,11 @@ Every merge to `main` publishes a [beta build](https://github.com/aspershupadhya
 
 The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-review-and-revised-delivery.md).
 
+### Fixed
+
+- **Wireless-ADB pairing failed on every phone** with `pairing failed: org.conscrypt.Conscrypt`: the app looked for a TLS class that exists only off Android. It now uses Android's own exporter (Android 12+ public API; Android 11 through its TLS socket), with an on-device test in the emulator job.
+- **macOS refused the gateway** ("cannot be opened… Move to Trash") when downloaded in a browser: install it with `curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh`, which avoids the quarantine flag, checks the checksum, creates your keys, and adds `latch-start`. The macOS files are now signed ad hoc and verified in CI. Guide: [docs/connect-your-phone.md](docs/connect-your-phone.md).
+
 ### Safety and security
 
 - Each AI app can be limited to the phone apps you pick, from **Connect** in the app (R18).
