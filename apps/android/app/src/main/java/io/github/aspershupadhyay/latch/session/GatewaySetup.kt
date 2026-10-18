@@ -212,7 +212,12 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
     private fun check(status: Int, ok: Int = 200) {
         when (status) {
             ok -> Unit
-            401 -> throw SetupException("The gateway did not accept the owner key. It must match LATCH_ADMIN_TOKEN in your gateway settings exactly, or be the newest key this app rotated to. Lost it? Set a new LATCH_ADMIN_TOKEN and redeploy.")
+            401 -> throw SetupException(
+                "The gateway did not accept the owner key. Computer on Wi-Fi: use the line under “Owner key” that latch-start prints " +
+                    "(lgt_…, not the AI app key), and make sure no older gateway is still running. Hosted relay: it must match " +
+                    "LATCH_ADMIN_TOKEN exactly, or the newest key this app rotated to. Lost it? Set a new LATCH_ADMIN_TOKEN " +
+                    "(in ~/.latch/latch.env, or in Vercel and redeploy) and restart the gateway.",
+            )
             503 -> throw SetupException("The gateway has no owner key yet. Add LATCH_ADMIN_TOKEN in your gateway settings and redeploy.")
             429 -> throw SetupException("Too many at once. Revoke unused keys or wait a minute.")
             else -> throw SetupException("The gateway answered with HTTP $status.")
