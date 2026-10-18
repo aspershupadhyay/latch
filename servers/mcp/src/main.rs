@@ -155,10 +155,10 @@ async fn run(mode: String) -> ExitCode {
     };
     let wifi = match state.config.wifi_bind {
         Some(addr) => match start_wifi(&state, addr, app.clone()).await {
-            Ok((task, port, address)) => {
+            Ok((task, port, pin, address)) => {
                 match address {
                     Some(address) => summary.phone = phone_setup(&state, address),
-                    None => summary.wifi_without_address = Some(port),
+                    None => summary.wifi_without_address = Some((port, pin)),
                 }
                 Some(task)
             }
@@ -196,13 +196,14 @@ async fn run(mode: String) -> ExitCode {
     }
 }
 
-/// R24: the TLS listener for phones on the same Wi-Fi. Returns its port and,
-/// when this computer has a private address, the address with pin for the app.
+/// R24: the TLS listener for phones on the same Wi-Fi. Returns its port, the
+/// certificate pin, and, when this computer has a private address, the
+/// address with pin for the app.
 async fn start_wifi(
     state: &Arc<AppState>,
     addr: std::net::SocketAddr,
     app: axum::Router,
-) -> std::io::Result<(tokio::task::JoinHandle<()>, u16, Option<String>)> {
+) -> std::io::Result<(tokio::task::JoinHandle<()>, u16, String, Option<String>)> {
     let tls = wifi::load_or_create(&state.config.data_dir)?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let port = listener.local_addr()?.port();
@@ -211,6 +212,7 @@ async fn start_wifi(
     Ok((
         tokio::spawn(wifi::serve(listener, tls.config, app)),
         port,
+        tls.pin,
         address,
     ))
 }

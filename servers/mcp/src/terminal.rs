@@ -160,8 +160,9 @@ pub struct Summary<'a> {
     pub bind: std::net::SocketAddr,
     pub data_dir: &'a Path,
     pub phone: Option<PhoneSetup>,
-    /// The Wi-Fi listener runs but this computer has no private address.
-    pub wifi_without_address: Option<u16>,
+    /// The Wi-Fi listener runs but this computer has no private address:
+    /// its port and certificate pin.
+    pub wifi_without_address: Option<(u16, String)>,
 }
 
 /// The start-up summary: what runs where, and how to connect a phone.
@@ -183,18 +184,18 @@ pub fn summary(style: Style, s: &Summary<'_>) -> String {
     let _ = writeln!(out, "  {rule}");
     match &s.phone {
         Some(setup) => out.push_str(&phone_block(style, setup)),
-        None => match s.wifi_without_address {
-            Some(port) => {
+        None => match &s.wifi_without_address {
+            Some((port, pin)) => {
                 let _ = writeln!(out, "  {}", style.bold("Connect your phone"));
                 let _ = writeln!(
                     out,
-                    "    This computer has no address on a home Wi-Fi yet. Join one, then run {}.",
+                    "    This computer has no address on a home Wi-Fi yet. Join one, then run {} for a QR code.",
                     style.bold("latch-gateway pair")
                 );
                 let _ = writeln!(
                     out,
-                    "    {}",
-                    style.dim(&format!("Phones connect on port {port}."))
+                    "    {}  https://<this computer's Wi-Fi address>:{port}#pin={pin}",
+                    style.dim("Address")
                 );
             }
             None => {
