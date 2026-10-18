@@ -1,0 +1,82 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors */
+/* The live mirror page (R30). Same palette as the gateway's front page. */
+:root {
+  --bg: #070809; --panel: #0e1013; --line: #1c2025; --text: #eceef0; --muted: #8d959e;
+  --green: #3ddc97; --amber: #f0b44c; --red: #ef5b5b; --ember: #e8633a;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+[hidden] { display: none !important; }
+button {
+  font: inherit; color: var(--text); background: #161a1f; border: 1px solid var(--line);
+  border-radius: 10px; padding: 7px 12px; cursor: pointer; min-height: 36px;
+}
+button:hover { border-color: #303740; }
+button:focus-visible, input:focus-visible, canvas:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+button.primary { background: var(--ember); border-color: var(--ember); color: #120804; font-weight: 600; }
+button.danger { color: var(--red); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.error { color: var(--red); min-height: 1.5em; margin: 8px 0 0; }
+
+.join { min-height: 100%; display: grid; place-items: center; padding: 16px; }
+.card { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 28px 24px; }
+.card h1 { margin: 0 0 8px; font-size: 1.6rem; letter-spacing: -0.02em; }
+.card form { display: grid; gap: 10px; margin-top: 18px; }
+.card label { font-size: 13px; color: var(--muted); }
+.card input {
+  font: 600 28px var(--mono); letter-spacing: 0.2em; text-align: center; padding: 10px; color: var(--text);
+  background: #0a0c0e; border: 1px solid var(--line); border-radius: 12px;
+}
+
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; }
+.spacer { flex: 1; }
+.live { display: inline-flex; align-items: center; gap: 6px; font: 13px var(--mono); color: var(--muted); }
+.live b { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.live.good b { background: var(--green); box-shadow: 0 0 10px var(--green); }
+.live.slow b { background: var(--amber); }
+.live.bad b { background: var(--red); }
+.mode { font-size: 12px; color: var(--muted); }
+
+.stage { min-height: 0; display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 16px; }
+.phone-col { min-height: 0; display: grid; grid-template-rows: 1fr auto; gap: 12px; justify-items: center; }
+.frame {
+  position: relative; min-height: 0; height: 100%; display: grid; place-items: center;
+  padding: 10px; border-radius: 28px; background: #000; border: 1px solid var(--line);
+}
+.frame:fullscreen { border-radius: 0; border: 0; padding: 0; }
+canvas {
+  display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
+  border-radius: 16px; background: #000; touch-action: none; cursor: pointer;
+}
+.cover {
+  position: absolute; inset: 10px; border-radius: 16px; display: grid; place-items: center; padding: 24px;
+  background: rgba(30, 34, 40, 0.92); text-align: center; color: var(--muted);
+}
+.keys { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+.ai { width: 300px; min-height: 0; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.ai h2 { margin: 0 0 6px; font-size: 16px; }
+.ai h3 { margin: 16px 0 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
+.now { margin: 0; color: var(--green); }
+.steps { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; }
+.steps .who { color: var(--muted); font-size: 12px; }
+.handover { display: grid; gap: 8px; margin-top: 18px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); margin: 0; max-width: calc(100% - 32px);
+  background: #1c2127; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px;
+}
+
+@media (max-width: 760px) {
+  .stage { grid-template-columns: 1fr; grid-template-rows: 1fr auto; padding: 12px; }
+  .ai { width: auto; max-height: 40vh; }
+  .bar button { padding: 6px 10px; }
+}

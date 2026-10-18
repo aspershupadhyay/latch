@@ -1608,6 +1608,125 @@ class LatchAccessibilityService : AccessibilityService() {
 
     fun screen(): ScreenInfo = screenInfo()
 
+    // ---- Live mirror (R30, ADR-051): the owner's own input from the computer ----
+
+    /** The stroke the owner's finger is still down on, for the next piece of a live drag. */
+    private var mirrorStroke: GestureDescription.StrokeDescription? = null
+
+    /**
+     * Why the owner's input from the mirror may not land at [x], [y], or null
+     * when it may. Latch's own windows stay on the phone itself, so a leaked
+     * mirror link cannot switch on full ADB or Auto mode or answer an approval.
+     */
+    fun mirrorRefusal(x: Int, y: Int): String? {
+        if (overlayBounds?.contains(x, y) == true) return "That is Latch's Stop button; use Stop AI on this page instead."
+        if (approvalBounds?.contains(x, y) == true) return "Answer Latch's questions on the phone itself."
+        val bounds = android.graphics.Rect()
+        val top = windows.sortedByDescending { it.layer }.firstOrNull { w ->
+            w.getBoundsInScreen(bounds)
+            w.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && bounds.contains(x, y)
+        }
+        if (top?.root?.packageName?.toString() == packageName) {
+            return "Latch's own screen can't be used from the mirror; its switches stay on the phone."
+        }
+        return null
+    }
+
+    /**
+     * Performs one piece of the owner's touch (see `StrokePlanner`); [done] is
+     * told whether it completed. A continuation goes on the stroke the last
+     * piece left down; with none left (Android cancelled it) it is skipped,
+     * so a lift never turns into a stray tap.
+     */
+    fun mirrorSegment(segment: io.github.aspershupadhyay.latch.mirror.StrokePlanner.Segment, done: (Boolean) -> Unit) {
+        val path = Path()
+        segment.points.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x.toFloat(), y.toFloat()) else path.lineTo(x.toFloat(), y.toFloat()) }
+        val previous = mirrorStroke
+        if (segment.continuation && previous == null) {
+            done(false)
+            return
+        }
+        val stroke = try {
+            if (segment.continuation && previous != null) {
+                previous.continueStroke(path, 0, segment.durationMs, segment.continues)
+            } else {
+                GestureDescription.StrokeDescription(path, 0, segment.durationMs, segment.continues)
+            }
+        } catch (e: IllegalArgumentException) {
+            mirrorStroke = null
+            done(false)
+            return
+        }
+        mirrorStroke = if (segment.continues) stroke else null
+        // The screen is about to change under the AI: its next command must look again.
+        invalidate()
+        val sent = dispatchGesture(
+            GestureDescription.Builder().addStroke(stroke).build(),
+            object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) = done(true)
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    mirrorStroke = null
+                    done(false)
+                }
+            },
+            null,
+        )
+        if (!sent) {
+            mirrorStroke = null
+            done(false)
+        }
+    }
+
+    /**
+     * Changes the text of the field in focus for the owner: [edit] gets its
+     * text and selection and returns the new text and cursor (null: nothing to
+     * do). Returns a line for the page when it cannot type there.
+     */
+    fun mirrorEdit(edit: (String, Int, Int) -> io.github.aspershupadhyay.latch.mirror.TextEdit.Result?): String? {
+        val node = mirrorField() ?: return MIRROR_NO_FIELD
+        if (node.packageName?.toString() == packageName) return "Latch's own screen can't be used from the mirror."
+        if (node.isPassword) return "Type passwords on the phone itself."
+        val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
+        val result = edit(current, node.textSelectionStart, node.textSelectionEnd) ?: return null
+        invalidate()
+        val text = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, result.text) }
+        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text)) return "That field did not take the text."
+        mirrorSelect(node, result.cursor)
+        return null
+    }
+
+    /** Moves the cursor in the field in focus. */
+    fun mirrorCursor(position: (String, Int, Int) -> Int): String? {
+        val node = mirrorField() ?: return MIRROR_NO_FIELD
+        val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
+        mirrorSelect(node, position(current, node.textSelectionStart, node.textSelectionEnd))
+        return null
+    }
+
+    /** The keyboard's action key (Enter, Search, Send, Go, Done) in the field in focus. */
+    fun mirrorEnter(): String? {
+        val node = mirrorField() ?: return MIRROR_NO_FIELD
+        if (node.packageName?.toString() == packageName) return "Latch's own screen can't be used from the mirror."
+        invalidate()
+        return if (node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) null else "This field does not take Enter."
+    }
+
+    /** Back, Home, or Recents for the owner. */
+    fun mirrorButton(action: Int): Boolean {
+        invalidate()
+        return performGlobalAction(action)
+    }
+
+    private fun mirrorField(): AccessibilityNodeInfo? = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable }
+
+    private fun mirrorSelect(node: AccessibilityNodeInfo, cursor: Int) {
+        val args = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
+        }
+        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args)
+    }
+
     private suspend fun gesture(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMs: Long) {
         val path = Path().apply {
             moveTo(fromX.toFloat(), fromY.toFloat())
@@ -1633,6 +1752,7 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val MIRROR_NO_FIELD = "Click a text field on the phone first."
         private const val SYSTEM_UI = "com.android.systemui"
         private const val LEAVE_LATCH_MS = 1_500L
         private const val LEAVE_QUIET_MS = 200L

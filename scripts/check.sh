@@ -39,6 +39,8 @@ audit() {
 site() {
   echo "== Website: search tags, structured data, local links"
   node scripts/check-site.mjs
+  echo "== Mirror page helpers"
+  node --test servers/mcp/tests/mirror-page.test.cjs
   echo "== License headers"
   python3 scripts/headers.py --check
 }

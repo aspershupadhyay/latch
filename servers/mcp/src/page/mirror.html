@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only
+     Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Latch Mirror</title>
+  <link rel="stylesheet" href="/mirror.css">
+  <script src="/mirror.js" defer></script>
+</head>
+<body>
+  <!-- Joining: the code the phone shows, or its link. -->
+  <main id="join" class="join" hidden>
+    <section class="card">
+      <h1>Mirror your phone</h1>
+      <p class="muted">On the phone, open Latch and tap <strong>Mirror on computer</strong>. Enter the code it shows.</p>
+      <form id="join-form" autocomplete="off">
+        <label for="code">Code from the phone</label>
+        <input id="code" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="123 456" required aria-describedby="join-error">
+        <button type="submit" class="primary">Connect</button>
+      </form>
+      <p id="join-error" class="error" role="alert"></p>
+      <p id="mode-note" class="muted small"></p>
+    </section>
+  </main>
+
+  <!-- Ended, replaced, or refused: one message and what to do next. -->
+  <main id="over" class="join" hidden>
+    <section class="card">
+      <h1 id="over-title">Mirroring ended</h1>
+      <p id="over-text" class="muted"></p>
+      <button id="over-again" type="button" class="primary">Watch here</button>
+    </section>
+  </main>
+
+  <div id="app" class="app" hidden>
+    <header class="bar">
+      <span class="brand">Latch · <span id="device">Phone</span></span>
+      <span id="live" class="live" role="status" aria-live="polite"><b></b><span id="live-text">Connecting</span></span>
+      <span id="mode" class="mode"></span>
+      <span class="spacer"></span>
+      <button id="pause" type="button">Pause AI</button>
+      <button id="stop" type="button" class="danger">Stop AI</button>
+      <button id="end" type="button">End mirroring</button>
+    </header>
+
+    <div class="stage">
+      <section class="phone-col">
+        <div id="frame" class="frame">
+          <canvas id="screen" tabindex="0" aria-label="Phone screen. Click to tap, drag to swipe, scroll to scroll, and type to type into the field in focus on the phone. Escape is Back."></canvas>
+          <div id="cover" class="cover" hidden><p id="cover-text">Waiting for the picture…</p></div>
+        </div>
+        <nav class="keys" aria-label="Phone buttons">
+          <button type="button" data-button="back" aria-label="Back">◀ Back</button>
+          <button type="button" data-button="home" aria-label="Home">● Home</button>
+          <button type="button" data-button="recents" aria-label="Recent apps">▢ Apps</button>
+          <button type="button" id="full" aria-label="Full screen">⤢</button>
+        </nav>
+      </section>
+
+      <aside id="ai" class="ai" hidden aria-label="What the AI is doing">
+        <h2 id="ai-title">AI is working</h2>
+        <p id="ai-now" class="now"></p>
+        <h3>Recent steps</h3>
+        <ol id="steps" class="steps"></ol>
+        <div class="handover">
+          <button id="takeover" type="button">Take over</button>
+          <button id="continue" type="button" class="primary">Let AI continue</button>
+        </div>
+      </aside>
+    </div>
+    <p id="toast" class="toast" role="status" aria-live="polite" hidden></p>
+  </div>
+</body>
+</html>

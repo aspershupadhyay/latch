@@ -279,8 +279,15 @@ class SessionController(
         pushState()
     }
 
+    /** Whether a screen command runs right now (the mirror page shows "AI is working"). */
+    val busy: Boolean get() = runningCommandId != null
+
+    /** Called when the owner presses the emergency Stop, so it ends live mirroring too (R30). */
+    @Volatile var onOwnerStop: (() -> Unit)? = null
+
     /** The emergency stop: ends the session, drops queued work, and denies any pending approval. */
-    fun stop(reason: String = "You stopped the session") {
+    fun stop(reason: String = OWNER_STOP) {
+        if (reason == OWNER_STOP) onOwnerStop?.invoke()
         if (!wanted && link == null) return
         wanted = false
         paused = false
@@ -416,11 +423,11 @@ class SessionController(
         }
     }
 
-    fun setPaused(value: Boolean) {
+    fun setPaused(value: Boolean, reason: String? = null) {
         if (!wanted || paused == value) return
         paused = value
         if (value) approvals.cancel()
-        log.add(ActivityKind.SESSION, if (value) "You paused the session" else "You resumed the session", by = ActivityActor.OWNER)
+        log.add(ActivityKind.SESSION, reason ?: if (value) "You paused the session" else "You resumed the session", by = ActivityActor.OWNER)
         pushState()
         (state.value as? SessionState.Active)?.let { _state.value = it.copy(paused = value) }
     }
@@ -655,3 +662,6 @@ object Pairing {
 }
 
 private const val FORGOT = "This phone forgot the gateway"
+
+/** The reason the owner's own Stop gives; it ends live mirroring too. */
+const val OWNER_STOP = "You stopped the session"

@@ -42,6 +42,18 @@ impl DeviceKey {
         base64(&der)
     }
 
+    /// Any JSON text wrapped in a signed envelope bound to `connection`, as the
+    /// phone proves its key when it starts a mirror (R30).
+    pub fn seal_text(&self, connection: &str, payload: &str) -> String {
+        let sig: Signature = self.0.sign(&signing_input(connection, payload));
+        serde_json::json!({
+            "type": "signed",
+            "payload": payload,
+            "sig": base64(sig.to_der().as_bytes()),
+        })
+        .to_string()
+    }
+
     /// `message` wrapped in a signed envelope bound to `connection`.
     pub fn seal(&self, connection: &str, message: &DeviceToGateway) -> serde_json::Result<String> {
         let payload = serde_json::to_string(message)?;

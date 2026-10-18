@@ -1,0 +1,286 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+package io.github.aspershupadhyay.latch.mirror
+
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.ImageReader
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.media.MediaFormat
+import android.media.projection.MediaProjection
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.SystemClock
+import androidx.core.graphics.createBitmap
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+
+/**
+ * The phone's screen as video (R30, ADR-051). One `VirtualDisplay` mirrors the
+ * screen for the whole projection (Android 14 allows only one per consent);
+ * while someone watches, it renders straight into the hardware H.264
+ * encoder's input `Surface`, so pixels never pass through the CPU. Without a
+ * viewer it renders nowhere and nothing is encoded. Browsers without WebCodecs
+ * get JPEG stills a few times a second instead.
+ *
+ * Everything runs on [handler]'s thread. Frames go to [sink], which returns
+ * false when it had to drop one; the capture then asks for a key frame and
+ * lowers the bitrate while drops repeat.
+ */
+class MirrorCapture(
+    projection: MediaProjection,
+    private val handler: Handler,
+    private val screen: () -> Screen,
+    private val sink: (kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer) -> Boolean,
+    private val problem: (String) -> Unit,
+) {
+    data class Screen(val width: Int, val height: Int, val dpi: Int, val rotation: Int)
+
+    private var display: VirtualDisplay? = null
+    private var encoder: MediaCodec? = null
+    private var reader: ImageReader? = null
+    private var config: ByteArray? = null
+    private var codec: Codec? = null
+    private var size = 0 to 0
+    private val governor = BitrateGovernor()
+    private var lastKeyRequestMs = 0L
+    private var lastStillMs = 0L
+
+    init {
+        val s = screen()
+        display = projection.createVirtualDisplay(
+            "Latch mirror", s.width, s.height, s.dpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, null, null, handler,
+        )
+    }
+
+    /** Starts sending [kind] frames (a viewer joined, or switched to stills). */
+    fun start(kind: Codec) {
+        stopOutput()
+        codec = kind
+        val s = screen()
+        try {
+            when (kind) {
+                Codec.H264 -> startH264(s)
+                Codec.JPEG -> startStills(s)
+            }
+        } catch (e: Exception) {
+            stopOutput()
+            if (kind == Codec.H264) {
+                problem("This phone's video encoder could not start; sending still pictures instead.")
+                start(Codec.JPEG)
+            } else {
+                problem("The screen could not be captured (${e.javaClass.simpleName}).")
+            }
+        }
+    }
+
+    /** No one watches: stop encoding. The projection and display stay for the next viewer. */
+    fun stop() {
+        stopOutput()
+        codec = null
+    }
+
+    /** The screen turned or changed size: start again at the new size if running. */
+    fun screenChanged() {
+        val running = codec ?: run {
+            val s = screen()
+            display?.resize(s.width, s.height, s.dpi)
+            return
+        }
+        start(running)
+    }
+
+    /** The browser needs a key frame (joined late, or dropped frames). */
+    fun requestKeyFrame() {
+        val e = encoder ?: run {
+            lastStillMs = 0
+            return
+        }
+        val now = SystemClock.uptimeMillis()
+        if (now - lastKeyRequestMs < KEY_REQUEST_GAP_MS) return
+        lastKeyRequestMs = now
+        runCatching { e.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+    }
+
+    fun release() {
+        stopOutput()
+        display?.release()
+        display = null
+    }
+
+    // ---- H.264 ----
+
+    private fun startH264(s: Screen) {
+        val info = pickEncoder() ?: throw IllegalStateException("no H.264 encoder")
+        val caps = info.getCapabilitiesForType(MIME)
+        val video = caps.videoCapabilities ?: throw IllegalStateException("not a video encoder")
+        val (w, h) = listOf(MAX_EDGE, 1280, 960).map { EncoderSizing.size(s.width, s.height, it) }
+            .firstOrNull { (w, h) -> video.isSizeSupported(w, h) } ?: throw IllegalStateException("no supported size")
+        val codec = MediaCodec.createByCodecName(info.name)
+        try {
+            try {
+                codec.configure(format(w, h, caps, lowLatency = true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            } catch (e: Exception) {
+                // Some vendors refuse keys they do not know; the plain format works everywhere.
+                codec.reset()
+                codec.configure(format(w, h, caps, lowLatency = false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            }
+            val surface = codec.createInputSurface()
+            codec.setCallback(callback, handler)
+            codec.start()
+            encoder = codec
+            size = w to h
+            config = null
+            display?.resize(w, h, s.dpi)
+            display?.surface = surface
+        } catch (e: Exception) {
+            codec.release()
+            throw e
+        }
+    }
+
+    private fun format(w: Int, h: Int, caps: MediaCodecInfo.CodecCapabilities, lowLatency: Boolean) =
+        MediaFormat.createVideoFormat(MIME, w, h).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, governor.bps)
+            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+            // Key frames come on request (a viewer joins or falls behind), not on a timer.
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEY_FRAME_SECONDS)
+            // A still screen still sends a frame now and then, so the picture never goes stale.
+            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
+            if (!lowLatency) return@apply
+            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+            caps.profileLevels.filter { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline }.maxOfOrNull { it.level }
+                ?.let { setInteger(MediaFormat.KEY_LEVEL, it) }
+            setInteger(MediaFormat.KEY_PRIORITY, 0)
+            setInteger(MediaFormat.KEY_LATENCY, 1)
+            setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+            if (caps.encoderCapabilities?.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR) == true) {
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            }
+        }
+
+    /** A hardware H.264 encoder when there is one, else any. */
+    private fun pickEncoder(): MediaCodecInfo? {
+        val all = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { info ->
+            info.isEncoder && info.supportedTypes.any { it.equals(MIME, ignoreCase = true) }
+        }
+        return all.firstOrNull { it.isHardwareAccelerated } ?: all.firstOrNull()
+    }
+
+    private val callback = object : MediaCodec.Callback() {
+        override fun onInputBufferAvailable(codec: MediaCodec, index: Int) = Unit
+
+        override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+            if (codec !== encoder) return
+            try {
+                val buffer = codec.getOutputBuffer(index) ?: return
+                buffer.position(info.offset).limit(info.offset + info.size)
+                if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+                    config = ByteArray(info.size).also { buffer.get(it) }
+                    return
+                }
+                if (info.size == 0) return
+                val key = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
+                val payload = AnnexB.withConfig(config, buffer, key)
+                val now = SystemClock.uptimeMillis()
+                if (sink(MirrorMessages.KIND_H264, key, info.presentationTimeUs, payload)) {
+                    governor.clean(now)?.let(::setBitrate)
+                } else {
+                    governor.dropped(now)?.let(::setBitrate)
+                    requestKeyFrame()
+                }
+            } finally {
+                runCatching { codec.releaseOutputBuffer(index, false) }
+            }
+        }
+
+        override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+            if (codec !== encoder) return
+            // A recoverable error gets a fresh encoder; anything else falls back to stills.
+            if (e.isRecoverable || e.isTransient) start(Codec.H264) else start(Codec.JPEG)
+        }
+
+        override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
+    }
+
+    private fun setBitrate(bps: Int) {
+        runCatching { encoder?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bps) }) }
+    }
+
+    // ---- Stills ----
+
+    private fun startStills(s: Screen) {
+        val (w, h) = EncoderSizing.size(s.width, s.height, STILL_EDGE)
+        @Suppress("WrongConstant")
+        val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        reader = r
+        size = w to h
+        display?.resize(w, h, s.dpi)
+        display?.surface = r.surface
+        lastStillMs = 0
+        handler.post(stillTick)
+    }
+
+    /** Sends the newest picture at most [STILL_EVERY_MS] apart; a still screen sends nothing new. */
+    private val stillTick = object : Runnable {
+        override fun run() {
+            val r = reader ?: return
+            val image = runCatching { r.acquireLatestImage() }.getOrNull()
+            if (image != null) {
+                try {
+                    val plane = image.planes[0]
+                    val stride = plane.rowStride / plane.pixelStride
+                    val full = createBitmap(stride, image.height)
+                    full.copyPixelsFromBuffer(plane.buffer)
+                    val bitmap = if (stride == image.width) full else Bitmap.createBitmap(full, 0, 0, image.width, image.height)
+                    val out = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, STILL_QUALITY, out)
+                    sink(MirrorMessages.KIND_JPEG, true, SystemClock.elapsedRealtimeNanos() / 1000, ByteBuffer.wrap(out.toByteArray()))
+                    lastStillMs = SystemClock.uptimeMillis()
+                } catch (e: Exception) {
+                    problem("A still picture could not be made (${e.javaClass.simpleName}).")
+                } finally {
+                    image.close()
+                }
+            }
+            handler.postDelayed(this, STILL_EVERY_MS)
+        }
+    }
+
+    private fun stopOutput() {
+        handler.removeCallbacks(stillTick)
+        display?.surface = null
+        encoder?.let { e ->
+            encoder = null
+            runCatching { e.stop() }
+            runCatching { e.release() }
+        }
+        reader?.let { r ->
+            reader = null
+            runCatching { r.close() }
+        }
+    }
+
+    companion object {
+        private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
+        const val MAX_EDGE = 1920
+        const val FPS = 60
+        private const val KEY_FRAME_SECONDS = 10
+        private const val REPEAT_AFTER_US = 100_000L
+        private const val KEY_REQUEST_GAP_MS = 200L
+        private const val STILL_EDGE = 1280
+        private const val STILL_EVERY_MS = 200L
+        private const val STILL_QUALITY = 60
+
+        /** Whether this Android lets an app ask for the whole screen only (Android 14+). */
+        val fullScreenOnly: Boolean get() = Build.VERSION.SDK_INT >= 34
+    }
+}

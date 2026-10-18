@@ -1,6 +1,11 @@
-# Live mirror: see and control the phone in real time (R30, proposed)
+# Live mirror: see and control the phone in real time (R30)
 
-Owner request (2026-10-17): watch the phone's live screen and control it from the computer with as little delay as possible, built only from platform APIs, with no third-party libraries. This is a design for a future session to implement. Nothing here is built yet. Every number is a target to measure on real phones, not a measured result.
+Owner request (2026-10-17): watch the phone's live screen and control it from the computer with as little delay as possible, built only from platform APIs, with no third-party libraries. Every number is a target to measure on real phones, not a measured result.
+
+> **2026-10-18: decided and built as [ADR-051](../adr/README.md#adr-051--live-mirror-the-phones-screen-in-the-owners-browser-through-the-self-hosted-gateway); the wire format is [docs/protocol/mirror.md](../protocol/mirror.md).** Two parts of this draft changed after research:
+> - **Transport.** The "same Wi-Fi fast path" below (a TLS listener on the phone with a pinned self-made certificate) cannot work in a browser: browsers cannot pin a certificate, an `https` page may not open `ws://` to a LAN address (mixed content, and Chrome's Private Network Access), and WebCodecs exists only in secure contexts. The stream always goes through the self-hosted Rust gateway instead. With the gateway on the owner's computer (ADR-042) the page is `http://127.0.0.1:8787/mirror`, a secure context, and the stream still stays on the home Wi-Fi.
+> - **Opening it.** The phone shows the page's address and a 6-digit code (one use) instead of a QR code: the computer types the code and gets the viewer key in exchange. A link with the key can be copied from the phone.
+> Not built yet: answering approvals from the page (the approval card stays on the phone), multi-finger touch from touchscreens, and pausing the AI on the owner's touches on the phone itself (only mirror input pauses it).
 
 ## What the owner gets
 

@@ -19,6 +19,9 @@ use crate::{AppState, device_http, device_ws, mcp, now_ms, oauth, secret};
 const PAGE_HTML: &str = include_str!("page/index.html");
 const PAGE_CSS: &str = include_str!("page/gateway.css");
 const ROBOTS_TXT: &str = include_str!("page/robots.txt");
+const MIRROR_HTML: &str = include_str!("page/mirror.html");
+const MIRROR_JS: &str = include_str!("page/mirror.js");
+const MIRROR_CSS: &str = include_str!("page/mirror.css");
 
 /// Largest MCP request body: room for the biggest `adb` call the protocol
 /// accepts (a 128 Ki-character command line and 512 KiB of stdin, even when
@@ -31,6 +34,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/gateway.css", get(page_css))
         .route("/robots.txt", get(robots_txt))
         .route("/healthz", get(health))
+        // Live mirror (R30, ADR-051): the owner's page, the phone's stream, the browser's socket.
+        .route("/mirror", get(mirror_page))
+        .route("/mirror.js", get(mirror_js))
+        .route("/mirror.css", get(mirror_css))
+        .route("/v1/mirror/phone", get(crate::mirror::phone_upgrade))
+        .route("/v1/mirror/view", get(crate::mirror::view_upgrade))
         .route(
             "/mcp",
             post(mcp_post)
@@ -496,6 +505,35 @@ async fn page_css() -> Response {
     static_file(PAGE_CSS, "text/css; charset=utf-8")
 }
 
+/// The mirror page runs its own script and opens a WebSocket back to this
+/// gateway, nothing else; decoded frames are drawn from `blob:` stills only in
+/// the fallback.
+fn mirror_file(body: &'static str, content_type: &'static str) -> Response {
+    let mut response = body.into_response();
+    let h = response.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        ),
+    );
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+async fn mirror_page() -> Response {
+    mirror_file(MIRROR_HTML, "text/html; charset=utf-8")
+}
+
+async fn mirror_js() -> Response {
+    mirror_file(MIRROR_JS, "text/javascript; charset=utf-8")
+}
+
+async fn mirror_css() -> Response {
+    mirror_file(MIRROR_CSS, "text/css; charset=utf-8")
+}
+
 async fn robots_txt() -> Response {
     static_file(ROBOTS_TXT, "text/plain; charset=utf-8")
 }
@@ -701,7 +739,7 @@ struct CreatePairing {
     name: String,
 }
 
-fn gateway_url(state: &AppState, headers: &HeaderMap) -> String {
+pub(crate) fn gateway_url(state: &AppState, headers: &HeaderMap) -> String {
     if let Some(url) = &state.config.public_url {
         return url.clone();
     }
@@ -792,6 +830,7 @@ async fn admin_revoke(
         return error(StatusCode::NOT_FOUND, "no such device");
     }
     state.devices.kick(&id, "revoked by the gateway owner");
+    state.mirrors.end(&id);
     tracing::info!(device_id = %id, "device revoked");
     StatusCode::NO_CONTENT.into_response()
 }

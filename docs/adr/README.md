@@ -533,3 +533,41 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Recovery:** switch it off, or restart the phone. Revoking ADB keys under Developer options also locks out any other key at once.
 
+
+## ADR-051 — Live mirror: the phone's screen in the owner's browser, through the self-hosted gateway
+**Status:** accepted (2026-10-18, owner request R30 "see and control the phone live from any computer, with as little delay as possible, platform APIs only") · **Channel:** mirror v1 (`docs/protocol/mirror.md`); the device protocol is unchanged · **Builds on:** ADR-013 (MediaProjection kept for a video stream), ADR-037 (device keys), ADR-042 (the gateway on the owner's computer)
+
+**Problem:** the owner wants to watch the phone live from a laptop, follow what the AI does, and take over with mouse and keyboard, from any browser on any desktop system, with no app to install and no third-party library on the phone.
+
+**Research that changed the design (2026-10-17 draft, `docs/design/live-mirror.md`):** the draft's fast path, a TLS listener on the phone with a self-made certificate streaming straight to the browser, cannot work in a browser:
+- browsers cannot pin a certificate, so the phone's own certificate gets a full-page warning, and an `https` page may not open `ws://` to a LAN address (mixed content; Chrome's Private Network Access blocks it as well);
+- WebCodecs exists only in secure contexts, so a page served by the phone over plain `http` has no video decoder at all.
+`http://127.0.0.1` and `https` with a real certificate are secure contexts. So the stream always goes through the self-hosted Rust gateway: run on the owner's own computer (ADR-042), the browser opens `http://127.0.0.1:8787/mirror` and the phone's stream crosses only the home Wi-Fi, which is the fast path; run in the cloud, the browser uses the gateway's `https` address. The Vercel gateway cannot hold a two-way stream (R2) and has no mirror routes; the phone says so.
+
+**Decision:**
+- **Phone:** **Mirror on computer** asks Android's screen-capture consent each time (`MediaProjection`, full screen only on Android 14+), runs a `mediaProjection` foreground service with a Stop action, and dials `GET /v1/mirror/phone` with its device token. Its first message is signed with its device key, bound to a random connection id the gateway chose (as every device-link message is, ADR-037). It encodes with the hardware H.264 encoder (`MediaCodec`, Baseline, low-latency keys where the device has them, frames straight from the encoder's input `Surface`) only while someone is watching, and sends one binary message per frame. Browsers without WebCodecs get JPEG stills a few times a second.
+- **Joining:** the phone makes a 256-bit viewer key and the gateway a 6-digit code that works once for 10 minutes. The phone shows the address and the code; the owner types the code on the page, which gets the key in exchange and reconnects with it. A link with the key (`/mirror#k=…`) can be copied from the phone instead. Wrong codes count against every live code (5 kill it) and against the gateway (20 a minute pause code joins). The key ends with the mirror.
+- **Gateway:** relays bytes. It never decodes, stores, or logs a frame. A browser that falls behind loses frames up to the next key frame, which the phone is asked for; video is never queued. A phone that drops off keeps its viewer for 15 s and resumes with the same key. Browser messages pass only as validated, rebuilt `touch`/`wheel`/`text`/`key`/`button`/`control`/`ping`/`sync`/`codec` messages; cross-site WebSocket upgrades are refused. Revoking the phone ends its mirror.
+- **Input** is the owner's own, performed through the accessibility service: taps and live drags (`dispatchGesture` with `continueStroke`), scrolling, typing into the focused field, Back, Home, Recents. It is logged as the owner's. The first input while an AI session runs pauses the AI ("You're in control"); **Let AI continue** resumes it, and stale observations are already refused, so the AI looks again first.
+- **AI layer:** the page shows the session state and the latest Activity lines (who, app, one-line summary; never screen or typed text) as the phone sends them.
+- **No `screen.mirror` device capability** (the draft had one): mirroring is not a device-protocol command and no AI client can ask for it. The owner's tap on **Mirror on computer** and Android's consent each time are the switch, and the foreground notification is the indicator.
+
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| An AI app (MCP client) | open the mirror, or see frames | No MCP tool or route reaches it; viewers join only with the phone's code or key |
+| Someone who sees the code | watch or control the phone | The code works once and only while mirroring runs; the phone shows when a viewer is connected and Stop ends everything |
+| Someone guessing codes | find a live one | 10⁶ codes, 5 wrong tries per mirror, 20 per minute per gateway |
+| A copied link | keep watching later | The key dies when mirroring ends; a new mirror makes a new key |
+| A page on another site | drive the owner's browser to connect | Cross-origin upgrades are refused; the key never leaves the page's session storage |
+| A stolen device token | pose as the phone and show a fake screen to collect the owner's typing | The start must be signed by the device key in the phone's keystore |
+| The mirror's input | change Latch's own switches (full ADB, Auto mode) | Input on Latch's own windows and the approval card is refused; those stay on the phone itself |
+| Password fields | send passwords through the gateway | Typing into a password field from the mirror is refused; the page says to type it on the phone |
+| The gateway operator | read the screen | The same trust as for observations today (ADR-012): self-host. Frames are relayed in memory only, never written or logged |
+| Protected screens (`FLAG_SECURE`) | be captured | Android captures them as black; the page says the app protects the screen |
+
+**Rejected:** the phone's own TLS listener (see research); WebRTC (needs a third-party stack on the phone, or our own ICE/DTLS/SRTP); an MCP tool (the mirror is for a person; the AI already has `observe`); Vercel (cannot hold the stream).
+
+**Checks:** Rust: validation, key and frame unit tests; e2e on a real gateway: signed start required, code once and exchanged for the key, frames byte for byte, invalid input dropped, take-over from another window, phone reconnect within the grace, end, revocation, cross-site refusal, locked-down page, and a slow browser that skips to a key frame (never a delta after a gap). Node: frame parsing, SPS to codec string on a real x264 key frame, coordinate and wheel mapping, keys, paste. Android JVM tests for the message parser (shared fixtures), stroke planning, text editing, encoder sizing, and the bitrate governor. *Needs phone:* encode time and glass-to-glass delay on two phones, H.264 decode in Chrome/Edge/Safari, and how live drags feel.
+
+**Recovery:** Stop on the phone, its notification, Android's own capture chip, or **End mirroring** on the page ends it at once; revoking the phone ends it at the gateway. Removing the routes disables the feature without touching the device protocol.

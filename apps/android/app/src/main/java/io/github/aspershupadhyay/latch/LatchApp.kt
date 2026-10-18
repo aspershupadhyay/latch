@@ -87,6 +87,9 @@ class LatchApp : Application() {
     /** Whole files moving by encrypted link (protocol 1.7). */
     lateinit var transfers: PhoneTransfers
         private set
+    /** Live mirror to the owner's browser (R30). */
+    lateinit var mirror: io.github.aspershupadhyay.latch.mirror.MirrorController
+        private set
 
     /** Latch's own screen is in front; agents' screen commands move it aside first. */
     @Volatile var ownScreenShown = false
@@ -122,6 +125,7 @@ class LatchApp : Application() {
             adbJobDir = java.io.File(cacheDir, "adb-jobs"),
         )
         setup = GatewaySetup(http)
+        mirror = io.github.aspershupadhyay.latch.mirror.MirrorController(this, scope, http, settings, session, log, bridge)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
         observeIndicators()
@@ -290,6 +294,7 @@ class LatchApp : Application() {
         const val CHANNEL_UPDATES = "updates"
         const val NOTIFICATION_UPDATED = 2
         const val NOTIFICATION_SESSION = 1
+        const val NOTIFICATION_MIRROR = 5
         const val ACTION_STOP = "io.github.aspershupadhyay.latch.STOP"
 
         fun get(context: Context): LatchApp = context.applicationContext as LatchApp

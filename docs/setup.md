@@ -158,6 +158,16 @@ Android moves wireless debugging to a new port after a restart; Latch finds it a
 
 Wireless debugging needs Wi-Fi. To keep full ADB working on mobile data too, switch on **Keep working on mobile data** under Full ADB access while you are still on Wi-Fi. It does what `adb tcpip 5555` does, until the phone restarts. While it is on, other devices that can reach your phone, for example on public Wi-Fi, can try ADB as well: they get in only with a key you allowed (an unknown one makes Android ask you). Switch it off to close the port at once ([ADR-050](adr/README.md#adr-050--full-adb-on-mobile-data-an-opt-in-fixed-port-until-restart)). To revoke, tap **Turn off** in Latch and forget Latch under **Wireless debugging → Paired devices**. Details and limits: [the `adb` tool](tools.md#full-access-adb-adb).
 
+## Optional: see and use the phone from your computer
+
+**Mirror on computer** on the Home screen shows the phone's screen live in your computer's browser (Chrome, Edge, or Safari on Windows, macOS, Linux, or ChromeOS) and lets you click, drag, scroll, and type there. While your AI works, the page shows its steps; your first click pauses it ("You're in control") and **Let AI continue** hands back. It needs the self-hosted `latch-gateway`; the Vercel relay can't hold a live stream.
+
+1. Tap **Mirror on computer** and allow Android's **Share your screen** (entire screen).
+2. On the computer, open the address the phone shows and type its 6-digit code. With the gateway on that computer (`LATCH_WIFI=1`), the address is `http://127.0.0.1:8787/mirror`, the fastest path: the picture never leaves your Wi-Fi.
+3. **Stop** on the phone, in its notification, or **End mirroring** on the page ends it.
+
+Protected screens (banking apps, password screens) show as black: Android keeps them out of any capture. Browsers without live-video support get still pictures a few times a second instead. How it works: [docs/protocol/mirror.md](protocol/mirror.md).
+
 ## Step 8: Start a session and try it
 
 1. On the app's **Home** tab, pick how long (15 minutes to 8 hours) and tap **Start session**. Need more time? Tap the **+** button next to Stop while it runs.

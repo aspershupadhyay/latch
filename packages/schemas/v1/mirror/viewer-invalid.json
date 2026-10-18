@@ -1,0 +1,84 @@
+[
+ {
+  "t": "touch",
+  "phase": "down",
+  "x": -1,
+  "y": 20
+ },
+ {
+  "t": "touch",
+  "phase": "down",
+  "x": 10,
+  "y": 16385
+ },
+ {
+  "t": "touch",
+  "phase": "hover",
+  "x": 10,
+  "y": 20
+ },
+ {
+  "t": "touch",
+  "phase": "down",
+  "x": 1.5,
+  "y": 20
+ },
+ {
+  "t": "touch",
+  "phase": "down",
+  "x": 10
+ },
+ {
+  "t": "touch",
+  "phase": "down",
+  "x": 10,
+  "y": 20,
+  "extra": 1
+ },
+ {
+  "t": "wheel",
+  "x": 1,
+  "y": 1,
+  "dx": 0,
+  "dy": 99999
+ },
+ {
+  "t": "text",
+  "text": ""
+ },
+ {
+  "t": "text",
+  "text": "a\nb"
+ },
+ {
+  "t": "text",
+  "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ },
+ {
+  "t": "key",
+  "key": "f12"
+ },
+ {
+  "t": "button",
+  "name": "power"
+ },
+ {
+  "t": "control",
+  "action": "approve"
+ },
+ {
+  "t": "codec",
+  "codec": "vp9"
+ },
+ {
+  "t": "shell",
+  "command": "id"
+ },
+ {
+  "t": "join",
+  "code": "123456"
+ },
+ {
+  "x": 1
+ }
+]
