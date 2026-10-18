@@ -662,8 +662,8 @@ async fn pair(State(state): State<Arc<AppState>>, Json(request): Json<PairReques
         );
     }
     let now = now_ms();
-    let name = match state.pairings().redeem(&request.code, now) {
-        Ok(name) => name,
+    let redeemed = match state.pairings().redeem(&request.code, now) {
+        Ok(r) => r,
         Err(crate::pairing::PairingError::RateLimited) => {
             return error(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -676,6 +676,25 @@ async fn pair(State(state): State<Arc<AppState>>, Json(request): Json<PairReques
                 "that pairing code is wrong or has expired",
             );
         }
+    };
+    let owner_key = if redeemed.owner {
+        match owner_key_for_setup(&state, now) {
+            Ok(key) => Some(key),
+            Err(e) => {
+                tracing::error!(error = %e, "could not save the owner key for a setup code");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "could not save the owner key; run latch-gateway pair for a new code",
+                );
+            }
+        }
+    } else {
+        None
+    };
+    let name = if redeemed.name.is_empty() {
+        request.model.trim().to_owned()
+    } else {
+        redeemed.name
     };
     let token = secret::new_token("ldt");
     let record = DeviceRecord {
@@ -713,15 +732,51 @@ async fn pair(State(state): State<Arc<AppState>>, Json(request): Json<PairReques
             .devices
             .kick(old, "replaced by a newer pairing of this phone");
     }
-    tracing::info!(device_id, replaced = replaced.len(), "device paired");
-    Json(json!({
+    tracing::info!(
+        device_id,
+        owner = owner_key.is_some(),
+        replaced = replaced.len(),
+        "phone paired"
+    );
+    let mut body = json!({
         "device_id": device_id,
         "name": name,
         "token": token,
         "protocol": latch_protocol::PROTOCOL_VERSION,
         "device_path": "/v1/device",
-    }))
-    .into_response()
+    });
+    if let Some(key) = owner_key {
+        body["owner_key"] = Value::String(key);
+    }
+    let mut response = Json(body).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+/// The owner key for a phone set up with a code from the owner's terminal
+/// (ADR-054): `LATCH_ADMIN_TOKEN`, or after a rotation (ADR-038) a newly
+/// issued key, since the rotated one is stored only as a hash.
+fn owner_key_for_setup(state: &AppState, now: u64) -> std::io::Result<String> {
+    let env = &state.config.admin_token;
+    let mut store = state.store();
+    match store.owner_key() {
+        Some(r) if secret::token_matches_hash(env, &r.admin_token_sha256) => {
+            let key = secret::new_token("lok");
+            store.set_owner_key(Some(OwnerKeyRecord {
+                key_sha256: secret::sha256_hex(&key),
+                admin_token_sha256: secret::sha256_hex(env),
+                rotated_at_ms: now,
+            }))?;
+            Ok(key)
+        }
+        Some(_) => {
+            store.set_owner_key(None)?;
+            Ok(env.clone())
+        }
+        None => Ok(env.clone()),
+    }
 }
 
 /// Two pairings of the same phone: same name, model, and platform. Only
@@ -736,7 +791,11 @@ fn same_phone(a: &DeviceRecord, b: &DeviceRecord) -> bool {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CreatePairing {
+    #[serde(default)]
     name: String,
+    /// A setup code for the owner's phone (`latch-gateway pair`, ADR-054).
+    #[serde(default)]
+    owner: bool,
 }
 
 pub(crate) fn gateway_url(state: &AppState, headers: &HeaderMap) -> String {
@@ -763,13 +822,16 @@ async fn admin_create_pairing(
     if !is_admin(&state, &headers) {
         return unauthorized();
     }
-    if !bounded(&request.name, 40) {
+    let created = if request.owner {
+        state.pairings().create_owner(now_ms())
+    } else if bounded(&request.name, 40) {
+        state
+            .pairings()
+            .create(request.name.trim().to_owned(), now_ms())
+    } else {
         return error(StatusCode::BAD_REQUEST, "name must be 1-40 characters");
-    }
-    match state
-        .pairings()
-        .create(request.name.trim().to_owned(), now_ms())
-    {
+    };
+    match created {
         Ok((code, expires_at_ms)) => Json(json!({
             "code": code,
             "expires_at_ms": expires_at_ms,

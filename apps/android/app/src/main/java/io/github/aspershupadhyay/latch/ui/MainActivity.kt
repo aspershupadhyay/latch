@@ -61,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import io.github.aspershupadhyay.latch.BuildConfig
 import io.github.aspershupadhyay.latch.LatchApp
 import io.github.aspershupadhyay.latch.data.SavedApproval
@@ -228,14 +230,14 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         error = null
     }
 
-    fun connect(asOwner: Boolean, key: String, needPin: Boolean = false) {
-        val parsed = Pairing.parse(address, BuildConfig.ALLOW_CLEARTEXT)
+    fun connect(asOwner: Boolean, key: String, needPin: Boolean = false, input: String = address) {
+        val parsed = Pairing.parse(input, BuildConfig.ALLOW_CLEARTEXT)
         if (parsed == null) {
-            error = if (address.trim().startsWith("http://")) "Use an https:// address." else "That does not look like a web address."
+            error = if (input.trim().startsWith("http://")) "Use an https:// address." else "That does not look like a web address."
             return
         }
         if (needPin && parsed.pin == null) {
-            error = "Paste the whole address latch-start printed, including #pin=…"
+            error = "Enter the whole address under the QR code, including #pin=…"
             return
         }
         val url = parsed.url
@@ -248,7 +250,8 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
             try {
                 val model = deviceDescriptor().model
                 val paired = if (asOwner) app.setup.pairAsOwner(url, key.trim(), model, model) else app.setup.pairWithCode(url, key, model)
-                if (asOwner) app.settings.saveOwnerKey(key.trim())
+                // A setup code from the owner's terminal also brings the owner key (ADR-054).
+                (if (asOwner) key.trim() else paired.ownerKey)?.let { app.settings.saveOwnerKey(it) }
                 paired.save(app, parsed.pin)
                 // A newer connection of the same kind replaces the one kept before.
                 app.settings.pairing.value?.kind?.let { app.session.forgetSaved(it) }
@@ -258,6 +261,27 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
                 busy = false
             }
         }
+    }
+
+    // ADR-054: the Wi-Fi gateway's QR code, or what the owner typed under it.
+    fun connectWifi(scanned: String? = null) {
+        val setup = Pairing.splitSetup(scanned ?: address)
+        if (scanned != null) {
+            if (Pairing.parse(setup.address, BuildConfig.ALLOW_CLEARTEXT)?.pin == null || setup.code == null) {
+                error = "That QR code is not from the Latch gateway. Scan the one in your computer's terminal."
+                return
+            }
+            address = setup.address
+        }
+        val key = setup.code ?: secret.trim()
+        if (key.isEmpty()) {
+            error = "Enter the setup code shown under the QR code."
+            return
+        }
+        connect(asOwner = !Pairing.isCode(key), key = key, needPin = true, input = setup.address)
+    }
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { connectWifi(scanned = it) }
     }
 
     when (step) {
@@ -278,8 +302,18 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
                 copyInstall = { copyToClipboard(context, "Install command", GATEWAY_INSTALL_COMMAND, sensitive = false); installCopied = true },
                 copyStart = { copyToClipboard(context, "Start command", "latch-start", sensitive = false); startCopied = true },
                 setAddress = { address = it; error = null },
-                setOwnerKey = { secret = it; error = null },
-                connect = { connect(asOwner = true, key = secret, needPin = true) },
+                setCode = { secret = it; error = null },
+                scan = {
+                    error = null
+                    scanner.launch(
+                        ScanOptions()
+                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            .setPrompt("Point at the QR code in your computer's terminal")
+                            .setBeepEnabled(false)
+                            .setOrientationLocked(false),
+                    )
+                },
+                connect = { connectWifi() },
                 back = { step = Onboarding.CHOOSE; error = null },
             ),
         )

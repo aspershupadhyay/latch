@@ -225,15 +225,30 @@ impl Client {
 
 /// One HTTP/1.1 request to the gateway's local listener, answer body as text.
 async fn post(target: &Target, body: &str) -> Result<String, String> {
-    let mut stream = tokio::net::TcpStream::connect(&target.addr)
+    let (status, body) = post_local(&target.addr, &target.path, &target.token, body).await?;
+    if status == "401" {
+        return Err("the gateway refused the token: use its LATCH_MCP_TOKEN".into());
+    }
+    if status != "200" {
+        return Err(format!("the gateway answered HTTP {status}"));
+    }
+    Ok(body)
+}
+
+/// POSTs JSON to a gateway listening on `addr` (plain http, this computer),
+/// with a bearer token; returns the HTTP status and the answer body.
+pub(crate) async fn post_local(
+    addr: &str,
+    path: &str,
+    token: &str,
+    body: &str,
+) -> Result<(String, String), String> {
+    let mut stream = tokio::net::TcpStream::connect(addr)
         .await
-        .map_err(|e| format!("cannot reach the gateway at {}: {e}", target.addr))?;
+        .map_err(|e| format!("cannot reach the gateway at {addr}: {e}"))?;
     let head = format!(
-        "POST {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\n\
+        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\n\
          Accept: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
-        target.path,
-        target.addr,
-        target.token,
         body.len()
     );
     stream
@@ -251,19 +266,14 @@ async fn post(target: &Target, body: &str) -> Result<String, String> {
         .position(|w| w == b"\r\n\r\n")
         .ok_or("the gateway sent no HTTP answer")?;
     let headers = String::from_utf8_lossy(&raw[..split]).to_ascii_lowercase();
-    let status = headers.split_whitespace().nth(1).unwrap_or("");
-    if status == "401" {
-        return Err("the gateway refused the token: use its LATCH_MCP_TOKEN".into());
-    }
-    if status != "200" {
-        return Err(format!("the gateway answered HTTP {status}"));
-    }
+    let status = headers.split_whitespace().nth(1).unwrap_or("").to_owned();
     let body = String::from_utf8_lossy(&raw[split + 4..]).into_owned();
-    Ok(if headers.contains("transfer-encoding: chunked") {
+    let body = if headers.contains("transfer-encoding: chunked") {
         dechunk(&body)
     } else {
         body
-    })
+    };
+    Ok((status, body))
 }
 
 fn dechunk(mut s: &str) -> String {

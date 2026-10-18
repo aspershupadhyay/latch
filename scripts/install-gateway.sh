@@ -11,7 +11,9 @@
 # not notarized; chmod cannot change that. Files fetched with curl carry no
 # quarantine flag. The script also checks the file against the published
 # SHA-256, and creates your keys once in ~/.latch/latch.env (readable by you only)
-# plus `latch-start`, which starts the gateway for phones on this Wi-Fi, and
+# plus `latch-start`, which starts the gateway for phones on this Wi-Fi and shows
+# a QR code the Latch app scans (no key to copy; `latch-gateway pair` shows a new
+# one while it runs), and
 # `latch-autostart on|off|status`, which keeps it running in the background
 # (a LaunchAgent on macOS, a systemd user service on Linux) so it need not be
 # started by hand. The address and pin stay the same across restarts; if the
@@ -85,17 +87,15 @@ fi
 cat >"$bin_dir/latch-start" <<EOF
 #!/bin/sh
 # Starts the Latch gateway for phones on this Wi-Fi, with the keys in $home/latch.env.
+# It shows a QR code: scan it in the Latch app (Computer on Wi-Fi → Scan QR code).
 . "$home/latch.env"
-echo "Owner key (the Latch app asks for it once):"
-echo "    \$LATCH_ADMIN_TOKEN"
-echo "AI app key (Claude Code: claude mcp add --transport http latch http://127.0.0.1:8787/mcp --header \"Authorization: Bearer \$LATCH_MCP_TOKEN\"):"
-echo "    \$LATCH_MCP_TOKEN"
-echo "Mirror page on this computer: http://127.0.0.1:8787/mirror"
 echo
-if [ -x "$bin_dir/latch-autostart" ] && [ "\$("$bin_dir/latch-autostart" status 2>/dev/null | cut -c1-2)" = "on" ] || [ "\$("$bin_dir/latch-autostart" status 2>/dev/null)" = "active" ]; then
-  echo "The gateway already runs in the background (latch-autostart). Address for the phone:"
-  grep -A1 "Phones on this Wi-Fi" "$home/gateway.log" 2>/dev/null | tail -1 || true
-  exit 0
+echo "  AI app setup, once (Claude Code):"
+echo "    claude mcp add --transport http latch http://127.0.0.1:8787/mcp --header \"Authorization: Bearer \$LATCH_MCP_TOKEN\""
+if [ -x "$bin_dir/latch-autostart" ] && { [ "\$("$bin_dir/latch-autostart" status 2>/dev/null | cut -c1-2)" = "on" ] || [ "\$("$bin_dir/latch-autostart" status 2>/dev/null)" = "active" ]; }; then
+  echo
+  echo "  The gateway already runs in the background (latch-autostart)."
+  exec "$bin_dir/latch-gateway" pair
 fi
 exec "$bin_dir/latch-gateway" serve
 EOF
@@ -179,5 +179,5 @@ case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *) echo "Add it to your PATH:  echo 'export PATH=\"$bin_dir:\$PATH\"' >> ~/.zshrc && export PATH=\"$bin_dir:\$PATH\"" ;;
 esac
-echo "Start it with:  latch-start"
+echo "Start it with:  latch-start   (then scan the QR code it shows in the Latch app)"
 echo "Or keep it running in the background, also after a restart:  latch-autostart on"

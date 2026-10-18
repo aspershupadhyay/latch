@@ -26,6 +26,7 @@ pub mod phone_check;
 pub mod secret;
 pub mod signing;
 pub mod store;
+pub mod terminal;
 pub mod transfers;
 pub mod wifi;
 

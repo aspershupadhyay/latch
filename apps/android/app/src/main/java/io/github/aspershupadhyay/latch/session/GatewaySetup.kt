@@ -80,10 +80,12 @@ private data class PairResponse(
     val name: String,
     val token: String,
     val protocol: String,
+    /** Only for a setup code from the owner's own terminal (ADR-054). */
+    @SerialName("owner_key") val ownerKey: String? = null,
 )
 
-/** What a successful pairing produced; the caller stores it. */
-data class Paired(val gatewayUrl: String, val deviceId: String, val name: String, val deviceToken: String)
+/** What a successful pairing produced; the caller stores it. [ownerKey] comes with a terminal setup code. */
+data class Paired(val gatewayUrl: String, val deviceId: String, val name: String, val deviceToken: String, val ownerKey: String? = null)
 
 /**
  * Talks to a gateway outside a session: discovery, pairing, and the owner
@@ -168,9 +170,9 @@ class GatewaySetup(private val http: OkHttpClient) {
                     } catch (e: Exception) {
                         throw SetupException("The gateway sent an unexpected answer.")
                     }
-                    Paired(gatewayUrl, r.deviceId, r.name, r.token)
+                    Paired(gatewayUrl, r.deviceId, r.name, r.token, r.ownerKey)
                 }
-                403 -> throw SetupException("That code is wrong or expired. Create a new one.")
+                403 -> throw SetupException("That code is wrong, used, or expired. Get a new one (on the computer: latch-gateway pair).")
                 429 -> throw SetupException("Too many wrong codes. Wait a minute and try again.")
                 503 -> throw SetupException("This gateway is not set up yet: its owner key (LATCH_ADMIN_TOKEN) is missing.")
                 else -> throw SetupException("The gateway answered with HTTP $status.")
@@ -213,10 +215,9 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
         when (status) {
             ok -> Unit
             401 -> throw SetupException(
-                "The gateway did not accept the owner key. Computer on Wi-Fi: use the line under “Owner key” that latch-start prints " +
-                    "(lgt_…, not the AI app key), and make sure no older gateway is still running. Hosted relay: it must match " +
-                    "LATCH_ADMIN_TOKEN exactly, or the newest key this app rotated to. Lost it? Set a new LATCH_ADMIN_TOKEN " +
-                    "(in ~/.latch/latch.env, or in Vercel and redeploy) and restart the gateway.",
+                "The gateway did not accept the owner key. Computer on Wi-Fi: scan the QR code instead (run latch-gateway pair " +
+                    "on the computer for a new one). Hosted relay: the key must match LATCH_ADMIN_TOKEN in Vercel exactly, or the " +
+                    "newest key this app rotated to; lost it? Set a new LATCH_ADMIN_TOKEN and redeploy.",
             )
             503 -> throw SetupException("The gateway has no owner key yet. Add LATCH_ADMIN_TOKEN in your gateway settings and redeploy.")
             429 -> throw SetupException("Too many at once. Revoke unused keys or wait a minute.")

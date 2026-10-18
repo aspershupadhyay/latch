@@ -602,3 +602,26 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Safety:** screen commands from both gateways share one lock, so the phone still runs one screen command at a time (ADR-016): an AI on one gateway cannot act while the owner is asked about the other's command. An approval is offered back only to the gateway whose command asked for it. Each link signs with its own pairing's device key (ADR-037) and keeps its own command memory (ADR-048). Stop, pause, and the timer end or hold both. Turning the switch off, or Forget on the kept connection, closes its link at once.
 
 **Limits:** two AI apps may interleave screen commands; each still observes before acting, and stale observations are refused on the phone. A Wi-Fi gateway away from home retries quietly in the background.
+
+## ADR-054 — Connect over Wi-Fi by scanning a QR code
+**Status:** accepted (2026-10-18, owner request "can we scan a QR and it connects … adding keys from here to there … I want this very simple so even a non-tech user can use it"; the gateway terminal "should look professional") · **Builds on:** ADR-038 (owner key rotation), ADR-042 (the gateway on the owner's computer), ADR-052 (two kept connections) · **Protocol:** additive (`owner_key` in the pair answer; `owner` in the admin pairing request)
+
+**Problem:** connecting a phone to the Wi-Fi gateway meant copying a 43-character pinned address and a 68-character owner key from the terminal to the phone. Owners pasted the AI app key instead, or the key of an older gateway still running, and got "the gateway did not accept the owner key", whose fix read like the Vercel flow.
+
+**Decision:**
+- **Setup codes:** with `LATCH_WIFI=1` the gateway makes a single-use **owner setup code** at start (8 letters and digits, the pairing alphabet, 15 minutes) and prints a QR code of `https://IP:PORT#pin=…&code=XXXXXXXX`, with the address and code under it for typing. `POST /v1/admin/pairings {"owner": true}` makes another; `latch-gateway pair` calls it on `127.0.0.1` with `LATCH_ADMIN_TOKEN` from the environment and prints a new QR code (`latch-start` does this when the gateway already runs in the background).
+- **Pairing with one:** `/v1/pair` works as for any code and also returns `owner_key`: `LATCH_ADMIN_TOKEN`, or, when the owner rotated the key (ADR-038; only its hash is stored), a newly issued key that replaces the rotated one. The phone stores it as its owner key, so the Connect tab (AI apps, sign-in approvals, other phones) works as after the owner-key path. The answer is `Cache-Control: no-store`.
+- **The app:** **Computer on Wi-Fi → Scan QR code** opens a scanner (zxing-android-embedded 4.3.0, Apache-2.0; it asks for the camera only then) and pairs at once; a QR code without a pin and code is refused. **Can't scan? Enter it by hand** takes the address and the setup code; an owner key in that field still works.
+- **The terminal:** one summary at start (the phone's QR code, AI app URL, mirror, console, data folder), then compact log lines with local time and no module paths. rustls's own log is off by default (the phone's pin-checked address search makes many refused handshakes). The summary never shows the owner key or the MCP token.
+
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| Someone who sees the terminal or the gateway log | become the owner | Only with the code, within 15 minutes, before the owner uses it; codes are single use. The same terminal already showed the owner key before this change |
+| Another device on the Wi-Fi | guess a code | 31⁸ codes, at most 10 outstanding, 20 wrong guesses a minute lock pairing for a minute (as for every code) |
+| A QR code from someone else | pair the phone with their gateway | The owner chose to scan in Wi-Fi setup; the address and pin come from the code, as they would when typed. The phone still asks for each permission and starts no session by itself |
+| An AI app | get a setup code | Needs the owner token; MCP tokens are refused on `/v1/admin` |
+
+**Limits:** the QR code needs a terminal with Unicode block characters (it is drawn black on white, so dark and light themes both scan; `NO_COLOR` draws it for dark themes). A gateway without a private address on the Wi-Fi prints no code until `latch-gateway pair` finds one.
+
+**Rollback:** the hosted relay and the owner-key path are unchanged; an older app ignores `owner_key` and still accepts an owner key typed in the old screen. An older gateway has no setup codes: the app's typed owner-key path still works with it.

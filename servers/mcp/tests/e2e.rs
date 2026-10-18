@@ -3872,3 +3872,86 @@ async fn revoking_the_phone_ends_its_mirror() {
         }
     }
 }
+
+/// ADR-054: the code in the terminal's QR code pairs the owner's phone and
+/// hands it the owner key, once; ordinary codes never do.
+#[tokio::test]
+async fn a_setup_code_from_the_terminal_makes_the_phone_the_owner() {
+    let gw = start_gateway().await;
+    let pair = |code: String| {
+        let gw = &gw;
+        async move {
+            http(
+                gw,
+                "POST",
+                "/v1/pair",
+                None,
+                Some(json!({"code": code, "platform": "android", "model": "Pixel 9"})),
+                &[],
+            )
+            .await
+        }
+    };
+    let (status, created) = http(
+        &gw,
+        "POST",
+        "/v1/admin/pairings",
+        Some(ADMIN),
+        Some(json!({"owner": true})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200);
+    let code = created["code"].as_str().expect("code").replace('-', "");
+    let (status, paired) = pair(code.clone()).await;
+    assert_eq!(status, 200);
+    assert_eq!(paired["name"], "Pixel 9", "named after the phone");
+    let key = paired["owner_key"].as_str().expect("owner key").to_owned();
+    assert_eq!(key, ADMIN);
+    assert_eq!(pair(code).await.0, 403, "single use");
+
+    // An ordinary code pairs without the owner key.
+    let (_, plain) = http(
+        &gw,
+        "POST",
+        "/v1/admin/pairings",
+        Some(ADMIN),
+        Some(json!({"name": "Tablet"})),
+        &[],
+    )
+    .await;
+    let (status, paired) = pair(plain["code"].as_str().expect("code").into()).await;
+    assert_eq!(status, 200);
+    assert!(paired.get("owner_key").is_none());
+
+    // After a rotation the rotated key is stored only as a hash: a setup code
+    // issues a new one, and it works as the owner key.
+    let (_, rotated) = http(
+        &gw,
+        "POST",
+        "/v1/admin/owner-key",
+        Some(ADMIN),
+        Some(json!({})),
+        &[],
+    )
+    .await;
+    let rotated = rotated["owner_key"].as_str().expect("rotated").to_owned();
+    let (_, created) = http(
+        &gw,
+        "POST",
+        "/v1/admin/pairings",
+        Some(&rotated),
+        Some(json!({"owner": true})),
+        &[],
+    )
+    .await;
+    let (_, paired) = pair(created["code"].as_str().expect("code").into()).await;
+    let fresh = paired["owner_key"].as_str().expect("owner key").to_owned();
+    assert!(fresh.starts_with("lok_") && fresh != rotated);
+    assert_eq!(
+        http(&gw, "GET", "/v1/admin/devices", Some(&fresh), None, &[])
+            .await
+            .0,
+        200
+    );
+}
