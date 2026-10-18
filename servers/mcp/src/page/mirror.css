@@ -62,6 +62,7 @@ button.danger { color: var(--red); }
 .phone-col:fullscreen .keys:hover, .phone-col:fullscreen .keys:focus-within { opacity: 1; }
 #rotate[aria-pressed="true"] { color: var(--ember); }
 #sound[aria-pressed="false"] { color: var(--muted); opacity: 0.6; }
+#volume { width: 90px; accent-color: var(--ember); cursor: pointer; margin: 0 6px 0 0; }
 canvas {
   display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain;
   border-radius: 26px; background: #000; touch-action: none; cursor: pointer;

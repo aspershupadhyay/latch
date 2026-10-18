@@ -340,14 +340,22 @@ if (typeof document !== 'undefined') {
   // ---- Sound (ADR-055): 48 kHz stereo 16-bit PCM, played as it comes ----
 
   let audio = null;
+  let gain = null;
   let audioAt = 0;
+  let volume = 1;
+  try { const v = parseFloat(localStorage.getItem('latch-volume')); if (v >= 0 && v <= 1) volume = v; } catch { /* no storage */ }
   let soundOn = true;
 
   /** Browsers start sound only after a click or key: called from both. */
   function wakeAudio() {
     if (!soundOn) return;
     if (!audio && typeof AudioContext === 'function') {
-      try { audio = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 }); } catch { audio = null; }
+      try {
+        audio = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 });
+        gain = audio.createGain();
+        gain.gain.value = volume;
+        gain.connect(audio.destination);
+      } catch { audio = null; }
     }
     if (audio && audio.state === 'suspended') audio.resume().then(tellPhoneSound).catch(() => {});
     else tellPhoneSound();
@@ -380,7 +388,7 @@ if (typeof document !== 'undefined') {
     if (audioAt < now + 0.01 || audioAt > now + 0.15) audioAt = now + 0.04;
     const source = audio.createBufferSource();
     source.buffer = buffer;
-    source.connect(audio.destination);
+    source.connect(gain || audio.destination);
     source.start(audioAt);
     audioAt += buffer.duration;
   }
@@ -639,6 +647,12 @@ if (typeof document !== 'undefined') {
     if (document.fullscreenElement) document.exitFullscreen();
     // The phone and its buttons together, so Back, Home and Recents stay at hand.
     else $('phone').requestFullscreen({ navigationUI: 'hide' }).catch(() => toast('Full screen is not available here.'));
+  });
+  $('volume').value = String(Math.round(volume * 100));
+  $('volume').addEventListener('input', () => {
+    volume = Math.max(0, Math.min(1, Number($('volume').value) / 100));
+    if (gain) gain.gain.setTargetAtTime(volume, audio.currentTime, 0.02);
+    try { localStorage.setItem('latch-volume', String(volume)); } catch { /* no storage */ }
   });
   $('sound').addEventListener('click', () => {
     soundOn = !soundOn;
