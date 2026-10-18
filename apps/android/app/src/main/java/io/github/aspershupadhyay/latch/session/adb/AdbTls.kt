@@ -6,6 +6,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.X509ExtendedKeyManager
 import javax.net.ssl.X509TrustManager
@@ -18,8 +19,7 @@ import javax.net.ssl.X509TrustManager
  * the pairing handshake, not the PKI, establishes mutual trust.
  *
  * It also exports 64 bytes of keying material ("adb-label"), which the pairing
- * password binds to this exact TLS session. Android's TLS provider is
- * Conscrypt; its exporter is reached reflectively, as it has no public JCA API.
+ * password binds to this exact TLS session ([exportKeyingMaterial]).
  */
 internal object AdbTls {
     /** Bounds connecting, the TLS handshake, and pairing/auth reads; never a running command. */
@@ -77,19 +77,34 @@ internal object AdbTls {
 
     /**
      * 64 bytes of RFC 5705 exported keying material under the "adb-label"
-     * label, which the pairing password is bound to. Uses Conscrypt's exporter
-     * reflectively; throws if unavailable so pairing fails loudly rather than
-     * silently diverging from adbd.
+     * label, which the pairing password is bound to.
+     *
+     * Android's own TLS provider is a repackaged Conscrypt (`com.android.org.conscrypt`),
+     * so `org.conscrypt.Conscrypt` does not exist on a phone: looking it up made
+     * every real pairing fail with "org.conscrypt.Conscrypt". Android 12+ has the
+     * public `android.net.ssl.SSLSockets.exportKeyingMaterial`; Android 11 has the
+     * same method on its TLS socket, reached reflectively. The unbundled Conscrypt
+     * class remains only for JVM tests. Throws a readable error if none works, so
+     * pairing fails loudly rather than silently diverging from adbd.
      */
     fun exportKeyingMaterial(socket: SSLSocket): ByteArray {
         // adbd exports under sizeof("adb-label") — the trailing NUL is part of the label.
         val label = String(Spake2.EXPORT_KEY_LABEL, Charsets.US_ASCII)
-        val conscrypt = Class.forName("org.conscrypt.Conscrypt")
-        val method = conscrypt.getMethod(
-            "exportKeyingMaterial",
-            SSLSocket::class.java, String::class.java, ByteArray::class.java, Int::class.javaPrimitiveType,
-        )
-        return method.invoke(null, socket, label, null, Spake2.EXPORT_KEY_LENGTH) as ByteArray
+        val length = Spake2.EXPORT_KEY_LENGTH
+        if (android.os.Build.VERSION.SDK_INT >= 31 && android.net.ssl.SSLSockets.isSupportedSocket(socket)) {
+            return android.net.ssl.SSLSockets.exportKeyingMaterial(socket, label, null, length)
+                ?: throw SSLException("the TLS session has no keying material to export")
+        }
+        val exported = runCatching {
+            socket.javaClass.getMethod("exportKeyingMaterial", String::class.java, ByteArray::class.java, Int::class.javaPrimitiveType)
+                .invoke(socket, label, null, length) as? ByteArray
+        }.getOrNull() ?: runCatching {
+            Class.forName("org.conscrypt.Conscrypt")
+                .getMethod("exportKeyingMaterial", SSLSocket::class.java, String::class.java, ByteArray::class.java, Int::class.javaPrimitiveType)
+                .invoke(null, socket, label, null, length) as? ByteArray
+        }.getOrNull()
+        return exported?.takeIf { it.size == length }
+            ?: throw SSLException("this phone's TLS cannot export the keying material wireless-debugging pairing needs; pairing needs Android 12 or newer here")
     }
 
     private const val ALIAS = "latch-adb"

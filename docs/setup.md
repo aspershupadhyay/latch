@@ -4,6 +4,8 @@ About five minutes, start to finish.
 
 You need: an **Android phone** (Android 11 or newer), and a free **[Vercel](https://vercel.com/signup)** account. You can make the Vercel account during setup.
 
+> **Gateway on your own Mac or Linux computer instead of Vercel?** Follow [Connect your phone to a gateway on your Mac](connect-your-phone.md): one install line, then pair, connect your AI, and try every feature.
+
 ## You only copy-paste 3 things
 
 | # | What | Copy it from | Paste it into |

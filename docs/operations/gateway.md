@@ -6,7 +6,17 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 
 ## Download
 
-No Rust needed: every merge to `main` publishes a ready-made gateway (~7 MB) next to the Android beta, at `https://github.com/aspershupadhyay/latch/releases/download/beta/<file>`: `latch-gateway-linux-x86_64`, `latch-gateway-macos-arm64` (Apple Silicon), `latch-gateway-macos-x86_64` (Intel Mac), or `latch-gateway-windows-x86_64.exe`. Check it against `latch-gateway.sha256`. On macOS and Linux run `chmod +x` on it once; macOS may ask you to allow it in System Settings → Privacy & Security. Building from source (`cargo build --release -p latch-gateway`) needs about 2 GB for the Rust toolchain while building.
+**macOS and Linux, one line** (checks the checksum, installs `latch-gateway` and `latch-start` in `~/.local/bin`, and makes your keys once in `~/.latch/latch.env`):
+
+```sh
+curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh
+```
+
+Then `latch-start` runs it for phones on this Wi-Fi and prints the owner key, the AI key, and the address for the phone. Step by step with the phone: [docs/connect-your-phone.md](../connect-your-phone.md).
+
+**Why not the browser download on a Mac:** a file downloaded in a browser gets macOS's quarantine flag, and macOS refuses a quarantined program that Apple has not notarized ("cannot be opened… Move to Trash"); `chmod +x` cannot change that. `curl` sets no such flag. If you already downloaded it in a browser: `xattr -d com.apple.quarantine ~/Downloads/latch-gateway-macos-arm64 && chmod +x ~/Downloads/latch-gateway-macos-arm64`, or open it once, then **System Settings → Privacy & Security → Open Anyway**.
+
+Every merge to `main` publishes the files themselves (~7 MB) next to the Android beta, at `https://github.com/aspershupadhyay/latch/releases/download/beta/<file>`: `latch-gateway-linux-x86_64`, `latch-gateway-macos-arm64` (Apple Silicon), `latch-gateway-macos-x86_64` (Intel Mac), or `latch-gateway-windows-x86_64.exe`, with checksums in `latch-gateway.sha256`. The macOS files are signed ad hoc (Apple Silicon runs nothing unsigned) but not notarized. Building from source (`cargo build --release -p latch-gateway`) needs about 2 GB for the Rust toolchain while building.
 
 ## Configuration
 
