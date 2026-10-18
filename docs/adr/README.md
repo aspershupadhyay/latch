@@ -631,6 +631,8 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Decision:** while someone watches, the phone captures what apps play (`AudioPlaybackCaptureConfiguration` with usages media, game, unknown) under the same screen-share consent, and sends 20 ms frames of raw 48 kHz stereo 16-bit PCM as mirror frame kind 3. Raw PCM needs no encoder or decoder, so it adds no delay; at about 1.5 Mbit/s it suits the home Wi-Fi the self-hosted gateway serves. The gateway relays sound frames without key-frame logic and drops one when the viewer is behind. The page plays them with Web Audio, keeping about 40 ms queued and jumping forward when more than 150 ms piles up; a speaker button mutes. Starting the mirror asks once for audio recording (`RECORD_AUDIO`); without it the picture works silently.
 
+**Sound on the computer only:** while the page plays the sound (its speaker button on and the browser's audio running), it sends `{"t":"sound","on":true}` and the phone sets its media volume to zero, saving the old value; it restores it when the page sends `on:false`, the viewer leaves, or mirroring ends (unless the owner changed it on the phone). A volume index is used, not a stream mute, since a mute silences every copy. If the copy falls silent within about a second of going quiet while sound was playing, that phone applies the volume to the copy too: the volume comes back and the page is told.
+
 **Limits:** Android lets no ordinary app capture calls or a call's microphone, and apps that opt out of capture stay silent. No sound from the computer reaches the phone.
 
 **Threat review:** the sound goes only to the viewer who entered the mirror's code or key, like the picture; nothing is stored or logged.

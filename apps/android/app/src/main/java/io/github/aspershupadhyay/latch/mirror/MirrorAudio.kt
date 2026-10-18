@@ -3,6 +3,8 @@
 package io.github.aspershupadhyay.latch.mirror
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.media.AudioManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
@@ -20,11 +22,69 @@ import java.nio.ByteBuffer
  *
  * Android never lets ordinary apps capture calls or the microphone of a call,
  * and apps that opt out of capture (some streaming apps) stay silent.
+ *
+ * While the viewer plays the sound, the phone's own media volume goes to zero
+ * so it plays on the computer only ([quietPhone]); it comes back when the
+ * viewer turns sound off or leaves. The capture is a copy taken before the
+ * speaker's volume on most phones; where a phone silences the copy too, the
+ * volume comes back by itself and the owner is told.
  */
 class MirrorAudio(
+    context: Context,
     private val projection: MediaProjection,
     private val sink: (kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer) -> Boolean,
+    private val problem: (String) -> Unit,
 ) {
+    private val audioManager = context.getSystemService(AudioManager::class.java)
+
+    /** The media volume before the phone went quiet; null while it plays normally. */
+    @Volatile private var savedVolume: Int? = null
+    @Volatile private var quietSinceMs = 0L
+    @Volatile private var loudBeforeQuiet = false
+    @Volatile private var lastLoudMs = 0L
+
+    /** [on]: the computer plays the sound, so the phone's speaker goes quiet; off: it plays again. */
+    fun quietPhone(on: Boolean) {
+        if (on && running && savedVolume == null) {
+            val now = SystemClock.uptimeMillis()
+            val volume = runCatching { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrNull() ?: return
+            if (volume == 0) return
+            loudBeforeQuiet = now - lastLoudMs < 500
+            // An index, not ADJUST_MUTE: muting a stream silences every copy of it.
+            if (runCatching { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0) }.isSuccess) {
+                savedVolume = volume
+                quietSinceMs = now
+            }
+        } else if (!on) {
+            restoreVolume()
+        }
+    }
+
+    private fun restoreVolume() {
+        val volume = savedVolume ?: return
+        savedVolume = null
+        // The owner may have turned it up on the phone meanwhile: keep their choice.
+        runCatching {
+            if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0)
+            }
+        }
+    }
+
+    /** Sound was playing, the phone went quiet, and the copy fell silent at once: this phone mutes it too. */
+    private fun checkCopyAfterQuiet(loud: Boolean) {
+        val now = SystemClock.uptimeMillis()
+        if (loud) lastLoudMs = now
+        if (savedVolume == null || !loudBeforeQuiet) return
+        val since = now - quietSinceMs
+        if (since > COPY_CHECK_MS) {
+            loudBeforeQuiet = false
+        } else if (since > 1_200 && now - lastLoudMs > 1_200) {
+            loudBeforeQuiet = false
+            restoreVolume()
+            problem("This phone also silences the copy when its volume is zero, so the sound plays on both.")
+        }
+    }
     @Volatile private var running = false
     private var thread: Thread? = null
 
@@ -69,6 +129,7 @@ class MirrorAudio(
                         filled += n
                     }
                     if (filled <= 0) continue
+                    checkCopyAfterQuiet(isLoud(buffer, filled))
                     sink(MirrorMessages.KIND_PCM, false, SystemClock.elapsedRealtimeNanos() / 1000, ByteBuffer.wrap(buffer, 0, filled))
                 }
             } catch (_: Exception) {
@@ -88,10 +149,24 @@ class MirrorAudio(
         running = false
         thread?.join(500)
         thread = null
+        restoreVolume()
+    }
+
+    /** Any 16-bit sample above a whisper. */
+    private fun isLoud(buffer: ByteArray, length: Int): Boolean {
+        var i = 0
+        while (i + 1 < length) {
+            val sample = (buffer[i].toInt() and 0xff) or (buffer[i + 1].toInt() shl 8)
+            if (sample > LOUD || sample < -LOUD) return true
+            i += 8 // every other stereo frame is plenty
+        }
+        return false
     }
 
     companion object {
         const val SAMPLE_RATE = 48_000
+        private const val LOUD = 64
+        private const val COPY_CHECK_MS = 3_000L
         /** 20 ms of 16-bit stereo. */
         const val FRAME_BYTES = SAMPLE_RATE / 50 * 2 * 2
     }

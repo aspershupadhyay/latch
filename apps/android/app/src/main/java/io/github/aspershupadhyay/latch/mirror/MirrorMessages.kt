@@ -34,6 +34,8 @@ sealed interface MirrorIn {
     data class Control(val action: MirrorAction) : MirrorIn
     data class Ping(val at: Double) : MirrorIn
     data class CodecChoice(val codec: Codec) : MirrorIn
+    /** The viewer plays the phone's sound; the phone's own speaker goes quiet while [on]. */
+    data class Sound(val on: Boolean) : MirrorIn
 }
 
 enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg") }
@@ -68,6 +70,7 @@ object MirrorMessages {
         "control" to setOf("action"),
         "ping" to setOf("at"),
         "codec" to setOf("codec"),
+        "sound" to setOf("on"),
     )
 
     /** One text message from the gateway, or null for anything the phone must ignore. */
@@ -99,6 +102,7 @@ object MirrorMessages {
             "control" -> MirrorIn.Control(o.enum("action", MirrorAction.entries) { it.wire } ?: return null)
             "ping" -> (o["at"] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it.isFinite() }?.let { MirrorIn.Ping(it) }
             "codec" -> MirrorIn.CodecChoice(o.enum("codec", Codec.entries) { it.wire } ?: return null)
+            "sound" -> MirrorIn.Sound(o.bool("on") ?: return null)
             else -> null
         }
     }
