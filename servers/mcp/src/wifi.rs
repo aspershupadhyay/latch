@@ -139,6 +139,8 @@ pub async fn serve(listener: TcpListener, tls: Arc<rustls::ServerConfig>, app: R
                 continue;
             }
         };
+        // Mirror frames and taps are small and frequent: send each at once.
+        let _ = tcp.set_nodelay(true);
         let origin = tcp
             .local_addr()
             .ok()

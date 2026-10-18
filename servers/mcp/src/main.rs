@@ -170,6 +170,10 @@ async fn run(mode: String) -> ExitCode {
         None => None,
     };
     eprint!("{}", terminal::summary(Style::detect(), &summary));
+    // No Nagle delay: mirror frames and taps are small and must go out at once.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
     let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
 
     if stdio {
