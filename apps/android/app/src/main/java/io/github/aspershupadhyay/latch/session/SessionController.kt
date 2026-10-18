@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
@@ -144,6 +145,16 @@ class SessionController(
     )
     private var reader: Pair<LatchAccessibilityService, ButtonReader>? = null
     private var link: DeviceLink? = null
+    /**
+     * ADR-053: the kept connection of the other kind, connected beside [link]
+     * while a session runs, so an AI can reach the phone through either.
+     */
+    private var second: DeviceLink? = null
+    @Volatile private var secondKind: ConnectionKind? = null
+    @Volatile private var secondMinor = 0
+    /** Commands that came through [second], so approvals are offered back to the gateway that asked. */
+    private val secondCommands = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val screenLock = kotlinx.coroutines.sync.Mutex()
     @Volatile private var wanted = false
     @Volatile private var paused = false
     @Volatile private var expiresAtMs = 0L
@@ -239,22 +250,64 @@ class SessionController(
             gatewayUrl = pairing.gatewayUrl,
             token = token,
             scope = scope,
-            hello = {
-                HelloMessage(
-                    protocol = Protocol.VERSION,
-                    device = deviceDescriptor(),
-                    capabilities = wireCapabilities(),
-                    session = sessionInfo(),
-                    deviceTimeMs = System.currentTimeMillis(),
-                    batteryRestricted = batteryRestricted(),
-                )
-            },
+            hello = ::hello,
             onCommand = ::runCommand,
             events = linkEvents,
             // Protocol 1.12 (ADR-037): a keystore key for this pairing signs every message.
             signer = KeystoreSigner.forPairing(pairing.deviceId),
             recent = recentCommands,
         ).also { it.start() }
+        startSecond()
+    }
+
+    private fun hello() = HelloMessage(
+        protocol = Protocol.VERSION,
+        device = deviceDescriptor(),
+        capabilities = wireCapabilities(),
+        session = sessionInfo(),
+        deviceTimeMs = System.currentTimeMillis(),
+        batteryRestricted = batteryRestricted(),
+    )
+
+    /** Connects the kept connection too, when the owner keeps both connected (ADR-053). */
+    private fun startSecond() {
+        if (!wanted || second != null || !settings.preferences.value.bothConnected) return
+        val active = settings.pairing.value ?: return
+        val kind = ConnectionKind.entries.firstOrNull { it != active.kind } ?: return
+        val kept = settings.saved.value[kind] ?: return
+        val token = settings.keptToken(kind) ?: return
+        GatewayPins.set(kept.gatewayUrl, kept.pin)
+        secondKind = kind
+        second = DeviceLink(
+            http = http,
+            gatewayUrl = kept.gatewayUrl,
+            token = token,
+            scope = scope,
+            hello = ::hello,
+            onCommand = { envelope ->
+                secondCommands += envelope.id
+                try {
+                    runCommand(envelope)
+                } finally {
+                    secondCommands -= envelope.id
+                }
+            },
+            events = secondEvents,
+            signer = KeystoreSigner.forPairing(kept.deviceId),
+        ).also { it.start() }
+    }
+
+    private fun stopSecond() {
+        val closing = second ?: return
+        second = null
+        secondKind = null
+        scope.launch { closing.stop(sayBye = true) }
+    }
+
+    /** Turns keeping both connected on or off; takes effect at once in a running session. */
+    fun setBothConnected(on: Boolean) {
+        settings.update { it.copy(bothConnected = on) }
+        if (on) startSecond() else stopSecond()
     }
 
     /** Whether full-access ADB is switched on and paired, so `adb.shell` can run. */
@@ -304,6 +357,7 @@ class SessionController(
         adbBridge?.stopJobs()
         val closing = link
         link = null
+        stopSecond()
         // Tell the gateway right away so tool calls fail fast instead of timing out.
         scope.launch { closing?.stop(sayBye = true) }
         log.add(ActivityKind.SESSION, reason, by = if (reason.startsWith("You ") || reason == FORGOT) ActivityActor.OWNER else ActivityActor.LATCH)
@@ -480,6 +534,7 @@ class SessionController(
 
     /** Forgets a kept connection for good, with its device key. */
     fun forgetSaved(kind: ConnectionKind) {
+        if (secondKind == kind) stopSecond()
         settings.dropSaved(kind)?.let { KeystoreSigner.delete(it.deviceId) }
     }
 
@@ -489,8 +544,8 @@ class SessionController(
      * A gateway on the Wi-Fi stopped answering: look for it at a new address
      * (R24), by its pin, and carry on there. Hosted relays keep their address.
      */
-    private fun rediscover() {
-        val pairing = settings.pairing.value ?: return
+    private fun rediscover(kept: Boolean = false) {
+        val pairing = (if (kept) secondKind?.let { settings.saved.value[it] } else settings.pairing.value) ?: return
         val pin = pairing.pin ?: return
         val phone = io.github.aspershupadhyay.latch.files.LocalSlots.wifiAddress() as? java.net.Inet4Address ?: return
         if (rediscovering) return
@@ -498,10 +553,17 @@ class SessionController(
         scope.launch {
             try {
                 val found = WifiRediscovery.find(pairing.gatewayUrl, pin, phone) ?: return@launch
-                if (settings.pairing.value?.deviceId != pairing.deviceId) return@launch
                 GatewayPins.set(found, pin)
-                settings.moveGateway(found)
-                link?.moveTo(found)
+                if (kept) {
+                    val kind = secondKind ?: return@launch
+                    if (settings.saved.value[kind]?.deviceId != pairing.deviceId) return@launch
+                    settings.moveKept(kind, found)
+                    second?.moveTo(found)
+                } else {
+                    if (settings.pairing.value?.deviceId != pairing.deviceId) return@launch
+                    settings.moveGateway(found)
+                    link?.moveTo(found)
+                }
                 log.add(ActivityKind.CONNECTION, "Found your computer at its new address on the Wi-Fi")
             } finally {
                 rediscovering = false
@@ -580,13 +642,56 @@ class SessionController(
         }
     }
 
+    /**
+     * The kept connection's link only adds a way in: its drops and refusals are
+     * logged and never end or change the session on the main connection.
+     */
+    private val secondEvents = object : DeviceLink.Events {
+        private fun title() = secondKind?.title ?: "kept connection"
+
+        override fun connected() {
+            scope.launch { if (wanted) log.add(ActivityKind.CONNECTION, "Also connected through your ${title().lowercase()}") }
+        }
+
+        override fun retrying(attempt: Int) {
+            scope.launch {
+                if (!wanted) return@launch
+                if (attempt == 1) log.add(ActivityKind.CONNECTION, "Your ${title().lowercase()} is not answering; retrying")
+                if (attempt == 2 || attempt % 5 == 0) rediscover(kept = true)
+            }
+        }
+
+        override fun rejected(revoked: Boolean) {
+            scope.launch {
+                log.add(ActivityKind.CONNECTION, "Your ${title().lowercase()} no longer accepts this phone; set it up again from Connect")
+                stopSecond()
+            }
+        }
+
+        override fun incompatible(gatewayVersion: String) {
+            scope.launch {
+                log.add(ActivityKind.CONNECTION, "Your ${title().lowercase()} speaks protocol $gatewayVersion; update it to use both")
+                stopSecond()
+            }
+        }
+
+        override fun gatewayProtocol(version: String) {
+            secondMinor = Protocol.minorOf(version) ?: 0
+        }
+
+        override fun cancel(commandId: String) = linkEvents.cancel(commandId)
+
+        override fun approvalAnswer(nonce: String, choice: String) = linkEvents.approvalAnswer(nonce, choice)
+    }
+
     /** Tells a 1.4 gateway the phone waits for the owner; it may ask in the AI app too. */
     private fun offerApproval(pending: PendingApproval) {
         val id = pending.commandId ?: return
-        if (gatewayMinor < 4) return
+        val viaSecond = id in secondCommands
+        if ((if (viaSecond) secondMinor else gatewayMinor) < 4) return
         // A step handed to the owner is answered on the phone only, never in the AI app.
         if (pending.kind == ApprovalKind.OWNER_TASK) return
-        link?.send(
+        (if (viaSecond) second else link)?.send(
             Outgoing.approvalRequest(
                 id, pending.nonce, pending.title, pending.detail, pending.kind == ApprovalKind.APP, pending.choices,
                 settings.preferences.value.remoteApprovals, pending.expiresAtMs,
@@ -602,7 +707,9 @@ class SessionController(
     private fun pushState() {
         val current = link ?: return
         if (_state.value !is SessionState.Active) return
-        current.pushState(StateMessage(wireCapabilities(), sessionInfo(), System.currentTimeMillis()))
+        val message = StateMessage(wireCapabilities(), sessionInfo(), System.currentTimeMillis())
+        current.pushState(message)
+        second?.pushState(message)
     }
 
     // ---- Commands: strictly one at a time (DeviceLink serialises them) ----
@@ -616,8 +723,6 @@ class SessionController(
      */
     private suspend fun runCommand(envelope: CommandEnvelope): String = withContext(Dispatchers.Default) {
         // ADB commands run beside the one screen command; only that one is "running".
-        val isAdb = envelope.command is Command.AdbShell
-        if (!isAdb) runningCommandId = envelope.id
         try {
             val command = envelope.command
             val data = if (command is Command.AdbShell) {
@@ -647,8 +752,17 @@ class SessionController(
             } else {
                 // A 1.4 gateway keeps waiting while the owner is asked, so the command may too.
                 val limit = envelope.deadlineMs.coerceIn(1_000, 180_000) + if (gatewayMinor >= 4) APPROVAL_GRACE_MS else 0
+                // One screen command at a time across every connected gateway, so an AI on
+                // one cannot tap while the owner is asked about the other's command (ADR-016).
                 withTimeout(limit) {
-                    executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() }
+                    screenLock.withLock {
+                        runningCommandId = envelope.id
+                        try {
+                            executor.execute(envelope, sessionInfo(), capabilityStatuses()) { sessionInfo() to capabilityStatuses() }
+                        } finally {
+                            runningCommandId = null
+                        }
+                    }
                 }
             }
             Outgoing.ok(envelope.id, data)
@@ -667,8 +781,6 @@ class SessionController(
             Crashes.record(e)
             log.add(ActivityKind.REFUSAL, "Could not finish ${envelope.command.name}: ${e.javaClass.simpleName}")
             Outgoing.error(envelope.id, ErrorCode.INTERNAL, "the phone could not finish this (${e.javaClass.simpleName}); observe and try again")
-        } finally {
-            if (!isAdb) runningCommandId = null
         }
     }
 }

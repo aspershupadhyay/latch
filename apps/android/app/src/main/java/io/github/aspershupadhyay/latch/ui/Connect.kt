@@ -77,7 +77,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
         state.requests.forEach { request -> SignInCard(request, actions) }
 
         state.connection?.let { current ->
-            if (state.created == null) ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved)
+            if (state.created == null) ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved, state.bothConnected, actions.setBothConnected)
         }
 
         state.created?.let { created ->

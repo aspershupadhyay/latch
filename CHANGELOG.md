@@ -11,6 +11,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 ### Added
 
 - **Choose how your AI reaches the phone** when you set up Latch: **Hosted relay** (your free Vercel relay, works anywhere) or **Computer on Wi-Fi** (the gateway on your computer, nothing leaves home). Switch any time in **Connect**; Latch keeps both, so switching back asks for no key (R31, ADR-052).
+- **Both connected at once**: during a session the phone connects through your hosted relay and your computer on Wi-Fi together, so your AI can use either (Connect → **Keep both connected**, on by default). Live mirror uses the Wi-Fi one (ADR-053).
 - **The Wi-Fi gateway keeps its address**: when your computer gets a new address on the Wi-Fi, the phone finds it again by its pin, without pairing again. `latch-autostart on` keeps the gateway running in the background, also after a restart.
 
 ### Fixed
