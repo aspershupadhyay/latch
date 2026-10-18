@@ -76,6 +76,10 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
         // Sign-in requests come first: someone is waiting in a browser.
         state.requests.forEach { request -> SignInCard(request, actions) }
 
+        state.connection?.let { current ->
+            if (state.created == null) ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved)
+        }
+
         state.created?.let { created ->
             Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

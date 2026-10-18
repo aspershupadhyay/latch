@@ -61,7 +61,14 @@ private fun OnboardingPage(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice: String? = null, onGuide: () -> Unit = {}) {
+fun WelcomeScreen(
+    onCreateGateway: () -> Unit,
+    onHaveGateway: () -> Unit,
+    notice: String? = null,
+    onGuide: () -> Unit = {},
+    saved: Map<io.github.aspershupadhyay.latch.data.ConnectionKind, String> = emptyMap(),
+    onUseSaved: (io.github.aspershupadhyay.latch.data.ConnectionKind) -> Unit = {},
+) {
     val signal = LocalSignal.current
     val context = LocalContext.current
     val reducedMotion = remember { AndroidSettings.Global.getFloat(context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
@@ -97,8 +104,9 @@ fun WelcomeScreen(onCreateGateway: () -> Unit, onHaveGateway: () -> Unit, notice
             notice?.let {
                 Card(color = signal.danger.copy(alpha = 0.12f)) { ListRow(LatchIcons.Warning, it, tint = signal.danger) }
             }
+            SavedConnectionsCard(saved, onUseSaved)
             Spacer(Modifier.size(4.dp))
-            IconButtonLarge("Set up Latch", LatchIcons.Plus, onCreateGateway, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk)
+            IconButtonLarge(if (saved.isEmpty()) "Set up Latch" else "Set up another way", LatchIcons.Plus, onCreateGateway, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk)
             Text(
                 "Free · about 5 minutes",
                 style = MaterialTheme.typography.bodySmall,
@@ -201,7 +209,7 @@ fun CreateGatewayScreen(state: CreateGatewayState, actions: CreateGatewayActions
             PrimaryButton(if (state.busy) "Connecting…" else "Connect", actions.connect, Modifier.fillMaxWidth(), enabled = !state.busy && state.address.isNotBlank())
         }
         Text(
-            "Have your own server instead? Go back and choose “I have a code or a relay already”.",
+            "Prefer the gateway on your computer? Go back and choose “Computer on Wi-Fi”.",
             style = MaterialTheme.typography.bodySmall, color = signal.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
         )
     }

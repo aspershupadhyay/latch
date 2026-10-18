@@ -5,6 +5,7 @@ package io.github.aspershupadhyay.latch.ui
 import io.github.aspershupadhyay.latch.update.UpdateInfo
 import io.github.aspershupadhyay.latch.update.UpdateState
 import io.github.aspershupadhyay.latch.data.ActivityEntry
+import io.github.aspershupadhyay.latch.data.ConnectionKind
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.McpClient
 import io.github.aspershupadhyay.latch.session.RelayPhone
@@ -80,6 +81,10 @@ data class ConnectState(
     val phoneApps: List<PhoneApp> = emptyList(),
     /** The relay's other paired phones, so the owner can remove old or lost ones. */
     val otherPhones: List<RelayPhone> = emptyList(),
+    /** How the AI reaches this phone now, and the other way if this phone keeps one (host by kind). */
+    val connection: ConnectionKind? = null,
+    val host: String = "",
+    val saved: Map<ConnectionKind, String> = emptyMap(),
 )
 
 /** An app on this phone, by package name and the label the owner sees. */
@@ -95,6 +100,10 @@ class ConnectActions(
     /** R18: limit an AI app to some phone apps (package names), or null for any app switched on. */
     val limit: (id: String, apps: List<String>?) -> Unit = { _, _ -> },
     val removePhone: (id: String) -> Unit = {},
+    /** Switch to the kept connection of a kind, or set one up (keeping this one), or forget a kept one. */
+    val switchTo: (ConnectionKind) -> Unit = {},
+    val setUp: (ConnectionKind) -> Unit = {},
+    val forgetSaved: (ConnectionKind) -> Unit = {},
 )
 
 data class CreateGatewayState(

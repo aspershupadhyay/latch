@@ -64,6 +64,8 @@ class LatchApp : Application() {
     /** Kept on the phone for a week (ADR-028); created on first use, once the app has its files folder. */
     val log by lazy { ActivityLog(java.io.File(filesDir, "activity.jsonl")) }
     val bridge = DeviceBridge()
+    /** The way of connecting the owner chose to set up from the Connect tab, for onboarding to open at. */
+    val pendingSetup = kotlinx.coroutines.flow.MutableStateFlow<io.github.aspershupadhyay.latch.data.ConnectionKind?>(null)
     val approvals = ApprovalBroker()
     lateinit var session: SessionController
         private set

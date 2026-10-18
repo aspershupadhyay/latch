@@ -10,6 +10,7 @@ import io.github.aspershupadhyay.latch.data.ActivityKind
 import io.github.aspershupadhyay.latch.data.ActivityLog
 import io.github.aspershupadhyay.latch.data.ApprovalGrants
 import io.github.aspershupadhyay.latch.data.Autonomy
+import io.github.aspershupadhyay.latch.data.ConnectionKind
 import io.github.aspershupadhyay.latch.files.PhoneFiles
 import io.github.aspershupadhyay.latch.files.PhoneTransfers
 import io.github.aspershupadhyay.latch.data.Settings
@@ -452,6 +453,62 @@ class SessionController(
         _state.value = SessionState.Unpaired
     }
 
+    /**
+     * Keeps the connection in use for later and leaves the phone unpaired, so
+     * the owner can set up the other kind. Nothing is revoked: switching back
+     * needs no key or code.
+     */
+    fun keepAndSetUpAnother() {
+        if (settings.pairing.value == null) return
+        stop(SWITCHED)
+        settings.keepActive()
+        grants.clearAll()
+        _state.value = SessionState.Unpaired
+    }
+
+    /** Switches to the kept connection of [kind]. False when none is kept. */
+    fun switchTo(kind: ConnectionKind): Boolean {
+        if (settings.saved.value[kind] == null) return false
+        stop(SWITCHED)
+        if (!settings.restore(kind)) return false
+        grants.clearAll()
+        settings.pairing.value?.let { GatewayPins.set(it.gatewayUrl, it.pin) }
+        log.add(ActivityKind.CONNECTION, "Switched to ${kind.title}", by = ActivityActor.OWNER)
+        _state.value = SessionState.Idle
+        return true
+    }
+
+    /** Forgets a kept connection for good, with its device key. */
+    fun forgetSaved(kind: ConnectionKind) {
+        settings.dropSaved(kind)?.let { KeystoreSigner.delete(it.deviceId) }
+    }
+
+    @Volatile private var rediscovering = false
+
+    /**
+     * A gateway on the Wi-Fi stopped answering: look for it at a new address
+     * (R24), by its pin, and carry on there. Hosted relays keep their address.
+     */
+    private fun rediscover() {
+        val pairing = settings.pairing.value ?: return
+        val pin = pairing.pin ?: return
+        val phone = io.github.aspershupadhyay.latch.files.LocalSlots.wifiAddress() as? java.net.Inet4Address ?: return
+        if (rediscovering) return
+        rediscovering = true
+        scope.launch {
+            try {
+                val found = WifiRediscovery.find(pairing.gatewayUrl, pin, phone) ?: return@launch
+                if (settings.pairing.value?.deviceId != pairing.deviceId) return@launch
+                GatewayPins.set(found, pin)
+                settings.moveGateway(found)
+                link?.moveTo(found)
+                log.add(ActivityKind.CONNECTION, "Found your computer at its new address on the Wi-Fi")
+            } finally {
+                rediscovering = false
+            }
+        }
+    }
+
     fun clearFailure() {
         if (_state.value is SessionState.Failed || _state.value is SessionState.Revoked) {
             _state.value = if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle
@@ -474,6 +531,8 @@ class SessionController(
                 if (!wanted) return@launch
                 approvals.cancel()
                 if (attempt == 1) log.add(ActivityKind.CONNECTION, "Connection lost; retrying")
+                // Twice in a row unanswered, then now and then: the computer may have a new address.
+                if (attempt == 2 || attempt % 5 == 0) rediscover()
                 _state.value = SessionState.Reconnecting(expiresAtMs, attempt)
             }
         }
@@ -662,6 +721,7 @@ object Pairing {
 }
 
 private const val FORGOT = "This phone forgot the gateway"
+private const val SWITCHED = "You switched how your AI reaches this phone"
 
 /** The reason the owner's own Stop gives; it ends live mirroring too. */
 const val OWNER_STOP = "You stopped the session"

@@ -35,12 +35,20 @@ It prints:
 
 If macOS asks whether `latch-gateway` may accept incoming connections, choose **Allow** (the phone connects on port 8788). Leave this Terminal window open while you use Latch. Stop it with Ctrl-C.
 
+**Don't want to start it by hand?** Run `latch-autostart on` once: the gateway then runs in the background and starts again when you log in (`latch-autostart off` undoes it, `latch-autostart status` checks). `latch-start` then just shows the keys and the phone's address.
+
+The address and its `#pin=` stay the same across restarts. If your router gives the computer a new address, the phone finds the gateway again by itself (it checks the pin, so no other device can pass for it); you don't pair again.
+
 ## 4. Pair the phone
 
-1. Open Latch → **I have a code or a relay already**.
-2. **Relay address:** the whole `https://192.168.x.x:8788#pin=…` line, including `#pin=`. Typing it is error-prone; AirDrop or message it to yourself and paste it.
-3. Choose **It's my relay**. In **Secret key**, enter the owner key. Then tap **Connect**.
+1. Open Latch → **Set up Latch** → **Computer on Wi-Fi** → **Continue**.
+2. **Address for this phone:** the whole `https://192.168.x.x:8788#pin=…` line, including `#pin=`. Typing it is error-prone; AirDrop or message it to yourself and paste it.
+3. **Owner key:** the `lgt_…` key. Then tap **Connect**.
 4. Follow **Set up your phone**: notifications, **screen access** (the accessibility service), and battery. On Android 13+, if the screen-access switch is greyed out: **Settings → Apps → Latch → ⋮ → Allow restricted settings**, then try again. Latch shows this step.
+
+### Switch between Wi-Fi and the hosted relay
+
+**Connect → How your AI reaches this phone** has **Hosted** and **Wi-Fi**. Tap the other one: if you set it up before, Latch switches at once and asks for no key (it keeps both, sealed in the phone's keystore); if not, it keeps this one and walks you through the other once. A running session stops when you switch. **Settings → Disconnect** forgets only the one in use; **Forget** in Connect removes a kept one.
 
 ## 5. Connect your AI
 

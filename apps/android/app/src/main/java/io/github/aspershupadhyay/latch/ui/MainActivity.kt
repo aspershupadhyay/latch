@@ -39,6 +39,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
+import io.github.aspershupadhyay.latch.data.ConnectionKind
 import io.github.aspershupadhyay.latch.data.FolderGrant
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -157,7 +158,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     SETTINGS("Settings", LatchIcons.Sliders),
 }
 
-private enum class Onboarding { WELCOME, CREATE, JOIN, GUIDE }
+private enum class Onboarding { WELCOME, CHOOSE, CREATE, WIFI, JOIN, GUIDE }
 
 /** Copies text; secrets are flagged so Android hides them from the clipboard preview. */
 fun copyToClipboard(context: Context, label: String, value: String, sensitive: Boolean) {
@@ -187,18 +188,32 @@ private fun Paired.save(app: LatchApp, pin: String?) = app.settings.savePairing(
 fun LatchRoot(app: LatchApp, reducedMotion: Boolean) {
     val state by app.session.state.collectAsStateWithLifecycle()
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
+    val pendingSetup by app.pendingSetup.collectAsStateWithLifecycle()
     if (pairing == null) {
-        OnboardingFlow(app, (state as? SessionState.Revoked)?.reason)
+        OnboardingFlow(app, (state as? SessionState.Revoked)?.reason, pendingSetup)
         return
     }
     MainTabs(app, reducedMotion)
 }
 
 @Composable
-private fun OnboardingFlow(app: LatchApp, notice: String?) {
+private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind?) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var step by rememberSaveable { mutableStateOf(Onboarding.WELCOME) }
+    val saved by app.settings.saved.collectAsStateWithLifecycle()
+    // From the Connect tab's switch: open straight at the chosen way of connecting.
+    var step by rememberSaveable {
+        mutableStateOf(
+            when (setUp) {
+                ConnectionKind.HOSTED -> Onboarding.CREATE
+                ConnectionKind.WIFI -> Onboarding.WIFI
+                null -> Onboarding.WELCOME
+            },
+        )
+    }
+    LaunchedEffect(Unit) { app.pendingSetup.value = null }
+    var installCopied by rememberSaveable { mutableStateOf(false) }
+    var startCopied by rememberSaveable { mutableStateOf(false) }
     var ownerKey by rememberSaveable { mutableStateOf(GatewaySetup.newOwnerKey()) }
     var keyCopied by rememberSaveable { mutableStateOf(false) }
     var deployOpened by rememberSaveable { mutableStateOf(false) }
@@ -208,12 +223,19 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    BackHandler(enabled = step != Onboarding.WELCOME) { step = Onboarding.WELCOME; error = null }
+    BackHandler(enabled = step != Onboarding.WELCOME) {
+        step = if (step == Onboarding.CREATE || step == Onboarding.WIFI) Onboarding.CHOOSE else Onboarding.WELCOME
+        error = null
+    }
 
-    fun connect(asOwner: Boolean, key: String) {
+    fun connect(asOwner: Boolean, key: String, needPin: Boolean = false) {
         val parsed = Pairing.parse(address, BuildConfig.ALLOW_CLEARTEXT)
         if (parsed == null) {
             error = if (address.trim().startsWith("http://")) "Use an https:// address." else "That does not look like a web address."
+            return
+        }
+        if (needPin && parsed.pin == null) {
+            error = "Paste the whole address latch-start printed, including #pin=…"
             return
         }
         val url = parsed.url
@@ -228,6 +250,8 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
                 val paired = if (asOwner) app.setup.pairAsOwner(url, key.trim(), model, model) else app.setup.pairWithCode(url, key, model)
                 if (asOwner) app.settings.saveOwnerKey(key.trim())
                 paired.save(app, parsed.pin)
+                // A newer connection of the same kind replaces the one kept before.
+                app.settings.pairing.value?.kind?.let { app.session.forgetSaved(it) }
             } catch (e: SetupException) {
                 error = e.message
             } finally {
@@ -238,10 +262,27 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
 
     when (step) {
         Onboarding.WELCOME -> WelcomeScreen(
-            onCreateGateway = { step = Onboarding.CREATE }, onHaveGateway = { step = Onboarding.JOIN }, notice = notice,
+            onCreateGateway = { step = Onboarding.CHOOSE }, onHaveGateway = { step = Onboarding.JOIN }, notice = notice,
             onGuide = { step = Onboarding.GUIDE },
+            saved = saved.mapValues { (_, p) -> p.gatewayUrl.removePrefix("https://").removePrefix("http://") },
+            onUseSaved = { kind -> app.session.switchTo(kind) },
         )
-        Onboarding.GUIDE -> GuideScreen(onBack = { step = Onboarding.WELCOME }, onStart = { step = Onboarding.CREATE })
+        Onboarding.GUIDE -> GuideScreen(onBack = { step = Onboarding.WELCOME }, onStart = { step = Onboarding.CHOOSE })
+        Onboarding.CHOOSE -> ChooseConnectionScreen(
+            onChoose = { kind -> address = ""; secret = ""; error = null; step = if (kind == ConnectionKind.WIFI) Onboarding.WIFI else Onboarding.CREATE },
+            onBack = { step = Onboarding.WELCOME },
+        )
+        Onboarding.WIFI -> WifiGatewayScreen(
+            WifiGatewayState(address, secret, busy, error, installCopied, startCopied),
+            WifiGatewayActions(
+                copyInstall = { copyToClipboard(context, "Install command", GATEWAY_INSTALL_COMMAND, sensitive = false); installCopied = true },
+                copyStart = { copyToClipboard(context, "Start command", "latch-start", sensitive = false); startCopied = true },
+                setAddress = { address = it; error = null },
+                setOwnerKey = { secret = it; error = null },
+                connect = { connect(asOwner = true, key = secret, needPin = true) },
+                back = { step = Onboarding.CHOOSE; error = null },
+            ),
+        )
         Onboarding.CREATE -> CreateGatewayScreen(
             CreateGatewayState(ownerKey, keyCopied, deployOpened, address, busy, error),
             CreateGatewayActions(
@@ -252,7 +293,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?) {
                 },
                 setAddress = { address = it; error = null },
                 connect = { connect(asOwner = true, key = ownerKey) },
-                back = { step = Onboarding.WELCOME; error = null },
+                back = { step = Onboarding.CHOOSE; error = null },
             ),
         )
         Onboarding.JOIN -> JoinGatewayScreen(
@@ -738,9 +779,17 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
         if (isOwner) value = withContext(Dispatchers.IO) { runCatching { app.launchableApps() }.getOrDefault(emptyList()) }.map { PhoneApp(it.packageName, it.label) }
     }
 
+    val saved by app.settings.saved.collectAsStateWithLifecycle()
+    fun hostOf(url: String) = url.removePrefix("https://").removePrefix("http://")
     ConnectScreen(
-        ConnectState("${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests, phoneApps, phones),
+        ConnectState(
+            "${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests, phoneApps, phones,
+            connection = p.kind, host = hostOf(p.gatewayUrl), saved = saved.mapValues { (_, s) -> hostOf(s.gatewayUrl) },
+        ),
         ConnectActions(
+            switchTo = { kind -> app.session.switchTo(kind) },
+            setUp = { kind -> app.pendingSetup.value = kind; app.session.keepAndSetUpAnother() },
+            forgetSaved = { kind -> app.session.forgetSaved(kind) },
             create = { name -> run { created = it.createClient(name); clients = it.clients() } },
             revoke = { id -> run { it.revokeClient(id); clients = it.clients() } },
             dismissCreated = { created = null },

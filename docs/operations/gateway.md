@@ -79,13 +79,13 @@ Run the gateway on your own computer and let the phone reach it over your home W
 2. The gateway prints, on its error output:
 
    ```
-   Phones on this Wi-Fi: in the Latch app, tap "I have a code or a relay already" and enter
+   Phones on this Wi-Fi: in the Latch app, choose "Computer on Wi-Fi" and enter
        https://192.168.1.5:8788#pin=Qm9vb…
    ```
 
 3. In the app, enter that whole address (with `#pin=`) and the owner key. The phone connects with TLS and trusts exactly this gateway's own certificate: the pin is the SHA-256 of its public key. A wrong or missing pin is refused.
 
-The certificate is made once and kept in `LATCH_DATA_DIR/wifi/` (the key readable by you only), so restarts keep the same pin. If your computer's Wi-Fi address changes, enter the new address; the pin stays. Allow incoming connections on port 8788 if your firewall asks. Away from home the phone cannot reach this gateway; use a cloud gateway for that.
+The certificate is made once and kept in `LATCH_DATA_DIR/wifi/` (the key readable by you only), so restarts keep the same pin. If your computer's Wi-Fi address changes, the app finds the gateway again on its own: it tries port 8788 on the other addresses of the phone's /24 and accepts only the pinned key (ADR-052). On another network or a larger subnet, enter the new address; the pin stays. `latch-autostart on` (from `scripts/install-gateway.sh`) keeps the gateway running in the background as a LaunchAgent or systemd user service. Allow incoming connections on port 8788 if your firewall asks. Away from home the phone cannot reach this gateway; use a cloud gateway for that.
 
 ## Connect an AI client
 
