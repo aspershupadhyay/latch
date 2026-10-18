@@ -109,6 +109,24 @@ class MirrorController(
         }
     }
 
+    /**
+     * The gateway to mirror through: only the self-hosted gateway relays video, so a
+     * kept computer-on-Wi-Fi connection is used even while the hosted relay is in use (ADR-053).
+     */
+    private fun target(): Pair<io.github.aspershupadhyay.latch.data.Pairing, String>? {
+        val wifi = io.github.aspershupadhyay.latch.data.ConnectionKind.WIFI
+        val active = settings.pairing.value
+        if (active != null && active.kind != wifi) {
+            val kept = settings.saved.value[wifi]
+            val token = settings.keptToken(wifi)
+            if (kept != null && token != null) {
+                io.github.aspershupadhyay.latch.session.GatewayPins.set(kept.gatewayUrl, kept.pin)
+                return kept to token
+            }
+        }
+        return active?.let { a -> settings.token()?.let { a to it } }
+    }
+
     /** Why mirroring cannot start now, or null when it can. */
     fun unavailableReason(): String? = when {
         settings.pairing.value == null -> "Pair this phone with your relay first."
@@ -135,9 +153,7 @@ class MirrorController(
     fun begin(service: Service, resultCode: Int, data: Intent) {
         stopParts()
         this.service = service
-        val pairing = settings.pairing.value
-        val token = settings.token()
-        if (pairing == null || token == null) {
+        val (pairing, token) = target() ?: run {
             fail("This phone is not paired with a relay.")
             return
         }

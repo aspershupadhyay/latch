@@ -88,6 +88,8 @@ data class Preferences(
      * restarts. Off by default; the risk is explained where it is switched on.
      */
     val adbFixedPort: Boolean = false,
+    /** ADR-053: during a session, also connect the kept connection of the other kind. */
+    val bothConnected: Boolean = true,
 )
 
 /** R29 (b): the port `adb tcpip` opens, reached by Latch on the phone's own loopback. */
@@ -185,6 +187,16 @@ class Settings(private val context: Context) {
         return gone
     }
 
+    /** The device token of the kept [kind], for connecting it beside the one in use (ADR-053). */
+    fun keptToken(kind: ConnectionKind): String? = if (_saved.value[kind] != null) savedToken(kind).load() else null
+
+    /** The kept Wi-Fi gateway moved to a new address. */
+    fun moveKept(kind: ConnectionKind, url: String) {
+        val kept = _saved.value[kind] ?: return
+        prefs.edit { putString(slot(kind, "gateway_url"), url) }
+        _saved.value = _saved.value + (kind to kept.copy(gatewayUrl = url))
+    }
+
     /** The gateway on the Wi-Fi moved to a new address (R24): same keys, new address. */
     fun moveGateway(url: String) {
         val active = _pairing.value ?: return
@@ -234,6 +246,7 @@ class Settings(private val context: Context) {
             localTransfers = prefs.getBoolean("local_transfers", false),
             adbEndpoint = prefs.getString("adb_endpoint", null),
             adbFixedPort = prefs.getBoolean("adb_fixed_port", false),
+            bothConnected = prefs.getBoolean("both_connected", true),
             theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
     }
@@ -292,6 +305,7 @@ class Settings(private val context: Context) {
             putBoolean("local_transfers", next.localTransfers)
             if (next.adbEndpoint != null) putString("adb_endpoint", next.adbEndpoint) else remove("adb_endpoint")
             putBoolean("adb_fixed_port", next.adbFixedPort)
+            putBoolean("both_connected", next.bothConnected)
             putString("theme", next.theme.name)
         }
         _preferences.value = next

@@ -593,3 +593,12 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Limits:** the search covers the phone's /24 only; a gateway on another network or a larger subnet needs the new address entered. Kept connections are this phone's only, not backed up.
 
 **Rollback:** an older app reads only the connection in use and ignores the kept slot; nothing on the gateways changed.
+
+## ADR-053 — Both connections at once during a session
+**Status:** accepted (2026-10-18, owner request "let both stay connected … until they disconnect; the user uses either") · **Builds on:** ADR-016 (one command at a time), ADR-052 (two kept connections) · **Protocol:** unchanged
+
+**Decision:** while a session runs, the phone dials out to the connection in use and, when the owner keeps one of the other kind and **Keep both connected** is on (Connect tab; on by default), to that one too. An AI app on either gateway can then use the phone, with the same switches, approvals, Stop, and session timer. The connection in use stays the one the Connect tab manages (AI apps, keys, other phones); the kept one only adds a way in: its drops and refusals are logged and never end the session. Live mirror uses the Wi-Fi gateway when one is kept, since only the self-hosted gateway relays video.
+
+**Safety:** screen commands from both gateways share one lock, so the phone still runs one screen command at a time (ADR-016): an AI on one gateway cannot act while the owner is asked about the other's command. An approval is offered back only to the gateway whose command asked for it. Each link signs with its own pairing's device key (ADR-037) and keeps its own command memory (ADR-048). Stop, pause, and the timer end or hold both. Turning the switch off, or Forget on the kept connection, closes its link at once.
+
+**Limits:** two AI apps may interleave screen commands; each still observes before acting, and stale observations are refused on the phone. A Wi-Fi gateway away from home retries quietly in the background.

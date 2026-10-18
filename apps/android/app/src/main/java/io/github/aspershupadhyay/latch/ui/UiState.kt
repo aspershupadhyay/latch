@@ -85,6 +85,7 @@ data class ConnectState(
     val connection: ConnectionKind? = null,
     val host: String = "",
     val saved: Map<ConnectionKind, String> = emptyMap(),
+    val bothConnected: Boolean = true,
 )
 
 /** An app on this phone, by package name and the label the owner sees. */
@@ -104,6 +105,7 @@ class ConnectActions(
     val switchTo: (ConnectionKind) -> Unit = {},
     val setUp: (ConnectionKind) -> Unit = {},
     val forgetSaved: (ConnectionKind) -> Unit = {},
+    val setBothConnected: (Boolean) -> Unit = {},
 )
 
 data class CreateGatewayState(

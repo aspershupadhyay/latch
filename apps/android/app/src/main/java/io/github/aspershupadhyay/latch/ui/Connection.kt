@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
@@ -287,6 +288,8 @@ fun ConnectionCard(
     onSwitch: (ConnectionKind) -> Unit,
     onSetUp: (ConnectionKind) -> Unit,
     onForgetSaved: (ConnectionKind) -> Unit,
+    bothConnected: Boolean = true,
+    onBothConnected: (Boolean) -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var confirm by remember { mutableStateOf<ConnectionKind?>(null) }
@@ -295,7 +298,12 @@ fun ConnectionCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("How your AI reaches this phone", style = MaterialTheme.typography.titleMedium, color = signal.text)
-                    Text("Switch any time. Latch keeps both, so switching back asks for nothing.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
+                    Text(
+                        if (saved.isNotEmpty() && bothConnected) "Both connected: during a session your AI can use either. The one selected is the one this tab manages."
+                        else "Switch any time. Latch keeps both, so switching back asks for nothing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = signal.text2,
+                    )
                 }
             }
             Row(
@@ -319,13 +327,28 @@ fun ConnectionCard(
                 if (keptHost != null) {
                     ListRow(
                         other.icon,
-                        "${other.title} kept",
-                        "$keptHost · switch without a key",
+                        if (bothConnected) "${other.title} also connected" else "${other.title} kept",
+                        if (bothConnected) "$keptHost · in every session too" else "$keptHost · switch without a key",
                         tint = signal.text2,
                         trailing = {
                             TextButton(onClick = { onForgetSaved(other) }) { Text("Forget", color = signal.danger) }
                         },
                     )
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Keep both connected", style = MaterialTheme.typography.titleMedium, color = signal.text)
+                            Text(
+                                "Each session connects through both, until you turn this off or disconnect one. Live mirror always uses Wi-Fi.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = signal.text2,
+                            )
+                        }
+                        LatchSwitch(
+                            checked = bothConnected,
+                            onCheckedChange = onBothConnected,
+                            modifier = Modifier.semantics { contentDescription = "Keep both connected" },
+                        )
+                    }
                 } else {
                     Text(
                         "No ${other.inSentence} yet. Tap “${other.short}” above to set one up; this one stays kept.",

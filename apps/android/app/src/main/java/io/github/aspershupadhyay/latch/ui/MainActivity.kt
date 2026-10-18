@@ -780,16 +780,19 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
     }
 
     val saved by app.settings.saved.collectAsStateWithLifecycle()
+    val connectPrefs by app.settings.preferences.collectAsStateWithLifecycle()
     fun hostOf(url: String) = url.removePrefix("https://").removePrefix("http://")
     ConnectScreen(
         ConnectState(
             "${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests, phoneApps, phones,
             connection = p.kind, host = hostOf(p.gatewayUrl), saved = saved.mapValues { (_, s) -> hostOf(s.gatewayUrl) },
+            bothConnected = connectPrefs.bothConnected,
         ),
         ConnectActions(
             switchTo = { kind -> app.session.switchTo(kind) },
             setUp = { kind -> app.pendingSetup.value = kind; app.session.keepAndSetUpAnother() },
             forgetSaved = { kind -> app.session.forgetSaved(kind) },
+            setBothConnected = { on -> app.session.setBothConnected(on) },
             create = { name -> run { created = it.createClient(name); clients = it.clients() } },
             revoke = { id -> run { it.revokeClient(id); clients = it.clients() } },
             dismissCreated = { created = null },
