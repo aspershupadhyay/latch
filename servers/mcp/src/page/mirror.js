@@ -360,7 +360,7 @@ if (typeof document !== 'undefined') {
       if (!sps || !configure(sps)) return;
     }
     if (!decoder || (waitKey && !frame.key)) return;
-    if (!frame.key && decoder.decodeQueueSize > 4) {
+    if (!frame.key && decoder.decodeQueueSize > 2) {
       // Behind: skip to the next key frame instead of showing the past late.
       waitKey = true;
       send({ t: 'sync' });
