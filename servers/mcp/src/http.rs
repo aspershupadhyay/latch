@@ -361,7 +361,9 @@ fn mirror_file_name_ok(name: &str) -> bool {
     (1..=200).contains(&count)
         && name != "."
         && name != ".."
-        && !name.chars().any(|c| c == '/' || c == '\\' || c.is_control())
+        && !name
+            .chars()
+            .any(|c| c == '/' || c == '\\' || c.is_control())
 }
 
 fn unhex(text: &str) -> Vec<u8> {
@@ -446,9 +448,10 @@ async fn mirror_drop(
             "the gateway could not store the file",
         )
     };
-    let Ok(mut cipher) =
-        ctr::Ctr128BE::<aes::Aes256>::new_from_slices(&unhex(&record.key_hex), &unhex(&record.iv_hex))
-    else {
+    let Ok(mut cipher) = ctr::Ctr128BE::<aes::Aes256>::new_from_slices(
+        &unhex(&record.key_hex),
+        &unhex(&record.iv_hex),
+    ) else {
         return stored();
     };
     let Ok(mut file) = tokio::fs::File::create(&path).await else {

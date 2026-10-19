@@ -60,7 +60,7 @@ button.danger { color: var(--red); }
 .phone-col:fullscreen canvas { width: 100%; height: 100%; max-width: none; border-radius: 0; }
 .phone-col:fullscreen .keys { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); opacity: 0.35; transition: opacity 0.2s; }
 .phone-col:fullscreen .keys:hover, .phone-col:fullscreen .keys:focus-within { opacity: 1; }
-#rotate[aria-pressed="true"], #screen-light[aria-pressed="true"] { color: var(--ember); }
+#rotate[aria-pressed="true"], #screen-light[aria-pressed="true"], .tool[aria-pressed="true"] { color: var(--ember); }
 #sound[aria-pressed="false"] { color: var(--muted); opacity: 0.6; }
 #volume { width: 90px; accent-color: var(--ember); cursor: pointer; margin: 0 6px 0 0; }
 canvas {
@@ -95,12 +95,62 @@ canvas {
 .handover { display: grid; gap: 8px; margin-top: 18px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); margin: 0; max-width: calc(100% - 32px);
+  position: fixed; left: 50%; top: 72px; transform: translateX(-50%); margin: 0; max-width: calc(100% - 32px); z-index: 5;
   background: #1c2127; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px;
 }
 
+/* The top bar's tools, the phone's status, and Smooth input (ADR-057). */
+.smooth { font-size: 12px; color: var(--green); }
+.tools { display: inline-flex; gap: 2px; }
+.tool { width: 36px; height: 36px; min-height: 0; padding: 0; display: grid; place-items: center; border: 0; background: transparent; border-radius: 10px; }
+.tool:hover { background: #1b2026; }
+.tool svg, .bolt { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#record .dot { fill: currentColor; stroke: none; }
+#record[aria-pressed="true"] { color: var(--red); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { #record[aria-pressed="true"] { animation: none; } }
+.status { display: inline-flex; align-items: center; gap: 8px; font: 13px var(--mono); color: var(--muted); }
+.battery-wrap { display: inline-flex; align-items: center; gap: 2px; }
+.bolt { width: 14px; height: 14px; display: none; color: var(--green); }
+.status.charging .bolt { display: inline; }
+.bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.bars i { width: 3px; background: #39414b; border-radius: 1px; }
+.bars i:nth-child(1) { height: 25%; } .bars i:nth-child(2) { height: 50%; } .bars i:nth-child(3) { height: 75%; } .bars i:nth-child(4) { height: 100%; }
+.bars[data-level="1"] i:nth-child(-n+1), .bars[data-level="2"] i:nth-child(-n+2),
+.bars[data-level="3"] i:nth-child(-n+3), .bars[data-level="4"] i:nth-child(-n+4) { background: var(--text); }
+.toast button { margin-left: 8px; min-height: 28px; padding: 3px 10px; }
+.transfer {
+  position: fixed; right: 20px; bottom: 20px; display: grid; gap: 6px; width: min(320px, calc(100% - 32px));
+  background: #1c2127; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 14px;
+}
+.transfer progress { width: 100%; accent-color: var(--ember); }
+.drop {
+  position: fixed; inset: 0; display: grid; place-items: center; background: rgba(7, 8, 9, 0.8);
+  border: 3px dashed var(--ember); font-size: 20px; pointer-events: none;
+}
+.help { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 20px 24px; max-width: min(760px, calc(100% - 32px)); }
+.help::backdrop { background: rgba(0, 0, 0, 0.6); }
+.help h2 { margin: 0 0 4px; font-size: 18px; }
+.help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 24px; }
+.help dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0; font-size: 14px; }
+.help dt { font: 13px var(--mono); color: var(--ember); white-space: nowrap; }
+.help dd { margin: 0; }
+/* The pop-out window: the phone and its buttons, nothing else. */
+body.pip { background: #000; overflow: hidden; }
+body.pip .phone-col { height: 100vh; padding: 8px; gap: 8px; }
+body.pip .frame { border-radius: 18px; padding: 4px; box-shadow: none; }
+body.pip canvas { border-radius: 14px; }
+body.pip .keys { transform: scale(0.85); }
+.pip-spot { display: grid; place-items: center; color: var(--muted); }
+
 @media (max-width: 760px) {
   .stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; padding: 12px; }
+  .phone-col { justify-items: stretch; }
+  .frame { justify-self: center; }
+  .keys { flex-wrap: wrap; border-radius: 22px; gap: 2px; }
+  .keys button { width: 42px; }
+  .keys .sep { display: none; }
+  .transfer { right: 16px; bottom: 16px; }
   .ai { width: auto; max-height: 40vh; }
   .bar button { padding: 6px 10px; }
 }

@@ -492,9 +492,14 @@ impl Mirrors {
         };
         let (video_tx, video_rx) = mpsc::channel(VIEWER_VIDEO_QUEUE);
         let (text_tx, text_rx) = mpsc::channel(VIEWER_TEXT_QUEUE);
-        for earlier in [&session.screen, &session.ai, &session.status, &session.input]
-            .into_iter()
-            .flatten()
+        for earlier in [
+            &session.screen,
+            &session.ai,
+            &session.status,
+            &session.input,
+        ]
+        .into_iter()
+        .flatten()
         {
             let _ = text_tx.try_send(ToViewer::Text(earlier.clone()));
         }

@@ -40,7 +40,22 @@
       <span class="brand">Latch · <span id="device">Phone</span></span>
       <span id="live" class="live" role="status" aria-live="polite"><b></b><span id="live-text">Connecting</span></span>
       <span id="mode" class="mode"></span>
+      <span id="smooth" class="smooth" hidden title="Real touches and keys through Full ADB">Smooth input</span>
       <span class="spacer"></span>
+      <span id="status" class="status" hidden role="status">
+        <span id="bars" class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span id="net"></span>
+        <span class="battery-wrap"><svg class="bolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><span id="battery"></span></span>
+      </span>
+      <span class="tools" role="toolbar" aria-label="Tools">
+        <button type="button" class="tool" data-action="shot" aria-label="Screenshot" title="Screenshot to your downloads (Alt+P)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+        <button type="button" class="tool" id="record" data-action="record" aria-label="Record the screen" aria-pressed="false" title="Record the screen with sound (Alt+Shift+P)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle class="dot" cx="12" cy="12" r="4"/></svg></button>
+        <button type="button" class="tool" data-action="send_file" aria-label="Send files to the phone" title="Send files to the phone's Downloads (Alt+U), or drop them anywhere here"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/></svg></button>
+        <button type="button" class="tool" id="show-notifications" aria-label="Show notifications in the mirror" aria-pressed="false" title="Show notifications in the mirror; Android 15 hides them (Alt+I, needs Full ADB)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg></button>
+        <button type="button" class="tool" id="pop-out" data-action="pop_out" aria-label="Pop out" aria-pressed="false" title="The phone in its own small window, on top (Alt+W)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="11" y="11" width="7" height="6" rx="1"/></svg></button>
+        <button type="button" class="tool" data-action="help" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (Alt+/)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
+      </span>
+      <input type="file" id="file-pick" multiple hidden>
       <button id="pause" type="button">Pause AI</button>
       <button id="stop" type="button" class="danger">Stop AI</button>
       <button id="end" type="button">End mirroring</button>
@@ -53,15 +68,16 @@
           <div id="cover" class="cover" hidden><p id="cover-text">Waiting for the picture…</p></div>
         </div>
         <nav class="keys" aria-label="Phone buttons">
-          <button type="button" data-button="back" aria-label="Back" title="Back (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5 L7 12 L16 19 Z"/></svg></button>
-          <button type="button" data-button="home" aria-label="Home" title="Home"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg></button>
-          <button type="button" data-button="recents" aria-label="Recent apps" title="Recent apps"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+          <button type="button" data-button="back" aria-label="Back" title="Back (Esc or Alt+B)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5 L7 12 L16 19 Z"/></svg></button>
+          <button type="button" data-button="home" aria-label="Home" title="Home (Alt+H)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg></button>
+          <button type="button" data-button="recents" aria-label="Recent apps" title="Recent apps (Alt+S)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+          <button type="button" data-button="notifications" aria-label="Notifications" title="Pull down notifications (Alt+N; Alt+Shift+N for quick settings)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16"/><path d="M8 10l4 4 4-4"/></svg></button>
           <span class="sep" aria-hidden="true"></span>
-          <button type="button" id="sound" aria-label="Sound on" aria-pressed="true" title="Phone sound (videos, music; never calls)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
-          <input type="range" id="volume" min="0" max="100" step="1" value="100" aria-label="Volume on this computer" title="Volume on this computer">
-          <button type="button" id="screen-light" aria-label="Turn the phone screen off" aria-pressed="false" title="Phone screen off, mirror keeps going (needs Full ADB)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M4 4l16 16"/></svg></button>
-          <button type="button" id="rotate" aria-label="Rotate view" aria-pressed="false" title="Rotate view (for landscape videos)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button>
-          <button type="button" id="full" aria-label="Full screen" title="Full screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+          <button type="button" id="sound" aria-label="Sound on" aria-pressed="true" title="Phone sound (videos, music; never calls) (Alt+M)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
+          <input type="range" id="volume" min="0" max="100" step="1" value="100" aria-label="Volume on this computer" title="Volume on this computer (Alt+Up, Alt+Down)">
+          <button type="button" id="screen-light" aria-label="Turn the phone screen off" aria-pressed="false" title="Phone screen off, mirror keeps going (Alt+O, needs Full ADB)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M4 4l16 16"/></svg></button>
+          <button type="button" id="rotate" aria-label="Rotate view" aria-pressed="false" title="Rotate view, for landscape videos (Alt+R)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button>
+          <button type="button" id="full" aria-label="Full screen" title="Full screen (Alt+F)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         </nav>
       </section>
 
@@ -77,6 +93,41 @@
       </aside>
     </div>
     <p id="toast" class="toast" role="status" aria-live="polite" hidden></p>
+    <div id="transfer" class="transfer" hidden role="status" aria-live="polite">
+      <span id="transfer-text"></span>
+      <progress id="transfer-bar" max="1" value="0"></progress>
+    </div>
+    <div id="drop" class="drop" hidden><p>Drop to send to the phone's Downloads</p></div>
   </div>
+
+  <dialog id="help" class="help" aria-labelledby="help-title">
+    <h2 id="help-title">Keyboard shortcuts</h2>
+    <p class="muted small">Type and click on the phone as on this computer. Alt is Option on a Mac.</p>
+    <div class="help-cols">
+      <dl>
+        <dt>Esc</dt><dd>Back</dd>
+        <dt>Alt+B / H / S</dt><dd>Back, Home, Recent apps</dd>
+        <dt>Alt+N</dt><dd>Notifications (Alt+Shift+N: quick settings)</dd>
+        <dt>Alt+O</dt><dd>Phone screen off or on</dd>
+        <dt>Alt+F</dt><dd>Full screen</dd>
+        <dt>Alt+R</dt><dd>Rotate view</dd>
+        <dt>Alt+W</dt><dd>Pop-out window</dd>
+        <dt>Alt+M</dt><dd>Sound on or off</dd>
+        <dt>Alt+Up / Down</dt><dd>Volume on this computer</dd>
+      </dl>
+      <dl>
+        <dt>Ctrl/Cmd+C, X</dt><dd>Copy or cut on the phone, to this computer</dd>
+        <dt>Ctrl/Cmd+V</dt><dd>Paste from this computer (text, pictures, files)</dd>
+        <dt>Ctrl/Cmd+A</dt><dd>Select all in the text box</dd>
+        <dt>Ctrl/Alt+Backspace</dt><dd>Delete a word</dd>
+        <dt>Ctrl/Alt+Left, Right</dt><dd>Move by word (Cmd: to line start or end)</dd>
+        <dt>Shift+Enter</dt><dd>New line (Enter sends or searches)</dd>
+        <dt>Alt+P</dt><dd>Screenshot (Alt+Shift+P: record)</dd>
+        <dt>Alt+U</dt><dd>Send files (or drop them here)</dd>
+        <dt>Alt+I</dt><dd>Show notifications in the mirror</dd>
+      </dl>
+    </div>
+    <button id="help-close" type="button" class="primary">Close</button>
+  </dialog>
 </body>
 </html>

@@ -11,6 +11,7 @@
 const KIND_H264 = 1;
 const KIND_JPEG = 2;
 const KIND_PCM = 3;
+const KIND_SHOT = 4;
 const FLAG_KEY = 1;
 const HEADER_BYTES = 10;
 
@@ -19,7 +20,7 @@ function parseFrame(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength <= HEADER_BYTES) return null;
   const view = new DataView(buffer);
   const kind = view.getUint8(0);
-  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM) return null;
+  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM && kind !== KIND_SHOT) return null;
   const flags = view.getUint8(1);
   const ts = Number(view.getBigUint64(2));
   return { kind, key: (flags & FLAG_KEY) !== 0, ts, data: new Uint8Array(buffer, HEADER_BYTES) };
@@ -96,14 +97,34 @@ function wheelPixels(event, rect, screen, turned = false) {
   return { dx: Math.round(event.deltaX * unit * sx), dy: Math.round(event.deltaY * unit * sy) };
 }
 
-/** What a key press becomes on the phone: text, a key, a button, or nothing. */
+/**
+ * What a key press becomes on the phone: text, a key, a button, or nothing.
+ * Editing shortcuts work as on the computer: Ctrl or Option with Backspace
+ * and the arrows act on words, Cmd with the arrows on lines, Ctrl/Cmd+A
+ * selects everything, Shift+Enter starts a new line.
+ */
 function keyMessage(event) {
-  if (event.ctrlKey || event.metaKey || event.altKey) return null;
+  const mod = event.ctrlKey || event.metaKey;
+  const key = (name) => ({ t: 'key', key: name });
+  if (mod && !event.altKey && (event.key === 'a' || event.key === 'A')) return key('select_all');
+  if (event.key === 'Backspace') return key(event.altKey || event.ctrlKey ? 'word_backspace' : 'backspace');
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    const left = event.key === 'ArrowLeft';
+    if (event.metaKey) return key(left ? 'home' : 'end');
+    if (event.altKey || event.ctrlKey) return key(left ? 'word_left' : 'word_right');
+    return key(left ? 'left' : 'right');
+  }
+  if (mod || event.altKey) {
+    // Option/Alt with a character types it (é, ™ on a Mac); anything else stays with the browser.
+    if (!mod && Array.from(event.key).length === 1 && !/\p{Cc}/u.test(event.key)) return { t: 'text', text: event.key };
+    if (event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) return key(event.key === 'ArrowUp' ? 'up' : 'down');
+    return null;
+  }
   const keys = {
-    Backspace: 'backspace', Delete: 'delete', Enter: 'enter', Tab: 'tab',
-    ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+    Delete: 'delete', Tab: 'tab', ArrowUp: 'up', ArrowDown: 'down', Home: 'home', End: 'end',
   };
-  if (keys[event.key]) return { t: 'key', key: keys[event.key] };
+  if (keys[event.key]) return key(keys[event.key]);
+  if (event.key === 'Enter') return key(event.shiftKey ? 'newline' : 'enter');
   if (event.key === 'Escape') return { t: 'button', name: 'back' };
   // One character (one code point, so emoji count); named keys such as F5 are longer.
   if (Array.from(event.key).length === 1 && !/\p{Cc}/u.test(event.key)) {
@@ -112,12 +133,56 @@ function keyMessage(event) {
   return null;
 }
 
-/** Pasted text as messages the phone takes: no control characters, at most 256 characters each. */
-function pasteMessages(text) {
-  const clean = Array.from(text.replace(/\r\n?|\n/g, ' ')).filter((c) => !/\p{Cc}/u.test(c));
-  const out = [];
-  for (let i = 0; i < clean.length; i += 256) out.push({ t: 'text', text: clean.slice(i, i + 256).join('') });
-  return out;
+/**
+ * The page's own shortcuts: Alt (Option on a Mac) with a letter, so they
+ * never clash with typing or with the browser's Ctrl/Cmd shortcuts.
+ */
+const SHORTCUTS = {
+  KeyB: 'back', KeyH: 'home', KeyS: 'recents', KeyN: 'notifications', 'Shift+KeyN': 'quick_settings',
+  KeyO: 'screen_light', KeyF: 'full', KeyR: 'rotate', KeyM: 'sound',
+  ArrowUp: 'volume_up', ArrowDown: 'volume_down',
+  KeyP: 'shot', 'Shift+KeyP': 'record', KeyU: 'send_file', KeyW: 'pop_out', KeyI: 'show_notifications',
+  Slash: 'help', 'Shift+Slash': 'help',
+};
+
+/** The page action for a key press, or null. */
+function shortcut(event) {
+  if (!event.altKey || event.ctrlKey || event.metaKey) return null;
+  if (event.getModifierState && event.getModifierState('AltGraph')) return null;
+  return SHORTCUTS[(event.shiftKey ? 'Shift+' : '') + event.code] || null;
+}
+
+/** What Ctrl/Cmd with C or X asks the phone for: copy, cut, or nothing. */
+function clipboardAction(event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return null;
+  const k = String(event.key).toLowerCase();
+  return k === 'c' ? 'copy' : k === 'x' ? 'cut' : null;
+}
+
+/**
+ * Pasted text as one message the phone takes: line breaks and tabs kept,
+ * other control characters dropped, at most 4096 characters and small
+ * enough for the gateway (15 KB). Null when nothing is left.
+ */
+function pasteMessage(text) {
+  let chars = Array.from(String(text).replace(/\r\n?/g, '\n')).filter((c) => c === '\n' || c === '\t' || !/\p{Cc}/u.test(c));
+  if (chars.length > 4096) chars = chars.slice(0, 4096);
+  const size = (cs) => new TextEncoder().encode(JSON.stringify({ t: 'paste', text: cs.join('') })).length;
+  while (chars.length && size(chars) > 15000) chars = chars.slice(0, Math.floor(chars.length * 0.9));
+  return chars.length ? { t: 'paste', text: chars.join('') } : null;
+}
+
+/** A file-name-safe local time, "2026-10-19 16-30-05". */
+function stamp(date) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}-${p(date.getMinutes())}-${p(date.getSeconds())}`;
+}
+
+/** The phone's status line: "Wi-Fi", "Mobile", or "Offline", and the battery. */
+function statusText(m) {
+  const net = { wifi: 'Wi-Fi', cellular: 'Mobile', ethernet: 'Ethernet', none: 'Offline' }[m.network] || '';
+  const battery = Number.isInteger(m.battery) ? `${m.battery}%` : '';
+  return { net, battery, charging: m.charging === true, bars: Number.isInteger(m.signal) ? Math.max(0, Math.min(4, m.signal)) : null };
 }
 
 /** Round trip in ms to the colour of the Live dot. */
@@ -139,8 +204,8 @@ function keyFromHash(hash) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, pasteMessages,
-    latencyClass, normalizeCode, keyFromHash,
+    parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, shortcut,
+    clipboardAction, pasteMessage, stamp, statusText, latencyClass, normalizeCode, keyFromHash,
   };
 }
 
@@ -171,17 +236,37 @@ if (typeof document !== 'undefined') {
   let session = 'off';
   let ownerControl = false;
   let toastTimer = 0;
+  // How the phone takes input: 'keys' through the Full ADB helper (live drags, real keys), or 'basic'.
+  let inputMode = 'basic';
 
   function show(view) {
     for (const id of ['join', 'over', 'app']) $(id).hidden = id !== view;
   }
 
-  function toast(text) {
+  function toast(text, action) {
     const el = $('toast');
-    el.textContent = text;
+    el.replaceChildren(document.createTextNode(text));
+    if (action) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = action.label;
+      b.addEventListener('click', () => { el.hidden = true; action.run(); });
+      el.append(' ', b);
+    }
     el.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
+    toastTimer = setTimeout(() => { el.hidden = true; }, action ? 10000 : 4000);
+  }
+
+  /** Saves a file the page made (a screenshot, a recording) to the computer's downloads. */
+  function save(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   }
 
   function send(message) {
@@ -278,6 +363,8 @@ if (typeof document !== 'undefined') {
         if (location.hash) history.replaceState(null, '', location.pathname);
         $('device').textContent = m.device || 'Phone';
         usingH264 = m.codec === 'h264';
+        inputMode = 'basic';
+        $('smooth').hidden = true;
         $('mode').textContent = usingH264 ? '' : 'Still pictures';
         show('app');
         cover('Waiting for the picture…');
@@ -307,6 +394,16 @@ if (typeof document !== 'undefined') {
       }
       case 'notice':
         if (typeof m.text === 'string') toast(m.text);
+        break;
+      case 'clipboard':
+        if (typeof m.text === 'string') copyToComputer(m.text);
+        break;
+      case 'status':
+        showStatus(m);
+        break;
+      case 'input':
+        inputMode = m.mode === 'keys' ? 'keys' : 'basic';
+        $('smooth').hidden = inputMode !== 'keys';
         break;
       case 'volume':
         // An AI app set the computer's volume (phone_control mirror_volume).
@@ -348,6 +445,8 @@ if (typeof document !== 'undefined') {
 
   let audio = null;
   let gain = null;
+  // Every sound goes into `mix`; the volume slider sits after it, so a recording keeps full volume.
+  let mix = null;
   let audioAt = 0;
   let volume = 1;
   try { const v = parseFloat(localStorage.getItem('latch-volume')); if (v >= 0 && v <= 1) volume = v; } catch { /* no storage */ }
@@ -362,6 +461,8 @@ if (typeof document !== 'undefined') {
         gain = audio.createGain();
         gain.gain.value = volume;
         gain.connect(audio.destination);
+        mix = audio.createGain();
+        mix.connect(gain);
       } catch { audio = null; }
     }
     if (audio && audio.state === 'suspended') audio.resume().then(tellPhoneSound).catch(() => {});
@@ -395,7 +496,7 @@ if (typeof document !== 'undefined') {
     if (audioAt < now + 0.01 || audioAt > now + 0.15) audioAt = now + 0.04;
     const source = audio.createBufferSource();
     source.buffer = buffer;
-    source.connect(gain || audio.destination);
+    source.connect(mix || audio.destination);
     source.start(audioAt);
     audioAt += buffer.duration;
   }
@@ -453,6 +554,11 @@ if (typeof document !== 'undefined') {
     if (!frame) return;
     if (frame.kind === KIND_PCM) {
       playPcm(frame.data);
+      return;
+    }
+    if (frame.kind === KIND_SHOT) {
+      save(new Blob([frame.data], { type: 'image/png' }), `Latch screenshot ${stamp(new Date())}.png`);
+      toast('Screenshot saved to your downloads.');
       return;
     }
     if (frame.kind === KIND_JPEG) {
@@ -565,7 +671,8 @@ if (typeof document !== 'undefined') {
     if (p) lastPoint = p;
     if (event.pointerId !== pointerId || !p) return;
     const now = performance.now();
-    if (now - lastMoveAt >= 12) {
+    // With real touch events the phone keeps up with every pointer move up to 120 a second.
+    if (now - lastMoveAt >= (inputMode === 'keys' ? 8 : 12)) {
       lastMoveAt = now;
       pendingMove = null;
       send({ t: 'touch', phase: 'move', ...p });
@@ -604,7 +711,7 @@ if (typeof document !== 'undefined') {
         const clamp = (v) => Math.max(-16384, Math.min(16384, v));
         if (wheel.dx || wheel.dy) send({ t: 'wheel', ...lastPoint, dx: clamp(wheel.dx), dy: clamp(wheel.dy) });
         wheel = { dx: 0, dy: 0 };
-      }, 60);
+      }, inputMode === 'keys' ? 16 : 60);
     }
   }, { passive: false });
 
@@ -616,31 +723,299 @@ if (typeof document !== 'undefined') {
     typed = '';
   }
 
-  document.addEventListener('keydown', (event) => {
+  function onKeyDown(event) {
     wakeAudio();
-    if ($('app').hidden || event.target instanceof HTMLInputElement) return;
+    if ($('app').hidden || $('help').open) return;
+    const action = shortcut(event);
+    if (action) {
+      event.preventDefault();
+      runAction(action);
+      return;
+    }
+    if (event.target instanceof HTMLInputElement) return;
     if (event.target instanceof HTMLButtonElement && (event.key === 'Enter' || event.key === ' ')) return;
+    const clip = clipboardAction(event);
+    if (clip) {
+      // Text selected on this page itself is the browser's to copy.
+      const selection = (event.target.ownerDocument || document).getSelection();
+      if (selection && String(selection).length) return;
+      event.preventDefault();
+      flushTyped();
+      send({ t: clip });
+      return;
+    }
     const m = keyMessage(event);
     if (!m) return;
     event.preventDefault();
     if (m.t === 'text') {
       typed += m.text;
       if (Array.from(typed).length >= 64) flushTyped();
-      else if (!typedTimer) typedTimer = setTimeout(flushTyped, 40);
+      else if (!typedTimer) typedTimer = setTimeout(flushTyped, 16);
       return;
     }
     flushTyped();
     send(m);
-  });
+  }
+  document.addEventListener('keydown', onKeyDown);
 
-  document.addEventListener('paste', (event) => {
+  function onPaste(event) {
     if ($('app').hidden) return;
-    const text = event.clipboardData && event.clipboardData.getData('text/plain');
+    const data = event.clipboardData;
+    if (!data) return;
+    const files = Array.from(data.files || []);
+    if (files.length) {
+      // A copied picture or file goes to the phone's Downloads, as a dropped one does.
+      event.preventDefault();
+      sendFiles(files);
+      return;
+    }
+    const text = data.getData('text/plain');
     if (!text) return;
     event.preventDefault();
     flushTyped();
-    for (const m of pasteMessages(text)) send(m);
+    const m = pasteMessage(text);
+    if (m) send(m);
+    if (m && m.text.length < text.length) toast('Only the first part of that text fits in one paste.');
+  }
+  document.addEventListener('paste', onPaste);
+
+  // ---- Clipboard from the phone ----
+
+  async function copyToComputer(text) {
+    const n = Array.from(text).length;
+    const done = () => toast(`Copied ${n} character${n === 1 ? '' : 's'} from the phone.`);
+    try {
+      await navigator.clipboard.writeText(text);
+      done();
+      return;
+    } catch { /* not allowed without a click, or not over https: ask for one */ }
+    toast('The phone sent text for your clipboard.', {
+      label: 'Copy',
+      run: () => {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.append(area);
+        area.select();
+        const ok = document.execCommand('copy');
+        area.remove();
+        if (ok) done();
+        else toast("This browser didn't allow copying.");
+      },
+    });
+  }
+
+  // ---- The phone's status ----
+
+  function showStatus(m) {
+    const st = statusText(m);
+    $('status').hidden = !(st.net || st.battery);
+    $('net').textContent = st.net;
+    $('battery').textContent = st.battery;
+    $('status').classList.toggle('charging', st.charging);
+    const bars = $('bars');
+    bars.hidden = st.bars === null || !st.net || st.net === 'Offline';
+    bars.dataset.level = String(st.bars ?? 0);
+    $('status').title = `${st.net}${st.bars !== null ? `, signal ${st.bars} of 4` : ''}${st.battery ? `, battery ${st.battery}${st.charging ? ', charging' : ''}` : ''}`;
+  }
+
+  // ---- Files to the phone (dropped, picked, or pasted) ----
+
+  function sendFiles(files) {
+    if (!key) {
+      toast('Sending files needs the link from the phone; reconnect from Latch.');
+      return;
+    }
+    let chain = Promise.resolve();
+    for (const file of files) chain = chain.then(() => sendFile(file));
+  }
+
+  function sendFile(file) {
+    return new Promise((resolve) => {
+      const panel = $('transfer');
+      const label = $('transfer-text');
+      const bar = $('transfer-bar');
+      panel.hidden = false;
+      label.textContent = `Sending ${file.name}…`;
+      bar.value = 0;
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/v1/mirror/files?name=${encodeURIComponent(file.name || 'file')}`);
+      xhr.setRequestHeader('x-latch-mirror-key', key);
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        bar.value = e.loaded / e.total;
+        if (e.loaded === e.total) label.textContent = `Saving ${file.name} on the phone…`;
+      };
+      const finish = (text) => {
+        panel.hidden = true;
+        toast(text);
+        resolve();
+      };
+      xhr.onload = () => {
+        let body = {};
+        try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+        if (xhr.status === 200 && body.ok) finish(`${file.name}: ${body.text || 'saved on the phone.'}`);
+        else finish(`${file.name} was not sent: ${body.error || `the gateway answered ${xhr.status}`}.`);
+      };
+      xhr.onerror = () => finish(`${file.name} was not sent: the connection to the gateway broke.`);
+      xhr.send(file);
+    });
+  }
+
+  let dragDepth = 0;
+  const hasFiles = (event) => event.dataTransfer && Array.from(event.dataTransfer.types || []).includes('Files');
+  document.addEventListener('dragenter', (event) => {
+    if ($('app').hidden || !hasFiles(event)) return;
+    dragDepth += 1;
+    $('drop').hidden = false;
   });
+  document.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) $('drop').hidden = true;
+  });
+  document.addEventListener('dragover', (event) => {
+    if (hasFiles(event)) event.preventDefault();
+  });
+  document.addEventListener('drop', (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    $('drop').hidden = true;
+    if (!$('app').hidden) sendFiles(Array.from(event.dataTransfer.files));
+  });
+  $('file-pick').addEventListener('change', () => {
+    sendFiles(Array.from($('file-pick').files || []));
+    $('file-pick').value = '';
+  });
+
+  // ---- Recording ----
+
+  let recorder = null;
+  function toggleRecording() {
+    if (recorder) {
+      recorder.stop();
+      return;
+    }
+    if (typeof MediaRecorder !== 'function' || typeof canvas.captureStream !== 'function') {
+      toast("This browser can't record the screen.");
+      return;
+    }
+    const stream = canvas.captureStream(60);
+    wakeAudio();
+    let tap = null;
+    if (audio && mix) {
+      tap = audio.createMediaStreamDestination();
+      mix.connect(tap);
+      for (const track of tap.stream.getAudioTracks()) stream.addTrack(track);
+    }
+    const type = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm']
+      .find((t) => MediaRecorder.isTypeSupported(t)) || '';
+    let rec;
+    try {
+      rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 12_000_000 });
+    } catch {
+      toast("This browser can't record the screen.");
+      return;
+    }
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      recorder = null;
+      if (tap && mix) { try { mix.disconnect(tap); } catch { /* already gone */ } }
+      for (const track of stream.getTracks()) track.stop();
+      $('record').setAttribute('aria-pressed', 'false');
+      $('record').setAttribute('aria-label', 'Record the screen');
+      const kind = rec.mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+      save(new Blob(chunks, { type: rec.mimeType }), `Latch recording ${stamp(new Date())}.${kind}`);
+      toast('Recording saved to your downloads.');
+    };
+    rec.start(1000);
+    recorder = rec;
+    $('record').setAttribute('aria-pressed', 'true');
+    $('record').setAttribute('aria-label', 'Stop recording');
+    toast('Recording. Press the button again (or Alt+Shift+P) to stop and save.');
+  }
+
+  // ---- Pop-out window (Document Picture-in-Picture, Chrome and Edge) ----
+
+  let pip = null;
+  async function popOut() {
+    if (pip) {
+      pip.close();
+      return;
+    }
+    if (!('documentPictureInPicture' in window)) {
+      toast('A pop-out window needs Chrome or Edge.');
+      return;
+    }
+    const phone = $('phone');
+    const box = canvas.getBoundingClientRect();
+    const height = Math.min(900, Math.max(480, Math.round(box.height + 80)));
+    const width = Math.round(height * (canvas.width && canvas.height ? canvas.width / canvas.height : 0.5)) + 24;
+    try {
+      pip = await window.documentPictureInPicture.requestWindow({ width, height });
+    } catch {
+      toast("The browser didn't open the pop-out window.");
+      return;
+    }
+    for (const sheet of document.styleSheets) {
+      try {
+        const style = document.createElement('style');
+        style.textContent = Array.from(sheet.cssRules, (r) => r.cssText).join('\n');
+        pip.document.head.append(style);
+      } catch { /* a sheet from elsewhere; this page has none */ }
+    }
+    pip.document.body.className = 'pip';
+    const spot = document.createElement('div');
+    spot.className = 'pip-spot';
+    spot.textContent = 'The phone is in its own window.';
+    phone.before(spot);
+    pip.document.body.append(phone);
+    pip.document.addEventListener('keydown', onKeyDown);
+    pip.document.addEventListener('paste', onPaste);
+    $('pop-out').setAttribute('aria-pressed', 'true');
+    canvas.focus();
+    pip.addEventListener('pagehide', () => {
+      spot.replaceWith(phone);
+      pip = null;
+      $('pop-out').setAttribute('aria-pressed', 'false');
+    });
+  }
+
+  // ---- Every action, from a button or a shortcut ----
+
+  let notificationsShown = false;
+  try { notificationsShown = localStorage.getItem('latch-notifications') === 'shown'; } catch { /* no storage */ }
+
+  function setVolume(percent) {
+    $('volume').value = String(Math.max(0, Math.min(100, percent)));
+    $('volume').dispatchEvent(new Event('input'));
+  }
+
+  function runAction(action) {
+    switch (action) {
+      case 'back': case 'home': case 'recents': case 'notifications': case 'quick_settings':
+        send({ t: 'button', name: action });
+        break;
+      case 'screen_light': $('screen-light').click(); break;
+      case 'full': $('full').click(); break;
+      case 'rotate': $('rotate').click(); break;
+      case 'sound': $('sound').click(); break;
+      case 'volume_up': setVolume(Number($('volume').value) + 10); toast(`Volume ${$('volume').value}%`); break;
+      case 'volume_down': setVolume(Number($('volume').value) - 10); toast(`Volume ${$('volume').value}%`); break;
+      case 'shot':
+        send({ t: 'shot' });
+        toast('Taking a screenshot…');
+        break;
+      case 'record': toggleRecording(); break;
+      case 'send_file': $('file-pick').click(); break;
+      case 'pop_out': popOut(); break;
+      case 'show_notifications': $('show-notifications').click(); break;
+      case 'help': $('help').showModal(); break;
+      default: break;
+    }
+  }
 
   for (const button of document.querySelectorAll('[data-button]')) {
     button.addEventListener('click', () => send({ t: 'button', name: button.dataset.button }));
@@ -653,8 +1028,28 @@ if (typeof document !== 'undefined') {
   $('full').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
     // The phone and its buttons together, so Back, Home and Recents stay at hand.
-    else $('phone').requestFullscreen({ navigationUI: 'hide' }).catch(() => toast('Full screen is not available here.'));
+    else {
+      $('phone').requestFullscreen({ navigationUI: 'hide' })
+        // Escape goes to the phone as Back; holding it leaves full screen (Chrome, Edge).
+        .then(() => navigator.keyboard && navigator.keyboard.lock && navigator.keyboard.lock(['Escape']).catch(() => {}))
+        .catch(() => toast('Full screen is not available here.'));
+    }
   });
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
+  });
+  for (const el of document.querySelectorAll('[data-action]')) {
+    el.addEventListener('click', () => runAction(el.dataset.action));
+  }
+  $('show-notifications').setAttribute('aria-pressed', String(notificationsShown));
+  $('show-notifications').addEventListener('click', () => {
+    notificationsShown = !notificationsShown;
+    $('show-notifications').setAttribute('aria-pressed', String(notificationsShown));
+    try { localStorage.setItem('latch-notifications', notificationsShown ? 'shown' : 'hidden'); } catch { /* no storage */ }
+    send({ t: 'notifications', show: notificationsShown });
+    toast(notificationsShown ? 'Asking the phone to show notifications in the mirror…' : 'Asking the phone to hide notifications again…');
+  });
+  $('help-close').addEventListener('click', () => $('help').close());
   $('volume').value = String(Math.round(volume * 100));
   $('volume').addEventListener('input', () => {
     volume = Math.max(0, Math.min(1, Number($('volume').value) / 100));

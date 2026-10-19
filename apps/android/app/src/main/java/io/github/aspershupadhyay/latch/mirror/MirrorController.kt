@@ -98,6 +98,8 @@ class MirrorController(
     /** Real touch and key events through Full ADB when the owner has it on (ADR-057). */
     private val keys = ShellInputLink(scope, context.applicationInfo.sourceDir, session::mirrorShell)
     @Volatile private var keysWanted = false
+    /** Times the helper failed while this viewer watches; after two it is not tried again until the next viewer. */
+    @Volatile private var keysFailed = 0
 
     init {
         // The phone's emergency Stop ends mirroring as well.
@@ -365,6 +367,7 @@ class MirrorController(
             link?.sendText(MirrorMessages.screen(s.width, s.height, s.rotation))
             h.post { capture?.start(codec) }
             startAi()
+            keysFailed = 0
             startStatus()
             log.add(ActivityKind.CONNECTION, "Your computer is watching the screen", by = ActivityActor.OWNER)
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WATCHING)
@@ -387,14 +390,17 @@ class MirrorController(
     /** Starts the helper when Full ADB is on and it is not running; tells the page how input goes. */
     private fun checkKeys() {
         val on = session.fullAdbOn()
-        if (on && !keysWanted) {
+        if (on && !keysWanted && keysFailed < KEYS_TRIES) {
             keysWanted = true
             keys.start(
                 started = { link?.sendText(MirrorMessages.input("keys")) },
                 ended = { why ->
                     keysWanted = false
                     link?.sendText(MirrorMessages.input("basic"))
-                    if (why != null && watching) notice("Smooth input is off ($why); clicks and typing still work.")
+                    if (why != null && watching) {
+                        keysFailed++
+                        notice("Smooth input is off ($why); clicks and typing still work.")
+                    }
                 },
             )
         } else if (!on && keysWanted) {
@@ -814,6 +820,7 @@ class MirrorController(
     companion object {
         private const val AI_REFRESH_MS = 400L
         private const val STATUS_EVERY_MS = 5_000L
+        private const val KEYS_TRIES = 2
         private const val KEYS_SETTLE_MS = 40L
         private const val COPY_SETTLE_MS = 120L
         /** What the gateway relays in one frame (its MAX_FRAME_BYTES). */
