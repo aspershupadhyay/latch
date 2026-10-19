@@ -72,7 +72,7 @@ Coordinates are phone screen pixels (0–16384). The gateway drops anything else
 
 ## Flow control
 
-Video is never queued. The gateway holds at most 3 frames per viewer (50 ms at 60 frames a second); when that is full it drops frames until the next key frame and asks the phone for one (at most every 250 ms). The phone drops a delta frame when its socket's send queue passes 96 KiB (a key frame at 512 KiB), asks its encoder for a key frame, and lowers the bitrate while drops repeat. Its socket has no Nagle delay and a 128 KiB send buffer, so a slow network shows up as drops at once rather than as seconds of video queued in the kernel. Sound frames are dropped rather than played late; screenshots wait with the text messages and are never dropped.
+Video is never queued. The gateway holds at most 3 frames per viewer (50 ms at 60 frames a second); when that is full it drops frames until the next key frame and asks the phone for one (at most every 250 ms). The phone drops a delta frame when its socket's send queue passes 96 KiB (a key frame at 512 KiB), asks its encoder for a key frame, and lowers the bitrate while drops repeat. Its socket has no Nagle delay and a 128 KiB send buffer, so a slow network shows up as drops at once rather than as seconds of video queued in the kernel. Sound has its own queue of 8 frames (160 ms), so it never fills the video queue or costs a key frame, and is dropped rather than played late; screenshots wait with the text messages and are never dropped.
 
 ## Input helper (ADR-057)
 

@@ -69,6 +69,9 @@ const WRONG_CODES_PER_MINUTE: usize = 20;
 /// second, three are 50 ms).
 const VIEWER_VIDEO_QUEUE: usize = 3;
 const VIEWER_TEXT_QUEUE: usize = 64;
+/// Sound frames (20 ms each) waiting for one viewer: their own queue, so
+/// sound never fills the video queue and costs a key frame.
+const VIEWER_AUDIO_QUEUE: usize = 8;
 const PHONE_QUEUE: usize = 256;
 /// Least time between key-frame requests to the phone.
 const SYNC_REQUEST_GAP_MS: u64 = 250;
@@ -128,6 +131,7 @@ struct Viewer {
     id: u64,
     codec: Codec,
     video: mpsc::Sender<Bytes>,
+    audio: mpsc::Sender<Bytes>,
     text: mpsc::Sender<ToViewer>,
     waiting_key: bool,
     last_sync_ms: u64,
@@ -396,7 +400,7 @@ impl Mirrors {
         if frame.first() == Some(&KIND_PCM) {
             // Sound never waits for a key frame; when the viewer is behind, a dropped
             // 20 ms is better than late sound.
-            let _ = viewer.video.try_send(frame);
+            let _ = viewer.audio.try_send(frame);
             return;
         }
         let now = now_ms();
@@ -515,6 +519,7 @@ impl Mirrors {
             Codec::Jpeg
         };
         let (video_tx, video_rx) = mpsc::channel(VIEWER_VIDEO_QUEUE);
+        let (audio_tx, audio_rx) = mpsc::channel(VIEWER_AUDIO_QUEUE);
         let (text_tx, text_rx) = mpsc::channel(VIEWER_TEXT_QUEUE);
         for earlier in [
             &session.screen,
@@ -536,6 +541,7 @@ impl Mirrors {
             id,
             codec,
             video: video_tx,
+            audio: audio_tx,
             text: text_tx,
             waiting_key: true,
             last_sync_ms: now,
@@ -551,6 +557,7 @@ impl Mirrors {
             key: session.key.clone(),
             codec,
             video: video_rx,
+            audio: audio_rx,
             text: text_rx,
         })
     }
@@ -616,6 +623,7 @@ struct Joined {
     key: String,
     codec: Codec,
     video: mpsc::Receiver<Bytes>,
+    audio: mpsc::Receiver<Bytes>,
     text: mpsc::Receiver<ToViewer>,
 }
 
@@ -1099,6 +1107,7 @@ async fn serve_viewer(state: Arc<AppState>, socket: WebSocket) {
         key,
         codec,
         mut video,
+        mut audio,
         text: mut texts,
     } = joined;
     let name = state
@@ -1148,6 +1157,14 @@ async fn serve_viewer(state: Arc<AppState>, socket: WebSocket) {
                     None => break,
                 },
                 frame = video.recv() => match frame {
+                    Some(bytes) => {
+                        if sink.send(Message::Binary(bytes)).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                frame = audio.recv() => match frame {
                     Some(bytes) => {
                         if sink.send(Message::Binary(bytes)).await.is_err() {
                             break;
@@ -1307,6 +1324,50 @@ mod tests {
         }
         for v in read("viewer-invalid.json") {
             assert_eq!(ViewerMessage::parse(&v.to_string()), None, "invalid: {v}");
+        }
+    }
+
+    /// Sound at 50 frames a second must not crowd out video: with one queue,
+    /// a few sound frames filled it and every video frame after them was
+    /// dropped and cost a key frame.
+    #[test]
+    fn sound_does_not_crowd_out_video() {
+        let mirrors = Mirrors::default();
+        let (to_phone, mut phone) = mpsc::channel(PHONE_QUEUE);
+        let key = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO-_";
+        let (generation, _, _) = mirrors.attach_phone("d_1", key, "http://gw", to_phone);
+        let join: Join =
+            serde_json::from_str(&json!({"t": "join", "key": key, "codecs": ["h264"]}).to_string())
+                .expect("join");
+        let mut joined = mirrors.join(&join).expect("joined");
+        let framed = |kind: u8, flags: u8| {
+            let mut f = vec![kind, flags, 0, 0, 0, 0, 0, 0, 0, 1];
+            f.push(9);
+            Bytes::from(f)
+        };
+        mirrors.frame("d_1", generation, framed(KIND_H264, FLAG_KEY));
+        for _ in 0..10 {
+            mirrors.frame("d_1", generation, framed(KIND_PCM, 0));
+        }
+        mirrors.frame("d_1", generation, framed(KIND_H264, 0));
+        let mut video = 0;
+        while joined.video.try_recv().is_ok() {
+            video += 1;
+        }
+        assert_eq!(
+            video, 2,
+            "the key frame and the delta both wait for the viewer"
+        );
+        let mut sound = 0;
+        while joined.audio.try_recv().is_ok() {
+            sound += 1;
+        }
+        assert_eq!(
+            sound, VIEWER_AUDIO_QUEUE,
+            "sound beyond its queue is dropped"
+        );
+        while let Ok(ToPhone::Text(t)) = phone.try_recv() {
+            assert!(!t.contains("sync"), "no key frame was asked for: {t}");
         }
     }
 

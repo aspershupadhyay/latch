@@ -32,6 +32,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Fixed
 
+- **Mirror stutter while sound plays**: the phone's sound shared the gateway's three-frame video queue, so a few sound frames filled it and video frames were dropped and forced key frames. Sound now has its own queue.
 - **WhatsApp put "Message" in front of what you typed from the mirror**, and Backspace deleted it letter by letter: a field that reports its hint as text is now read as empty.
 - **Wireless-ADB pairing failed on every phone** with `pairing failed: org.conscrypt.Conscrypt`: the app looked for a TLS class that exists only off Android. It now uses Android's own exporter (Android 12+ public API; Android 11 through its TLS socket), with an on-device test in the emulator job.
 - **macOS refused the gateway** ("cannot be opened… Move to Trash") when downloaded in a browser: install it with `curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh`, which avoids the quarantine flag, checks the checksum, creates your keys, and adds `latch-start`. The macOS files are now signed ad hoc and verified in CI. Guide: [docs/connect-your-phone.md](docs/connect-your-phone.md).
