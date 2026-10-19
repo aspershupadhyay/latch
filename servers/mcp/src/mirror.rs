@@ -287,6 +287,16 @@ impl Mirrors {
         }
     }
 
+    /// A text message for this phone's viewer (ADR-055/056); false when no one watches.
+    pub fn to_viewer(&self, device_id: &str, message: &str) -> bool {
+        let inner = lock(&self.inner);
+        inner
+            .sessions
+            .get(device_id)
+            .and_then(|s| s.viewer.as_ref())
+            .is_some_and(|v| v.text.try_send(ToViewer::Text(message.to_owned())).is_ok())
+    }
+
     /// Whether this phone has a mirror open (connected or within its grace).
     pub fn is_open(&self, device_id: &str) -> bool {
         lock(&self.inner).sessions.contains_key(device_id)
@@ -643,6 +653,11 @@ pub enum ViewerMessage {
     },
     /// The viewer plays the phone's sound: the phone's own speaker goes quiet (ADR-055).
     Sound {
+        on: bool,
+    },
+    /// The screen's light off or on, run by the gateway through Full ADB (ADR-056);
+    /// never forwarded to the phone's mirror link.
+    ScreenLight {
         on: bool,
     },
 }
@@ -1056,8 +1071,21 @@ async fn serve_viewer(state: Arc<AppState>, socket: WebSocket) {
         if in_second > VIEWER_MESSAGES_PER_SECOND {
             continue;
         }
-        if let Some(message) = ViewerMessage::parse(&raw) {
-            state.mirrors.to_phone(&device_id, viewer_id, &message);
+        match ViewerMessage::parse(&raw) {
+            Some(ViewerMessage::ScreenLight { on }) => {
+                let state = state.clone();
+                let device_id = device_id.clone();
+                tokio::spawn(async move {
+                    let text = match crate::mcp::screen_light(&state, &device_id, on).await {
+                        Ok(done) => done.trim_start_matches("Done: ").to_owned(),
+                        Err(e) => format!("Screen light: {}", e.message),
+                    };
+                    let notice = json!({ "t": "notice", "text": text }).to_string();
+                    state.mirrors.to_viewer(&device_id, &notice);
+                });
+            }
+            Some(message) => state.mirrors.to_phone(&device_id, viewer_id, &message),
+            None => {}
         }
     }
     writer.abort();
@@ -1083,6 +1111,10 @@ mod tests {
         assert_eq!(
             ViewerMessage::parse(r#"{"t":"sound","on":true}"#),
             Some(ViewerMessage::Sound { on: true })
+        );
+        assert_eq!(
+            ViewerMessage::parse(r#"{"t":"screen_light","on":false}"#),
+            Some(ViewerMessage::ScreenLight { on: false })
         );
         for bad in [
             r#"{"t":"sound","on":"yes"}"#,

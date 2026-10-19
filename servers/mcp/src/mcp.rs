@@ -580,18 +580,23 @@ pub fn tool_definitions() -> Vec<Value> {
              volume, nfc, airplane_mode, location, display, battery, sound, notifications, \
              storage, date_time) and returns the screen, where you continue with tap. Ringer \
              and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. \
-             Needs Latch 1.11 on the phone; ringer, do_not_disturb, rotation, screen_timeout, \
-             and the panels after volume need 1.15.",
+             screen_light (on false) turns only the screen's light off while the phone, the \
+             live mirror, and your actions keep working; on true lights it again (the power \
+             button also does); it needs Full ADB on. mirror_volume sets how loud the phone's \
+             sound plays on the computer watching the live mirror (0-100 %); the phone's own \
+             speaker stays quiet while the mirror plays it. Needs Latch 1.11 on the phone; \
+             ringer, do_not_disturb, rotation, screen_timeout, and the panels after volume \
+             need 1.15.",
             false,
             json!({
                 "device_id": device_id_schema(),
-                "control": { "type": "string", "enum": ["volume", "media", "ringer", "do_not_disturb", "brightness", "rotation", "screen_timeout", "flashlight", "panel"] },
+                "control": { "type": "string", "enum": ["volume", "media", "ringer", "do_not_disturb", "brightness", "rotation", "screen_timeout", "flashlight", "panel", "screen_light", "mirror_volume"] },
                 "stream": { "type": "string", "enum": ["media", "ring", "notification", "alarm"], "default": "media", "description": "For volume." },
-                "percent": { "type": "integer", "minimum": 0, "maximum": 100, "description": "For volume and brightness." },
+                "percent": { "type": "integer", "minimum": 0, "maximum": 100, "description": "For volume, brightness, and mirror_volume." },
                 "action": { "type": "string", "enum": ["play_pause", "next", "previous"], "description": "For media." },
                 "mode": { "type": "string", "enum": ["normal", "vibrate", "silent", "auto", "portrait", "landscape"], "description": "For ringer (normal, vibrate, silent) and rotation (auto, portrait, landscape)." },
                 "seconds": { "type": "integer", "minimum": latch_protocol::MIN_SCREEN_TIMEOUT_S, "maximum": latch_protocol::MAX_SCREEN_TIMEOUT_S, "description": "For screen_timeout." },
-                "on": { "type": "boolean", "description": "For flashlight and do_not_disturb." },
+                "on": { "type": "boolean", "description": "For flashlight, do_not_disturb, and screen_light." },
                 "panel": { "type": "string", "enum": latch_protocol::SettingsPanel::ALL.map(|p| p.as_str()), "description": "For panel." },
                 "screenshot_after": screenshot_after_schema(),
             }),
@@ -712,6 +717,62 @@ fn image_mime(bytes: &[u8]) -> Option<&'static str> {
 
 /// `adb`: run one shell command on the phone in the owner-enabled full-access
 /// ADB mode, joining the device's output frames into one result.
+/// The command the phone's ADB shell runs for [`screen_light`]: Latch's own APK
+/// as a class path, so no file is copied to the phone (ADR-056).
+pub(crate) fn screen_light_command(on: bool) -> String {
+    format!(
+        "p=$( (pm path io.github.aspershupadhyay.latch || pm path io.github.aspershupadhyay.latch.debug) 2>/dev/null | head -n1); \
+         CLASSPATH=\"${{p#package:}}\" app_process / io.github.aspershupadhyay.latch.session.ScreenLight {}",
+        if on { "on" } else { "off" }
+    )
+}
+
+/// Turns the phone's screen light off or on while it keeps running (ADR-056),
+/// through Full ADB. Used by `phone_control` and the mirror page's button.
+pub(crate) async fn screen_light(
+    state: &Arc<AppState>,
+    device_id: &str,
+    on: bool,
+) -> Result<String, ProtocolError> {
+    let cmd = Command::AdbShell {
+        command_line: Some(screen_light_command(on)),
+        stdin: None,
+        timeout_ms: 15_000,
+        continue_from: None,
+        base64: false,
+        background: false,
+        job: None,
+        wait_ms: 0,
+        cancel: false,
+    };
+    let result = match devices::execute(state, device_id, cmd).await? {
+        Output::Adb(result) => result,
+        _ => {
+            return Err(ProtocolError::new(
+                ErrorCode::Internal,
+                "the phone answered adb.shell with something else",
+            ));
+        }
+    };
+    if result.exit_code == Some(0) {
+        Ok(if on {
+            "Done: the phone's screen is lit again.".into()
+        } else {
+            "Done: the phone's screen is dark; the phone, the live mirror, and your actions keep \
+             working. The power button lights it again."
+                .into()
+        })
+    } else {
+        Err(ProtocolError::new(
+            ErrorCode::Internal,
+            format!(
+                "the phone could not change its screen light: {}",
+                truncate(result.stderr.trim(), 300)
+            ),
+        ))
+    }
+}
+
 async fn adb_shell(
     state: &Arc<AppState>,
     args: &Value,
@@ -1237,6 +1298,39 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
         )));
     }
     if name == "phone_control" {
+        match arg_str(args, "control").map_err(bad)? {
+            Some("screen_light") => {
+                let on = match args.get("on") {
+                    Some(Value::Bool(on)) => *on,
+                    _ => {
+                        return Err(bad(ArgError(
+                            "on must be true or false for screen_light".into(),
+                        )));
+                    }
+                };
+                return screen_light(state, &device_id, on).await.map(text_result);
+            }
+            Some("mirror_volume") => {
+                let percent = arg_int(args, "percent")
+                    .map_err(bad)?
+                    .filter(|p| (0..=100).contains(p))
+                    .ok_or_else(|| {
+                        bad(ArgError("percent must be 0-100 for mirror_volume".into()))
+                    })?;
+                let message = json!({ "t": "volume", "percent": percent }).to_string();
+                if !state.mirrors.to_viewer(&device_id, &message) {
+                    return Err(ProtocolError::new(
+                        ErrorCode::InvalidRequest,
+                        "no one is watching this phone's live mirror; mirror_volume sets the volume \
+                         on the computer that watches it",
+                    ));
+                }
+                return Ok(text_result(format!(
+                    "Done: the live mirror plays the phone's sound at {percent}% on the computer."
+                )));
+            }
+            _ => {}
+        }
         let control = phone_control(args)?;
         if !control.shows_screen() {
             devices::execute(state, &device_id, Command::DeviceControl { control }).await?;
@@ -2483,5 +2577,19 @@ mod tests {
             initialize(&json!({"protocolVersion": "1999-01-01"}))["protocolVersion"],
             SUPPORTED_VERSIONS[0]
         );
+    }
+}
+
+#[cfg(test)]
+mod screen_light_tests {
+    /// The Vercel gateway sends the same command (servers/vercel/test/screen-light.test.ts).
+    #[test]
+    fn the_command_runs_the_helper_from_latchs_own_apk() {
+        assert_eq!(
+            super::screen_light_command(false),
+            "p=$( (pm path io.github.aspershupadhyay.latch || pm path io.github.aspershupadhyay.latch.debug) 2>/dev/null | head -n1); \
+             CLASSPATH=\"${p#package:}\" app_process / io.github.aspershupadhyay.latch.session.ScreenLight off"
+        );
+        assert!(super::screen_light_command(true).ends_with("ScreenLight on"));
     }
 }

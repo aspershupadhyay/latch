@@ -855,7 +855,7 @@ export const SERVER = {
         "readOnlyHint": false,
         "title": "Control sound, screen, flashlight, or open a settings page"
       },
-      "description": "One phone control per call, each group behind its own owner switch (off by default). Sound: volume (a stream to 0-100 %), media keys (play_pause, next, previous), ringer (normal, vibrate, silent), do_not_disturb (on). Screen: brightness (0-100 %, turns adaptive brightness off), rotation (auto, portrait, landscape), screen_timeout (15-1800 seconds). Flashlight: on or off. Panels: panel opens a settings panel or page over the current app (wifi, internet, bluetooth, volume, nfc, airplane_mode, location, display, battery, sound, notifications, storage, date_time) and returns the screen, where you continue with tap. Ringer and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. Needs Latch 1.11 on the phone; ringer, do_not_disturb, rotation, screen_timeout, and the panels after volume need 1.15.",
+      "description": "One phone control per call, each group behind its own owner switch (off by default). Sound: volume (a stream to 0-100 %), media keys (play_pause, next, previous), ringer (normal, vibrate, silent), do_not_disturb (on). Screen: brightness (0-100 %, turns adaptive brightness off), rotation (auto, portrait, landscape), screen_timeout (15-1800 seconds). Flashlight: on or off. Panels: panel opens a settings panel or page over the current app (wifi, internet, bluetooth, volume, nfc, airplane_mode, location, display, battery, sound, notifications, storage, date_time) and returns the screen, where you continue with tap. Ringer and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. screen_light (on false) turns only the screen's light off while the phone, the live mirror, and your actions keep working; on true lights it again (the power button also does); it needs Full ADB on. mirror_volume sets how loud the phone's sound plays on the computer watching the live mirror (0-100 %); the phone's own speaker stays quiet while the mirror plays it. Needs Latch 1.11 on the phone; ringer, do_not_disturb, rotation, screen_timeout, and the panels after volume need 1.15.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -878,7 +878,9 @@ export const SERVER = {
               "rotation",
               "screen_timeout",
               "flashlight",
-              "panel"
+              "panel",
+              "screen_light",
+              "mirror_volume"
             ],
             "type": "string"
           },
@@ -899,7 +901,7 @@ export const SERVER = {
             "type": "string"
           },
           "on": {
-            "description": "For flashlight and do_not_disturb.",
+            "description": "For flashlight, do_not_disturb, and screen_light.",
             "type": "boolean"
           },
           "panel": {
@@ -922,7 +924,7 @@ export const SERVER = {
             "type": "string"
           },
           "percent": {
-            "description": "For volume and brightness.",
+            "description": "For volume, brightness, and mirror_volume.",
             "maximum": 100,
             "minimum": 0,
             "type": "integer"

@@ -3955,3 +3955,22 @@ async fn a_setup_code_from_the_terminal_makes_the_phone_the_owner() {
         200
     );
 }
+
+/// ADR-055/056: mirror_volume needs someone watching; screen_light needs `on`.
+#[tokio::test]
+async fn mirror_controls_explain_what_they_need() {
+    let gw = start_gateway().await;
+    let _phone = connect_phone(&gw, &[]).await;
+    let (is_error, text, _) = call(
+        &gw,
+        "phone_control",
+        json!({"control": "mirror_volume", "percent": 40}),
+    )
+    .await;
+    assert!(is_error && text.contains("no one is watching"), "{text}");
+    let (is_error, text, _) = call(&gw, "phone_control", json!({"control": "screen_light"})).await;
+    assert!(
+        is_error && text.contains("on must be true or false"),
+        "{text}"
+    );
+}
