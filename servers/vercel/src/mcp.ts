@@ -383,6 +383,21 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     return withTiming(textResult(renderStatus(deviceId, run.data as DeviceInfo)), run.timing);
   }
   if (name === "phone_control") {
+    // ADR-056: the screen's light through Full ADB, the same command as the Rust gateway.
+    if (args.control === "screen_light") {
+      if (typeof args.on !== "boolean") throw bad("on must be true or false for screen_light");
+      const run = await execute(ctx, deviceId, { name: "adb.shell", params: { command_line: screenLightCommand(args.on), timeout_ms: 15_000 } });
+      const r = run.data as AdbResult;
+      if (r.exit_code !== 0) {
+        throw new ProtocolError("internal", `the phone could not change its screen light: ${(r.stderr ?? "").trim().slice(0, 300)}`);
+      }
+      return withTiming(textResult(args.on
+        ? "Done: the phone's screen is lit again."
+        : "Done: the phone's screen is dark; the phone, the live mirror, and your actions keep working. The power button lights it again."), run.timing);
+    }
+    if (args.control === "mirror_volume") {
+      throw bad("the live mirror runs through the Latch gateway on the owner's computer; this hosted relay has no mirror, so mirror_volume works only there");
+    }
     const control = phoneControl(args);
     if (control.kind !== "panel") {
       const run = await execute(ctx, deviceId, { name: "device.control", params: { control } });
@@ -780,6 +795,12 @@ export function slowStoreNote(storeMs: number): string {
   if (storeMs < SLOW_STORE_MS) return "";
   return `Note for the owner: one database round trip took ${storeMs} ms, so every phone command is slow. `
     + "Put the Upstash database in the same region as the Vercel function (see docs/operations/vercel.md, \"Speed\").\n";
+}
+
+/** The ADB shell command that runs Latch's ScreenLight helper from its own APK (ADR-056). */
+export function screenLightCommand(on: boolean): string {
+  return "p=$( (pm path io.github.aspershupadhyay.latch || pm path io.github.aspershupadhyay.latch.debug) 2>/dev/null | head -n1); " +
+    `CLASSPATH="\${p#package:}" app_process / io.github.aspershupadhyay.latch.session.ScreenLight ${on ? "on" : "off"}`;
 }
 
 /** `phone_control` arguments as a phone control, with the Rust gateway's error texts. */

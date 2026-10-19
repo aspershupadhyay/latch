@@ -636,3 +636,14 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Limits:** Android lets no ordinary app capture calls or a call's microphone, and apps that opt out of capture stay silent. No sound from the computer reaches the phone.
 
 **Threat review:** the sound goes only to the viewer who entered the mirror's code or key, like the picture; nothing is stored or logged.
+
+## ADR-056 — Screen off while the phone keeps running; mirror controls for AI apps
+**Status:** accepted (2026-10-19, owner request "screen off while mirroring keeps going … volume control must be exposed through MCP") · **Builds on:** ADR-046 (Full ADB), ADR-051 (live mirror), ADR-055 (sound) · **Protocol:** unchanged (gateway-side; tool schema additive)
+
+**Decision:**
+- **Screen light:** `phone_control` gains `screen_light` (`on`). The gateway runs, through the phone's Full ADB shell, `app_process` with Latch's own APK as class path and the `ScreenLight` helper, which sets the built-in display's power mode off or normal (`SurfaceControl.setDisplayPowerMode`; the token from `SurfaceControl`, or from `DisplayControl` in `services.jar` on Android 14+, as scrcpy does). The panel goes dark while the phone, the mirror, and AI actions keep working; the power button or `on: true` lights it. No file is copied to the phone. The mirror page has a button for it, which the gateway handles itself (never sent to the phone's mirror link); both gateways send the identical command (tested on both).
+- **Mirror volume:** `phone_control` gains `mirror_volume` (`percent`): the gateway sends it to the page watching the mirror, which sets its volume slider. The hosted relay has no mirror and says so.
+
+**Limits:** needs Full ADB on (the shell user may set the display power mode; apps may not). Some phones' power policy relights the screen on a touch or notification. A hidden API: a future Android may move it, and the helper then reports the error.
+
+**Rollback:** older phones lack the helper and the command fails with its message; nothing else changes.

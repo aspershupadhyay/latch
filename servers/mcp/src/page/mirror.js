@@ -308,6 +308,13 @@ if (typeof document !== 'undefined') {
       case 'notice':
         if (typeof m.text === 'string') toast(m.text);
         break;
+      case 'volume':
+        // An AI app set the computer's volume (phone_control mirror_volume).
+        if (Number.isInteger(m.percent) && m.percent >= 0 && m.percent <= 100) {
+          $('volume').value = String(m.percent);
+          $('volume').dispatchEvent(new Event('input'));
+        }
+        break;
       default:
         break;
     }
@@ -665,6 +672,14 @@ if (typeof document !== 'undefined') {
     }
   });
   document.addEventListener('click', wakeAudio);
+  let screenDark = false;
+  $('screen-light').addEventListener('click', () => {
+    screenDark = !screenDark;
+    $('screen-light').setAttribute('aria-pressed', String(screenDark));
+    $('screen-light').setAttribute('aria-label', screenDark ? 'Light the phone screen' : 'Turn the phone screen off');
+    send({ t: 'screen_light', on: !screenDark });
+    toast(screenDark ? 'Turning the phone screen off; the mirror keeps going.' : 'Lighting the phone screen.');
+  });
   $('rotate').addEventListener('click', () => {
     turned = !turned;
     $('rotate').setAttribute('aria-pressed', String(turned));
