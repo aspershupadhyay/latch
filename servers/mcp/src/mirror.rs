@@ -114,6 +114,8 @@ struct Session {
     /// The phone's latest `status` and `input` messages (ADR-057).
     status: Option<String>,
     input: Option<String>,
+    /// Where the phone reached this gateway, for links it follows (ADR-057).
+    base: String,
 }
 
 struct Code {
@@ -191,6 +193,7 @@ impl Mirrors {
         &self,
         device_id: &str,
         key: &str,
+        base: &str,
         to_phone: mpsc::Sender<ToPhone>,
     ) -> (u64, Option<String>, Option<Codec>) {
         let mut inner = lock(&self.inner);
@@ -229,6 +232,7 @@ impl Mirrors {
                     ai: None,
                     status: None,
                     input: None,
+                    base: base.to_owned(),
                 },
             );
         }
@@ -242,6 +246,7 @@ impl Mirrors {
             ));
         }
         session.generation = generation;
+        base.clone_into(&mut session.base);
         let codec = session.viewer.as_mut().map(|v| {
             v.waiting_key = true;
             let _ = v
@@ -323,6 +328,25 @@ impl Mirrors {
             .iter()
             .find(|(_, s)| bool::from(s.key_hash.ct_eq(&key_hash)) && s.viewer.is_some())
             .map(|(id, _)| id.clone())
+    }
+
+    /// Where this phone reached the gateway for its mirror, while connected.
+    pub fn link_base(&self, device_id: &str) -> Option<String> {
+        lock(&self.inner)
+            .sessions
+            .get(device_id)
+            .filter(|s| s.phone.is_some())
+            .map(|s| s.base.clone())
+    }
+
+    /// A message from the gateway itself to the phone's mirror link (ADR-057:
+    /// a dropped file to fetch); false when the phone is not connected.
+    pub fn to_phone_link(&self, device_id: &str, message: &str) -> bool {
+        lock(&self.inner)
+            .sessions
+            .get(device_id)
+            .and_then(|s| s.phone.as_ref())
+            .is_some_and(|p| p.try_send(ToPhone::Text(message.to_owned())).is_ok())
     }
 
     /// Whether this phone has a mirror open (connected or within its grace).
@@ -882,14 +906,13 @@ pub async fn phone_upgrade(
         )
             .into_response();
     };
-    let urls = viewer_urls(
-        &state,
-        wifi.as_ref().map(|axum::Extension(o)| o.0.as_str()),
-        &headers,
-    );
+    let wifi = wifi.map(|axum::Extension(o)| o.0);
+    let urls = viewer_urls(&state, wifi.as_deref(), &headers);
+    // Links for this phone are built on the address it used, as the device link's are.
+    let base = wifi.unwrap_or_else(|| crate::http::gateway_url(&state, &headers));
     ws.max_message_size(MAX_FRAME_BYTES)
         .max_frame_size(MAX_FRAME_BYTES)
-        .on_upgrade(move |socket| serve_phone(state, device_id, device_key, urls, socket))
+        .on_upgrade(move |socket| serve_phone(state, device_id, device_key, urls, base, socket))
 }
 
 fn close(code: u16, reason: &'static str) -> Message {
@@ -904,6 +927,7 @@ async fn serve_phone(
     device_id: String,
     device_key: Option<String>,
     urls: Vec<String>,
+    base: String,
     socket: WebSocket,
 ) {
     let (mut sink, mut stream) = socket.split();
@@ -929,7 +953,9 @@ async fn serve_phone(
         }
     };
     let (tx, mut rx) = mpsc::channel::<ToPhone>(PHONE_QUEUE);
-    let (generation, code, codec) = state.mirrors.attach_phone(&device_id, &start.key, tx);
+    let (generation, code, codec) = state
+        .mirrors
+        .attach_phone(&device_id, &start.key, &base, tx);
     let ready = json!({
         "t": "ready",
         "code": code,

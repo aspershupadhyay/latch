@@ -4060,12 +4060,41 @@ async fn the_mirror_carries_status_clipboard_screenshots_and_dropped_files() {
     assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
     let bad_name = drop(VIEWER_KEY, "..", b"hi").await;
     assert!(bad_name.starts_with("HTTP/1.1 400"), "{bad_name}");
-    let answer = drop(VIEWER_KEY, "dropped%20note.txt", b"hello from the computer").await;
+    let body = b"hello from the computer";
+    let answer = drop(VIEWER_KEY, "dropped%20note.txt", body).await;
     assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
-    assert!(
-        answer.contains("\"ok\":true") && answer.contains("Saved"),
-        "{answer}"
-    );
-    let (_, text, _) = call(&gw, "list_files", json!({"location": "downloads"})).await;
-    assert!(text.contains("dropped note.txt"), "{text}");
+    assert!(answer.contains("\"ok\":true"), "{answer}");
+    // The phone is told over its mirror link; no AI session is involved. It
+    // fetches the ciphertext from the gateway, decrypts it, and checks it.
+    let file = next_of(&mut ph, "file").await;
+    assert_eq!(file["name"], "dropped note.txt");
+    assert_eq!(file["size"], body.len());
+    let url = file["url"].as_str().expect("url");
+    let path = url
+        .split_once(&gw.addr.to_string())
+        .map(|(_, p)| p.to_owned())
+        .expect("a link on this gateway");
+    let (status, mut sealed) = http_bytes(&gw, "GET", &path, b"").await;
+    assert_eq!(status, 200);
+    let unhex = |h: &str| -> Vec<u8> {
+        (0..h.len() / 2)
+            .map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).expect("hex"))
+            .collect()
+    };
+    {
+        use aes::cipher::{KeyIvInit, StreamCipher};
+        let mut cipher = ctr::Ctr128BE::<aes::Aes256>::new_from_slices(
+            &unhex(file["key"].as_str().expect("key")),
+            &unhex(file["iv"].as_str().expect("iv")),
+        )
+        .expect("cipher");
+        cipher.apply_keystream(&mut sealed);
+    }
+    assert_eq!(sealed, body);
+    use sha2::Digest;
+    let digest: String = sha2::Sha256::digest(body)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(file["sha256"], digest);
 }

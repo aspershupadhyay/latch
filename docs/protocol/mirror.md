@@ -11,7 +11,7 @@ The live mirror (roadmap R30, [ADR-051](../adr/README.md#adr-051--live-mirror-th
 | `GET /v1/mirror/view` (WebSocket) | browser | its first message: the 6-digit code or the viewer key; same-origin only |
 | `POST /v1/mirror/files?name=<file name>` | browser | `x-latch-mirror-key: <viewer key>` of a mirror someone watches; same-origin only (ADR-057) |
 
-`POST /v1/mirror/files` takes the raw file as its body (up to `LATCH_MAX_TRANSFER_MB`). The gateway stores it encrypted exactly as an upload link (protocol 1.7) and has the phone save it in Downloads with its SHA-256 checked, as `write_file` does; it answers `{"ok":true,"text":"Saved …"}` or `{"error":"…"}`. Names with `/`, `\`, control characters, or over 200 characters are refused.
+`POST /v1/mirror/files` takes the raw file as its body (up to `LATCH_MAX_TRANSFER_MB`). The gateway stores it encrypted exactly as an upload link (protocol 1.7), sends the phone `{"t":"file","url":"<its address>/v1/blobs/<token>","key":"<64 hex>","iv":"<32 hex>","sha256":"<64 hex>","name":"…","size":n}` over the mirror link, and answers `{"ok":true,"text":"sent; …"}` or `{"error":"…"}`. The phone fetches, decrypts, and checks it as `file.fetch` does (no AI session needed) and tells the page with a `notice`. Names with `/`, `\`, control characters, or over 200 characters are refused.
 
 The Vercel gateway has none of these (it cannot hold a stream); the phone gets 404 and says the self-hosted gateway is needed.
 

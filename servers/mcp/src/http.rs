@@ -375,7 +375,8 @@ fn unhex(text: &str) -> Vec<u8> {
 /// A file dropped on the live mirror page (ADR-057). The page proves its
 /// viewer key; the file is stored encrypted exactly as an upload link's
 /// (AES-256-CTR under a key only this process and the phone hold), and the
-/// phone saves it in Downloads with its SHA-256 checked, as `write_file` does.
+/// phone is told over its mirror link to fetch it into Downloads, checking
+/// its SHA-256 as `file.fetch` does. The link expires as any other.
 async fn mirror_drop(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -483,26 +484,33 @@ async fn mirror_drop(
     }
     claim.done = true;
     drop(claim);
-    let args = json!({
-        "location": "downloads",
-        "name": name,
-        "upload_id": token,
-        "sha256": secret::hex(&hasher.finalize()),
+    // The phone fetches it over its own mirror link: no AI session is needed.
+    let sent = state.mirrors.link_base(&device_id).is_some_and(|base| {
+        let message = json!({
+            "t": "file",
+            "url": format!("{base}/v1/blobs/{token}"),
+            "key": record.key_hex,
+            "iv": record.iv_hex,
+            "sha256": secret::hex(&hasher.finalize()),
+            "name": name,
+            "size": size,
+        });
+        state
+            .mirrors
+            .to_phone_link(&device_id, &message.to_string())
     });
-    match mcp::files::run(&state, "write_file", &args, &device_id).await {
-        Ok(result) => Json(json!({
-            "ok": true,
-            "text": result["content"][0]["text"].as_str().unwrap_or("Saved on the phone."),
-        }))
-        .into_response(),
-        Err(e) => {
-            state.links.discard(&token);
-            error(
-                StatusCode::BAD_GATEWAY,
-                &format!("the phone did not save it: {}", e.message),
-            )
-        }
+    if !sent {
+        state.links.discard(&token);
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the phone is not connected right now; try again when the picture is back",
+        );
     }
+    Json(json!({
+        "ok": true,
+        "text": format!("sent; the phone is saving it in Downloads ({}).", mcp::files::size_text(size)),
+    }))
+    .into_response()
 }
 
 /// An upload in progress; dropping it unfinished frees the link and its space.

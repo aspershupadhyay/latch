@@ -42,6 +42,8 @@ sealed interface MirrorIn {
     data class Copy(val cut: Boolean) : MirrorIn
     /** A full-resolution screenshot for the computer (ADR-057). */
     data object Shot : MirrorIn
+    /** From the gateway: a file the owner dropped on the page, to fetch into Downloads (ADR-057). */
+    data class File(val url: String, val keyHex: String, val ivHex: String, val sha256: String, val name: String, val size: Long) : MirrorIn
 }
 
 enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg") }
@@ -89,6 +91,7 @@ object MirrorMessages {
         "copy" to emptySet(),
         "cut" to emptySet(),
         "shot" to emptySet(),
+        "file" to setOf("url", "key", "iv", "sha256", "name", "size"),
     )
 
     /** One text message from the gateway, or null for anything the phone must ignore. */
@@ -125,6 +128,19 @@ object MirrorMessages {
             "copy" -> MirrorIn.Copy(cut = false)
             "cut" -> MirrorIn.Copy(cut = true)
             "shot" -> MirrorIn.Shot
+            "file" -> {
+                fun hex(name: String, length: Int) = o.string(name)?.takeIf { v -> v.length == length && v.all { it in '0'..'9' || it in 'a'..'f' } }
+                val name = o.string("name")?.takeIf { validFileName(it) } ?: return null
+                val size = (o["size"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toLongOrNull()?.takeIf { it >= 0 } ?: return null
+                MirrorIn.File(
+                    o.string("url")?.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: return null,
+                    hex("key", 64) ?: return null,
+                    hex("iv", 32) ?: return null,
+                    hex("sha256", 64) ?: return null,
+                    name,
+                    size,
+                )
+            }
             else -> null
         }
     }
@@ -141,6 +157,11 @@ object MirrorMessages {
         return count in 1..MAX_PASTE_CHARS &&
             text.codePoints().noneMatch { it != '\n'.code && it != '\t'.code && Character.getType(it) == Character.CONTROL.toInt() }
     }
+
+    /** A file name with no folder: 1–200 characters, no slashes or control characters. */
+    fun validFileName(name: String): Boolean =
+        name.codePointCount(0, name.length) in 1..200 && name != "." && name != ".." &&
+            name.none { it == '/' || it == '\\' || it.isISOControl() }
 
     // ---- What the phone sends ----
 

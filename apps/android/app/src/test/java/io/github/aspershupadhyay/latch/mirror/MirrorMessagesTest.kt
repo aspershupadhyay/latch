@@ -78,6 +78,21 @@ class MirrorMessagesTest {
         assertTrue(!MirrorMessages.validPaste("a\u0000"))
     }
 
+    @Test fun aDroppedFileIsCheckedBeforeTheLinkIsFollowed() {
+        val key = "ab".repeat(32)
+        val iv = "cd".repeat(16)
+        val sha = "ef".repeat(32)
+        fun file(name: String = "note.txt", url: String = "https://192.168.1.5:8788/v1/blobs/ltr_x", k: String = key, size: String = "5") =
+            """{"t":"file","url":"$url","key":"$k","iv":"$iv","sha256":"$sha","name":"$name","size":$size}"""
+        assertEquals(MirrorIn.File("https://192.168.1.5:8788/v1/blobs/ltr_x", key, iv, sha, "note.txt", 5), MirrorMessages.parse(file()))
+        assertNull(MirrorMessages.parse(file(name = "../x")))
+        assertNull(MirrorMessages.parse(file(name = "")))
+        assertNull(MirrorMessages.parse(file(url = "file:///sdcard/x")))
+        assertNull(MirrorMessages.parse(file(k = "zz")))
+        assertNull(MirrorMessages.parse(file(size = "-1")))
+        assertNull(MirrorMessages.parse(file(size = "\"5\"")))
+    }
+
     @Test fun clipboardTextIsCutToFitTheGateway() {
         val long = "😀".repeat(40_000)
         val fitted = MirrorController.fitClipboard(long)

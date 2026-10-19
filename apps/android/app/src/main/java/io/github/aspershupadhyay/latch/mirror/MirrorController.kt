@@ -75,6 +75,7 @@ class MirrorController(
     private val session: SessionController,
     private val log: ActivityLog,
     private val bridge: DeviceBridge,
+    private val transfers: io.github.aspershupadhyay.latch.files.PhoneTransfers,
 ) {
     private val _status = MutableStateFlow(MirrorStatus())
     val status: StateFlow<MirrorStatus> = _status.asStateFlow()
@@ -87,6 +88,8 @@ class MirrorController(
     @Volatile private var link: MirrorLink? = null
     private var projectionCallback: MediaProjection.Callback? = null
     private var key: String? = null
+    /** The gateway this mirror runs through; dropped files are fetched from it. */
+    @Volatile private var gatewayUrl: String? = null
     private var displayListener: DisplayManager.DisplayListener? = null
     private var aiJob: Job? = null
     private var inputJob: Job? = null
@@ -203,6 +206,7 @@ class MirrorController(
         watchDisplay(handler)
         val viewerKey = ByteArray(32).also { SecureRandom().nextBytes(it) }.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
         key = viewerKey
+        gatewayUrl = pairing.gatewayUrl
         link = MirrorLink(http, pairing.gatewayUrl, token, viewerKey, KeystoreSigner.forPairing(pairing.deviceId), linkEvents).also { it.start() }
         startInput()
         log.add(ActivityKind.SESSION, "You started mirroring to your computer", by = ActivityActor.OWNER)
@@ -340,6 +344,7 @@ class MirrorController(
                 is MirrorIn.Sound -> handler?.post { capture?.audio?.quietPhone(message.on) }
                 is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at))
                 is MirrorIn.Shot -> shot()
+                is MirrorIn.File -> receive(message)
                 else -> input.trySend(Input.Message(message, SystemClock.uptimeMillis()))
             }
         }
@@ -471,6 +476,37 @@ class MirrorController(
                 } else {
                     link?.sendFrameAlways(MirrorMessages.frame(MirrorMessages.KIND_SHOT, true, System.currentTimeMillis() * 1000, java.nio.ByteBuffer.wrap(png)))
                 }
+            }
+        }
+    }
+
+    /**
+     * A file the owner dropped on the page (ADR-057): fetched from this
+     * mirror's gateway into Downloads, decrypted and checked as `file.fetch`
+     * does, with a line on the page when it is saved or why not.
+     */
+    private fun receive(file: MirrorIn.File) {
+        val gateway = gatewayUrl ?: return
+        scope.launch {
+            val command = io.github.aspershupadhyay.latch.protocol.Command.FetchFile(
+                location = io.github.aspershupadhyay.latch.protocol.FileLocation.DOWNLOADS,
+                folder = null,
+                subfolder = null,
+                fileName = file.name,
+                mime = null,
+                overwrite = false,
+                link = io.github.aspershupadhyay.latch.protocol.FileLink(file.url, emptyMap(), file.keyHex, file.ivHex),
+                sha256 = file.sha256,
+                size = file.size,
+            )
+            try {
+                var t = transfers.fetch(command, FILE_WAIT_MS, gateway)
+                while (t.state != "done") t = transfers.status(t.id, FILE_WAIT_MS, cancel = false)
+                val saved = t.item?.name ?: file.name
+                log.add(ActivityKind.FILE, "You sent “$saved” from your computer to Downloads", by = ActivityActor.OWNER)
+                notice("Saved “$saved” in the phone's Downloads.")
+            } catch (e: io.github.aspershupadhyay.latch.protocol.ProtocolException) {
+                notice("“${file.name}” was not saved: ${e.message}")
             }
         }
     }
@@ -821,6 +857,7 @@ class MirrorController(
         private const val AI_REFRESH_MS = 400L
         private const val STATUS_EVERY_MS = 5_000L
         private const val KEYS_TRIES = 2
+        private const val FILE_WAIT_MS = 30_000L
         private const val KEYS_SETTLE_MS = 40L
         private const val COPY_SETTLE_MS = 120L
         /** What the gateway relays in one frame (its MAX_FRAME_BYTES). */
