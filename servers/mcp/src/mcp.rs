@@ -584,19 +584,22 @@ pub fn tool_definitions() -> Vec<Value> {
              live mirror, and your actions keep working; on true lights it again (the power \
              button also does); it needs Full ADB on. mirror_volume sets how loud the phone's \
              sound plays on the computer watching the live mirror (0-100 %); the phone's own \
-             speaker stays quiet while the mirror plays it. Needs Latch 1.11 on the phone; \
+             speaker stays quiet while the mirror plays it. mirror_notifications (on true) \
+             turns off Android 15's screen-share protection so notifications show in the live \
+             mirror (on false hides them again); it needs Full ADB on and applies when \
+             mirroring starts. Needs Latch 1.11 on the phone; \
              ringer, do_not_disturb, rotation, screen_timeout, and the panels after volume \
              need 1.15.",
             false,
             json!({
                 "device_id": device_id_schema(),
-                "control": { "type": "string", "enum": ["volume", "media", "ringer", "do_not_disturb", "brightness", "rotation", "screen_timeout", "flashlight", "panel", "screen_light", "mirror_volume"] },
+                "control": { "type": "string", "enum": ["volume", "media", "ringer", "do_not_disturb", "brightness", "rotation", "screen_timeout", "flashlight", "panel", "screen_light", "mirror_volume", "mirror_notifications"] },
                 "stream": { "type": "string", "enum": ["media", "ring", "notification", "alarm"], "default": "media", "description": "For volume." },
                 "percent": { "type": "integer", "minimum": 0, "maximum": 100, "description": "For volume, brightness, and mirror_volume." },
                 "action": { "type": "string", "enum": ["play_pause", "next", "previous"], "description": "For media." },
                 "mode": { "type": "string", "enum": ["normal", "vibrate", "silent", "auto", "portrait", "landscape"], "description": "For ringer (normal, vibrate, silent) and rotation (auto, portrait, landscape)." },
                 "seconds": { "type": "integer", "minimum": latch_protocol::MIN_SCREEN_TIMEOUT_S, "maximum": latch_protocol::MAX_SCREEN_TIMEOUT_S, "description": "For screen_timeout." },
-                "on": { "type": "boolean", "description": "For flashlight, do_not_disturb, and screen_light." },
+                "on": { "type": "boolean", "description": "For flashlight, do_not_disturb, screen_light, and mirror_notifications." },
                 "panel": { "type": "string", "enum": latch_protocol::SettingsPanel::ALL.map(|p| p.as_str()), "description": "For panel." },
                 "screenshot_after": screenshot_after_schema(),
             }),
@@ -734,26 +737,7 @@ pub(crate) async fn screen_light(
     device_id: &str,
     on: bool,
 ) -> Result<String, ProtocolError> {
-    let cmd = Command::AdbShell {
-        command_line: Some(screen_light_command(on)),
-        stdin: None,
-        timeout_ms: 15_000,
-        continue_from: None,
-        base64: false,
-        background: false,
-        job: None,
-        wait_ms: 0,
-        cancel: false,
-    };
-    let result = match devices::execute(state, device_id, cmd).await? {
-        Output::Adb(result) => result,
-        _ => {
-            return Err(ProtocolError::new(
-                ErrorCode::Internal,
-                "the phone answered adb.shell with something else",
-            ));
-        }
-    };
+    let result = owner_shell(state, device_id, screen_light_command(on)).await?;
     if result.exit_code == Some(0) {
         Ok(if on {
             "Done: the phone's screen is lit again.".into()
@@ -771,6 +755,71 @@ pub(crate) async fn screen_light(
             ),
         ))
     }
+}
+
+/// One short Full ADB command the gateway runs for the owner (ADR-056/057).
+async fn owner_shell(
+    state: &Arc<AppState>,
+    device_id: &str,
+    line: String,
+) -> Result<latch_protocol::AdbResult, ProtocolError> {
+    let cmd = Command::AdbShell {
+        command_line: Some(line),
+        stdin: None,
+        timeout_ms: 15_000,
+        continue_from: None,
+        base64: false,
+        background: false,
+        job: None,
+        wait_ms: 0,
+        cancel: false,
+    };
+    match devices::execute(state, device_id, cmd).await? {
+        Output::Adb(result) => Ok(result),
+        _ => Err(ProtocolError::new(
+            ErrorCode::Internal,
+            "the phone answered adb.shell with something else",
+        )),
+    }
+}
+
+/// The command for [`screen_share_protection`]: Android 15's developer
+/// option "Disable screen share protections", and the Android version.
+pub(crate) fn screen_share_protection_command(show: bool) -> String {
+    format!(
+        "settings put global disable_screen_share_protections_for_apps_and_notifications {} && getprop ro.build.version.sdk",
+        u8::from(show)
+    )
+}
+
+/// Lets notifications and protected app content show in the live mirror
+/// (`show`), or hides them again as Android 15 does by default (ADR-057).
+/// Through Full ADB; Android applies it when screen sharing starts.
+pub(crate) async fn screen_share_protection(
+    state: &Arc<AppState>,
+    device_id: &str,
+    show: bool,
+) -> Result<String, ProtocolError> {
+    let result = owner_shell(state, device_id, screen_share_protection_command(show)).await?;
+    if result.exit_code != Some(0) {
+        return Err(ProtocolError::new(
+            ErrorCode::Internal,
+            format!(
+                "the phone could not change the setting: {}",
+                truncate(result.stderr.trim(), 300)
+            ),
+        ));
+    }
+    let sdk: u32 = result.stdout.trim().parse().unwrap_or(0);
+    Ok(if sdk != 0 && sdk < 35 {
+        "Done: nothing to change on this phone; Android 14 and older show notifications while mirroring.".into()
+    } else if show {
+        "Done: notifications and protected apps will show in the mirror. Android applies this when          sharing starts, so stop and start mirroring on the phone once. Hide them again when you're done."
+            .into()
+    } else {
+        "Done: Android hides notifications and protected apps from the mirror again (from the next          time mirroring starts)."
+            .into()
+    })
 }
 
 async fn adb_shell(
@@ -1309,6 +1358,19 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
                     }
                 };
                 return screen_light(state, &device_id, on).await.map(text_result);
+            }
+            Some("mirror_notifications") => {
+                let show = match args.get("on") {
+                    Some(Value::Bool(on)) => *on,
+                    _ => {
+                        return Err(bad(ArgError(
+                            "on must be true or false for mirror_notifications".into(),
+                        )));
+                    }
+                };
+                return screen_share_protection(state, &device_id, show)
+                    .await
+                    .map(text_result);
             }
             Some("mirror_volume") => {
                 let percent = arg_int(args, "percent")
@@ -2591,5 +2653,10 @@ mod screen_light_tests {
              CLASSPATH=\"${p#package:}\" app_process / io.github.aspershupadhyay.latch.session.ScreenLight off"
         );
         assert!(super::screen_light_command(true).ends_with("ScreenLight on"));
+        assert_eq!(
+            super::screen_share_protection_command(true),
+            "settings put global disable_screen_share_protections_for_apps_and_notifications 1 && getprop ro.build.version.sdk"
+        );
+        assert!(super::screen_share_protection_command(false).contains("notifications 0 &&"));
     }
 }

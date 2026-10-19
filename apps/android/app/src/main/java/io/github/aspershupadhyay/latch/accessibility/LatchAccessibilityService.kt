@@ -1686,7 +1686,7 @@ class LatchAccessibilityService : AccessibilityService() {
         val node = mirrorField() ?: return MIRROR_NO_FIELD
         if (node.packageName?.toString() == packageName) return "Latch's own screen can't be used from the mirror."
         if (node.isPassword) return "Type passwords on the phone itself."
-        val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
+        val current = mirrorText(node)
         val (start, end) = mirrorSelection(node, current)
         val result = edit(current, start, end) ?: return null
         invalidate()
@@ -1694,18 +1694,112 @@ class LatchAccessibilityService : AccessibilityService() {
         if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text)) return "That field did not take the text."
         mirrorSelect(node, result.cursor)
         mirrorLastEdit = result
+        if (result.text.isEmpty()) {
+            // An emptied field that still reports text is showing its hint as text: remember it.
+            node.refresh()
+            val shown = node.text?.toString().orEmpty()
+            if (!node.isShowingHintText && shown.isNotEmpty()) mirrorPlaceholder = mirrorFieldKey(node) to shown
+        }
         return null
     }
 
     /** Moves the cursor in the field in focus. */
     fun mirrorCursor(position: (String, Int, Int) -> Int): String? {
         val node = mirrorField() ?: return MIRROR_NO_FIELD
-        val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
+        val current = mirrorText(node)
         val (start, end) = mirrorSelection(node, current)
         val cursor = position(current, start, end)
         mirrorSelect(node, cursor)
         mirrorLastEdit = io.github.aspershupadhyay.latch.mirror.TextEdit.Result(current, cursor)
         return null
+    }
+
+    /** Selects the whole text of the field in focus (Ctrl+A). */
+    fun mirrorSelectAll(): String? {
+        val node = mirrorField() ?: return MIRROR_NO_FIELD
+        val current = mirrorText(node)
+        mirrorSelect(node, 0, current.length)
+        mirrorLastEdit = null
+        return null
+    }
+
+    /**
+     * The owner's copy from the mirror (ADR-057): the text selected in the
+     * field in focus, put on the phone's clipboard too; with [cut], also
+     * removed. Null when nothing is selected there. Never for password fields.
+     */
+    fun mirrorCopy(cut: Boolean): String? {
+        val node = mirrorField() ?: return null
+        if (node.isPassword || node.packageName?.toString() == packageName) return null
+        val current = mirrorText(node)
+        val a = minOf(node.textSelectionStart, node.textSelectionEnd).coerceIn(0, current.length)
+        val b = maxOf(node.textSelectionStart, node.textSelectionEnd).coerceIn(0, current.length)
+        if (a >= b) return null
+        val picked = current.substring(a, b)
+        getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Latch", picked))
+        if (cut) mirrorEdit { text, start, end -> io.github.aspershupadhyay.latch.mirror.TextEdit.backspace(text, start, end) }
+        return picked
+    }
+
+    /** Why the owner's typing may not go to the field in focus, or null when it may. */
+    fun mirrorTypingRefusal(): String? {
+        val node = mirrorField() ?: return null
+        if (node.packageName?.toString() == packageName) return "Latch's own screen can't be used from the mirror."
+        if (node.isPassword) return "Type passwords on the phone itself."
+        return null
+    }
+
+    /**
+     * Opens the notification shade or quick settings (ADR-057). Always the
+     * system's own panel: no app content is read.
+     */
+    fun mirrorPanel(quickSettings: Boolean): Boolean {
+        invalidate()
+        return performGlobalAction(if (quickSettings) GLOBAL_ACTION_QUICK_SETTINGS else GLOBAL_ACTION_NOTIFICATIONS)
+    }
+
+    /**
+     * A full-resolution screenshot for the owner's computer (ADR-057), as PNG
+     * bytes, or the reason there is none. Android refuses protected screens.
+     */
+    fun mirrorScreenshot(done: (ByteArray?, String?) -> Unit) {
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    Thread {
+                        try {
+                            val hardware = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                            result.hardwareBuffer.close()
+                            val bitmap = hardware?.copy(Bitmap.Config.ARGB_8888, false)
+                            hardware?.recycle()
+                            if (bitmap == null) {
+                                done(null, "The screenshot could not be read.")
+                                return@Thread
+                            }
+                            val out = java.io.ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            bitmap.recycle()
+                            done(out.toByteArray(), null)
+                        } catch (e: Exception) {
+                            done(null, "The screenshot could not be made (${e.javaClass.simpleName}).")
+                        }
+                    }.start()
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    done(
+                        null,
+                        when (errorCode) {
+                            ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> "This app protects its screen, so Android gives no screenshot."
+                            ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT -> "One screenshot a second; try again."
+                            else -> "Android did not take the screenshot (code $errorCode)."
+                        },
+                    )
+                }
+            })
+        } catch (e: Exception) {
+            done(null, "Android did not take the screenshot (${e.javaClass.simpleName}).")
+        }
     }
 
     /** The keyboard's action key (Enter, Search, Send, Go, Done) in the field in focus. */
@@ -1714,6 +1808,17 @@ class LatchAccessibilityService : AccessibilityService() {
         if (node.packageName?.toString() == packageName) return "Latch's own screen can't be used from the mirror."
         invalidate()
         return if (node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) null else "This field does not take Enter."
+    }
+
+    /** The owner's input went to the phone another way (ADR-057): the AI's next command must look again. */
+    fun mirrorTouched() = invalidate()
+
+    /** Whether a text field has the focus, for a paste from the computer. */
+    fun mirrorHasField(): Boolean = mirrorField() != null
+
+    /** Text from the computer's clipboard onto the phone's (ADR-057). */
+    fun mirrorClip(text: String) {
+        getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Latch", text))
     }
 
     /** Back, Home, or Recents for the owner. */
@@ -1737,12 +1842,46 @@ class LatchAccessibilityService : AccessibilityService() {
         return node.textSelectionStart to node.textSelectionEnd
     }
 
-    private fun mirrorSelect(node: AccessibilityNodeInfo, cursor: Int) {
-        val args = Bundle().apply {
-            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
-            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
+    /** The field's hint, once it was seen reported as the text of the emptied field. */
+    private var mirrorPlaceholder: Pair<String, String>? = null
+
+    /** The field last checked for a hint shown as text, so the check runs once per field. */
+    private var mirrorChecked: String? = null
+
+    private fun mirrorFieldKey(node: AccessibilityNodeInfo): String =
+        "${node.windowId}/${node.packageName}/${node.viewIdResourceName}/${node.className}"
+
+    /**
+     * The text the field in focus really holds. A field that reports its hint
+     * as text ("Message" in WhatsApp) is told apart by asking for the cursor
+     * at the end of that text: a real text takes it, an empty field does not.
+     * The owner's cursor is put back right after.
+     */
+    private fun mirrorText(node: AccessibilityNodeInfo): String {
+        val key = mirrorFieldKey(node)
+        val placeholder = mirrorPlaceholder?.takeIf { it.first == key }?.second
+        val text = io.github.aspershupadhyay.latch.mirror.TextEdit.realText(
+            node.text?.toString().orEmpty(), node.isShowingHintText, node.hintText?.toString(), placeholder,
+        )
+        if (text.isEmpty() || mirrorLastEdit?.text == text || mirrorChecked == key) return text
+        mirrorChecked = key
+        val (start, end) = node.textSelectionStart to node.textSelectionEnd
+        if (!mirrorSelect(node, text.length, text.length)) {
+            mirrorPlaceholder = key to text
+            return ""
         }
-        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args)
+        if (start >= 0 && end >= 0) mirrorSelect(node, start, end)
+        return text
+    }
+
+    private fun mirrorSelect(node: AccessibilityNodeInfo, cursor: Int) = mirrorSelect(node, cursor, cursor)
+
+    private fun mirrorSelect(node: AccessibilityNodeInfo, start: Int, end: Int): Boolean {
+        val args = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end)
+        }
+        return node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args)
     }
 
     private suspend fun gesture(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMs: Long) {

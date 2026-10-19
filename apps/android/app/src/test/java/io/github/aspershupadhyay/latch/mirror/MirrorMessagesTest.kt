@@ -62,5 +62,27 @@ class MirrorMessagesTest {
         assertEquals("""{"t":"ai","session":"active","owner":false,"working":true,"steps":[{"at":5,"by":"ai","text":"Tapped “Search”","app":"YouTube"}]}""", ai.toString())
         assertEquals("""{"t":"start","version":1,"key":"k"}""", MirrorMessages.start("k"))
         assertEquals("""{"t":"screen","w":1080,"h":2400,"rotation":90}""", MirrorMessages.screen(1080, 2400, 90))
+        assertEquals("""{"t":"clipboard","text":"two\nlines"}""", MirrorMessages.clipboard("two\nlines"))
+        assertEquals("""{"t":"status","battery":85,"charging":true,"network":"wifi","signal":3}""", MirrorMessages.status(85, true, "wifi", 3))
+        assertEquals("""{"t":"status","network":"none"}""", MirrorMessages.status(null, null, "none", null))
+        assertEquals("""{"t":"input","mode":"keys"}""", MirrorMessages.input("keys"))
+    }
+
+    @Test fun pastesKeepLinesAndCopiesNeedNothingElse() {
+        assertEquals(MirrorIn.Paste("a\nb\tc"), MirrorMessages.parse("""{"t":"paste","text":"a\nb\tc"}"""))
+        assertEquals(MirrorIn.Copy(cut = false), MirrorMessages.parse("""{"t":"copy"}"""))
+        assertEquals(MirrorIn.Copy(cut = true), MirrorMessages.parse("""{"t":"cut"}"""))
+        assertEquals(MirrorIn.Shot, MirrorMessages.parse("""{"t":"shot"}"""))
+        assertTrue(MirrorMessages.validPaste("x".repeat(MirrorMessages.MAX_PASTE_CHARS)))
+        assertTrue(!MirrorMessages.validPaste("x".repeat(MirrorMessages.MAX_PASTE_CHARS + 1)))
+        assertTrue(!MirrorMessages.validPaste("a\u0000"))
+    }
+
+    @Test fun clipboardTextIsCutToFitTheGateway() {
+        val long = "😀".repeat(40_000)
+        val fitted = MirrorController.fitClipboard(long)
+        assertTrue(MirrorMessages.clipboard(fitted).toByteArray().size <= 60 * 1024)
+        assertTrue(fitted.isNotEmpty() && !Character.isHighSurrogate(fitted.last()))
+        assertEquals("short", MirrorController.fitClipboard("short"))
     }
 }

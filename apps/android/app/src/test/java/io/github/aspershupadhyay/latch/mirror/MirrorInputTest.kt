@@ -113,6 +113,27 @@ class MirrorInputTest {
         assertEquals(3, TextEdit.move("abc", 0, 0, MirrorKey.DOWN))
     }
 
+    @Test fun wordsAndLinesMoveTheCursorFurther() {
+        assertEquals(TextEdit.Result("hello ", 6), TextEdit.wordBackspace("hello world", 11, 11))
+        assertEquals(TextEdit.Result("world", 0), TextEdit.wordBackspace("hello  world", 7, 7))
+        assertNull(TextEdit.wordBackspace("abc", 0, 0))
+        assertEquals(6, TextEdit.move("hello world", 9, 9, MirrorKey.WORD_LEFT))
+        assertEquals(11, TextEdit.move("hello world", 5, 5, MirrorKey.WORD_RIGHT))
+        assertEquals(4, TextEdit.move("one\ntwo", 6, 6, MirrorKey.HOME))
+        assertEquals(3, TextEdit.move("one\ntwo", 1, 1, MirrorKey.END))
+        assertEquals(7, TextEdit.move("one\ntwo", 5, 5, MirrorKey.END))
+    }
+
+    @Test fun aHintShownAsTextIsAnEmptyField() {
+        // WhatsApp's "Message": typing must not land after it, and Backspace must not eat it.
+        assertEquals("", TextEdit.realText("Message", showingHint = true, hint = "Message", placeholder = null))
+        assertEquals("", TextEdit.realText("Message", showingHint = false, hint = "Message", placeholder = null))
+        assertEquals("", TextEdit.realText("Message", showingHint = false, hint = null, placeholder = "Message"))
+        assertEquals("Messages", TextEdit.realText("Messages", showingHint = false, hint = "Message", placeholder = "Message"))
+        assertEquals("hi", TextEdit.realText("hi", showingHint = false, hint = null, placeholder = null))
+        assertEquals(TextEdit.Result("h", 1), TextEdit.insert(TextEdit.realText("Message", false, "Message", null), -1, -1, "h"))
+    }
+
     @Test fun theEncoderSizeFitsAndAligns() {
         assertEquals(864 to 1920, EncoderSizing.size(1080, 2400, 1920))
         assertEquals(1072 to 2400, EncoderSizing.size(1080, 2400, 4000))
@@ -131,7 +152,7 @@ class MirrorInputTest {
         assertNull(g.clean(12_000))
         assertEquals(3_381_000, g.clean(16_300))
         repeat(100) { g.clean(20_000L + it * 6_000) }
-        assertEquals(8_000_000, g.bps)
+        assertEquals(12_000_000, g.bps)
         repeat(100) { g.dropped(2_000_000L + it * 1_100) }
         assertEquals(1_000_000, g.bps)
     }

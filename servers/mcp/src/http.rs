@@ -40,6 +40,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/mirror.css", get(mirror_css))
         .route("/v1/mirror/phone", get(crate::mirror::phone_upgrade))
         .route("/v1/mirror/view", get(crate::mirror::view_upgrade))
+        // ADR-057: a file dropped on the mirror page, streamed to the phone's Downloads.
+        .route(
+            "/v1/mirror/files",
+            post(mirror_drop).layer(DefaultBodyLimit::disable()),
+        )
         .route(
             "/mcp",
             post(mcp_post)
@@ -342,6 +347,158 @@ async fn link_upload(
             StatusCode::CONFLICT,
             "this link was already used; ask for a new one",
         ),
+    }
+}
+
+#[derive(Deserialize)]
+struct MirrorFileQuery {
+    name: String,
+}
+
+/// A name the phone can save a dropped file under: no folders, no control characters.
+fn mirror_file_name_ok(name: &str) -> bool {
+    let count = name.chars().count();
+    (1..=200).contains(&count)
+        && name != "."
+        && name != ".."
+        && !name.chars().any(|c| c == '/' || c == '\\' || c.is_control())
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len() / 2)
+        .filter_map(|i| u8::from_str_radix(text.get(2 * i..2 * i + 2)?, 16).ok())
+        .collect()
+}
+
+/// A file dropped on the live mirror page (ADR-057). The page proves its
+/// viewer key; the file is stored encrypted exactly as an upload link's
+/// (AES-256-CTR under a key only this process and the phone hold), and the
+/// phone saves it in Downloads with its SHA-256 checked, as `write_file` does.
+async fn mirror_drop(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<MirrorFileQuery>,
+    body: axum::body::Body,
+) -> Response {
+    use crate::links::{Kind, LinkError};
+    use aes::cipher::{KeyIvInit, StreamCipher};
+    use futures_util::StreamExt;
+    use sha2::{Digest, Sha256};
+    use tokio::io::AsyncWriteExt;
+    if !crate::mirror::same_origin(&headers) {
+        return error(StatusCode::FORBIDDEN, "cross-site uploads are refused");
+    }
+    let key = headers
+        .get("x-latch-mirror-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let Some(device_id) = state.mirrors.watched_by_key(key) else {
+        return error(
+            StatusCode::UNAUTHORIZED,
+            "this mirror has ended; open it again from the phone",
+        );
+    };
+    let name = query.name.trim().to_owned();
+    if !mirror_file_name_ok(&name) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "that file name can't be used on the phone",
+        );
+    }
+    let declared = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    let too_large = || {
+        error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &format!(
+                "the file is larger than this gateway's limit of {}",
+                mcp::files::size_text(state.links.max_bytes)
+            ),
+        )
+    };
+    let (token, record) = state.links.create(Kind::Up);
+    let path = match state.links.begin_upload(&token, declared) {
+        Ok(path) => path,
+        Err(LinkError::TooLarge) => return too_large(),
+        Err(LinkError::Full) => {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the gateway holds too many files right now; try again in a few minutes",
+            );
+        }
+        Err(_) => {
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the gateway could not store the file",
+            );
+        }
+    };
+    let mut claim = UploadClaim {
+        links: &state.links,
+        token: &token,
+        done: false,
+    };
+    let stored = || {
+        error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the gateway could not store the file",
+        )
+    };
+    let Ok(mut cipher) =
+        ctr::Ctr128BE::<aes::Aes256>::new_from_slices(&unhex(&record.key_hex), &unhex(&record.iv_hex))
+    else {
+        return stored();
+    };
+    let Ok(mut file) = tokio::fs::File::create(&path).await else {
+        return stored();
+    };
+    let mut hasher = Sha256::new();
+    let mut size = 0u64;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let Ok(chunk) = chunk else {
+            return error(StatusCode::BAD_REQUEST, "the upload was interrupted");
+        };
+        size += chunk.len() as u64;
+        if size > state.links.max_bytes {
+            return too_large();
+        }
+        hasher.update(&chunk);
+        let mut sealed = chunk.to_vec();
+        cipher.apply_keystream(&mut sealed);
+        if file.write_all(&sealed).await.is_err() {
+            return stored();
+        }
+    }
+    if file.flush().await.is_err() || declared.is_some_and(|n| n != size) {
+        return error(StatusCode::BAD_REQUEST, "the upload was incomplete");
+    }
+    if state.links.finish_upload(&token, size).is_err() {
+        return stored();
+    }
+    claim.done = true;
+    drop(claim);
+    let args = json!({
+        "location": "downloads",
+        "name": name,
+        "upload_id": token,
+        "sha256": secret::hex(&hasher.finalize()),
+    });
+    match mcp::files::run(&state, "write_file", &args, &device_id).await {
+        Ok(result) => Json(json!({
+            "ok": true,
+            "text": result["content"][0]["text"].as_str().unwrap_or("Saved on the phone."),
+        }))
+        .into_response(),
+        Err(e) => {
+            state.links.discard(&token);
+            error(
+                StatusCode::BAD_GATEWAY,
+                &format!("the phone did not save it: {}", e.message),
+            )
+        }
     }
 }
 
@@ -1135,5 +1292,19 @@ async fn admin_revoke_client(
                 "revoked for now, but could not save the revocation to disk",
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dropped_file_names_stay_in_one_folder() {
+        assert!(super::mirror_file_name_ok("holiday photo.jpg"));
+        assert!(super::mirror_file_name_ok("отчёт.pdf"));
+        for bad in ["", ".", "..", "a/b.txt", "a\\b.txt", "bell\u{7}.txt"] {
+            assert!(!super::mirror_file_name_ok(bad), "{bad:?}");
+        }
+        assert!(!super::mirror_file_name_ok(&"a".repeat(201)));
+        assert_eq!(super::unhex("00ff10"), vec![0, 255, 16]);
     }
 }

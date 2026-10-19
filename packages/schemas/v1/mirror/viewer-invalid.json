@@ -80,5 +80,32 @@
  },
  {
   "x": 1
+ },
+ {
+  "t": "paste",
+  "text": ""
+ },
+ {
+  "t": "paste",
+  "text": "bell\u0007"
+ },
+ {
+  "t": "paste"
+ },
+ {
+  "t": "copy",
+  "text": "x"
+ },
+ {
+  "t": "shot",
+  "full": true
+ },
+ {
+  "t": "key",
+  "key": "f13"
+ },
+ {
+  "t": "button",
+  "name": "power"
  }
 ]

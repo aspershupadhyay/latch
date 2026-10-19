@@ -37,15 +37,58 @@ object TextEdit {
         return Result(current.substring(0, s) + current.substring(after), s)
     }
 
-    /** The cursor after an arrow key: one character left or right, or to either end for up and down. */
+    /** Ctrl+Backspace: the selection, or back to the start of the word before the cursor. */
+    fun wordBackspace(current: String, start: Int, end: Int): Result? {
+        val (s, e) = selection(current, start, end)
+        if (s != e) return Result(current.substring(0, s) + current.substring(e), s)
+        if (s == 0) return null
+        val to = wordStart(current, s)
+        return Result(current.substring(0, to) + current.substring(s), to)
+    }
+
+    /**
+     * The cursor after a movement key: one character left or right, a word
+     * with Ctrl, the line's start or end for Home and End, or the field's
+     * start or end for up and down.
+     */
     fun move(current: String, start: Int, end: Int, key: MirrorKey): Int {
         val (s, e) = selection(current, start, end)
         return when (key) {
             MirrorKey.LEFT -> if (s != e) s else if (s == 0) 0 else current.offsetByCodePoints(s, -1)
             MirrorKey.RIGHT -> if (s != e) e else if (e >= current.length) current.length else current.offsetByCodePoints(e, 1)
+            MirrorKey.WORD_LEFT -> wordStart(current, s)
+            MirrorKey.WORD_RIGHT -> wordEnd(current, e)
+            MirrorKey.HOME -> current.lastIndexOf('\n', s - 1) + 1
+            MirrorKey.END -> current.indexOf('\n', e).let { if (it < 0) current.length else it }
             MirrorKey.UP -> 0
             else -> current.length
         }
+    }
+
+    private fun wordStart(text: String, from: Int): Int {
+        var i = from
+        while (i > 0 && text[i - 1].isWhitespace()) i--
+        while (i > 0 && !text[i - 1].isWhitespace()) i--
+        return i
+    }
+
+    private fun wordEnd(text: String, from: Int): Int {
+        var i = from
+        while (i < text.length && text[i].isWhitespace()) i++
+        while (i < text.length && !text[i].isWhitespace()) i++
+        return i
+    }
+
+    /**
+     * What a field really holds: empty while it shows its hint. Some apps
+     * (WhatsApp's "Message" box among them) report the hint as the field's
+     * text without saying so; [placeholder] is that text once the mirror saw
+     * the field report it right after the mirror emptied it.
+     */
+    fun realText(text: String, showingHint: Boolean, hint: String?, placeholder: String?): String = when {
+        showingHint -> ""
+        text.isNotEmpty() && (text == hint || text == placeholder) -> ""
+        else -> text
     }
 
     private fun selection(current: String, start: Int, end: Int): Pair<Int, Int> {
@@ -71,9 +114,9 @@ object EncoderSizing {
  * back slowly once it is clean (multiplicative down, gentle up).
  */
 class BitrateGovernor(
-    val startBps: Int = 6_000_000,
+    val startBps: Int = 8_000_000,
     private val minBps: Int = 1_000_000,
-    private val maxBps: Int = 8_000_000,
+    private val maxBps: Int = 12_000_000,
 ) {
     var bps: Int = startBps
         private set

@@ -36,12 +36,23 @@ sealed interface MirrorIn {
     data class CodecChoice(val codec: Codec) : MirrorIn
     /** The viewer plays the phone's sound; the phone's own speaker goes quiet while [on]. */
     data class Sound(val on: Boolean) : MirrorIn
+    /** Text from the computer's clipboard (ADR-057): onto the phone's clipboard, and into the field in focus. */
+    data class Paste(val text: String) : MirrorIn
+    /** Copy (or cut) what is selected on the phone, for the computer's clipboard (ADR-057). */
+    data class Copy(val cut: Boolean) : MirrorIn
+    /** A full-resolution screenshot for the computer (ADR-057). */
+    data object Shot : MirrorIn
 }
 
 enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg") }
 enum class Phase(val wire: String) { DOWN("down"), MOVE("move"), UP("up"), CANCEL("cancel") }
-enum class MirrorKey(val wire: String) { BACKSPACE("backspace"), DELETE("delete"), ENTER("enter"), TAB("tab"), LEFT("left"), RIGHT("right"), UP("up"), DOWN("down") }
-enum class MirrorButton(val wire: String) { BACK("back"), HOME("home"), RECENTS("recents") }
+enum class MirrorKey(val wire: String) {
+    BACKSPACE("backspace"), DELETE("delete"), ENTER("enter"), TAB("tab"), LEFT("left"), RIGHT("right"), UP("up"), DOWN("down"),
+    // Since ADR-057: editing shortcuts from the computer's keyboard.
+    HOME("home"), END("end"), SELECT_ALL("select_all"), WORD_BACKSPACE("word_backspace"), WORD_LEFT("word_left"), WORD_RIGHT("word_right"),
+    NEWLINE("newline"),
+}
+enum class MirrorButton(val wire: String) { BACK("back"), HOME("home"), RECENTS("recents"), NOTIFICATIONS("notifications"), QUICK_SETTINGS("quick_settings") }
 enum class MirrorAction(val wire: String) { PAUSE("pause"), RESUME("resume"), STOP("stop"), END("end") }
 
 object MirrorMessages {
@@ -50,9 +61,12 @@ object MirrorMessages {
     const val KIND_JPEG: Byte = 2
     /** 48 kHz stereo 16-bit little-endian PCM, 20 ms per frame (ADR-055). */
     const val KIND_PCM: Byte = 3
+    /** A full-resolution PNG screenshot the owner asked for (ADR-057). */
+    const val KIND_SHOT: Byte = 4
     const val HEADER_BYTES = 10
     const val MAX_COORDINATE = 16_384
     const val MAX_TEXT_CHARS = 256
+    const val MAX_PASTE_CHARS = 4_096
     private const val MAX_TEXT_BYTES = 16 * 1024
 
     /** Fields each message may carry besides `t`; anything else makes it invalid. */
@@ -71,6 +85,10 @@ object MirrorMessages {
         "ping" to setOf("at"),
         "codec" to setOf("codec"),
         "sound" to setOf("on"),
+        "paste" to setOf("text"),
+        "copy" to emptySet(),
+        "cut" to emptySet(),
+        "shot" to emptySet(),
     )
 
     /** One text message from the gateway, or null for anything the phone must ignore. */
@@ -103,6 +121,10 @@ object MirrorMessages {
             "ping" -> (o["at"] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it.isFinite() }?.let { MirrorIn.Ping(it) }
             "codec" -> MirrorIn.CodecChoice(o.enum("codec", Codec.entries) { it.wire } ?: return null)
             "sound" -> MirrorIn.Sound(o.bool("on") ?: return null)
+            "paste" -> o.string("text")?.takeIf { validPaste(it) }?.let { MirrorIn.Paste(it) }
+            "copy" -> MirrorIn.Copy(cut = false)
+            "cut" -> MirrorIn.Copy(cut = true)
+            "shot" -> MirrorIn.Shot
             else -> null
         }
     }
@@ -111,6 +133,13 @@ object MirrorMessages {
     fun validText(text: String): Boolean {
         val count = text.codePointCount(0, text.length)
         return count in 1..MAX_TEXT_CHARS && text.codePoints().noneMatch { Character.getType(it) == Character.CONTROL.toInt() }
+    }
+
+    /** 1–4096 characters; line breaks and tabs are kept, other control characters are not. */
+    fun validPaste(text: String): Boolean {
+        val count = text.codePointCount(0, text.length)
+        return count in 1..MAX_PASTE_CHARS &&
+            text.codePoints().noneMatch { it != '\n'.code && it != '\t'.code && Character.getType(it) == Character.CONTROL.toInt() }
     }
 
     // ---- What the phone sends ----
@@ -164,6 +193,27 @@ object MirrorMessages {
     }.toString()
 
     fun end(): String = """{"t":"end"}"""
+
+    /** Text for the computer's clipboard (ADR-057); only ever in answer to the owner's copy. */
+    fun clipboard(text: String): String = buildJsonObject {
+        put("t", "clipboard")
+        put("text", text)
+    }.toString()
+
+    /** The phone's state at a glance for the page (ADR-057); null fields are what Android would not say. */
+    fun status(battery: Int?, charging: Boolean?, network: String?, signal: Int?): String = buildJsonObject {
+        put("t", "status")
+        battery?.let { put("battery", it) }
+        charging?.let { put("charging", it) }
+        network?.let { put("network", it) }
+        signal?.let { put("signal", it) }
+    }.toString()
+
+    /** How the owner's input reaches the phone: "keys" (the Full ADB input helper) or "basic" (accessibility). */
+    fun input(mode: String): String = buildJsonObject {
+        put("t", "input")
+        put("mode", mode)
+    }.toString()
 
     /** A binary frame: kind, flags (bit 0 key frame), timestamp µs big-endian, payload. */
     fun frame(kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer): ByteArray {

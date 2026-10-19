@@ -313,6 +313,19 @@ class SessionController(
     /** Whether full-access ADB is switched on and paired, so `adb.shell` can run. */
     private fun adbActive(): Boolean = capabilityStatuses()[Capability.ADB_SHELL] == CapabilityStatus.ENABLED
 
+    /** ADR-057: whether the owner's Full ADB is on, so the live mirror may use its input helper. */
+    fun fullAdbOn(): Boolean = adbActive()
+
+    /**
+     * ADR-057: runs one shell line for the owner's live mirror through Full
+     * ADB and returns when it ends (cancelling ends it); null while Full ADB
+     * is off. Its output is never logged.
+     */
+    suspend fun mirrorShell(line: String): io.github.aspershupadhyay.latch.protocol.AdbResult? {
+        if (!adbActive()) return null
+        return adbBridge?.run(Command.AdbShell(commandLine = line, stdin = null, timeoutMs = 0, continueFrom = null))
+    }
+
     /**
      * The session timer ran out. Ordinary tools end with it. ADR-046: full-access
      * ADB has no Latch-imposed expiry, so while it is on the link stays up for

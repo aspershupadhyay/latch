@@ -395,6 +395,16 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
         ? "Done: the phone's screen is lit again."
         : "Done: the phone's screen is dark; the phone, the live mirror, and your actions keep working. The power button lights it again."), run.timing);
     }
+    // ADR-057: Android 15's screen-share protection, the same command and answers as the Rust gateway.
+    if (args.control === "mirror_notifications") {
+      if (typeof args.on !== "boolean") throw bad("on must be true or false for mirror_notifications");
+      const run = await execute(ctx, deviceId, { name: "adb.shell", params: { command_line: screenShareProtectionCommand(args.on), timeout_ms: 15_000 } });
+      const r = run.data as AdbResult;
+      if (r.exit_code !== 0) {
+        throw new ProtocolError("internal", `the phone could not change the setting: ${(r.stderr ?? "").trim().slice(0, 300)}`);
+      }
+      return withTiming(textResult(screenShareProtectionText(args.on, Number.parseInt((r.stdout ?? "").trim(), 10) || 0)), run.timing);
+    }
     if (args.control === "mirror_volume") {
       throw bad("the live mirror runs through the Latch gateway on the owner's computer; this hosted relay has no mirror, so mirror_volume works only there");
     }
@@ -801,6 +811,19 @@ export function slowStoreNote(storeMs: number): string {
 export function screenLightCommand(on: boolean): string {
   return "p=$( (pm path io.github.aspershupadhyay.latch || pm path io.github.aspershupadhyay.latch.debug) 2>/dev/null | head -n1); " +
     `CLASSPATH="\${p#package:}" app_process / io.github.aspershupadhyay.latch.session.ScreenLight ${on ? "on" : "off"}`;
+}
+
+/** The ADB shell command for Android 15's "Disable screen share protections" (ADR-057). */
+export function screenShareProtectionCommand(show: boolean): string {
+  return `settings put global disable_screen_share_protections_for_apps_and_notifications ${show ? 1 : 0} && getprop ro.build.version.sdk`;
+}
+
+/** What mirror_notifications answers, given the phone's Android SDK level (0 when unknown). */
+export function screenShareProtectionText(show: boolean, sdk: number): string {
+  if (sdk !== 0 && sdk < 35) return "Done: nothing to change on this phone; Android 14 and older show notifications while mirroring.";
+  return show
+    ? "Done: notifications and protected apps will show in the mirror. Android applies this when sharing starts, so stop and start mirroring on the phone once. Hide them again when you're done."
+    : "Done: Android hides notifications and protected apps from the mirror again (from the next time mirroring starts).";
 }
 
 /** `phone_control` arguments as a phone control, with the Rust gateway's error texts. */

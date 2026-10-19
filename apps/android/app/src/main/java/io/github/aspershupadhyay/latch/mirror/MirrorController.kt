@@ -93,6 +93,11 @@ class MirrorController(
     @Volatile private var watching = false
     @Volatile private var ownerControl = false
     private var lastScreen: MirrorCapture.Screen? = null
+    private var statusJob: Job? = null
+
+    /** Real touch and key events through Full ADB when the owner has it on (ADR-057). */
+    private val keys = ShellInputLink(scope, context.applicationInfo.sourceDir, session::mirrorShell)
+    @Volatile private var keysWanted = false
 
     init {
         // The phone's emergency Stop ends mirroring as well.
@@ -236,6 +241,9 @@ class MirrorController(
     private fun stopParts() {
         watching = false
         ownerControl = false
+        stopKeys()
+        statusJob?.cancel()
+        statusJob = null
         aiJob?.cancel()
         inputJob?.cancel()
         aiJob = null
@@ -329,6 +337,7 @@ class MirrorController(
                 is MirrorIn.CodecChoice -> handler?.post { capture?.start(message.codec) }
                 is MirrorIn.Sound -> handler?.post { capture?.audio?.quietPhone(message.on) }
                 is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at))
+                is MirrorIn.Shot -> shot()
                 else -> input.trySend(Input.Message(message, SystemClock.uptimeMillis()))
             }
         }
@@ -356,11 +365,14 @@ class MirrorController(
             link?.sendText(MirrorMessages.screen(s.width, s.height, s.rotation))
             h.post { capture?.start(codec) }
             startAi()
+            startStatus()
             log.add(ActivityKind.CONNECTION, "Your computer is watching the screen", by = ActivityActor.OWNER)
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WATCHING)
         } else {
             h.post { capture?.stop() }
             aiJob?.cancel()
+            statusJob?.cancel()
+            stopKeys()
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WAITING)
         }
         updateNotification()
@@ -368,6 +380,114 @@ class MirrorController(
 
     private fun notice(text: String) {
         link?.sendText(MirrorMessages.notice(text))
+    }
+
+    // ---- The input helper (ADR-057) ----
+
+    /** Starts the helper when Full ADB is on and it is not running; tells the page how input goes. */
+    private fun checkKeys() {
+        val on = session.fullAdbOn()
+        if (on && !keysWanted) {
+            keysWanted = true
+            keys.start(
+                started = { link?.sendText(MirrorMessages.input("keys")) },
+                ended = { why ->
+                    keysWanted = false
+                    link?.sendText(MirrorMessages.input("basic"))
+                    if (why != null && watching) notice("Smooth input is off ($why); clicks and typing still work.")
+                },
+            )
+        } else if (!on && keysWanted) {
+            stopKeys()
+            link?.sendText(MirrorMessages.input("basic"))
+        } else if (!on) {
+            link?.sendText(MirrorMessages.input("basic"))
+        }
+    }
+
+    private fun stopKeys() {
+        keysWanted = false
+        keys.stop()
+    }
+
+    // ---- The phone's state, and a screenshot, for the page (ADR-057) ----
+
+    private fun startStatus() {
+        statusJob?.cancel()
+        statusJob = scope.launch {
+            var last = ""
+            var ticks = 0
+            while (true) {
+                // Full ADB switched on or off while watching: the input follows.
+                if (ticks++ % 3 == 0) checkKeys()
+                val message = runCatching { statusMessage() }.getOrNull()
+                if (message != null && message != last) {
+                    link?.sendText(message)
+                    last = message
+                }
+                delay(STATUS_EVERY_MS)
+            }
+        }
+    }
+
+    private fun statusMessage(): String {
+        val s = io.github.aspershupadhyay.latch.session.PhoneControls.status(context)
+        return MirrorMessages.status(s.batteryPercent, s.charging, s.network, signalLevel(s.network))
+    }
+
+    /** Signal bars 0–4 for Wi-Fi or mobile data, or null when Android does not say. */
+    private fun signalLevel(network: String?): Int? = runCatching {
+        when (network) {
+            "wifi" -> {
+                val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+                val rssi = connectivity.getNetworkCapabilities(connectivity.activeNetwork)?.signalStrength ?: return@runCatching null
+                if (rssi == Int.MIN_VALUE) return@runCatching null
+                val wifi = context.getSystemService(android.net.wifi.WifiManager::class.java)
+                val max = wifi.maxSignalLevel.coerceAtLeast(1)
+                (wifi.calculateSignalLevel(rssi) * 4 + max / 2) / max
+            }
+            "cellular" -> context.getSystemService(android.telephony.TelephonyManager::class.java)?.signalStrength?.level
+            else -> null
+        }
+    }.getOrNull()?.coerceIn(0, 4)
+
+    private fun shot() {
+        val service = bridge.service.value ?: run {
+            notice("Latch's screen access is off on the phone, so it can't take a screenshot.")
+            return
+        }
+        scope.launch(Dispatchers.Main) {
+            service.mirrorScreenshot { png, why ->
+                if (png == null) {
+                    notice(why ?: "No screenshot.")
+                } else if (png.size + MirrorMessages.HEADER_BYTES > MAX_SHOT_BYTES) {
+                    notice("The screenshot is too large to send.")
+                } else {
+                    link?.sendFrameAlways(MirrorMessages.frame(MirrorMessages.KIND_SHOT, true, System.currentTimeMillis() * 1000, java.nio.ByteBuffer.wrap(png)))
+                }
+            }
+        }
+    }
+
+    /** The owner's copy: what is selected on the phone, onto the computer's clipboard. */
+    private suspend fun copy(service: io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService, cut: Boolean) {
+        val text = if (keys.ready) {
+            // The app's own copy (Ctrl+C), then the phone's clipboard as the shell reads it.
+            keys.send(ShellInputCommands.key(if (cut) ShellInputCommands.KEYCODE_X else ShellInputCommands.KEYCODE_C, ShellInputCommands.META_CTRL))
+            keys.flush()
+            delay(COPY_SETTLE_MS)
+            keys.clipboard()
+        } else {
+            service.mirrorCopy(cut)
+        }
+        if (text.isNullOrEmpty()) {
+            notice(
+                if (keys.ready) "The phone's clipboard is empty. Select text on the phone first."
+                else "Select text in a text box on the phone first. With Full ADB on, anything you copy on the phone comes across.",
+            )
+            return
+        }
+        link?.sendText(MirrorMessages.clipboard(fitClipboard(text)))
     }
 
     // ---- What the AI is doing, for the page ----
@@ -438,6 +558,7 @@ class MirrorController(
             var ignoring = false
             var tick: Job? = null
             var wheelAt: Pair<Int, Int>? = null
+            var shellStroke = false
             var wheelDx = 0
             var wheelDy = 0
 
@@ -496,8 +617,13 @@ class MirrorController(
                                 Phase.DOWN -> {
                                     val refusal = service.mirrorRefusal(m.x, m.y)
                                     ignoring = refusal != null
+                                    shellStroke = refusal == null && keys.ready
                                     if (refusal != null) {
                                         notice(refusal)
+                                    } else if (shellStroke) {
+                                        ownerInput()
+                                        service.mirrorTouched()
+                                        keys.send(ShellInputCommands.touch(m.phase, m.x, m.y))
                                     } else {
                                         ownerInput()
                                         // Whatever was left of an earlier stroke is dropped.
@@ -510,22 +636,27 @@ class MirrorController(
                                         }
                                     }
                                 }
-                                Phase.MOVE -> if (!ignoring) planned(planner.move(m.x, m.y, now))
-                                Phase.UP -> {
+                                Phase.MOVE -> if (shellStroke) keys.send(ShellInputCommands.touch(m.phase, m.x, m.y)) else if (!ignoring) planned(planner.move(m.x, m.y, now))
+                                Phase.UP, Phase.CANCEL -> {
                                     tick?.cancel()
-                                    if (!ignoring) planned(planner.up(m.x, m.y, now))
+                                    if (shellStroke) {
+                                        keys.send(ShellInputCommands.touch(m.phase, m.x, m.y))
+                                        service.mirrorTouched()
+                                    } else if (!ignoring) {
+                                        planned(if (m.phase == Phase.UP) planner.up(m.x, m.y, now) else planner.cancel(now))
+                                    }
                                     ignoring = false
-                                }
-                                Phase.CANCEL -> {
-                                    tick?.cancel()
-                                    if (!ignoring) planned(planner.cancel(now))
-                                    ignoring = false
+                                    shellStroke = false
                                 }
                             }
                             is MirrorIn.Wheel -> {
                                 val refusal = service.mirrorRefusal(m.x, m.y)
                                 if (refusal != null) {
                                     notice(refusal)
+                                } else if (keys.ready) {
+                                    ownerInput()
+                                    service.mirrorTouched()
+                                    keys.send(ShellInputCommands.scroll(m.x, m.y, m.dx, m.dy))
                                 } else {
                                     ownerInput()
                                     wheelAt = m.x to m.y
@@ -535,28 +666,91 @@ class MirrorController(
                                 }
                             }
                             is MirrorIn.Text -> {
+                                val refusal = service.mirrorTypingRefusal()
+                                if (refusal != null) {
+                                    notice(refusal)
+                                    continue
+                                }
                                 ownerInput()
-                                service.mirrorEdit { text, start, end -> TextEdit.insert(text, start, end, m.text) }?.let(::notice)
+                                if (keys.ready) {
+                                    service.mirrorTouched()
+                                    for ((run, typeable) in ShellInputCommands.runs(m.text)) {
+                                        if (typeable) {
+                                            keys.send(ShellInputCommands.text(run))
+                                        } else {
+                                            // Emoji and other scripts are not on the key map: wait for the keys before them.
+                                            keys.flush()
+                                            delay(KEYS_SETTLE_MS)
+                                            service.mirrorEdit { text, start, end -> TextEdit.insert(text, start, end, run) }?.let(::notice)
+                                        }
+                                    }
+                                } else {
+                                    service.mirrorEdit { text, start, end -> TextEdit.insert(text, start, end, m.text) }?.let(::notice)
+                                }
                             }
                             is MirrorIn.Key -> {
+                                val refusal = service.mirrorTypingRefusal()
+                                if (refusal != null) {
+                                    notice(refusal)
+                                    continue
+                                }
                                 ownerInput()
-                                val problem = when (m.key) {
-                                    MirrorKey.BACKSPACE -> service.mirrorEdit { text, start, end -> TextEdit.backspace(text, start, end) }
-                                    MirrorKey.DELETE -> service.mirrorEdit { text, start, end -> TextEdit.delete(text, start, end) }
-                                    MirrorKey.ENTER -> service.mirrorEnter()
-                                    MirrorKey.TAB -> null
-                                    else -> service.mirrorCursor { text, start, end -> TextEdit.move(text, start, end, m.key) }
+                                val shellKey = ShellInputCommands.key(m.key)
+                                val problem = when {
+                                    m.key == MirrorKey.ENTER -> service.mirrorEnter()?.let { why ->
+                                        // No field: a plain Enter key, where the helper can press one.
+                                        if (keys.ready) {
+                                            keys.send(ShellInputCommands.key(ShellInputCommands.KEYCODE_ENTER))
+                                            null
+                                        } else {
+                                            why
+                                        }
+                                    }
+                                    keys.ready && shellKey != null -> {
+                                        service.mirrorTouched()
+                                        keys.send(ShellInputCommands.key(shellKey.first, shellKey.second))
+                                        null
+                                    }
+                                    else -> when (m.key) {
+                                        MirrorKey.BACKSPACE -> service.mirrorEdit { text, start, end -> TextEdit.backspace(text, start, end) }
+                                        MirrorKey.WORD_BACKSPACE -> service.mirrorEdit { text, start, end -> TextEdit.wordBackspace(text, start, end) }
+                                        MirrorKey.DELETE -> service.mirrorEdit { text, start, end -> TextEdit.delete(text, start, end) }
+                                        MirrorKey.NEWLINE -> service.mirrorEdit { text, start, end -> TextEdit.insert(text, start, end, "\n") }
+                                        MirrorKey.SELECT_ALL -> service.mirrorSelectAll()
+                                        MirrorKey.TAB -> null
+                                        else -> service.mirrorCursor { text, start, end -> TextEdit.move(text, start, end, m.key) }
+                                    }
                                 }
                                 problem?.let(::notice)
                             }
+                            is MirrorIn.Paste -> {
+                                val refusal = service.mirrorTypingRefusal()
+                                if (refusal != null) {
+                                    notice(refusal)
+                                    continue
+                                }
+                                ownerInput()
+                                service.mirrorClip(m.text)
+                                when {
+                                    !service.mirrorHasField() -> notice("Copied to the phone's clipboard. Long-press a text box on the phone and tap Paste.")
+                                    keys.ready -> {
+                                        service.mirrorTouched()
+                                        keys.send(ShellInputCommands.key(ShellInputCommands.KEYCODE_V, ShellInputCommands.META_CTRL))
+                                    }
+                                    else -> service.mirrorEdit { text, start, end -> TextEdit.insert(text, start, end, m.text) }?.let(::notice)
+                                }
+                            }
+                            is MirrorIn.Copy -> copy(service, m.cut)
                             is MirrorIn.Button -> {
                                 ownerInput()
-                                val action = when (m.name) {
-                                    MirrorButton.BACK -> AccessibilityService.GLOBAL_ACTION_BACK
-                                    MirrorButton.HOME -> AccessibilityService.GLOBAL_ACTION_HOME
-                                    MirrorButton.RECENTS -> AccessibilityService.GLOBAL_ACTION_RECENTS
+                                val done = when (m.name) {
+                                    MirrorButton.BACK -> service.mirrorButton(AccessibilityService.GLOBAL_ACTION_BACK)
+                                    MirrorButton.HOME -> service.mirrorButton(AccessibilityService.GLOBAL_ACTION_HOME)
+                                    MirrorButton.RECENTS -> service.mirrorButton(AccessibilityService.GLOBAL_ACTION_RECENTS)
+                                    MirrorButton.NOTIFICATIONS -> service.mirrorPanel(quickSettings = false)
+                                    MirrorButton.QUICK_SETTINGS -> service.mirrorPanel(quickSettings = true)
                                 }
-                                if (!service.mirrorButton(action)) notice("The phone did not take that button.")
+                                if (!done) notice("The phone did not take that button.")
                             }
                             is MirrorIn.Control -> when (m.action) {
                                 MirrorAction.PAUSE -> {
@@ -619,6 +813,23 @@ class MirrorController(
 
     companion object {
         private const val AI_REFRESH_MS = 400L
+        private const val STATUS_EVERY_MS = 5_000L
+        private const val KEYS_SETTLE_MS = 40L
+        private const val COPY_SETTLE_MS = 120L
+        /** What the gateway relays in one frame (its MAX_FRAME_BYTES). */
+        private const val MAX_SHOT_BYTES = 8 * 1024 * 1024
+        /** The longest clipboard text sent to the page; the gateway takes 64 KiB a message. */
+        private const val MAX_CLIPBOARD_JSON = 60 * 1024
+
+        /** [text] cut (on a character boundary) so its clipboard message fits the gateway's limit. */
+        fun fitClipboard(text: String): String {
+            var t = text
+            while (MirrorMessages.clipboard(t).toByteArray().size > MAX_CLIPBOARD_JSON) {
+                val keep = t.length * 3 / 4
+                t = t.substring(0, if (keep > 0 && Character.isHighSurrogate(t[keep - 1])) keep - 1 else keep)
+            }
+            return t
+        }
         private const val STEPS = 6
         private const val STEPS_WINDOW_MS = 30 * 60_000L
 
