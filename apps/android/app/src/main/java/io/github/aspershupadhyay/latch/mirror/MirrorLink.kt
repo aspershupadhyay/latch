@@ -40,7 +40,11 @@ class MirrorLink(
         fun refused(reason: String)
     }
 
-    private val client = http.newBuilder().pingInterval(15, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
+    private val client = http.newBuilder()
+        .pingInterval(15, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .socketFactory(LowLatencySockets())
+        .build()
     private val url = gatewayUrl.trimEnd('/') + "/v1/mirror/phone"
     private val timer = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "latch-mirror-link").apply { isDaemon = true } }
     @Volatile private var socket: WebSocket? = null
@@ -77,8 +81,16 @@ class MirrorLink(
      */
     fun sendFrame(frame: ByteArray): Boolean {
         val s = socket ?: return false
-        if (!started || s.queueSize() > MAX_QUEUED_BYTES) return false
+        // A delta frame waits behind little; a key frame (it restarts the picture) may wait a bit more.
+        val key = frame.size > 1 && frame[1].toInt() and 1 != 0
+        if (!started || s.queueSize() > if (key) MAX_QUEUED_BYTES else MAX_QUEUED_DELTA_BYTES) return false
         return s.send(frame.toByteString())
+    }
+
+    /** A frame the owner asked for (a screenshot): sent even when video is behind. */
+    fun sendFrameAlways(frame: ByteArray): Boolean {
+        val s = socket ?: return false
+        return started && s.send(frame.toByteString())
     }
 
     private fun connect() {
@@ -151,11 +163,37 @@ class MirrorLink(
     }
 
     companion object {
-        /** Bytes waiting in OkHttp's queue before frames are dropped (OkHttp itself fails at 16 MiB). */
+        /** Bytes waiting in OkHttp's queue before a key frame is dropped (OkHttp itself fails at 16 MiB). */
         const val MAX_QUEUED_BYTES = 512L * 1024
+        /** Bytes waiting before a delta frame is dropped: about 100 ms of video, so the picture never lags behind. */
+        const val MAX_QUEUED_DELTA_BYTES = 96L * 1024
         const val REFUSED = 4401
         const val REPLACED = 4409
         private const val RETRY_START_MS = 250L
         private const val MAX_RETRY_MS = 4_000L
+    }
+}
+
+/**
+ * Sockets for the mirror (ADR-057): no Nagle delay on small frames, and a
+ * small send buffer, so a slow network shows up as dropped frames (and a
+ * lower bitrate) at once instead of seconds of video queued in the kernel.
+ */
+internal class LowLatencySockets(private val base: javax.net.SocketFactory = javax.net.SocketFactory.getDefault()) : javax.net.SocketFactory() {
+    private fun tune(s: java.net.Socket): java.net.Socket = s.apply {
+        tcpNoDelay = true
+        runCatching { sendBufferSize = SEND_BUFFER_BYTES }
+    }
+
+    override fun createSocket(): java.net.Socket = tune(base.createSocket())
+    override fun createSocket(host: String?, port: Int): java.net.Socket = tune(base.createSocket(host, port))
+    override fun createSocket(host: String?, port: Int, localHost: java.net.InetAddress?, localPort: Int): java.net.Socket =
+        tune(base.createSocket(host, port, localHost, localPort))
+    override fun createSocket(host: java.net.InetAddress?, port: Int): java.net.Socket = tune(base.createSocket(host, port))
+    override fun createSocket(address: java.net.InetAddress?, port: Int, localAddress: java.net.InetAddress?, localPort: Int): java.net.Socket =
+        tune(base.createSocket(address, port, localAddress, localPort))
+
+    companion object {
+        const val SEND_BUFFER_BYTES = 128 * 1024
     }
 }

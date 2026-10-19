@@ -110,8 +110,12 @@ class PhoneTransfers(
 
     private fun fail(code: ErrorCode, message: String): Nothing = throw ProtocolException(code, message)
 
-    /** Starts a download; answers once it is done, or after [quickMs] with its progress. */
-    suspend fun fetch(command: Command.FetchFile, quickMs: Long = QUICK_MS): FileTransfer {
+    /**
+     * Starts a download; answers once it is done, or after [quickMs] with its
+     * progress. [gateway] is the gateway the link must be on, when it is not
+     * the paired one (ADR-057: the live mirror's Wi-Fi gateway).
+     */
+    suspend fun fetch(command: Command.FetchFile, quickMs: Long = QUICK_MS, gateway: String? = null): FileTransfer {
         val slot = local?.find(command.link.url)
         if (slot != null) {
             // What the computer sent to this phone's own Wi-Fi address (ADR-041).
@@ -119,7 +123,7 @@ class PhoneTransfers(
                 fail(ErrorCode.TARGET_NOT_FOUND, "nothing arrived at the phone's Wi-Fi address")
             }
         } else {
-            checkLink(command.link, upload = false)
+            checkLink(command.link, upload = false, gateway)
         }
         command.size?.let(::checkSpace)
         val t = Transfer(newId(), download = true, name = command.fileName, total = command.size)
@@ -356,8 +360,8 @@ class PhoneTransfers(
 
     private fun cipher(link: FileLink): Cipher = cipherFor(link)
 
-    private fun checkLink(link: FileLink, upload: Boolean) {
-        if (!isAllowedLink(link.url, gatewayUrl(), upload)) {
+    private fun checkLink(link: FileLink, upload: Boolean, gateway: String? = null) {
+        if (!isAllowedLink(link.url, gateway ?: gatewayUrl(), upload)) {
             fail(ErrorCode.POLICY_REFUSED, "Latch follows file links only to its own gateway and to Vercel Blob storage")
         }
     }

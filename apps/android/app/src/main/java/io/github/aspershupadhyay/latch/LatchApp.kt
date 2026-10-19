@@ -127,7 +127,7 @@ class LatchApp : Application() {
             adbJobDir = java.io.File(cacheDir, "adb-jobs"),
         )
         setup = GatewaySetup(http)
-        mirror = io.github.aspershupadhyay.latch.mirror.MirrorController(this, scope, http, settings, session, log, bridge)
+        mirror = io.github.aspershupadhyay.latch.mirror.MirrorController(this, scope, http, settings, session, log, bridge, transfers)
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
         observeIndicators()

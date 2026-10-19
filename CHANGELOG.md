@@ -10,6 +10,13 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **Mirror feels like a second screen** (ADR-057): with Full ADB on, clicks, drags, scrolling, and typing reach the phone as real touches and keys, so drags follow the pointer live and typing behaves as on a keyboard ("Smooth input" on the page). Lower delay throughout: no Nagle buffering on the phone's socket, a small send buffer, shorter queues, a higher bitrate.
+- **Copy and paste between computer and phone**: Ctrl/Cmd+V pastes text from the computer into the phone (a pasted picture or file is sent to the phone); Ctrl/Cmd+C or X copies what is selected on the phone to the computer.
+- **Send files by dropping them on the mirror** (or the upload button, or pasting): they are saved in the phone's Downloads, encrypted on the way and checked.
+- **Screenshot and recording buttons**: a full-resolution PNG screenshot and a screen recording with sound, saved on the computer.
+- **Notifications visible while mirroring**: a bell button (and `phone_control` `mirror_notifications`) turns off Android 15's screen-share hiding through Full ADB, until you turn it back on.
+- **Phone status on the mirror page**: battery, charging, Wi-Fi or mobile, and signal bars.
+- **Keyboard shortcuts** in the mirror (Alt+/ lists them): Back, Home, Recents, notifications, quick settings, screen off, full screen, rotate, sound, volume, screenshot, record, send files, pop-out; Ctrl/Cmd+A, word delete and word moves, Shift+Enter for a new line. A **pop-out window** keeps the phone on top (Chrome, Edge).
 - **Choose how your AI reaches the phone** when you set up Latch: **Hosted relay** (your free Vercel relay, works anywhere) or **Computer on Wi-Fi** (the gateway on your computer, nothing leaves home). Switch any time in **Connect**; Latch keeps both, so switching back asks for no key (R31, ADR-052).
 - **Both connected at once**: during a session the phone connects through your hosted relay and your computer on Wi-Fi together, so your AI can use either (Connect → **Keep both connected**, on by default). Live mirror uses the Wi-Fi one (ADR-053).
 - **Scan a QR code to connect over Wi-Fi**: `latch-start` shows a QR code; in Latch, **Computer on Wi-Fi → Scan QR code** connects the phone and makes it the owner, with no key to copy. Under the QR code: the address and an 8-letter setup code for typing instead. Codes work once, for 15 minutes; `latch-gateway pair` shows a new one (R32, ADR-054).
@@ -25,6 +32,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Fixed
 
+- **WhatsApp put "Message" in front of what you typed from the mirror**, and Backspace deleted it letter by letter: a field that reports its hint as text is now read as empty.
 - **Wireless-ADB pairing failed on every phone** with `pairing failed: org.conscrypt.Conscrypt`: the app looked for a TLS class that exists only off Android. It now uses Android's own exporter (Android 12+ public API; Android 11 through its TLS socket), with an on-device test in the emulator job.
 - **macOS refused the gateway** ("cannot be opened… Move to Trash") when downloaded in a browser: install it with `curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh`, which avoids the quarantine flag, checks the checksum, creates your keys, and adds `latch-start`. The macOS files are now signed ad hoc and verified in CI. Guide: [docs/connect-your-phone.md](docs/connect-your-phone.md).
 

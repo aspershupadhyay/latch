@@ -38,6 +38,8 @@ pub const MIRROR_VERSION: u32 = 1;
 pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 /// Largest text message either side may send.
 pub const MAX_TEXT_BYTES: usize = 16 * 1024;
+/// Largest text message from the phone: room for clipboard text (ADR-057).
+pub const MAX_PHONE_TEXT_BYTES: usize = 64 * 1024;
 /// Frame header: kind (1 byte), flags (1 byte), timestamp in µs (8 bytes, big-endian).
 pub const FRAME_HEADER_BYTES: usize = 10;
 /// H.264 Annex B access unit; key frames carry their SPS and PPS.
@@ -46,6 +48,8 @@ pub const KIND_H264: u8 = 1;
 pub const KIND_JPEG: u8 = 2;
 /// The phone's sound: 48 kHz stereo 16-bit PCM, 20 ms a frame (ADR-055).
 pub const KIND_PCM: u8 = 3;
+/// A full-resolution PNG screenshot the owner asked for (ADR-057); never dropped.
+pub const KIND_SHOT: u8 = 4;
 pub const FLAG_KEY: u8 = 1;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -61,8 +65,9 @@ const WRONG_CODES_PER_MIRROR: u32 = 5;
 /// Wrong codes across the gateway per minute before code joins pause for the minute.
 const WRONG_CODES_PER_MINUTE: usize = 20;
 /// Video frames waiting for one viewer before newer ones are dropped. A few
-/// frames of slack absorb jitter; more would only add delay.
-const VIEWER_VIDEO_QUEUE: usize = 6;
+/// frames of slack absorb jitter; more would only add delay (at 60 frames a
+/// second, three are 50 ms).
+const VIEWER_VIDEO_QUEUE: usize = 3;
 const VIEWER_TEXT_QUEUE: usize = 64;
 const PHONE_QUEUE: usize = 256;
 /// Least time between key-frame requests to the phone.
@@ -72,6 +77,8 @@ const VIEWER_MESSAGES_PER_SECOND: u32 = 1_000;
 /// Largest coordinate or scroll distance in phone pixels.
 const MAX_COORDINATE: i32 = 16_384;
 const MAX_TEXT_CHARS: usize = 256;
+/// Most characters one paste from the computer's clipboard carries (ADR-057).
+const MAX_PASTE_CHARS: usize = 4096;
 
 // Close codes the page understands (docs/protocol/mirror.md).
 pub const CLOSE_REFUSED: u16 = 4401;
@@ -104,6 +111,11 @@ struct Session {
     screen: Option<String>,
     /// The phone's latest `ai` message.
     ai: Option<String>,
+    /// The phone's latest `status` and `input` messages (ADR-057).
+    status: Option<String>,
+    input: Option<String>,
+    /// Where the phone reached this gateway, for links it follows (ADR-057).
+    base: String,
 }
 
 struct Code {
@@ -135,6 +147,8 @@ enum ToPhone {
 
 enum ToViewer {
     Text(String),
+    /// A frame that must arrive (a screenshot), queued with the text messages.
+    Binary(Bytes),
     Close(u16, &'static str),
 }
 
@@ -179,6 +193,7 @@ impl Mirrors {
         &self,
         device_id: &str,
         key: &str,
+        base: &str,
         to_phone: mpsc::Sender<ToPhone>,
     ) -> (u64, Option<String>, Option<Codec>) {
         let mut inner = lock(&self.inner);
@@ -215,6 +230,9 @@ impl Mirrors {
                     viewer: None,
                     screen: None,
                     ai: None,
+                    status: None,
+                    input: None,
+                    base: base.to_owned(),
                 },
             );
         }
@@ -228,6 +246,7 @@ impl Mirrors {
             ));
         }
         session.generation = generation;
+        base.clone_into(&mut session.base);
         let codec = session.viewer.as_mut().map(|v| {
             v.waiting_key = true;
             let _ = v
@@ -297,6 +316,39 @@ impl Mirrors {
             .is_some_and(|v| v.text.try_send(ToViewer::Text(message.to_owned())).is_ok())
     }
 
+    /// The phone whose mirror this viewer key opens, while someone watches it
+    /// (ADR-057: a file dropped on the page goes to that phone).
+    pub fn watched_by_key(&self, key: &str) -> Option<String> {
+        if !valid_key(key) {
+            return None;
+        }
+        let key_hash = hash(key);
+        lock(&self.inner)
+            .sessions
+            .iter()
+            .find(|(_, s)| bool::from(s.key_hash.ct_eq(&key_hash)) && s.viewer.is_some())
+            .map(|(id, _)| id.clone())
+    }
+
+    /// Where this phone reached the gateway for its mirror, while connected.
+    pub fn link_base(&self, device_id: &str) -> Option<String> {
+        lock(&self.inner)
+            .sessions
+            .get(device_id)
+            .filter(|s| s.phone.is_some())
+            .map(|s| s.base.clone())
+    }
+
+    /// A message from the gateway itself to the phone's mirror link (ADR-057:
+    /// a dropped file to fetch); false when the phone is not connected.
+    pub fn to_phone_link(&self, device_id: &str, message: &str) -> bool {
+        lock(&self.inner)
+            .sessions
+            .get(device_id)
+            .and_then(|s| s.phone.as_ref())
+            .is_some_and(|p| p.try_send(ToPhone::Text(message.to_owned())).is_ok())
+    }
+
     /// Whether this phone has a mirror open (connected or within its grace).
     pub fn is_open(&self, device_id: &str) -> bool {
         lock(&self.inner).sessions.contains_key(device_id)
@@ -313,6 +365,8 @@ impl Mirrors {
         match kind {
             "screen" => session.screen = Some(message.to_owned()),
             "ai" => session.ai = Some(message.to_owned()),
+            "status" => session.status = Some(message.to_owned()),
+            "input" => session.input = Some(message.to_owned()),
             _ => {}
         }
         if let Some(v) = &session.viewer {
@@ -334,6 +388,11 @@ impl Mirrors {
         let Some(viewer) = session.viewer.as_mut() else {
             return;
         };
+        if frame.first() == Some(&KIND_SHOT) {
+            // The owner asked for it: it waits with the text messages instead of being dropped.
+            let _ = viewer.text.try_send(ToViewer::Binary(frame));
+            return;
+        }
         if frame.first() == Some(&KIND_PCM) {
             // Sound never waits for a key frame; when the viewer is behind, a dropped
             // 20 ms is better than late sound.
@@ -457,7 +516,15 @@ impl Mirrors {
         };
         let (video_tx, video_rx) = mpsc::channel(VIEWER_VIDEO_QUEUE);
         let (text_tx, text_rx) = mpsc::channel(VIEWER_TEXT_QUEUE);
-        for earlier in [&session.screen, &session.ai].into_iter().flatten() {
+        for earlier in [
+            &session.screen,
+            &session.ai,
+            &session.status,
+            &session.input,
+        ]
+        .into_iter()
+        .flatten()
+        {
             let _ = text_tx.try_send(ToViewer::Text(earlier.clone()));
         }
         if session.phone.is_none() {
@@ -593,6 +660,14 @@ pub enum Key {
     Right,
     Up,
     Down,
+    // ADR-057: editing shortcuts from the computer's keyboard.
+    Home,
+    End,
+    SelectAll,
+    WordBackspace,
+    WordLeft,
+    WordRight,
+    Newline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -601,6 +676,9 @@ pub enum Button {
     Back,
     Home,
     Recents,
+    /// The notification shade (ADR-057).
+    Notifications,
+    QuickSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -660,6 +738,22 @@ pub enum ViewerMessage {
     ScreenLight {
         on: bool,
     },
+    /// Text from the computer's clipboard: onto the phone's clipboard and into
+    /// the field in focus (ADR-057).
+    Paste {
+        text: String,
+    },
+    /// Copy or cut what is selected on the phone, for the computer's clipboard.
+    /// (Braces, so extra fields are refused as on every other message.)
+    Copy {},
+    Cut {},
+    /// A full-resolution screenshot for the computer.
+    Shot {},
+    /// Android 15's screen-share protection off (`show`) or back on, run by
+    /// the gateway through Full ADB (ADR-057); never forwarded to the phone.
+    Notifications {
+        show: bool,
+    },
 }
 
 impl ViewerMessage {
@@ -684,6 +778,13 @@ impl ViewerMessage {
                     && !text.chars().any(char::is_control)
             }
             ViewerMessage::Ping { at } => at.is_finite(),
+            ViewerMessage::Paste { text } => {
+                !text.is_empty()
+                    && text.chars().count() <= MAX_PASTE_CHARS
+                    && !text
+                        .chars()
+                        .any(|c| c.is_control() && c != '\n' && c != '\t')
+            }
             _ => true,
         };
         ok.then_some(message)
@@ -691,10 +792,19 @@ impl ViewerMessage {
 }
 
 /// Messages the phone may send as text; anything else ends its connection.
-const PHONE_TEXT_KINDS: &[&str] = &["screen", "ai", "pong", "notice", "end"];
+const PHONE_TEXT_KINDS: &[&str] = &[
+    "screen",
+    "ai",
+    "pong",
+    "notice",
+    "end",
+    "clipboard",
+    "status",
+    "input",
+];
 
 fn phone_kind(raw: &str) -> Option<String> {
-    if raw.len() > MAX_TEXT_BYTES {
+    if raw.len() > MAX_PHONE_TEXT_BYTES {
         return None;
     }
     let value: Value = serde_json::from_str(raw).ok()?;
@@ -706,7 +816,7 @@ fn phone_kind(raw: &str) -> Option<String> {
 pub fn valid_frame(frame: &[u8]) -> bool {
     frame.len() > FRAME_HEADER_BYTES
         && frame.len() <= MAX_FRAME_BYTES
-        && matches!(frame[0], KIND_H264 | KIND_JPEG | KIND_PCM)
+        && matches!(frame[0], KIND_H264 | KIND_JPEG | KIND_PCM | KIND_SHOT)
 }
 
 // ---- The phone's socket ----
@@ -796,14 +906,13 @@ pub async fn phone_upgrade(
         )
             .into_response();
     };
-    let urls = viewer_urls(
-        &state,
-        wifi.as_ref().map(|axum::Extension(o)| o.0.as_str()),
-        &headers,
-    );
+    let wifi = wifi.map(|axum::Extension(o)| o.0);
+    let urls = viewer_urls(&state, wifi.as_deref(), &headers);
+    // Links for this phone are built on the address it used, as the device link's are.
+    let base = wifi.unwrap_or_else(|| crate::http::gateway_url(&state, &headers));
     ws.max_message_size(MAX_FRAME_BYTES)
         .max_frame_size(MAX_FRAME_BYTES)
-        .on_upgrade(move |socket| serve_phone(state, device_id, device_key, urls, socket))
+        .on_upgrade(move |socket| serve_phone(state, device_id, device_key, urls, base, socket))
 }
 
 fn close(code: u16, reason: &'static str) -> Message {
@@ -818,6 +927,7 @@ async fn serve_phone(
     device_id: String,
     device_key: Option<String>,
     urls: Vec<String>,
+    base: String,
     socket: WebSocket,
 ) {
     let (mut sink, mut stream) = socket.split();
@@ -843,7 +953,9 @@ async fn serve_phone(
         }
     };
     let (tx, mut rx) = mpsc::channel::<ToPhone>(PHONE_QUEUE);
-    let (generation, code, codec) = state.mirrors.attach_phone(&device_id, &start.key, tx);
+    let (generation, code, codec) = state
+        .mirrors
+        .attach_phone(&device_id, &start.key, &base, tx);
     let ready = json!({
         "t": "ready",
         "code": code,
@@ -945,13 +1057,14 @@ pub async fn view_upgrade(
         )
             .into_response();
     }
-    ws.max_message_size(MAX_TEXT_BYTES)
-        .max_frame_size(MAX_TEXT_BYTES)
+    // Twice the message limit, so a message that is too long is dropped, not the viewer.
+    ws.max_message_size(2 * MAX_TEXT_BYTES)
+        .max_frame_size(2 * MAX_TEXT_BYTES)
         .on_upgrade(move |socket| serve_viewer(state, socket))
 }
 
 /// No `Origin` (a non-browser client) or one whose host is the host asked for.
-fn same_origin(headers: &HeaderMap) -> bool {
+pub(crate) fn same_origin(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok()) else {
         return true;
     };
@@ -1023,6 +1136,11 @@ async fn serve_viewer(state: Arc<AppState>, socket: WebSocket) {
                             break;
                         }
                     }
+                    Some(ToViewer::Binary(bytes)) => {
+                        if sink.send(Message::Binary(bytes)).await.is_err() {
+                            break;
+                        }
+                    }
                     Some(ToViewer::Close(code, why)) => {
                         let _ = sink.send(close(code, why)).await;
                         break;
@@ -1084,6 +1202,19 @@ async fn serve_viewer(state: Arc<AppState>, socket: WebSocket) {
                     state.mirrors.to_viewer(&device_id, &notice);
                 });
             }
+            Some(ViewerMessage::Notifications { show }) => {
+                let state = state.clone();
+                let device_id = device_id.clone();
+                tokio::spawn(async move {
+                    let text =
+                        match crate::mcp::screen_share_protection(&state, &device_id, show).await {
+                            Ok(done) => done.trim_start_matches("Done: ").to_owned(),
+                            Err(e) => format!("Notifications: {}", e.message),
+                        };
+                    let notice = json!({ "t": "notice", "text": text }).to_string();
+                    state.mirrors.to_viewer(&device_id, &notice);
+                });
+            }
             Some(message) => state.mirrors.to_phone(&device_id, viewer_id, &message),
             None => {}
         }
@@ -1116,6 +1247,22 @@ mod tests {
             ViewerMessage::parse(r#"{"t":"screen_light","on":false}"#),
             Some(ViewerMessage::ScreenLight { on: false })
         );
+        assert_eq!(
+            ViewerMessage::parse(r#"{"t":"paste","text":"two\nlines"}"#),
+            Some(ViewerMessage::Paste {
+                text: "two\nlines".into()
+            })
+        );
+        assert_eq!(
+            ViewerMessage::parse(r#"{"t":"notifications","show":true}"#),
+            Some(ViewerMessage::Notifications { show: true })
+        );
+        assert_eq!(
+            ViewerMessage::parse(r#"{"t":"key","key":"word_backspace"}"#),
+            Some(ViewerMessage::Key {
+                key: Key::WordBackspace
+            })
+        );
         for bad in [
             r#"{"t":"sound","on":"yes"}"#,
             r#"{"t":"touch","phase":"down","x":-1,"y":20}"#,
@@ -1127,6 +1274,9 @@ mod tests {
             r#"{"t":"button","name":"power"}"#,
             r#"{"t":"control","action":"approve"}"#,
             r#"{"t":"shell","command":"id"}"#,
+            r#"{"t":"paste","text":""}"#,
+            r#"{"t":"paste","text":"bell\u0007"}"#,
+            r#"{"t":"copy","text":"x"}"#,
             r#"not json"#,
         ] {
             assert_eq!(ViewerMessage::parse(bad), None, "{bad}");
@@ -1170,6 +1320,8 @@ mod tests {
         frame.push(0);
         assert!(valid_frame(&frame));
         frame[0] = KIND_PCM;
+        assert!(valid_frame(&frame));
+        frame[0] = KIND_SHOT;
         assert!(valid_frame(&frame));
         frame[0] = 9;
         assert!(!valid_frame(&frame));

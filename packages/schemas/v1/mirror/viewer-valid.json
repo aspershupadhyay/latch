@@ -84,5 +84,54 @@
  {
   "t": "codec",
   "codec": "jpeg"
+ },
+ {
+  "t": "key",
+  "key": "home"
+ },
+ {
+  "t": "key",
+  "key": "end"
+ },
+ {
+  "t": "key",
+  "key": "select_all"
+ },
+ {
+  "t": "key",
+  "key": "word_backspace"
+ },
+ {
+  "t": "key",
+  "key": "word_left"
+ },
+ {
+  "t": "key",
+  "key": "word_right"
+ },
+ {
+  "t": "key",
+  "key": "newline"
+ },
+ {
+  "t": "button",
+  "name": "notifications"
+ },
+ {
+  "t": "button",
+  "name": "quick_settings"
+ },
+ {
+  "t": "paste",
+  "text": "line one\nline two\twith a tab 😀"
+ },
+ {
+  "t": "copy"
+ },
+ {
+  "t": "cut"
+ },
+ {
+  "t": "shot"
  }
 ]

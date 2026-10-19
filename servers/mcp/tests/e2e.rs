@@ -3974,3 +3974,127 @@ async fn mirror_controls_explain_what_they_need() {
         "{text}"
     );
 }
+
+/// ADR-057: what the phone tells the page, what the page asks of the phone,
+/// screenshots that are never dropped, and a file dropped on the page.
+#[tokio::test]
+async fn the_mirror_carries_status_clipboard_screenshots_and_dropped_files() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let (mut ph, _ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    let (mut viewer, _joined) = join(&gw, json!({"key": VIEWER_KEY})).await;
+    let _ = next_of(&mut ph, "viewer").await;
+
+    // The phone's state, its input mode, and copied text reach the page.
+    let status =
+        json!({"t": "status", "battery": 81, "charging": true, "network": "wifi", "signal": 3});
+    send_json(&mut ph, status.clone()).await;
+    send_json(&mut ph, json!({"t": "input", "mode": "keys"})).await;
+    send_json(
+        &mut ph,
+        json!({"t": "clipboard", "text": "copied on the phone"}),
+    )
+    .await;
+    assert_eq!(next_of(&mut viewer, "status").await, status);
+    assert_eq!(next_of(&mut viewer, "input").await["mode"], "keys");
+    assert_eq!(
+        next_of(&mut viewer, "clipboard").await["text"],
+        "copied on the phone"
+    );
+
+    // A screenshot is a frame of its own kind, relayed whole.
+    let mut shot = vec![4, 1];
+    shot.extend_from_slice(&7u64.to_be_bytes());
+    shot.extend_from_slice(b"\x89PNG fake");
+    ph.send(WsMessage::Binary(shot.clone().into()))
+        .await
+        .expect("shot");
+    assert_eq!(next(&mut viewer).await, Got::Frame(shot));
+
+    // Paste, copy, and a screenshot request go to the phone; the notifications
+    // switch is the gateway's own (Full ADB) and never reaches the mirror link.
+    send_json(
+        &mut viewer,
+        json!({"t": "paste", "text": "from the\ncomputer"}),
+    )
+    .await;
+    send_json(&mut viewer, json!({"t": "notifications", "show": true})).await;
+    send_json(&mut viewer, json!({"t": "copy"})).await;
+    send_json(&mut viewer, json!({"t": "shot"})).await;
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "paste", "text": "from the\ncomputer"}))
+    );
+    assert_eq!(next(&mut ph).await, Got::Text(json!({"t": "copy"})));
+    assert_eq!(next(&mut ph).await, Got::Text(json!({"t": "shot"})));
+
+    // A later window gets the latest status at once.
+    let (mut second, _) = join(&gw, json!({"key": VIEWER_KEY})).await;
+    assert_eq!(next_of(&mut second, "status").await, status);
+
+    // A dropped file: the viewer key proves the page, and the phone saves it in Downloads.
+    let drop = |key: &str, name: &str, body: &[u8]| {
+        let head = format!(
+            "POST /v1/mirror/files?name={name} HTTP/1.1\r\nHost: {}\r\nOrigin: http://{}\r\nx-latch-mirror-key: {key}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+            gw.addr,
+            gw.addr,
+            body.len()
+        );
+        let mut raw = head.into_bytes();
+        raw.extend_from_slice(body);
+        let addr = gw.addr;
+        async move {
+            let mut stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+            stream.write_all(&raw).await.expect("write");
+            let mut out = Vec::new();
+            stream.read_to_end(&mut out).await.expect("read");
+            String::from_utf8_lossy(&out).into_owned()
+        }
+    };
+    let refused = drop(
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        "a.txt",
+        b"hi",
+    )
+    .await;
+    assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
+    let bad_name = drop(VIEWER_KEY, "..", b"hi").await;
+    assert!(bad_name.starts_with("HTTP/1.1 400"), "{bad_name}");
+    let body = b"hello from the computer";
+    let answer = drop(VIEWER_KEY, "dropped%20note.txt", body).await;
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    assert!(answer.contains("\"ok\":true"), "{answer}");
+    // The phone is told over its mirror link; no AI session is involved. It
+    // fetches the ciphertext from the gateway, decrypts it, and checks it.
+    let file = next_of(&mut ph, "file").await;
+    assert_eq!(file["name"], "dropped note.txt");
+    assert_eq!(file["size"], body.len());
+    let url = file["url"].as_str().expect("url");
+    let path = url
+        .split_once(&gw.addr.to_string())
+        .map(|(_, p)| p.to_owned())
+        .expect("a link on this gateway");
+    let (status, mut sealed) = http_bytes(&gw, "GET", &path, b"").await;
+    assert_eq!(status, 200);
+    let unhex = |h: &str| -> Vec<u8> {
+        (0..h.len() / 2)
+            .map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).expect("hex"))
+            .collect()
+    };
+    {
+        use aes::cipher::{KeyIvInit, StreamCipher};
+        let mut cipher = ctr::Ctr128BE::<aes::Aes256>::new_from_slices(
+            &unhex(file["key"].as_str().expect("key")),
+            &unhex(file["iv"].as_str().expect("iv")),
+        )
+        .expect("cipher");
+        cipher.apply_keystream(&mut sealed);
+    }
+    assert_eq!(sealed, body);
+    use sha2::Digest;
+    let digest: String = sha2::Sha256::digest(body)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(file["sha256"], digest);
+}

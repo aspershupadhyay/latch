@@ -26,6 +26,7 @@ test('frames are split into header and payload, and malformed ones refused', () 
   assert.deepEqual(Array.from(f.data), [0, 0, 1, 0x65]);
   assert.equal(m.parseFrame(frame(1, 0, 1, [9])).key, false);
   assert.equal(m.parseFrame(frame(3, 0, 1, [9])).kind, 3, 'sound (ADR-055)');
+  assert.equal(m.parseFrame(frame(4, 1, 1, [0x89])).kind, 4, 'screenshot (ADR-057)');
   assert.equal(m.parseFrame(frame(9, 0, 1, [9])), null, 'unknown kind');
   assert.equal(m.parseFrame(new ArrayBuffer(10)), null, 'header only');
   assert.equal(m.parseFrame('text'), null);
@@ -84,11 +85,58 @@ test('keys become text, keys, or Back, and shortcuts stay with the browser', () 
   assert.equal(k('Shift'), null);
 });
 
-test('pasted text is cleaned and split as the gateway accepts it', () => {
-  assert.deepEqual(m.pasteMessages('a\r\nb\tc'), [{ t: 'text', text: 'a bc' }]);
-  const long = m.pasteMessages('x'.repeat(600));
-  assert.deepEqual(long.map((x) => x.text.length), [256, 256, 88]);
-  assert.deepEqual(m.pasteMessages(''), []);
+test('editing shortcuts act on words, lines, and the whole field (ADR-057)', () => {
+  const k = (key, extra = {}) => m.keyMessage({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...extra });
+  assert.deepEqual(k('a', { metaKey: true }), { t: 'key', key: 'select_all' });
+  assert.deepEqual(k('a', { ctrlKey: true }), { t: 'key', key: 'select_all' });
+  assert.deepEqual(k('Backspace', { altKey: true }), { t: 'key', key: 'word_backspace' }, 'Option+Delete on a Mac');
+  assert.deepEqual(k('Backspace', { ctrlKey: true }), { t: 'key', key: 'word_backspace' });
+  assert.deepEqual(k('ArrowLeft', { altKey: true }), { t: 'key', key: 'word_left' });
+  assert.deepEqual(k('ArrowRight', { ctrlKey: true }), { t: 'key', key: 'word_right' });
+  assert.deepEqual(k('ArrowLeft', { metaKey: true }), { t: 'key', key: 'home' });
+  assert.deepEqual(k('ArrowDown', { metaKey: true }), { t: 'key', key: 'down' });
+  assert.deepEqual(k('Home'), { t: 'key', key: 'home' });
+  assert.deepEqual(k('Enter', { shiftKey: true }), { t: 'key', key: 'newline' });
+  assert.deepEqual(k('™', { altKey: true }), { t: 'text', text: '™' }, 'Option+2 types its character');
+  assert.equal(k('ArrowUp', { altKey: true }), null, 'that one is a page shortcut');
+});
+
+test('Alt shortcuts drive the page, and Ctrl/Cmd+C and X copy from the phone', () => {
+  const s = (code, extra = {}) => m.shortcut({ code, altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, ...extra });
+  assert.equal(s('KeyH'), 'home');
+  assert.equal(s('KeyB'), 'back');
+  assert.equal(s('KeyN'), 'notifications');
+  assert.equal(s('KeyN', { shiftKey: true }), 'quick_settings');
+  assert.equal(s('KeyP'), 'shot');
+  assert.equal(s('KeyP', { shiftKey: true }), 'record');
+  assert.equal(s('ArrowUp'), 'volume_up');
+  assert.equal(s('KeyQ'), null);
+  assert.equal(s('KeyH', { altKey: false }), null, 'no Alt, no shortcut');
+  assert.equal(s('KeyH', { ctrlKey: true }), null, 'Ctrl+Alt is AltGr on Windows: typing');
+  assert.equal(s('KeyH', { getModifierState: (k) => k === 'AltGraph' }), null);
+  const c = (key, extra = {}) => m.clipboardAction({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...extra });
+  assert.equal(c('c', { metaKey: true }), 'copy');
+  assert.equal(c('x', { ctrlKey: true }), 'cut');
+  assert.equal(c('C', { ctrlKey: true, shiftKey: true }), null, 'Ctrl+Shift+C is the browser’s');
+  assert.equal(c('c'), null);
+  assert.equal(c('v', { metaKey: true }), null, 'paste comes as a paste event');
+});
+
+test('a paste keeps its lines and fits one message the gateway accepts', () => {
+  assert.deepEqual(m.pasteMessage('a\r\nb\tc\u0007'), { t: 'paste', text: 'a\nb\tc' });
+  assert.equal(m.pasteMessage('x'.repeat(5000)).text.length, 4096);
+  const emoji = m.pasteMessage('😀'.repeat(4000));
+  assert.ok(new TextEncoder().encode(JSON.stringify(emoji)).length <= 15000);
+  assert.equal(m.pasteMessage(''), null);
+  assert.equal(m.pasteMessage('\u0000'), null);
+});
+
+test('screenshots get a dated name, and the status line reads well', () => {
+  assert.equal(m.stamp(new Date(2026, 9, 9, 7, 5, 3)), '2026-10-09 07-05-03');
+  assert.deepEqual(m.statusText({ battery: 85, charging: true, network: 'wifi', signal: 3 }),
+    { net: 'Wi-Fi', battery: '85%', charging: true, bars: 3 });
+  assert.deepEqual(m.statusText({ network: 'none' }), { net: 'Offline', battery: '', charging: false, bars: null });
+  assert.equal(m.statusText({ signal: 9 }).bars, 4);
 });
 
 test('codes, links, and latency colours', () => {
