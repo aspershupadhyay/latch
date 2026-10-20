@@ -10,6 +10,12 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **See where the mirror's delay goes**: Alt+D on the mirror page shows encode, network, decode, and draw time, frame rate, bitrate, dropped frames, and glass-to-glass delay (R35).
+- **A smoother mirror**: the video is decoded and drawn off the page's main thread and the sound plays from the audio thread, so typing and the AI panel never hold a frame back (R36, R47); a dropped frame heals without a burst of data where the phone supports it (R37); on a slow Wi-Fi the picture gets smaller and the page says "Saving bandwidth" (R38).
+- **Less data for the mirror**: sound as Opus, about 96 kbit/s instead of 1.5 Mbit/s, when your browser decodes it (R39); H.265 video where the phone has a hardware encoder and the browser decodes it (R40).
+- **Pinch from the computer**: Ctrl+scroll or a trackpad pinch zooms on the phone (Safari also turns) (R42).
+- **Copies follow**: a switch on the mirror page brings text you copy on the phone to your computer by itself (Full ADB, off by default; passwords never) (R44).
+- **A lighter app**: faster waits and screenshots for AI actions, quicker start, a cheaper activity log, and less work while nothing runs (R48, R49); a lighter gateway per action and per frame (R50).
 - **Reconnect without a new code** (ADR-058): stop mirroring on the phone and start it again, and the mirror page on your computer comes back by itself (it waits for the phone); no new 6-digit code. **Forget computers** on Home, or the emergency Stop, makes computers need a code again.
 - **Disconnect keeps your connection**: Settings → Disconnect now keeps the keys, and the first screen offers **Reconnect** in one tap, with no QR code or key. **Forget keys** removes them as before.
 - **Back at once when the Wi-Fi is**: the phone's link to the gateway and the mirror reconnect the moment the network returns, and the mirror finds your computer at a new Wi-Fi address on its own.
