@@ -97,9 +97,12 @@ class MirrorLink(
         val s = socket ?: return false
         // A delta frame waits behind little; a key frame (it restarts the picture) may wait a bit more.
         val key = frame.size > 1 && frame[1].toInt() and 1 != 0
-        if (!started || s.queueSize() > if (key) MAX_QUEUED_BYTES else MAX_QUEUED_DELTA_BYTES) return false
+        if (!started || s.queueSize() > queueLimit(key, bitrateBps)) return false
         return s.send(frame)
     }
+
+    /** The video bitrate the encoder aims for now; the queue limits follow it (see [queueLimit]). */
+    @Volatile var bitrateBps: Int = 0
 
     fun sendFrame(frame: ByteArray): Boolean = sendFrame(frame.toByteString())
 
@@ -183,6 +186,20 @@ class MirrorLink(
         const val MAX_QUEUED_BYTES = 512L * 1024
         /** Bytes waiting before a delta frame is dropped: about 100 ms of video, so the picture never lags behind. */
         const val MAX_QUEUED_DELTA_BYTES = 96L * 1024
+        /** How much video may wait, in time: short enough not to lag, long enough for a busy frame. */
+        const val QUEUED_DELTA_MS = 120L
+
+        /**
+         * Bytes that may wait before a frame is dropped. A fixed 96 KiB was
+         * less than one busy frame at a sharp bitrate (a video or a game), so
+         * motion itself was dropped and read as a slow network; the limit is
+         * now about [QUEUED_DELTA_MS] of video at [bps], and a key frame may
+         * wait for twice that.
+         */
+        fun queueLimit(key: Boolean, bps: Int): Long {
+            val delta = maxOf(MAX_QUEUED_DELTA_BYTES, bps.toLong() / 8 * QUEUED_DELTA_MS / 1000)
+            return if (key) maxOf(MAX_QUEUED_BYTES, 2 * delta) else delta
+        }
         const val REFUSED = 4401
         const val REPLACED = 4409
         private const val RETRY_START_MS = 250L

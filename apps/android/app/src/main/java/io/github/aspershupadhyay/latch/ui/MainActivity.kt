@@ -280,7 +280,11 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         connect(asOwner = !Pairing.isCode(key), key = key, needPin = true, input = setup.address)
     }
     val scanner = rememberLauncherForActivityResult(ScanSetupQr()) { text ->
-        text?.let { connectWifi(scanned = it) }
+        // From any screen: show the Wi-Fi screen, where progress and any error appear.
+        text?.let {
+            step = Onboarding.WIFI
+            connectWifi(scanned = it)
+        }
     }
 
     when (step) {
@@ -289,6 +293,12 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
             onGuide = { step = Onboarding.GUIDE },
             saved = saved.mapValues { (_, p) -> p.gatewayUrl.removePrefix("https://").removePrefix("http://") },
             onUseSaved = { kind -> app.session.switchTo(kind) },
+            onScan = {
+                address = ""
+                secret = ""
+                error = null
+                scanner.launch(Unit)
+            },
         )
         Onboarding.GUIDE -> GuideScreen(onBack = { step = Onboarding.WELCOME }, onStart = { step = Onboarding.CHOOSE })
         Onboarding.CHOOSE -> ChooseConnectionScreen(

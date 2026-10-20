@@ -155,22 +155,53 @@ class StrokePlanner(private val liveAfterMs: Long = LIVE_AFTER_MS) {
  * The mouse wheel as a short drag that ends still, so the app scrolls by the
  * distance without flinging on: a move with the finger kept down, then a
  * pause before lifting.
+ *
+ * A trackpad sends many tiny steps. A drag shorter than Android's touch slop
+ * is a tap to the app (owner report 2026-10-20: "whenever I scroll it clicks
+ * things"), so steps below [slop] are not played (the caller keeps adding
+ * them up), the drag is lengthened by the slop the app spends before it
+ * starts scrolling, an axis that moved less than the slop does not move, and
+ * the finger stays out of the screen's edges, where a drag opens the
+ * notification shade or goes home.
  */
 object WheelGesture {
     const val MOVE_MS = 120L
     const val SETTLE_MS = 60L
+    /** Android's touch slop on a typical phone (8 dp at 3×), for callers without a context. */
+    const val DEFAULT_SLOP = 24
 
-    /** The two segments for scrolling [dx], [dy] phone pixels at [x], [y] on a [width]×[height] screen; empty for no movement. */
-    fun plan(x: Int, y: Int, dx: Int, dy: Int, width: Int, height: Int): List<StrokePlanner.Segment> {
-        val fromX = x.coerceIn(0, width - 1)
-        val fromY = y.coerceIn(0, height - 1)
-        // The content follows the finger: scrolling down moves the finger up.
-        val toX = (fromX - dx).coerceIn(0, width - 1)
-        val toY = (fromY - dy).coerceIn(0, height - 1)
-        if (toX == fromX && toY == fromY) return emptyList()
+    /** The two segments for scrolling [dx], [dy] phone pixels at [x], [y] on a [width]×[height] screen; empty when too little to scroll. */
+    fun plan(x: Int, y: Int, dx: Int, dy: Int, width: Int, height: Int, slop: Int = DEFAULT_SLOP): List<StrokePlanner.Segment> {
+        val min = maxOf(1, slop)
+        if (kotlin.math.abs(dx) < min && kotlin.math.abs(dy) < min) return emptyList()
+        val (fromX, toX) = axis(x, if (kotlin.math.abs(dx) < min) 0 else dx, width, min)
+        val (fromY, toY) = axis(y, if (kotlin.math.abs(dy) < min) 0 else dy, height, min)
+        if (kotlin.math.abs(toX - fromX) < min && kotlin.math.abs(toY - fromY) < min) return emptyList()
         return listOf(
             StrokePlanner.Segment(listOf(fromX to fromY, toX to toY), MOVE_MS, continues = true, continuation = false),
             StrokePlanner.Segment(listOf(toX to toY), SETTLE_MS, continues = false, continuation = true),
         )
     }
+
+    /** Whether [dx], [dy] is enough to scroll on at least one axis (more than a tap). */
+    fun enough(dx: Int, dy: Int, slop: Int = DEFAULT_SLOP): Boolean =
+        kotlin.math.abs(dx) >= maxOf(1, slop) || kotlin.math.abs(dy) >= maxOf(1, slop)
+
+    /** Start and end on one axis: the content follows the finger, so scrolling down moves it up. */
+    private fun axis(at: Int, d: Int, size: Int, slop: Int): Pair<Int, Int> {
+        val edge = minOf(maxOf(2 * slop, size * EDGE_SHARE / 100), (size - 1) / 2)
+        val low = edge
+        val high = size - 1 - edge
+        var from = at.coerceIn(low, high)
+        if (d == 0) return from to from
+        val travel = minOf(high - low, kotlin.math.abs(d) + slop)
+        var to = if (d > 0) from - travel else from + travel
+        // Slide the whole drag back inside instead of cutting it short.
+        if (to < low) { from += low - to; to = low }
+        if (to > high) { from -= to - high; to = high }
+        return from to to
+    }
+
+    /** Kept free at each edge: the status bar and the gesture bar. */
+    private const val EDGE_SHARE = 6
 }

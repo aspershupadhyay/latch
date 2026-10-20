@@ -17,14 +17,17 @@ class QualityLadderTest {
         assertFalse(ladder.saving)
         var stepped: QualityLadder.Level? = null
         for (i in 0 until 4) stepped = ladder.dropped(20_000L + i * 100, atFloor = true) ?: stepped
-        assertEquals(QualityLadder.Level(1280, 30), stepped)
+        assertEquals(QualityLadder.Level(1920, 60), stepped)
         assertTrue(ladder.saving)
         // Not again at once: each step restarts the encoder.
         repeat(8) { assertNull(ladder.dropped(21_000L + it * 100, atFloor = true)) }
         for (i in 0 until 4) ladder.dropped(24_000L + i * 100, atFloor = true)
         assertEquals(2, ladder.index)
+        assertEquals(QualityLadder.Level(1280, 30), ladder.level)
+        for (i in 0 until 4) ladder.dropped(28_000L + i * 100, atFloor = true)
+        assertEquals(3, ladder.index)
         // The bottom is the bottom.
-        for (i in 0 until 8) assertNull(ladder.dropped(30_000L + i * 100, atFloor = true))
+        for (i in 0 until 8) assertNull(ladder.dropped(32_000L + i * 100, atFloor = true))
     }
 
     @Test
@@ -33,7 +36,7 @@ class QualityLadderTest {
         for (i in 0 until 4) ladder.dropped(1_000L + i, atFloor = true)
         assertEquals(1, ladder.index)
         assertNull(ladder.clean(10_000))
-        assertEquals(QualityLadder.Level(1920, 60), ladder.clean(1_003L + QualityLadder.UP_CLEAN_MS))
+        assertEquals(QualityLadder.Level(2560, 60), ladder.clean(1_003L + QualityLadder.UP_CLEAN_MS))
         assertFalse(ladder.saving)
         assertNull(ladder.clean(100_000), "already at the top")
     }

@@ -99,31 +99,72 @@ object TextEdit {
     }
 }
 
-/** The size the encoder runs at: the screen scaled to fit [maxLongEdge], each side a multiple of 16. */
+/**
+ * The size the encoder runs at: the screen scaled to fit [maxLongEdge], each
+ * side a multiple of [align]. With 8 (what most encoders take) a 1080-wide
+ * screen is sent at exactly 1080, so no pixel is resampled.
+ */
 object EncoderSizing {
-    fun size(width: Int, height: Int, maxLongEdge: Int): Pair<Int, Int> {
+    fun size(width: Int, height: Int, maxLongEdge: Int, align: Int = 16): Pair<Int, Int> {
         require(width > 0 && height > 0) { "screen size must be positive" }
+        require(align > 0) { "alignment must be positive" }
         val scale = minOf(1.0, maxLongEdge.toDouble() / maxOf(width, height))
-        fun align(v: Int) = maxOf(16, (v * scale).roundToInt() / 16 * 16)
-        return align(width) to align(height)
+        fun fit(v: Int) = maxOf(align, (v * scale).roundToInt() / align * align)
+        return fit(width) to fit(height)
     }
 }
 
 /**
+ * How many bits a second the picture deserves (owner report 2026-10-20:
+ * sharp on the phone, blocky on the computer during videos and games). A
+ * fixed 8–12 Mbit/s is plenty for menus but starves motion at full size, so
+ * the budget follows pixels × frames: [BITS_PER_PIXEL] is about what a
+ * hardware H.264 encoder needs for fast motion to look clean at 60 fps.
+ */
+object VideoBudget {
+    /** The ceiling for a [width]×[height] picture at [fps]. */
+    fun maxBps(width: Int, height: Int, fps: Int): Int =
+        (width.toDouble() * height * fps * BITS_PER_PIXEL).toLong().coerceIn(FLOOR_MAX_BPS.toLong(), CEILING_BPS.toLong()).toInt()
+
+    /** Where a new viewer starts: most of the ceiling, so the first seconds are already sharp. */
+    fun startBps(width: Int, height: Int, fps: Int): Int = (maxBps(width, height, fps) * START_SHARE).toInt()
+
+    const val BITS_PER_PIXEL = 0.18
+    const val START_SHARE = 0.75
+    /** Never aim lower than this, even for a small picture. */
+    const val FLOOR_MAX_BPS = 4_000_000
+    /** A home Wi-Fi carries this easily; more mostly adds delay. */
+    const val CEILING_BPS = 40_000_000
+}
+
+/**
  * Bitrate that backs off while frames are dropped on a slow network and comes
- * back slowly once it is clean (multiplicative down, gentle up).
+ * back once it is clean (multiplicative down, gentler up). [fitTo] sets the
+ * ceiling for the picture size in use ([VideoBudget]).
  */
 class BitrateGovernor(
     val startBps: Int = 8_000_000,
-    private val minBps: Int = 1_000_000,
-    private val maxBps: Int = 12_000_000,
+    private val minBps: Int = 1_500_000,
+    maxBps: Int = 12_000_000,
 ) {
     var bps: Int = startBps
+        private set
+    var maxBps: Int = maxBps
         private set
     private var lastChangeMs = Long.MIN_VALUE / 2
     private var lastDropMs = Long.MIN_VALUE / 2
     private var dropsInWindow = 0
     private var windowStartMs = Long.MIN_VALUE / 2
+
+    /**
+     * A new picture size: [max] is its ceiling. With [restart] (a new viewer)
+     * the bitrate starts at [start]; otherwise it keeps what the network
+     * showed and only stays under the new ceiling.
+     */
+    fun fitTo(max: Int, start: Int, restart: Boolean) {
+        maxBps = maxOf(minBps, max)
+        bps = (if (restart) start else bps).coerceIn(minBps, maxBps)
+    }
 
     /** A frame was dropped; returns the new bitrate when it should change. */
     fun dropped(now: Long): Int? {
@@ -134,13 +175,13 @@ class BitrateGovernor(
         dropsInWindow++
         lastDropMs = now
         if (dropsInWindow < DROPS_TO_SLOW || now - lastChangeMs < DOWN_GAP_MS || bps <= minBps) return null
-        return change(maxOf(minBps, (bps * 0.7).roundToInt()), now)
+        return change(maxOf(minBps, (bps * DOWN).roundToInt()), now)
     }
 
     /** Called now and then while frames flow; returns a higher bitrate after a clean stretch. */
     fun clean(now: Long): Int? {
         if (now - lastDropMs < CLEAN_MS || now - lastChangeMs < CLEAN_MS || bps >= maxBps) return null
-        return change(minOf(maxBps, (bps * 1.15).roundToInt()), now)
+        return change(minOf(maxBps, (bps * UP).roundToInt()), now)
     }
 
     /** At the lowest bitrate: only a smaller picture (R38) can save more. */
@@ -156,9 +197,12 @@ class BitrateGovernor(
 
     companion object {
         const val WINDOW_MS = 2_000L
-        const val DROPS_TO_SLOW = 2
+        /** One busy moment (a scene cut in a video) is not a slow network. */
+        const val DROPS_TO_SLOW = 3
         const val DOWN_GAP_MS = 1_000L
-        const val CLEAN_MS = 5_000L
+        const val CLEAN_MS = 3_000L
+        const val DOWN = 0.75
+        const val UP = 1.2
     }
 }
 
@@ -272,7 +316,8 @@ class QualityLadder {
     }
 
     companion object {
-        val LEVELS = listOf(Level(1920, 60), Level(1280, 30), Level(960, 30))
+        /** Full size first (up to [MirrorCapture.MAX_EDGE]); 1920 at 60 before giving up frames. */
+        val LEVELS = listOf(Level(MirrorCapture.MAX_EDGE, 60), Level(1920, 60), Level(1280, 30), Level(960, 30))
         const val WINDOW_MS = 2_000L
         const val DROPS_TO_STEP = 4
         const val DOWN_GAP_MS = 3_000L
