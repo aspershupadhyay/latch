@@ -15,6 +15,7 @@
 //! the owner, a person; MCP clients have no route to it.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -113,7 +114,8 @@ struct Session {
     key: String,
     code: Option<Code>,
     phone: Option<mpsc::Sender<ToPhone>>,
-    viewer: Option<Viewer>,
+    /// The viewer, and what the frame path needs, shared with the phone's connection (R50).
+    path: Arc<FramePath>,
     /// The phone's latest `screen` message, for a viewer who joins later.
     screen: Option<String>,
     /// The phone's latest `ai` message.
@@ -125,6 +127,28 @@ struct Session {
     quality: Option<String>,
     /// Where the phone reached this gateway, for links it follows (ADR-057).
     base: String,
+}
+
+/// R50: what a frame needs, held by the phone's connection too, so each
+/// frame takes only its own session's lock instead of the gateway-wide map.
+/// Lock order: the gateway-wide lock, then these; the frame path takes only these.
+#[derive(Default)]
+struct FramePath {
+    /// The phone connection whose frames count; a replaced one's are ignored.
+    generation: AtomicU64,
+    viewer: Mutex<Option<Viewer>>,
+    /// The phone's queue, for key-frame requests.
+    phone: Mutex<Option<mpsc::Sender<ToPhone>>>,
+}
+
+impl FramePath {
+    fn viewer(&self) -> MutexGuard<'_, Option<Viewer>> {
+        self.viewer.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn phone(&self) -> MutexGuard<'_, Option<mpsc::Sender<ToPhone>>> {
+        self.phone.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 
 struct Code {
@@ -208,7 +232,7 @@ impl Mirrors {
         key: &str,
         base: &str,
         to_phone: mpsc::Sender<ToPhone>,
-    ) -> (u64, Option<String>, Option<Codec>) {
+    ) -> (u64, Option<String>, Option<Codec>, Arc<FramePath>) {
         let mut inner = lock(&self.inner);
         inner.next_id += 1;
         let generation = inner.next_id;
@@ -240,7 +264,7 @@ impl Mirrors {
                         wrong: 0,
                     }),
                     phone: None,
-                    viewer: None,
+                    path: Arc::default(),
                     screen: None,
                     ai: None,
                     status: None,
@@ -251,8 +275,10 @@ impl Mirrors {
             );
         }
         let Some(session) = inner.sessions.get_mut(device_id) else {
-            return (generation, None, None);
+            return (generation, None, None, Arc::default());
         };
+        session.path.generation.store(generation, Ordering::Release);
+        *session.path.phone() = Some(to_phone.clone());
         if let Some(old) = session.phone.replace(to_phone) {
             let _ = old.try_send(ToPhone::Close(
                 CLOSE_REPLACED,
@@ -261,7 +287,7 @@ impl Mirrors {
         }
         session.generation = generation;
         base.clone_into(&mut session.base);
-        let codec = session.viewer.as_mut().map(|v| {
+        let codec = session.path.viewer().as_mut().map(|v| {
             v.waiting_key = true;
             let _ = v
                 .text
@@ -273,7 +299,7 @@ impl Mirrors {
             .as_ref()
             .filter(|c| c.expires_ms > now)
             .map(|c| c.digits.clone());
-        (generation, code, codec)
+        (generation, code, codec, session.path.clone())
     }
 
     /// The phone's connection ended. With `ended` (it said so, or was revoked)
@@ -293,7 +319,8 @@ impl Mirrors {
             return;
         }
         session.phone = None;
-        if let Some(v) = &session.viewer {
+        *session.path.phone() = None;
+        if let Some(v) = &*session.path.viewer() {
             let _ = v.text.try_send(ToViewer::Text(text(
                 &json!({"t": "phone", "online": false}),
             )));
@@ -323,11 +350,12 @@ impl Mirrors {
     /// A text message for this phone's viewer (ADR-055/056); false when no one watches.
     pub fn to_viewer(&self, device_id: &str, message: &str) -> bool {
         let inner = lock(&self.inner);
-        inner
-            .sessions
-            .get(device_id)
-            .and_then(|s| s.viewer.as_ref())
-            .is_some_and(|v| v.text.try_send(ToViewer::Text(message.to_owned())).is_ok())
+        inner.sessions.get(device_id).is_some_and(|s| {
+            s.path
+                .viewer()
+                .as_ref()
+                .is_some_and(|v| v.text.try_send(ToViewer::Text(message.to_owned())).is_ok())
+        })
     }
 
     /// The phone whose mirror this viewer key opens, while someone watches it
@@ -340,7 +368,7 @@ impl Mirrors {
         lock(&self.inner)
             .sessions
             .iter()
-            .find(|(_, s)| bool::from(s.key_hash.ct_eq(&key_hash)) && s.viewer.is_some())
+            .find(|(_, s)| bool::from(s.key_hash.ct_eq(&key_hash)) && s.path.viewer().is_some())
             .map(|(id, _)| id.clone())
     }
 
@@ -378,7 +406,8 @@ impl Mirrors {
         }
         if kind == "stats" {
             // R35: the phone's numbers for the overlay, with this gateway's own drops added.
-            if let Some(v) = session.viewer.as_mut()
+            let mut viewer = session.path.viewer();
+            if let Some(v) = viewer.as_mut()
                 && let Ok(Value::Object(mut stats)) = serde_json::from_str::<Value>(message)
             {
                 stats.insert("gateway_drops".into(), json!(v.dropped));
@@ -397,23 +426,21 @@ impl Mirrors {
             "quality" => session.quality = Some(message.to_owned()),
             _ => {}
         }
-        if let Some(v) = &session.viewer {
+        if let Some(v) = &*session.path.viewer() {
             // Small and rare; a viewer this far behind gets the next one.
             let _ = v.text.try_send(ToViewer::Text(message.to_owned()));
         }
     }
 
     /// One encoded frame from the phone, for the viewer if there is one.
-    fn frame(&self, device_id: &str, generation: u64, frame: Bytes) {
-        let key = frame.get(1).is_some_and(|f| f & FLAG_KEY != 0);
-        let mut inner = lock(&self.inner);
-        let Some(session) = inner.sessions.get_mut(device_id) else {
-            return;
-        };
-        if session.generation != generation {
+    /// R50: takes only this session's [`FramePath`], never the gateway-wide map.
+    fn frame(path: &FramePath, generation: u64, frame: Bytes) {
+        if path.generation.load(Ordering::Acquire) != generation {
             return;
         }
-        let Some(viewer) = session.viewer.as_mut() else {
+        let key = frame.get(1).is_some_and(|f| f & FLAG_KEY != 0);
+        let mut guard = path.viewer();
+        let Some(viewer) = guard.as_mut() else {
             return;
         };
         if frame.first() == Some(&KIND_SHOT) {
@@ -446,7 +473,8 @@ impl Mirrors {
         }
         if want_sync {
             viewer.last_sync_ms = now;
-            if let Some(phone) = &session.phone {
+            drop(guard);
+            if let Some(phone) = &*path.phone() {
                 let _ = phone.try_send(ToPhone::Text(text(&json!({"t": "sync"}))));
             }
         }
@@ -533,7 +561,7 @@ impl Mirrors {
         };
         let by_code = join.key.is_none();
         if by_code {
-            if session.viewer.is_some() {
+            if session.path.viewer().is_some() {
                 return Err(
                     "someone is already watching; use the link from the phone to take over",
                 );
@@ -544,7 +572,7 @@ impl Mirrors {
                 let _ = p.try_send(ToPhone::Text(text(&json!({"t": "code", "code": null}))));
             }
         }
-        if let Some(old) = session.viewer.take() {
+        if let Some(old) = session.path.viewer().take() {
             let _ = old.text.try_send(ToViewer::Close(
                 CLOSE_REPLACED,
                 "watching in another window now",
@@ -575,7 +603,7 @@ impl Mirrors {
                 &json!({"t": "phone", "online": false}),
             )));
         }
-        session.viewer = Some(Viewer {
+        *session.path.viewer() = Some(Viewer {
             id,
             codec,
             video: video_tx,
@@ -606,8 +634,9 @@ impl Mirrors {
         let Some(session) = inner.sessions.get_mut(device_id) else {
             return;
         };
-        if session.viewer.as_ref().is_some_and(|v| v.id == viewer_id) {
-            session.viewer = None;
+        let mut viewer = session.path.viewer();
+        if viewer.as_ref().is_some_and(|v| v.id == viewer_id) {
+            *viewer = None;
             if let Some(p) = &session.phone {
                 let _ = p.try_send(ToPhone::Text(text(&json!({"t": "viewer", "on": false}))));
             }
@@ -620,7 +649,8 @@ impl Mirrors {
         let Some(session) = inner.sessions.get_mut(device_id) else {
             return;
         };
-        let Some(viewer) = session.viewer.as_mut().filter(|v| v.id == viewer_id) else {
+        let mut guard = session.path.viewer();
+        let Some(viewer) = guard.as_mut().filter(|v| v.id == viewer_id) else {
             return;
         };
         match message {
@@ -651,7 +681,8 @@ impl Mirrors {
 const NOT_MIRRORING: &str = "the phone is not mirroring right now; start it again on the phone";
 
 fn end_session(session: Session, why: &'static str) {
-    if let Some(v) = session.viewer {
+    *session.path.phone() = None;
+    if let Some(v) = session.path.viewer().take() {
         let _ = v.text.try_send(ToViewer::Close(CLOSE_ENDED, why));
     }
     if let Some(p) = session.phone {
@@ -1009,7 +1040,7 @@ async fn serve_phone(
         }
     };
     let (tx, mut rx) = mpsc::channel::<ToPhone>(PHONE_QUEUE);
-    let (generation, code, codec) = state
+    let (generation, code, codec, path) = state
         .mirrors
         .attach_phone(&device_id, &start.key, &base, tx);
     let ready = json!({
@@ -1070,7 +1101,7 @@ async fn serve_phone(
                     tracing::warn!(device_id, "malformed mirror frame; closing");
                     break;
                 }
-                state.mirrors.frame(&device_id, generation, bytes);
+                Mirrors::frame(&path, generation, bytes);
             }
             Message::Text(raw) => {
                 let Some(kind) = phone_kind(&raw) else {
@@ -1383,7 +1414,7 @@ mod tests {
         let mirrors = Mirrors::default();
         let (to_phone, mut phone) = mpsc::channel(PHONE_QUEUE);
         let key = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO-_";
-        let (generation, _, _) = mirrors.attach_phone("d_1", key, "http://gw", to_phone);
+        let (generation, _, _, path) = mirrors.attach_phone("d_1", key, "http://gw", to_phone);
         let join: Join =
             serde_json::from_str(&json!({"t": "join", "key": key, "codecs": ["h264"]}).to_string())
                 .expect("join");
@@ -1393,11 +1424,13 @@ mod tests {
             f.push(9);
             Bytes::from(f)
         };
-        mirrors.frame("d_1", generation, framed(KIND_H264, FLAG_KEY));
+        Mirrors::frame(&path, generation, framed(KIND_H264, FLAG_KEY));
         for _ in 0..10 {
-            mirrors.frame("d_1", generation, framed(KIND_PCM, 0));
+            Mirrors::frame(&path, generation, framed(KIND_PCM, 0));
         }
-        mirrors.frame("d_1", generation, framed(KIND_H264, 0));
+        Mirrors::frame(&path, generation, framed(KIND_H264, 0));
+        // R50: a replaced connection's frames are ignored on the fast path too.
+        Mirrors::frame(&path, generation - 1, framed(KIND_H264, 0));
         let mut video = 0;
         while joined.video.try_recv().is_ok() {
             video += 1;

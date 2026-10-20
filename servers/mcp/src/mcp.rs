@@ -1722,13 +1722,10 @@ fn prepend(result: &mut Value, line: &str) {
 }
 
 fn screenshot_allowed(state: &AppState, device_id: &str) -> bool {
-    state.devices.online().iter().any(|d| {
-        d.device_id == device_id
-            && d.capabilities.iter().any(|c| {
-                c.capability == latch_protocol::Capability::ScreenCapture
-                    && c.status == latch_protocol::CapabilityStatus::Enabled
-            })
-    })
+    state
+        .devices
+        .capability_status(device_id, latch_protocol::Capability::ScreenCapture)
+        == Some(latch_protocol::CapabilityStatus::Enabled)
 }
 
 /// The screen for the AI: as the changes since the last full screen it was
@@ -1810,13 +1807,7 @@ async fn observe(
 ) -> Result<Value, ProtocolError> {
     // Only ask for a screenshot when the owner allowed it, so a tree-only
     // grant still works with the default arguments.
-    let screenshot_allowed = state.devices.online().iter().any(|d| {
-        d.device_id == device_id
-            && d.capabilities.iter().any(|c| {
-                c.capability == latch_protocol::Capability::ScreenCapture
-                    && c.status == latch_protocol::CapabilityStatus::Enabled
-            })
-    });
+    let screenshot_allowed = screenshot_allowed(state, device_id);
     let command = Command::Observe {
         include_screenshot: want_screenshot && screenshot_allowed,
         max_nodes,
