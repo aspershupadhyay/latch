@@ -107,6 +107,8 @@ object ShellInput {
 
     private fun serve(reader: BufferedReader, writer: BufferedWriter, injector: Injector) {
         var downAt = 0L
+        // R44: the owner's switch on the page; the watch thread writes too, so writes take the writer's lock.
+        val watch = ClipboardWatch(writer)
         while (true) {
             val line = runCatching { reader.readLine() }.getOrNull() ?: return
             val parts = line.split(' ')
@@ -126,14 +128,24 @@ object ShellInput {
                         injector.touch(downAt, now, action, x, y)
                     }
                     "s" -> injector.scroll(parts[1].toFloat(), parts[2].toFloat(), parts[3].toFloat(), parts[4].toFloat())
+                    // R42: two fingers (pinch, turn): down, move, up; x0 y0 x1 y1.
+                    "pd", "pm", "pu" -> {
+                        val f = FloatArray(4) { parts[it + 1].toFloat() }
+                        val now = SystemClock.uptimeMillis()
+                        if (parts[0] == "pd") downAt = now
+                        injector.twoFingers(downAt, now, parts[0], f)
+                    }
                     "k" -> injector.key(parts[1].toInt(), parts.getOrNull(2)?.toInt() ?: 0)
                     "t" -> injector.text(String(Base64.getDecoder().decode(parts[1]), Charsets.UTF_8))
                     "cg" -> {
                         val text = runCatching { Clipboard.text() }.getOrNull()
-                        writer.write(if (text.isNullOrEmpty()) "cg -\n" else "cg ${Base64.getEncoder().encodeToString(text.toByteArray())}\n")
-                        writer.flush()
+                        synchronized(writer) {
+                            writer.write(if (text.isNullOrEmpty()) "cg -\n" else "cg ${Base64.getEncoder().encodeToString(text.toByteArray())}\n")
+                            writer.flush()
+                        }
                     }
-                    "p" -> {
+                    "cw" -> watch.set(parts.getOrNull(1) == "1")
+                    "p" -> synchronized(writer) {
                         writer.write("p ${parts.getOrNull(1).orEmpty()}\n")
                         writer.flush()
                     }
@@ -141,8 +153,10 @@ object ShellInput {
             } catch (e: Exception) {
                 // A malformed line is skipped; the app only sends well-formed ones.
                 runCatching {
-                    writer.write("e ${describe(e).replace('\n', ' ').take(200)}\n")
-                    writer.flush()
+                    synchronized(writer) {
+                        writer.write("e ${describe(e).replace('\n', ' ').take(200)}\n")
+                        writer.flush()
+                    }
                 }
             }
         }
@@ -190,6 +204,38 @@ object ShellInput {
             }
         }
 
+        private val fingers = arrayOf(
+            MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_FINGER },
+            MotionEvent.PointerProperties().apply { id = 1; toolType = MotionEvent.TOOL_TYPE_FINGER },
+        )
+
+        /** R42: "pd" puts two fingers down (one, then the second), "pm" moves both, "pu" lifts the second, then the first. */
+        fun twoFingers(downAt: Long, now: Long, step: String, f: FloatArray) {
+            fun coords(up: Boolean) = arrayOf(
+                MotionEvent.PointerCoords().apply { x = f[0]; y = f[1]; pressure = 1f; size = 1f },
+                MotionEvent.PointerCoords().apply { x = f[2]; y = f[3]; pressure = if (up) 0f else 1f; size = 1f },
+            )
+            val second = 1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT
+            val events = when (step) {
+                "pd" -> listOf(
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_DOWN, 1, fingers, coords(false), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_POINTER_DOWN or second, 2, fingers, coords(false), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                )
+                "pm" -> listOf(MotionEvent.obtain(downAt, now, MotionEvent.ACTION_MOVE, 2, fingers, coords(false), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0))
+                else -> listOf(
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_POINTER_UP or second, 2, fingers, coords(true), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_UP, 1, fingers, coords(true), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                )
+            }
+            for (event in events) {
+                try {
+                    send(event)
+                } finally {
+                    event.recycle()
+                }
+            }
+        }
+
         /** [h] and [v] in phone pixels, as the page measured them; a mouse wheel scrolls in steps of [SCROLL_DP]. */
         fun scroll(x: Float, y: Float, h: Float, v: Float) {
             val now = SystemClock.uptimeMillis()
@@ -224,11 +270,78 @@ object ShellInput {
         }
     }
 
+    /**
+     * R44: while the owner's switch is on, a new copy on the phone goes to the
+     * app. Only the clip's description (when it was made, whether Android marks
+     * it sensitive) is checked every [WATCH_MS], which does not count as reading
+     * it; the text is read once per new copy, and a sensitive one (a password
+     * manager's) never.
+     */
+    private class ClipboardWatch(private val writer: BufferedWriter) {
+        @Volatile private var on = false
+        private var thread: Thread? = null
+
+        fun set(value: Boolean) {
+            on = value
+            if (value && thread == null) {
+                thread = Thread({ run() }, "latch-clipboard-watch").apply {
+                    isDaemon = true
+                    start()
+                }
+            }
+        }
+
+        private fun run() {
+            // Only copies made after the switch went on follow.
+            var seen = runCatching { Clipboard.description()?.timestamp }.getOrNull()
+            while (true) {
+                Thread.sleep(WATCH_MS)
+                if (!on) continue
+                val description = runCatching { Clipboard.description() }.getOrNull() ?: continue
+                if (description.timestamp == seen) continue
+                seen = description.timestamp
+                if (description.extras?.getBoolean(EXTRA_IS_SENSITIVE) == true) continue
+                if (!description.hasMimeType("text/*")) continue
+                val text = runCatching { Clipboard.text() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: continue
+                runCatching {
+                    synchronized(writer) {
+                        writer.write("cc ${Base64.getEncoder().encodeToString(text.toByteArray())}\n")
+                        writer.flush()
+                    }
+                }
+            }
+        }
+    }
+
     /** The clipboard as the shell reads it: IClipboard's arguments changed across Android versions. */
     private object Clipboard {
-        fun text(): String? {
+        private fun service(): Any {
             val binder = Class.forName("android.os.ServiceManager").getMethod("getService", String::class.java).invoke(null, "clipboard") as IBinder
-            val service = Class.forName("android.content.IClipboard\$Stub").getMethod("asInterface", IBinder::class.java).invoke(null, binder)
+            return Class.forName("android.content.IClipboard\$Stub").getMethod("asInterface", IBinder::class.java).invoke(null, binder)
+                ?: error("no clipboard service")
+        }
+
+        /** (package), (package, user), (package, attribution tag, user), (package, attribution tag, user, device). */
+        private fun arguments(method: Method): Array<Any?> {
+            var strings = 0
+            return method.parameterTypes.map { type ->
+                when (type) {
+                    String::class.java -> if (strings++ == 0) "com.android.shell" else null
+                    Int::class.javaPrimitiveType -> 0
+                    else -> null
+                }
+            }.toTypedArray()
+        }
+
+        /** What the clip is and when it was made, without reading it (R44). */
+        fun description(): android.content.ClipDescription? {
+            val service = service()
+            val get = service.javaClass.methods.first { it.name == "getPrimaryClipDescription" }
+            return get.invoke(service, *arguments(get)) as android.content.ClipDescription?
+        }
+
+        fun text(): String? {
+            val service = service()
             val get = service.javaClass.methods.first { it.name == "getPrimaryClip" }
             var strings = 0
             // (package), (package, user), (package, attribution tag, user), (package, attribution tag, user, device).
@@ -246,5 +359,8 @@ object ShellInput {
     }
 
     private const val INJECT_ASYNC = 0
+    private const val WATCH_MS = 400L
+    /** ClipDescription.EXTRA_IS_SENSITIVE (Android 13), as a string so older phones run this too. */
+    private const val EXTRA_IS_SENSITIVE = "android.content.extra.IS_SENSITIVE"
     private const val SCROLL_DP = 64f
 }

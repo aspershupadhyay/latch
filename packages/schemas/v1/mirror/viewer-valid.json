@@ -133,5 +133,45 @@
  },
  {
   "t": "shot"
+ },
+ {
+  "t": "stats",
+  "on": true
+ },
+ {
+  "t": "audio_codec",
+  "codec": "opus"
+ },
+ {
+  "t": "audio_codec",
+  "codec": "pcm"
+ },
+ {
+  "t": "pinch",
+  "phase": "start",
+  "x": 540,
+  "y": 1200,
+  "scale": 1.0,
+  "angle": 0.0
+ },
+ {
+  "t": "pinch",
+  "phase": "move",
+  "x": 540,
+  "y": 1200,
+  "scale": 1.8,
+  "angle": -30.5
+ },
+ {
+  "t": "pinch",
+  "phase": "end",
+  "x": 540,
+  "y": 1200,
+  "scale": 0.4,
+  "angle": 0.0
+ },
+ {
+  "t": "clipboard_follow",
+  "on": true
  }
 ]

@@ -107,5 +107,61 @@
  {
   "t": "button",
   "name": "power"
+ },
+ {
+  "t": "stats"
+ },
+ {
+  "t": "stats",
+  "on": "yes"
+ },
+ {
+  "t": "stats",
+  "on": true,
+  "every": 5
+ },
+ {
+  "t": "audio_codec",
+  "codec": "aac"
+ },
+ {
+  "t": "audio_codec"
+ },
+ {
+  "t": "pinch",
+  "phase": "start",
+  "x": 540,
+  "y": 1200,
+  "scale": 50
+ },
+ {
+  "t": "pinch",
+  "phase": "twist",
+  "x": 1,
+  "y": 1,
+  "scale": 1
+ },
+ {
+  "t": "pinch",
+  "phase": "move",
+  "x": -1,
+  "y": 1,
+  "scale": 1
+ },
+ {
+  "t": "pinch",
+  "phase": "move",
+  "x": 1,
+  "y": 1,
+  "scale": 1,
+  "angle": 1000
+ },
+ {
+  "t": "clipboard_follow"
+ },
+ {
+  "t": "clipboard_follow",
+  "on": true,
+  "text": "x"
  }
 ]

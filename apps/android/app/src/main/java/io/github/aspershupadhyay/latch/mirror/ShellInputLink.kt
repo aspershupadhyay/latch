@@ -64,6 +64,16 @@ object ShellInputCommands {
 
     fun scroll(x: Int, y: Int, dx: Int, dy: Int): String = "s $x $y $dx $dy"
 
+    /** R44: the phone's new copies go to the computer while [on]. */
+    fun watchClipboard(on: Boolean): String = if (on) "cw 1" else "cw 0"
+
+    /** R42: two fingers down, moved, or lifted, at [f] (x0, y0, x1, y1). */
+    fun pinch(phase: PinchPhase, f: IntArray): String = "${when (phase) {
+        PinchPhase.START -> "pd"
+        PinchPhase.MOVE -> "pm"
+        PinchPhase.END -> "pu"
+    }} ${f[0]} ${f[1]} ${f[2]} ${f[3]}"
+
     fun key(code: Int, meta: Int = 0): String = "k $code $meta"
 
     fun text(text: String): String = "t " + Base64.getEncoder().encodeToString(text.toByteArray(Charsets.UTF_8))
@@ -133,6 +143,9 @@ class ShellInputLink(
 ) {
     @Volatile var ready = false
         private set
+
+    /** R44: a copy made on the phone while the owner's switch is on. */
+    @Volatile var onCopied: ((String) -> Unit)? = null
 
     private var job: Job? = null
     @Volatile private var socket: Socket? = null
@@ -258,6 +271,8 @@ class ShellInputLink(
                     clip?.complete(text)
                 }
                 line.startsWith("p ") -> pings.remove(line.substring(2))?.complete(Unit)
+                line.startsWith("cc ") -> runCatching { String(Base64.getDecoder().decode(line.substring(3)), Charsets.UTF_8) }
+                    .getOrNull()?.let { text -> onCopied?.invoke(text) }
             }
         }
     }

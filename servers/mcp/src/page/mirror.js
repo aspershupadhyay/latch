@@ -12,6 +12,10 @@ const KIND_H264 = 1;
 const KIND_JPEG = 2;
 const KIND_PCM = 3;
 const KIND_SHOT = 4;
+// R39: one Opus packet of the phone's sound.
+const KIND_OPUS = 5;
+// R40: an H.265 access unit, from phones with a hardware encoder.
+const KIND_H265 = 6;
 const FLAG_KEY = 1;
 const HEADER_BYTES = 10;
 /** How long a page waits for the phone to mirror again before it asks for a code (ADR-058). */
@@ -22,7 +26,7 @@ function parseFrame(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength <= HEADER_BYTES) return null;
   const view = new DataView(buffer);
   const kind = view.getUint8(0);
-  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM && kind !== KIND_SHOT) return null;
+  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM && kind !== KIND_SHOT && kind !== KIND_OPUS && kind !== KIND_H265) return null;
   const flags = view.getUint8(1);
   const ts = Number(view.getBigUint64(2));
   return { kind, key: (flags & FLAG_KEY) !== 0, ts, data: new Uint8Array(buffer, HEADER_BYTES) };
@@ -55,6 +59,51 @@ function findSps(bytes) {
 function codecFromSps(sps) {
   const hex = (b) => b.toString(16).padStart(2, '0').toUpperCase();
   return `avc1.${hex(sps[1])}${hex(sps[2])}${hex(sps[3])}`;
+}
+
+/** R40: the SPS (NAL type 33) of an H.265 access unit, or null. */
+function findHevcSps(bytes) {
+  for (const nal of nalUnits(bytes)) {
+    if (nal.length > 14 && ((nal[0] >> 1) & 0x3f) === 33) return nal;
+  }
+  return null;
+}
+
+/** A NAL unit without its emulation-prevention bytes (00 00 03 → 00 00). */
+function unescapeNal(nal) {
+  const out = [];
+  let zeros = 0;
+  for (const b of nal) {
+    if (zeros >= 2 && b === 3) { zeros = 0; continue; }
+    out.push(b);
+    zeros = b === 0 ? zeros + 1 : 0;
+  }
+  return Uint8Array.from(out);
+}
+
+/**
+ * The WebCodecs codec string of an H.265 SPS (ISO/IEC 14496-15 annex E):
+ * hev1.[space]profile.compatibility.tier+level[.constraints], e.g. hev1.1.6.L93.B0.
+ */
+function hevcCodecFromSps(sps) {
+  const b = unescapeNal(sps);
+  // 2-byte NAL header, then one byte of ids before profile_tier_level.
+  const p = 3;
+  if (b.length < p + 12) return null;
+  const space = b[p] >> 6;
+  const tier = (b[p] >> 5) & 1;
+  const profile = b[p] & 0x1f;
+  let flags = ((b[p + 1] << 24) | (b[p + 2] << 16) | (b[p + 3] << 8) | b[p + 4]) >>> 0;
+  let reversed = 0;
+  for (let i = 0; i < 32; i++) {
+    reversed = ((reversed << 1) | (flags & 1)) >>> 0;
+    flags >>>= 1;
+  }
+  const constraints = Array.from(b.subarray(p + 5, p + 11));
+  while (constraints.length && constraints[constraints.length - 1] === 0) constraints.pop();
+  const level = b[p + 11];
+  return `hev1.${['', 'A', 'B', 'C'][space]}${profile}.${reversed.toString(16).toUpperCase()}.${tier ? 'H' : 'L'}${level}`
+    + constraints.map((c) => `.${c.toString(16).toUpperCase()}`).join('');
 }
 
 /**
@@ -144,6 +193,7 @@ const SHORTCUTS = {
   KeyO: 'screen_light', KeyF: 'full', KeyR: 'rotate', KeyM: 'sound',
   ArrowUp: 'volume_up', ArrowDown: 'volume_down',
   KeyP: 'shot', 'Shift+KeyP': 'record', KeyU: 'send_file', KeyW: 'pop_out', KeyI: 'show_notifications',
+  KeyD: 'stats',
   Slash: 'help', 'Shift+Slash': 'help',
 };
 
@@ -198,6 +248,65 @@ function normalizeCode(text) {
   return /^\d{6}$/.test(digits) ? digits : null;
 }
 
+// ---- Stream stats (R35, Alt+D) ----
+
+/**
+ * The phone's frame clock minus this page's `performance.now()`, in ms, from
+ * ping/pong samples `{sent, rtt, phoneUs}`: the sample with the shortest round
+ * trip, assuming the pong was stamped halfway. Null without a sample.
+ */
+function clockOffset(samples) {
+  let best = null;
+  for (const s of samples) {
+    if (!Number.isFinite(s.phoneUs) || !Number.isFinite(s.rtt) || !Number.isFinite(s.sent)) continue;
+    if (!best || s.rtt < best.rtt) best = s;
+  }
+  return best ? best.phoneUs / 1000 - (best.sent + best.rtt / 2) : null;
+}
+
+/** Average, 95th percentile, and maximum of a list of numbers; null when empty. */
+function summarize(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const sum = sorted.reduce((a, b) => a + b, 0);
+  return { avg: sum / sorted.length, p95: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))], max: sorted[sorted.length - 1] };
+}
+
+/** The overlay's lines from the phone's last `stats` message and this page's last second. */
+function statsLines(phone, page) {
+  const ms = (v) => (v == null ? '–' : `${v.toFixed(1)} ms`);
+  const sum = (s) => (s ? `${ms(s.avg)} (p95 ${ms(s.p95)})` : '–');
+  const lines = [];
+  if (phone) {
+    const rate = Number.isFinite(phone.kbps) ? `${(phone.kbps / 1000).toFixed(1)} Mbit/s` : '–';
+    const target = Number.isFinite(phone.target_kbps) ? ` (aim ${(phone.target_kbps / 1000).toFixed(1)})` : '';
+    lines.push(`Stream   ${phone.codec || '?'} ${phone.w}×${phone.h}  ${phone.frames} fps  ${rate}${target}`);
+    lines.push(`Phone    encode ${ms(phone.encode_ms)} (max ${ms(phone.encode_max_ms)})  key frames ${phone.key_frames}  dropped ${phone.drops}`);
+    lines.push(`Gateway  dropped ${Number.isFinite(phone.gateway_drops) ? phone.gateway_drops : '–'}`);
+  } else {
+    lines.push('Stream   waiting for the phone\'s numbers…');
+  }
+  lines.push(`Network  capture→page ${page.synced ? sum(page.transit) : 'syncing clocks…'}  ping ${page.rtt == null ? '–' : `${Math.round(page.rtt)} ms`}`);
+  lines.push(`Page     ${page.frames} fps  decode ${sum(page.decode)}  draw ${sum(page.draw)}  skipped ${page.skipped}`);
+  lines.push(`Total    glass-to-glass ≈ ${page.synced ? sum(page.total) : '–'} + the screen's own delay`);
+  return lines;
+}
+
+/**
+ * R42: a pinch message for the phone: two fingers around point p, `scale`
+ * times their first distance apart, turned `angle` degrees; kept in range.
+ */
+function pinchMessage(phase, p, scale, angle) {
+  const s = Math.min(20, Math.max(0.05, Number.isFinite(scale) ? scale : 1));
+  const a = Math.min(720, Math.max(-720, Number.isFinite(angle) ? angle : 0));
+  return { t: 'pinch', phase, x: p.x, y: p.y, scale: Math.round(s * 1000) / 1000, angle: Math.round(a * 10) / 10 };
+}
+
+/** A trackpad pinch arrives as Ctrl+wheel: the new scale after one event's deltaY. */
+function pinchScale(scale, deltaY) {
+  return Math.min(20, Math.max(0.05, scale * Math.exp(-deltaY / 100)));
+}
+
 /** The viewer key from a link's fragment (#k=...), or null. */
 function keyFromHash(hash) {
   const m = /(?:^#|&)k=([A-Za-z0-9_-]{43})(?:&|$)/.exec(hash || '');
@@ -208,6 +317,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, shortcut,
     clipboardAction, pasteMessage, stamp, statusText, latencyClass, normalizeCode, keyFromHash,
+    clockOffset, summarize, statsLines, findHevcSps, hevcCodecFromSps, pinchMessage, pinchScale,
   };
 }
 
@@ -232,7 +342,20 @@ if (typeof document !== 'undefined') {
   };
 
   const canvas = $('screen');
-  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  // R36: a Worker decodes and draws, where the browser can hand it the canvas;
+  // otherwise this page does, as before.
+  const video = typeof Worker === 'function' && typeof OffscreenCanvas === 'function' && typeof canvas.transferControlToOffscreen === 'function'
+    ? new Worker('/mirror-worker.js')
+    : null;
+  let ctx = null;
+  if (video) {
+    const offscreen = canvas.transferControlToOffscreen();
+    video.postMessage({ t: 'init', canvas: offscreen }, [offscreen]);
+  } else {
+    ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  }
+  // The picture's size, as drawn (the canvas's own size is the worker's once handed over).
+  const picture = { w: 0, h: 0 };
   let socket = null;
   let key = null;
   let screen = null;
@@ -241,6 +364,8 @@ if (typeof document !== 'undefined') {
   let waitKey = true;
   let h264 = false;
   let usingH264 = false;
+  // R40: this browser decodes H.265 in the worker.
+  let h265 = false;
   let lastFrameAt = 0;
   let retry = 0;
   // ADR-058: while the phone is not mirroring, the page asks again now and then.
@@ -287,6 +412,14 @@ if (typeof document !== 'undefined') {
     if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   }
 
+  async function probeH265() {
+    try {
+      return Boolean((await VideoDecoder.isConfigSupported({ codec: 'hev1.1.6.L120.90', optimizeForLatency: true })).supported);
+    } catch {
+      return false;
+    }
+  }
+
   async function probeH264() {
     if (typeof VideoDecoder !== 'function' || !window.isSecureContext) return false;
     for (const codec of ['avc1.42E01F', 'avc1.42E033', 'avc1.42C033']) {
@@ -314,7 +447,9 @@ if (typeof document !== 'undefined') {
     ws.binaryType = 'arraybuffer';
     socket = ws;
     $('live-text').textContent = 'Connecting';
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...join, codecs: h264 ? ['h264', 'jpeg'] : ['jpeg'] }));
+    // R40: H.265 first when this browser decodes it (in the worker); the phone sends it only from a hardware encoder.
+    const codecs = [...(h265 ? ['h265'] : []), ...(h264 ? ['h264'] : []), 'jpeg'];
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...join, codecs }));
     ws.onmessage = (event) => {
       if (socket !== ws) return;
       if (typeof event.data === 'string') onText(event.data);
@@ -404,10 +539,15 @@ if (typeof document !== 'undefined') {
         store.set(key);
         if (location.hash) history.replaceState(null, '', location.pathname);
         $('device').textContent = m.device || 'Phone';
-        usingH264 = m.codec === 'h264';
+        // Either video codec: the frames say which one arrives.
+        usingH264 = m.codec === 'h264' || m.codec === 'h265';
         inputMode = 'basic';
         $('smooth').hidden = true;
-        $('mode').textContent = usingH264 ? '' : 'Still pictures';
+        saving = false;
+        showMode();
+        // R39: about 96 kbit/s of Opus instead of 1.5 Mbit/s of raw sound, when this browser decodes it.
+        if (opusOk) send({ t: 'audio_codec', codec: 'opus' });
+        if (followCopies) send({ t: 'clipboard_follow', on: true });
         show('app');
         cover('Waiting for the picture…');
         canvas.focus();
@@ -432,8 +572,23 @@ if (typeof document !== 'undefined') {
         const rtt = Math.max(0, Math.round(performance.now() - m.at));
         $('live').className = `live ${latencyClass(rtt)}`;
         $('live-text').textContent = `Live ${rtt} ms`;
+        perf.rtt = rtt;
+        if (Number.isFinite(m.phone_us)) {
+          clockSamples.push({ sent: m.at, rtt, phoneUs: m.phone_us });
+          if (clockSamples.length > 12) clockSamples.shift();
+          perf.offset = clockOffset(clockSamples);
+        }
         break;
       }
+      case 'stats':
+        perf.phone = m;
+        break;
+      case 'quality':
+        // R38: the phone made the picture smaller because the network is slow.
+        saving = Boolean(m.saving);
+        showMode();
+        if (saving) toast(`Saving bandwidth: ${m.w}×${m.h} at ${m.fps} frames a second while the network is slow.`);
+        break;
       case 'notice':
         if (typeof m.text === 'string') toast(m.text);
         break;
@@ -470,7 +625,91 @@ if (typeof document !== 'undefined') {
     $('cover').hidden = true;
   }
 
+  // R35: per-frame timings for the stats overlay, kept only while it is open.
+  const clockSamples = [];
+  const perf = {
+    on: false, offset: null, rtt: null, phone: null,
+    frames: 0, skipped: 0, transit: [], decode: [], draw: [], total: [], pending: new Map(),
+  };
+
+  function toggleStats() {
+    perf.on = !perf.on;
+    if (video) video.postMessage({ t: 'timings', on: perf.on });
+    $('stats').hidden = !perf.on;
+    send({ t: 'stats', on: perf.on });
+    if (perf.on) {
+      // Ask for the clock now instead of waiting for the next ping.
+      send({ t: 'ping', at: performance.now() });
+      $('stats').textContent = 'Measuring…';
+    }
+  }
+
+  /** A frame arrived: when the phone captured it, on this page's clock (null before clocks are synced). */
+  function captured(ts) {
+    return perf.offset == null ? null : ts / 1000 - perf.offset;
+  }
+
+  function frameArrived(ts, arrived) {
+    if (!perf.on) return;
+    perf.frames += 1;
+    if (perf.pending.size > 240) perf.pending.clear();
+    perf.pending.set(ts, arrived);
+    const at = captured(ts);
+    if (at != null) perf.transit.push(arrived - at);
+  }
+
+  function frameShown(ts, decoded, drawn) {
+    if (!perf.on) return;
+    const arrived = perf.pending.get(ts);
+    perf.pending.delete(ts);
+    if (arrived != null) perf.decode.push(decoded - arrived);
+    perf.draw.push(drawn - decoded);
+    const at = captured(ts);
+    if (at != null) perf.total.push(drawn - at);
+  }
+
+  setInterval(() => {
+    if (!perf.on) return;
+    const page = {
+      synced: perf.offset != null, rtt: perf.rtt, frames: perf.frames, skipped: perf.skipped,
+      transit: summarize(perf.transit), decode: summarize(perf.decode), draw: summarize(perf.draw), total: summarize(perf.total),
+    };
+    $('stats').textContent = statsLines(perf.phone, page).join('\n');
+    perf.frames = 0;
+    perf.skipped = 0;
+    perf.transit = [];
+    perf.decode = [];
+    perf.draw = [];
+    perf.total = [];
+  }, 1000);
+
+  if (video) {
+    video.onmessage = (event) => {
+      const m = event.data;
+      switch (m.t) {
+        case 'size': picture.w = m.w; picture.h = m.h; break;
+        case 'drawn': lastFrameAt = performance.now(); uncover(); break;
+        case 'shown': frameShown(m.ts, m.decoded - performance.timeOrigin, m.drawn - performance.timeOrigin); break;
+        case 'skipped': perf.skipped += 1; break;
+        case 'sync': send({ t: 'sync' }); break;
+        case 'error':
+          if (m.hevc) {
+            // R40: this H.265 stream did not decode after all; H.264 from now on.
+            h265 = false;
+            send({ t: 'codec', codec: 'h264' });
+            video.postMessage({ t: 'reset' });
+          } else {
+            decodeFailed();
+          }
+          break;
+        case 'unsupported': fallBackToStills("This browser can't decode the phone's video; showing still pictures instead."); break;
+        default: break;
+      }
+    };
+  }
+
   function resetDecoder() {
+    if (video) video.postMessage({ t: 'reset' });
     if (decoder && decoder.state !== 'closed') {
       try { decoder.close(); } catch { /* already closed */ }
     }
@@ -505,6 +744,15 @@ if (typeof document !== 'undefined') {
         gain.connect(audio.destination);
         mix = audio.createGain();
         mix.connect(gain);
+        // R47: the ring buffer on the audio thread; until it loads (or without it), the old way.
+        if (audio.audioWorklet && typeof AudioWorkletNode === 'function') {
+          audio.audioWorklet.addModule('/mirror-audio.js')
+            .then(() => {
+              sound = new AudioWorkletNode(audio, 'latch-sound', { numberOfInputs: 0, outputChannelCount: [2] });
+              sound.connect(mix);
+            })
+            .catch(() => { sound = null; });
+        }
       } catch { audio = null; }
     }
     if (audio && audio.state === 'suspended') audio.resume().then(tellPhoneSound).catch(() => {});
@@ -520,17 +768,31 @@ if (typeof document !== 'undefined') {
     send({ t: 'sound', on: playing });
   }
 
+  let sound = null;
+
   function playPcm(bytes) {
     if (!soundOn || !audio || audio.state !== 'running') return;
-    const samples = Math.floor(bytes.byteLength / 4);
-    if (!samples) return;
-    const view = new DataView(bytes.buffer, bytes.byteOffset, samples * 4);
-    const buffer = audio.createBuffer(2, samples, 48000);
+    // The header is 10 bytes, so the samples stay 2-byte aligned in the frame's own buffer.
+    const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
+    playSamples(samples, true);
+  }
+
+  /** Interleaved 16-bit stereo; [own] when its buffer may move to the audio thread. */
+  function playSamples(samples, own) {
+    if (sound) {
+      // R47: to the audio thread's ring; nothing is converted here.
+      if (own) sound.port.postMessage(samples, [samples.buffer]);
+      else sound.port.postMessage(samples);
+      return;
+    }
+    const frames = samples.length >> 1;
+    if (!frames) return;
+    const buffer = audio.createBuffer(2, frames, 48000);
     const left = buffer.getChannelData(0);
     const right = buffer.getChannelData(1);
-    for (let i = 0; i < samples; i++) {
-      left[i] = view.getInt16(i * 4, true) / 32768;
-      right[i] = view.getInt16(i * 4 + 2, true) / 32768;
+    for (let i = 0; i < frames; i++) {
+      left[i] = samples[i * 2] / 32768;
+      right[i] = samples[i * 2 + 1] / 32768;
     }
     const now = audio.currentTime;
     // Keep about 40 ms queued: enough to ride out Wi-Fi jitter, and when the
@@ -543,6 +805,60 @@ if (typeof document !== 'undefined') {
     audioAt += buffer.duration;
   }
 
+  // ---- R39: Opus from the phone, decoded with WebCodecs ----
+
+  let opusOk = false;
+  let opusDecoder = null;
+
+  async function probeOpus() {
+    if (typeof AudioDecoder !== 'function' || !window.isSecureContext) return false;
+    try {
+      return Boolean((await AudioDecoder.isConfigSupported({ codec: 'opus', sampleRate: 48000, numberOfChannels: 2 })).supported);
+    } catch {
+      return false;
+    }
+  }
+
+  function playOpus(frame) {
+    if (!soundOn || !audio || audio.state !== 'running') return;
+    if (!opusDecoder || opusDecoder.state === 'closed') {
+      try {
+        opusDecoder = new AudioDecoder({
+          output: (data) => {
+            const frames = data.numberOfFrames;
+            const samples = new Int16Array(frames * 2);
+            try {
+              data.copyTo(samples, { planeIndex: 0, format: 's16' });
+            } catch {
+              // A browser that converts only to float: two planes, then 16-bit here.
+              const l = new Float32Array(frames);
+              const r = new Float32Array(frames);
+              data.copyTo(l, { planeIndex: 0, format: 'f32-planar' });
+              data.copyTo(r, { planeIndex: Math.min(1, data.numberOfChannels - 1), format: 'f32-planar' });
+              for (let i = 0; i < frames; i++) {
+                samples[i * 2] = Math.max(-32768, Math.min(32767, Math.round(l[i] * 32768)));
+                samples[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(r[i] * 32768)));
+              }
+            }
+            data.close();
+            playSamples(samples, true);
+          },
+          // Can't decode after all: ask the phone for raw sound instead.
+          error: () => { opusOk = false; opusDecoder = null; send({ t: 'audio_codec', codec: 'pcm' }); },
+        });
+        opusDecoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 2 });
+      } catch {
+        opusOk = false;
+        opusDecoder = null;
+        send({ t: 'audio_codec', codec: 'pcm' });
+        return;
+      }
+    }
+    try {
+      opusDecoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: frame.ts, data: frame.data }));
+    } catch { /* one lost packet is 20 ms of silence */ }
+  }
+
   function draw(source, width, height) {
     const cw = turned ? height : width;
     const ch = turned ? width : height;
@@ -550,6 +866,8 @@ if (typeof document !== 'undefined') {
       canvas.width = cw;
       canvas.height = ch;
     }
+    picture.w = cw;
+    picture.h = ch;
     if (turned) {
       ctx.setTransform(0, 1, -1, 0, height, 0);
       ctx.drawImage(source, 0, 0, width, height);
@@ -559,6 +877,25 @@ if (typeof document !== 'undefined') {
     }
     lastFrameAt = performance.now();
     uncover();
+  }
+
+  let saving = false;
+  function showMode() {
+    $('mode').textContent = !usingH264 ? 'Still pictures' : saving ? 'Saving bandwidth' : '';
+  }
+
+  // R37: a decoder error asks for a key frame first; only repeated errors mean this browser can't decode.
+  let decodeErrors = [];
+  function decodeFailed() {
+    const now = performance.now();
+    decodeErrors = decodeErrors.filter((t) => now - t < 10000);
+    decodeErrors.push(now);
+    if (decodeErrors.length >= 3) {
+      fallBackToStills("This browser couldn't decode the phone's video; showing still pictures instead.");
+      return;
+    }
+    resetDecoder();
+    send({ t: 'sync' });
   }
 
   function fallBackToStills(why) {
@@ -577,10 +914,12 @@ if (typeof document !== 'undefined') {
     try {
       decoder = new VideoDecoder({
         output: (frame) => {
+          const decoded = performance.now();
           draw(frame, frame.displayWidth, frame.displayHeight);
+          frameShown(frame.timestamp, decoded, performance.now());
           frame.close();
         },
-        error: () => fallBackToStills("This browser couldn't decode the phone's video; showing still pictures instead."),
+        error: () => decodeFailed(),
       });
       decoder.configure({ codec: codecFromSps(sps), optimizeForLatency: true });
       decoderSps = spsHex;
@@ -598,14 +937,32 @@ if (typeof document !== 'undefined') {
       playPcm(frame.data);
       return;
     }
+    if (frame.kind === KIND_OPUS) {
+      playOpus(frame);
+      return;
+    }
     if (frame.kind === KIND_SHOT) {
       save(new Blob([frame.data], { type: 'image/png' }), `Latch screenshot ${stamp(new Date())}.png`);
       toast('Screenshot saved to your downloads.');
       return;
     }
+    const arrived = performance.now();
+    if (video) {
+      // R36: the worker decodes and draws; this page only times the arrival.
+      if ((frame.kind === KIND_H264 || frame.kind === KIND_H265) && !usingH264) return;
+      frameArrived(frame.ts, arrived);
+      video.postMessage({ t: 'frame', buffer }, [buffer]);
+      return;
+    }
     if (frame.kind === KIND_JPEG) {
+      frameArrived(frame.ts, arrived);
       createImageBitmap(new Blob([frame.data], { type: 'image/jpeg' }))
-        .then((bitmap) => { draw(bitmap, bitmap.width, bitmap.height); bitmap.close(); })
+        .then((bitmap) => {
+          const decoded = performance.now();
+          draw(bitmap, bitmap.width, bitmap.height);
+          frameShown(frame.ts, decoded, performance.now());
+          bitmap.close();
+        })
         .catch(() => {});
       return;
     }
@@ -617,10 +974,12 @@ if (typeof document !== 'undefined') {
     if (!decoder || (waitKey && !frame.key)) return;
     if (!frame.key && decoder.decodeQueueSize > 2) {
       // Behind: skip to the next key frame instead of showing the past late.
+      perf.skipped += 1;
       waitKey = true;
       send({ t: 'sync' });
       return;
     }
+    frameArrived(frame.ts, arrived);
     try {
       decoder.decode(new EncodedVideoChunk({ type: frame.key ? 'key' : 'delta', timestamp: frame.ts, data: frame.data }));
       if (frame.key) waitKey = false;
@@ -688,7 +1047,7 @@ if (typeof document !== 'undefined') {
 
   /** The picture's rect on the page: object-fit: contain may add bars, e.g. in full screen. */
   function pictureRect() {
-    return containedRect(canvas.getBoundingClientRect(), canvas.width, canvas.height);
+    return containedRect(canvas.getBoundingClientRect(), picture.w || canvas.width, picture.h || canvas.height);
   }
 
   function point(event) {
@@ -737,9 +1096,63 @@ if (typeof document !== 'undefined') {
 
   let wheel = { dx: 0, dy: 0 };
   let wheelTimer = 0;
+  // R42: two fingers from the computer: a trackpad pinch (Ctrl+wheel in Chrome, Edge,
+  // and Firefox; gesture events in Safari, which also turn).
+  let pinch = null;
+  let pinchEndTimer = 0;
+  let pinchSentAt = 0;
+  function pinchStep(phase, p, scale, angle) {
+    if (!screen) return;
+    if (phase === 'start') {
+      if (pinch) return;
+      pinch = { p, scale: 1, angle: 0 };
+      send(pinchMessage('start', p, 1, 0));
+      return;
+    }
+    if (!pinch) return;
+    pinch.scale = scale;
+    pinch.angle = angle;
+    if (phase === 'end') {
+      send(pinchMessage('end', pinch.p, scale, angle));
+      pinch = null;
+      return;
+    }
+    const now = performance.now();
+    if (now - pinchSentAt >= 16) {
+      pinchSentAt = now;
+      send(pinchMessage('move', pinch.p, scale, angle));
+    }
+  }
+  canvas.addEventListener('gesturestart', (event) => {
+    event.preventDefault();
+    const p = point(event) || lastPoint;
+    if (p) pinchStep('start', p, 1, 0);
+  });
+  canvas.addEventListener('gesturechange', (event) => {
+    event.preventDefault();
+    pinchStep('move', null, event.scale, event.rotation);
+  });
+  canvas.addEventListener('gestureend', (event) => {
+    event.preventDefault();
+    pinchStep('end', null, event.scale, event.rotation);
+  });
+
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
     if (!screen) return;
+    if (event.ctrlKey) {
+      if (!pinch) {
+        const p = point(event) || lastPoint;
+        if (!p) return;
+        pinchStep('start', p, 1, 0);
+      }
+      if (!pinch) return;
+      pinchStep('move', null, pinchScale(pinch.scale, event.deltaY), 0);
+      clearTimeout(pinchEndTimer);
+      // A trackpad sends no "end": a short pause ends the pinch.
+      pinchEndTimer = setTimeout(() => { if (pinch) pinchStep('end', null, pinch.scale, pinch.angle); }, 180);
+      return;
+    }
     const rect = pictureRect();
     const p = point(event) || lastPoint;
     if (!p) return;
@@ -994,7 +1407,7 @@ if (typeof document !== 'undefined') {
     const phone = $('phone');
     const box = canvas.getBoundingClientRect();
     const height = Math.min(900, Math.max(480, Math.round(box.height + 80)));
-    const width = Math.round(height * (canvas.width && canvas.height ? canvas.width / canvas.height : 0.5)) + 24;
+    const width = Math.round(height * (picture.w && picture.h ? picture.w / picture.h : 0.5)) + 24;
     try {
       pip = await window.documentPictureInPicture.requestWindow({ width, height });
     } catch {
@@ -1055,6 +1468,7 @@ if (typeof document !== 'undefined') {
       case 'pop_out': popOut(); break;
       case 'show_notifications': $('show-notifications').click(); break;
       case 'help': $('help').showModal(); break;
+      case 'stats': toggleStats(); break;
       default: break;
     }
   }
@@ -1084,6 +1498,18 @@ if (typeof document !== 'undefined') {
     el.addEventListener('click', () => runAction(el.dataset.action));
   }
   $('show-notifications').setAttribute('aria-pressed', String(notificationsShown));
+  // R44: copies on the phone come here by themselves; off until the owner turns it on, remembered here.
+  let followCopies = false;
+  try { followCopies = localStorage.getItem('latch-follow-copies') === '1'; } catch { /* no storage */ }
+  $('follow-copies').setAttribute('aria-pressed', String(followCopies));
+  $('follow-copies').addEventListener('click', () => {
+    followCopies = !followCopies;
+    try { localStorage.setItem('latch-follow-copies', followCopies ? '1' : '0'); } catch { /* no storage */ }
+    $('follow-copies').setAttribute('aria-pressed', String(followCopies));
+    send({ t: 'clipboard_follow', on: followCopies });
+    toast(followCopies ? 'Text you copy on the phone now comes to this computer (with Full ADB on).' : 'Copies stay on the phone; Ctrl/Cmd+C still copies.');
+  });
+
   $('show-notifications').addEventListener('click', () => {
     notificationsShown = !notificationsShown;
     $('show-notifications').setAttribute('aria-pressed', String(notificationsShown));
@@ -1119,6 +1545,7 @@ if (typeof document !== 'undefined') {
   });
   $('rotate').addEventListener('click', () => {
     turned = !turned;
+    if (video) video.postMessage({ t: 'turned', on: turned });
     $('rotate').setAttribute('aria-pressed', String(turned));
     // Ask for a fresh key frame so the turned picture appears at once.
     send({ t: 'sync' });
@@ -1156,6 +1583,8 @@ if (typeof document !== 'undefined') {
 
   (async () => {
     h264 = await probeH264();
+    h265 = h264 && Boolean(video) && await probeH265();
+    opusOk = await probeOpus();
     $('mode-note').textContent = modeNote();
     key = keyFromHash(location.hash) || store.get();
     if (key) {

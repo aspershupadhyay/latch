@@ -170,4 +170,46 @@ class MirrorInputTest {
         assertEquals("a key frame that has its SPS is sent as is", already, AnnexB.withConfig(config, already, key = true))
         assertEquals(-1, AnnexB.firstNalType(java.nio.ByteBuffer.wrap(byteArrayOf(1, 2, 3))))
     }
+
+    @Test fun anH265KeyFrameGetsItsVpsSpsAndPpsOnce() {
+        // R40: H.265 NAL types are 6 bits after the forbidden bit: 0x40 is a VPS (32), 0x26 an IDR (19).
+        val config = byteArrayOf(0, 0, 0, 1, 0x40, 0x01, 0x0c, 0, 0, 0, 1, 0x42, 0x01, 0x01)
+        val idr = java.nio.ByteBuffer.wrap(byteArrayOf(0, 0, 0, 1, 0x26, 0x01, 0x11))
+        assertEquals(19, AnnexB.firstNalType(idr, hevc = true))
+        val joined = AnnexB.withConfig(config, idr, key = true, hevc = true)
+        assertEquals(config.size + 7, joined.remaining())
+        val already = java.nio.ByteBuffer.wrap(config + byteArrayOf(0, 0, 1, 0x26, 0x01))
+        assertEquals(32, AnnexB.firstNalType(already, hevc = true))
+        assertEquals(already, AnnexB.withConfig(config, already, key = true, hevc = true))
+        assertEquals(600_000, MirrorCapture.encoderBps(1_000_000, hevc = true))
+        assertEquals(1_000_000, MirrorCapture.encoderBps(1_000_000, hevc = false))
+    }
+
+    @Test fun aPinchFromTheComputerIsTwoFingersOnTheScreen() {
+        // A 1080x2400 phone: the fingers start a quarter of the short side apart.
+        assertEquals(listOf(405, 1200, 675, 1200), PinchFingers.at(540, 1200, 1.0, 0.0, 1080, 2400).toList())
+        assertEquals(listOf(270, 1200, 810, 1200), PinchFingers.at(540, 1200, 2.0, 0.0, 1080, 2400).toList())
+        // Turned a quarter: one above the other.
+        assertEquals(listOf(540, 1065, 540, 1335), PinchFingers.at(540, 1200, 1.0, 90.0, 1080, 2400).toList())
+        // Never off the screen, never on top of each other.
+        val edge = PinchFingers.at(0, 0, 20.0, 0.0, 1080, 2400)
+        assertTrue(edge.all { it >= 0 } && edge[2] <= 1079)
+        val close = PinchFingers.at(540, 1200, 0.05, 0.0, 1080, 2400)
+        assertEquals(48, close[2] - close[0])
+        assertEquals("pd 1 2 3 4", ShellInputCommands.pinch(PinchPhase.START, intArrayOf(1, 2, 3, 4)))
+        assertEquals("pu 1 2 3 4", ShellInputCommands.pinch(PinchPhase.END, intArrayOf(1, 2, 3, 4)))
+        assertEquals(
+            MirrorIn.Pinch(PinchPhase.MOVE, 540, 1200, 1.8, -30.5),
+            MirrorMessages.parse("""{"t":"pinch","phase":"move","x":540,"y":1200,"scale":1.8,"angle":-30.5}"""),
+        )
+        assertNull(MirrorMessages.parse("""{"t":"pinch","phase":"move","x":540,"y":1200,"scale":50,"angle":0}"""))
+    }
+
+    @Test fun theClipboardFollowsOnlyWhileTheOwnerSwitchedItOn() {
+        // R44: the page's switch and the helper's command.
+        assertEquals(MirrorIn.ClipboardFollow(true), MirrorMessages.parse("""{"t":"clipboard_follow","on":true}"""))
+        assertNull(MirrorMessages.parse("""{"t":"clipboard_follow","on":true,"text":"x"}"""))
+        assertEquals("cw 1", ShellInputCommands.watchClipboard(true))
+        assertEquals("cw 0", ShellInputCommands.watchClipboard(false))
+    }
 }

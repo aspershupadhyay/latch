@@ -23,7 +23,7 @@ class ActivityActorTest {
 
         val again = ActivityLog(file) { 2_000L }
         again.flush()
-        assertEquals(setOf(ActivityActor.AI, ActivityActor.OWNER, ActivityActor.LATCH), again.entries.value.map { it.by }.toSet())
+        assertEquals(setOf(ActivityActor.AI, ActivityActor.OWNER, ActivityActor.LATCH), again.snapshot().map { it.by }.toSet())
         assertEquals(listOf("latch", "owner", "ai"), again.query(10, emptyList(), null).entries.map { it.by })
     }
 
@@ -37,7 +37,7 @@ class ActivityActorTest {
         )
         val log = ActivityLog(file) { 2_000L }
         log.flush()
-        assertEquals(listOf(ActivityActor.LATCH, ActivityActor.OWNER, ActivityActor.AI), log.entries.value.map { it.by })
+        assertEquals(listOf(ActivityActor.LATCH, ActivityActor.OWNER, ActivityActor.AI), log.snapshot().map { it.by })
     }
 
     @Test

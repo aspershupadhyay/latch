@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.flow.first
 
 class ActivityLogTest {
     private fun dir(): File = Files.createTempDirectory("activity").toFile()
@@ -25,14 +26,14 @@ class ActivityLogTest {
 
         val second = ActivityLog(file) { now }
         second.flush()
-        assertEquals(listOf("Tap “Next”", "You switched on Instagram for the AI"), second.entries.value.map { it.summary })
-        assertEquals("Instagram", second.entries.value.first().app)
+        assertEquals(listOf("Tap “Next”", "You switched on Instagram for the AI"), second.snapshot().map { it.summary })
+        assertEquals("Instagram", second.snapshot().first().app)
 
         // A week later the old lines are gone.
         now += ActivityLog.RETENTION_MS + 1
         val third = ActivityLog(file) { now }
         third.flush()
-        assertTrue(third.entries.value.isEmpty())
+        assertTrue(third.snapshot().isEmpty())
     }
 
     @Test
@@ -51,7 +52,7 @@ class ActivityLogTest {
 
         val reloaded = ActivityLog(file) { now }
         reloaded.flush()
-        val summaries = reloaded.entries.value.map { it.summary }
+        val summaries = reloaded.snapshot().map { it.summary }
         assertEquals(summaries.size, summaries.toSet().size)
         assertEquals(1_201, summaries.size)
     }
@@ -87,6 +88,20 @@ class ActivityLogTest {
         log.clear()
         log.flush()
         assertFalse(file.exists())
-        assertTrue(log.entries.value.isEmpty())
+        assertTrue(log.snapshot().isEmpty())
+    }
+
+    @Test
+    fun homeGetsTheNewestLineAndACountWithoutTheWholeLog() {
+        var clock = 1_000L
+        val log = ActivityLog(now = { clock++ })
+        repeat(ActivityLog.CAPACITY + 5) { log.add(ActivityKind.ACTION, "Tap $it", by = ActivityActor.AI) }
+        assertEquals("Tap ${ActivityLog.CAPACITY + 4}", log.latest.value?.summary)
+        assertEquals(ActivityLog.CAPACITY, log.count.value)
+        assertEquals(listOf("Tap 2004", "Tap 2002"), log.newest(2) { it.summary.removePrefix("Tap ").toInt() % 2 == 0 }.map { it.summary })
+        assertEquals(log.snapshot(), kotlinx.coroutines.runBlocking { log.entries.first() })
+        log.clear()
+        assertEquals(null, log.latest.value)
+        assertEquals(0, log.count.value)
     }
 }

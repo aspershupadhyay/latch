@@ -450,15 +450,46 @@ impl Registry {
     }
 
     /// Remembers `obs` (without its screenshot) as the screen the AI was shown in full.
+    /// R50: the copy is made before taking the lock, and the screenshot is never copied.
     pub fn set_shown_base(&self, device_id: &str, obs: &Observation) {
+        let base = Arc::new(Observation {
+            observation_id: obs.observation_id.clone(),
+            captured_at_ms: obs.captured_at_ms,
+            package: obs.package.clone(),
+            screen: obs.screen,
+            nodes: obs.nodes.clone(),
+            screenshot: None,
+            redacted_count: obs.redacted_count,
+            truncated: obs.truncated,
+        });
+        let caller = crate::caller_key();
         if let Some(l) = self.lock().get_mut(device_id) {
-            let mut base = obs.clone();
-            base.screenshot = None;
             if l.shown_base.len() >= MAX_SHOWN_BASES {
                 l.shown_base.clear();
             }
-            l.shown_base.insert(crate::caller_key(), Arc::new(base));
+            l.shown_base.insert(caller, base);
         }
+    }
+
+    /// R50: one capability of one connected phone, without copying every phone's summary.
+    pub fn capability_status(
+        &self,
+        device_id: &str,
+        capability: latch_protocol::Capability,
+    ) -> Option<latch_protocol::CapabilityStatus> {
+        self.lock().get(device_id).and_then(|l| {
+            l.capabilities
+                .iter()
+                .find(|c| c.capability == capability)
+                .map(|c| c.status)
+        })
+    }
+
+    /// R50: the ids of the connected phones, sorted, without their summaries.
+    pub fn online_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.lock().keys().cloned().collect();
+        ids.sort();
+        ids
     }
 
     /// Minor protocol version the phone spoke in its hello, while connected.
@@ -524,12 +555,7 @@ pub fn resolve_device(state: &AppState, requested: Option<&str>) -> Result<Strin
             if state.devices.is_online(id) {
                 Ok(id.to_owned())
             } else if state.store().get(id).is_some() {
-                let connected: Vec<String> = state
-                    .devices
-                    .online()
-                    .into_iter()
-                    .map(|d| d.device_id)
-                    .collect();
+                let connected = state.devices.online_ids();
                 Err(ProtocolError::new(
                     ErrorCode::DeviceUnavailable,
                     if connected.is_empty() {
@@ -549,9 +575,9 @@ pub fn resolve_device(state: &AppState, requested: Option<&str>) -> Result<Strin
             }
         }
         None => {
-            let online = state.devices.online();
+            let online = state.devices.online_ids();
             match online.len() {
-                1 => Ok(online[0].device_id.clone()),
+                1 => Ok(online[0].clone()),
                 0 => Err(ProtocolError::new(
                     ErrorCode::DeviceUnavailable,
                     "no phone is connected; the owner needs to start a session in the Latch app",

@@ -165,3 +165,95 @@ test('a letterboxed or turned picture maps to the right phone pixels', () => {
   assert.deepEqual(m.mapPoint(500, 0, turnedRect, screen, true), { x: 0, y: 0 });
   assert.deepEqual(m.mapPoint(0, 1000, turnedRect, screen, true), { x: 999, y: 499 });
 });
+
+test('stream stats: clocks line up by the fastest ping, and the overlay reads plainly (R35)', () => {
+  // Phone clock = page clock + 5000 ms. The 10 ms round trip is trusted over the 80 ms one.
+  const offset = m.clockOffset([
+    { sent: 1000, rtt: 80, phoneUs: (1000 + 70 + 5000) * 1000 },
+    { sent: 3000, rtt: 10, phoneUs: (3000 + 5 + 5000) * 1000 },
+  ]);
+  assert.equal(offset, 5000);
+  assert.equal(m.clockOffset([]), null);
+  assert.equal(m.clockOffset([{ sent: 1, rtt: 2 }]), null, 'an older phone sends no clock');
+
+  assert.equal(m.summarize([]), null);
+  const s = m.summarize([4, 1, 3, 2, 10]);
+  assert.equal(s.avg, 4);
+  assert.equal(s.max, 10);
+
+  const lines = m.statsLines(
+    { codec: 'h264', w: 1080, h: 2400, frames: 60, kbps: 8200, target_kbps: 8000, encode_ms: 6.1, encode_max_ms: 12, key_frames: 0, drops: 1, gateway_drops: 2 },
+    { synced: true, rtt: 9, frames: 59, skipped: 0, transit: s, decode: s, draw: s, total: s },
+  );
+  assert.match(lines[0], /h264 1080×2400 {2}60 fps {2}8\.2 Mbit\/s \(aim 8\.0\)/);
+  assert.match(lines[1], /encode 6\.1 ms/);
+  assert.match(lines[2], /dropped 2/);
+  assert.match(lines[5], /glass-to-glass ≈ 4\.0 ms/);
+  const unsynced = m.statsLines(null, { synced: false, rtt: null, frames: 0, skipped: 0, transit: null, decode: null, draw: null, total: null });
+  assert.match(unsynced.join('\n'), /syncing clocks/);
+  assert.equal(m.shortcut({ altKey: true, code: 'KeyD' }), 'stats');
+});
+
+test('sound plays from a ring buffer with a 40 ms cushion and jumps forward when late (R47)', () => {
+  let Processor = null;
+  const vm = require('node:vm');
+  const context = {
+    AudioWorkletProcessor: class { constructor() { this.port = {}; } },
+    registerProcessor: (name, cls) => { assert.equal(name, 'latch-sound'); Processor = cls; },
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/page/mirror-audio.js'), 'utf8'), context);
+  const p = new Processor();
+  const quantum = () => { const out = [[new Float32Array(128), new Float32Array(128)]]; p.process([], out); return out[0]; };
+  const frames = (n, value) => { const s = new Int16Array(n * 2); s.fill(value); return s; };
+
+  // Less than the cushion: silence while it fills.
+  p.push(frames(960, 16384));
+  assert.equal(quantum()[0][0], 0);
+  p.push(frames(960, 16384));
+  const [left, right] = quantum();
+  assert.equal(left[0], 0.5);
+  assert.equal(right[127], 0.5);
+  // Far behind (more than 150 ms queued): only the newest 40 ms is kept.
+  p.push(frames(9600, 8192));
+  assert.equal(p.queued, 1920);
+  assert.equal(quantum()[0][0], 0.25);
+  // Run dry: silence, then wait for the cushion again.
+  for (let i = 0; i < 20; i++) quantum();
+  assert.equal(p.queued, 0);
+  assert.equal(p.started, false);
+});
+
+test('the video worker parses with the shared helpers (R36)', () => {
+  const vm = require('node:vm');
+  const page = fs.readFileSync(path.join(__dirname, '../src/page/mirror.js'), 'utf8');
+  const worker = fs.readFileSync(path.join(__dirname, '../src/page/mirror-worker.js'), 'utf8');
+  const posted = [];
+  const context = { performance, postMessage: (m) => posted.push(m), Blob, Uint8Array, DataView, ArrayBuffer, Number };
+  context.importScripts = () => vm.runInContext(page, context);
+  vm.createContext(context);
+  vm.runInContext(worker, context);
+  // A frame before the decoder exists is ignored without an error; reset is harmless.
+  context.onmessage({ data: { t: 'reset' } });
+  context.onmessage({ data: { t: 'frame', buffer: new ArrayBuffer(4) } });
+  assert.deepEqual(posted, []);
+});
+
+test('an H.265 SPS gives the WebCodecs codec string (R40)', () => {
+  // NAL header (type 33), ids, profile 1 (Main), compatibility 0x60000000,
+  // constraints 0x90 00 00 [03] 00 00 00 with an emulation-prevention byte, level 93.
+  const sps = Uint8Array.from([0x42, 0x01, 0x01, 0x01, 0x60, 0, 0, 0, 0x90, 0, 0, 3, 0, 0, 0, 0x5d, 0xa0]);
+  assert.equal(m.hevcCodecFromSps(sps), 'hev1.1.6.L93.90');
+  const unit = Uint8Array.from([0, 0, 0, 1, 0x40, 0x01, 0x0c, 0, 0, 0, 1, ...sps]);
+  assert.deepEqual(Array.from(m.findHevcSps(unit)), Array.from(sps));
+  assert.equal(m.findHevcSps(Uint8Array.from([0, 0, 1, 0x67, 0x42])), null, 'an H.264 SPS is not one');
+  assert.equal(m.hevcCodecFromSps(Uint8Array.from([0x42, 0x01, 0x01])), null);
+});
+
+test('a trackpad pinch becomes two fingers on the phone (R42)', () => {
+  assert.deepEqual(m.pinchMessage('move', { x: 10, y: 20 }, 1.23456, -30.04), { t: 'pinch', phase: 'move', x: 10, y: 20, scale: 1.235, angle: -30 });
+  assert.equal(m.pinchMessage('move', { x: 1, y: 1 }, 99, 0).scale, 20, 'never wider than the gateway takes');
+  assert.equal(m.pinchMessage('move', { x: 1, y: 1 }, NaN, NaN).scale, 1);
+  assert.ok(m.pinchScale(1, -50) > 1, 'pinching out spreads the fingers');
+  assert.ok(m.pinchScale(1, 50) < 1);
+  assert.equal(m.pinchScale(0.06, 10000), 0.05);
+});

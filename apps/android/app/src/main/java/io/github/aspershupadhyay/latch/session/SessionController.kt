@@ -80,7 +80,8 @@ class SessionController(
     /** Protocol 1.13: whether Android's battery optimisation applies to Latch; null when unknown. */
     private val batteryRestricted: () -> Boolean? = { null },
     /** R27 (ADR-046): this phone's ADB identity, present once the device build wires it; null disables full-access ADB. */
-    private val adbKey: io.github.aspershupadhyay.latch.session.adb.AdbKey? = null,
+    /** R49: loaded (made, on first launch) off the main thread, on first use. */
+    private val adbKey: (() -> io.github.aspershupadhyay.latch.session.adb.AdbKey?)? = null,
     /** R27 (ADR-046): cable-free wireless-debugging pairing; null where discovery is unavailable. */
     private val adbWireless: io.github.aspershupadhyay.latch.session.adb.AdbWireless? = null,
     /** Protocol 1.19 (ADR-048): command ids already run, kept across sessions and restarts. */
@@ -110,8 +111,9 @@ class SessionController(
      * reconnecting needs neither a cable nor a new pairing. Null (no key or no
      * endpoint) leaves adb.shell refused as unsupported.
      */
-    private val adbBridge: AdbShellBridge? = adbKey?.let { key ->
+    private val adbBridge: AdbShellBridge? = adbKey?.let { keyOf ->
         io.github.aspershupadhyay.latch.session.adb.AdbShellExecutor(adbJobDir) {
+            val key = keyOf() ?: throw java.io.IOException("Full ADB has no key on this phone")
             val saved = settings.preferences.value.adbEndpoint
             try {
                 io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.connect(saved, key)
@@ -404,7 +406,7 @@ class SessionController(
      * wireless-debugging connection to ask. Returns a message for the owner.
      */
     suspend fun setAdbFixedPort(on: Boolean): String = withContext(Dispatchers.IO) {
-        val key = adbKey ?: return@withContext "Full ADB is not available on this build."
+        val key = adbKey?.invoke() ?: return@withContext "Full ADB is not available on this build."
         val endpoint = if (on) {
             settings.preferences.value.adbEndpoint ?: return@withContext "Pair full ADB access first."
         } else {

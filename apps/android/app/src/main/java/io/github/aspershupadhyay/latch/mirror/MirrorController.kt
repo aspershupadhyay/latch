@@ -207,7 +207,11 @@ class MirrorController(
         projection.registerCallback(callback, handler)
         projectionCallback = callback
         capture = try {
-            MirrorCapture(projection, handler, ::screen, ::sendFrame) { problem -> scope.launch { notice(problem) } }.also {
+            MirrorCapture(
+                projection, handler, ::screen, ::sendFrame,
+                problem = { problem -> scope.launch { notice(problem) } },
+                quality = { saving, w, h, fps -> link?.sendText(MirrorMessages.quality(saving, w, h, fps)) },
+            ).also {
                 // The phone's sound too, when the owner allowed audio recording (ADR-055).
                 val audioAllowed = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) ==
                     android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -270,6 +274,8 @@ class MirrorController(
 
     private fun stopParts() {
         watching = false
+        statsJob?.cancel()
+        statsJob = null
         ownerControl = false
         stopKeys()
         statusJob?.cancel()
@@ -367,7 +373,10 @@ class MirrorController(
                 is MirrorIn.Sync -> handler?.post { capture?.requestKeyFrame() }
                 is MirrorIn.CodecChoice -> handler?.post { capture?.start(message.codec) }
                 is MirrorIn.Sound -> handler?.post { capture?.audio?.quietPhone(message.on) }
-                is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at))
+                is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at, System.nanoTime() / 1000))
+                is MirrorIn.Stats -> scope.launch { statsFor(message.on) }
+                is MirrorIn.AudioCodec -> capture?.audio?.wantOpus = message.opus
+                is MirrorIn.ClipboardFollow -> scope.launch { followClipboard(message.on) }
                 is MirrorIn.Shot -> shot()
                 is MirrorIn.File -> receive(message)
                 else -> input.trySend(Input.Message(message, SystemClock.uptimeMillis()))
@@ -409,6 +418,8 @@ class MirrorController(
             h.post { capture?.stop() }
             aiJob?.cancel()
             statusJob?.cancel()
+            // The helper stops with the viewer, and its clipboard watch with it.
+            clipboardFollow = false
             stopKeys()
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WAITING)
         }
@@ -421,13 +432,31 @@ class MirrorController(
 
     // ---- The input helper (ADR-057) ----
 
+    /** R44: the page's switch; it holds until the viewer leaves or the helper stops. */
+    @Volatile private var clipboardFollow = false
+
+    private fun followClipboard(on: Boolean) {
+        clipboardFollow = on
+        if (!keys.ready) {
+            // The helper starting now picks it up; without Full ADB it never will.
+            if (on && !session.fullAdbOn()) notice("Copies follow to the computer only with Full ADB on; Ctrl/Cmd+C still copies.")
+            return
+        }
+        keys.send(ShellInputCommands.watchClipboard(on))
+    }
+
     /** Starts the helper when Full ADB is on and it is not running; tells the page how input goes. */
     private fun checkKeys() {
         val on = session.fullAdbOn()
         if (on && !keysWanted && keysFailed < KEYS_TRIES) {
             keysWanted = true
             keys.start(
-                started = { link?.sendText(MirrorMessages.input("keys")) },
+                started = {
+                    link?.sendText(MirrorMessages.input("keys"))
+                    // The clipboard text is never logged; it goes only to this viewer.
+                    keys.onCopied = { text -> link?.sendText(MirrorMessages.clipboard(fitClipboard(text))) }
+                    if (clipboardFollow) keys.send(ShellInputCommands.watchClipboard(true))
+                },
                 ended = { why ->
                     keysWanted = false
                     link?.sendText(MirrorMessages.input("basic"))
@@ -451,6 +480,25 @@ class MirrorController(
     }
 
     // ---- The phone's state, and a screenshot, for the page (ADR-057) ----
+
+    private var statsJob: Job? = null
+
+    /** R35: once a second while the page shows its stats overlay and someone watches. */
+    private fun statsFor(on: Boolean) {
+        statsJob?.cancel()
+        statsJob = null
+        if (!on) return
+        capture?.stats?.take()
+        statsJob = scope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(1_000)
+                val c = capture ?: continue
+                if (!watching) continue
+                val (w, h) = c.encodedSize
+                link?.sendText(MirrorMessages.stats(c.stats.take(), c.targetBps / 1000, w, h, c.codecName))
+            }
+        }
+    }
 
     private fun startStatus() {
         statusJob?.cancel()
@@ -585,11 +633,8 @@ class MirrorController(
         val paused = (state as? SessionState.Active)?.paused == true
         if (!paused) ownerControl = false
         val since = System.currentTimeMillis() - STEPS_WINDOW_MS
-        val steps = log.entries.value.asSequence()
-            .filter { it.atMs >= since && it.kind != ActivityKind.SCREEN }
-            .take(STEPS)
+        val steps = log.newest(STEPS) { it.atMs >= since && it.kind != ActivityKind.SCREEN }
             .map { MirrorMessages.Step(it.atMs, it.by.wire, it.summary, it.app) }
-            .toList()
         return MirrorMessages.ai(
             session = if (!live) "off" else if (paused) "paused" else "active",
             owner = ownerControl,
@@ -631,6 +676,9 @@ class MirrorController(
             var tick: Job? = null
             var wheelAt: Pair<Int, Int>? = null
             var shellStroke = false
+            // R42: a pinch in progress: through the input helper, or played at its end without it.
+            var pinchFrom: IntArray? = null
+            var pinchShell = false
             var wheelDx = 0
             var wheelDy = 0
 
@@ -719,6 +767,42 @@ class MirrorController(
                                     }
                                     ignoring = false
                                     shellStroke = false
+                                }
+                            }
+                            is MirrorIn.Pinch -> {
+                                val s = screen()
+                                val f = PinchFingers.at(m.x, m.y, m.scale, m.angle, s.width, s.height)
+                                when (m.phase) {
+                                    PinchPhase.START -> {
+                                        val refusal = service.mirrorRefusal(m.x, m.y)
+                                            ?: service.mirrorRefusal(f[0], f[1])
+                                            ?: service.mirrorRefusal(f[2], f[3])
+                                        if (refusal != null) {
+                                            pinchFrom = null
+                                            notice(refusal)
+                                            continue
+                                        }
+                                        ownerInput()
+                                        service.mirrorTouched()
+                                        pinchFrom = f
+                                        pinchShell = keys.ready
+                                        if (pinchShell) keys.send(ShellInputCommands.pinch(m.phase, f))
+                                    }
+                                    PinchPhase.MOVE -> if (pinchFrom != null && pinchShell) keys.send(ShellInputCommands.pinch(m.phase, f))
+                                    PinchPhase.END -> {
+                                        val from = pinchFrom
+                                        if (from != null) {
+                                            if (pinchShell) {
+                                                keys.send(ShellInputCommands.pinch(m.phase, f))
+                                            } else {
+                                                // Without Full ADB: one gesture from start to end (accessibility has no live pinch).
+                                                service.mirrorPinch(from, f) { }
+                                            }
+                                            service.mirrorTouched()
+                                        }
+                                        pinchFrom = null
+                                        pinchShell = false
+                                    }
                                 }
                             }
                             is MirrorIn.Wheel -> {

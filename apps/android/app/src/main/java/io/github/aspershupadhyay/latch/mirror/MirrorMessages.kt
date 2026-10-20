@@ -44,12 +44,22 @@ sealed interface MirrorIn {
     data class Copy(val cut: Boolean) : MirrorIn
     /** A full-resolution screenshot for the computer (ADR-057). */
     data object Shot : MirrorIn
+    /** R35: the page shows its stats overlay; the phone reports once a second while [on]. */
+    data class Stats(val on: Boolean) : MirrorIn
+    /** R39: how the page wants the sound: Opus ([opus]) or raw PCM. */
+    data class AudioCodec(val opus: Boolean) : MirrorIn
+    /** R44: the owner's switch on the page: copies on the phone go to the computer by themselves. */
+    data class ClipboardFollow(val on: Boolean) : MirrorIn
+    /** R42: two fingers around ([x], [y]), [scale] times their first distance apart, turned [angle] degrees. */
+    data class Pinch(val phase: PinchPhase, val x: Int, val y: Int, val scale: Double, val angle: Double) : MirrorIn
     /** From the gateway: a file the owner dropped on the page, to fetch into Downloads (ADR-057). */
     data class File(val url: String, val keyHex: String, val ivHex: String, val sha256: String, val name: String, val size: Long) : MirrorIn
 }
 
-enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg") }
+/** How the picture is sent; H265 (R40) only where the phone has a hardware encoder and the browser a decoder. */
+enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg"), H265("h265") }
 enum class Phase(val wire: String) { DOWN("down"), MOVE("move"), UP("up"), CANCEL("cancel") }
+enum class PinchPhase(val wire: String) { START("start"), MOVE("move"), END("end") }
 enum class MirrorKey(val wire: String) {
     BACKSPACE("backspace"), DELETE("delete"), ENTER("enter"), TAB("tab"), LEFT("left"), RIGHT("right"), UP("up"), DOWN("down"),
     // Since ADR-057: editing shortcuts from the computer's keyboard.
@@ -67,6 +77,10 @@ object MirrorMessages {
     const val KIND_PCM: Byte = 3
     /** A full-resolution PNG screenshot the owner asked for (ADR-057). */
     const val KIND_SHOT: Byte = 4
+    /** R39: one Opus packet of 48 kHz stereo sound, 20 ms. */
+    const val KIND_OPUS: Byte = 5
+    /** R40: an H.265 (HEVC) Annex B access unit; key frames carry VPS, SPS, and PPS. */
+    const val KIND_H265: Byte = 6
     const val HEADER_BYTES = 10
     const val MAX_COORDINATE = 16_384
     const val MAX_TEXT_CHARS = 256
@@ -93,6 +107,10 @@ object MirrorMessages {
         "copy" to emptySet(),
         "cut" to emptySet(),
         "shot" to emptySet(),
+        "stats" to setOf("on"),
+        "audio_codec" to setOf("codec"),
+        "pinch" to setOf("phase", "x", "y", "scale", "angle"),
+        "clipboard_follow" to setOf("on"),
         "file" to setOf("url", "key", "iv", "sha256", "name", "size"),
     )
 
@@ -130,6 +148,19 @@ object MirrorMessages {
             "copy" -> MirrorIn.Copy(cut = false)
             "cut" -> MirrorIn.Copy(cut = true)
             "shot" -> MirrorIn.Shot
+            "stats" -> MirrorIn.Stats(o.bool("on") ?: return null)
+            "clipboard_follow" -> MirrorIn.ClipboardFollow(o.bool("on") ?: return null)
+            "pinch" -> {
+                fun number(name: String): Double? = (o[name] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it.isFinite() }
+                val scale = number("scale")?.takeIf { it in 0.05..20.0 } ?: return null
+                val angle = number("angle")?.takeIf { kotlin.math.abs(it) <= 720.0 } ?: return null
+                MirrorIn.Pinch(o.enum("phase", PinchPhase.entries) { it.wire } ?: return null, coord("x") ?: return null, coord("y") ?: return null, scale, angle)
+            }
+            "audio_codec" -> when (o.string("codec")) {
+                "opus" -> MirrorIn.AudioCodec(opus = true)
+                "pcm" -> MirrorIn.AudioCodec(opus = false)
+                else -> null
+            }
             "file" -> {
                 fun hex(name: String, length: Int) = o.string(name)?.takeIf { v -> v.length == length && v.all { it in '0'..'9' || it in 'a'..'f' } }
                 val name = o.string("name")?.takeIf { validFileName(it) } ?: return null
@@ -205,9 +236,35 @@ object MirrorMessages {
         )
     }.toString()
 
-    fun pong(at: Double): String = buildJsonObject {
+    /** The answer to a ping; [phoneUs] is the phone's frame clock now (R35), so the page can line frames up with its own. */
+    fun pong(at: Double, phoneUs: Long? = null): String = buildJsonObject {
         put("t", "pong")
         put("at", at)
+        phoneUs?.let { put("phone_us", it) }
+    }.toString()
+
+    /** R38: the stream got smaller to save bandwidth, or is back at full quality. */
+    fun quality(saving: Boolean, width: Int, height: Int, fps: Int): String = buildJsonObject {
+        put("t", "quality")
+        put("saving", saving)
+        put("w", width)
+        put("h", height)
+        put("fps", fps)
+    }.toString()
+
+    /** R35: the encoder's last second, for the page's stats overlay. */
+    fun stats(s: StreamStats.Snapshot, bitrateKbps: Int, width: Int, height: Int, codec: String): String = buildJsonObject {
+        put("t", "stats")
+        put("codec", codec)
+        put("frames", s.frames)
+        put("key_frames", s.keyFrames)
+        put("drops", s.drops)
+        put("kbps", s.kbits)
+        put("target_kbps", bitrateKbps)
+        put("w", width)
+        put("h", height)
+        s.encodeAvgMs?.let { put("encode_ms", kotlin.math.round(it * 10) / 10) }
+        s.encodeMaxMs?.let { put("encode_max_ms", kotlin.math.round(it * 10) / 10) }
     }.toString()
 
     fun notice(text: String): String = buildJsonObject {

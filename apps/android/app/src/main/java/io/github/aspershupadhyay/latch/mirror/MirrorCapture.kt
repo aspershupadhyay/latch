@@ -38,6 +38,8 @@ class MirrorCapture(
     private val screen: () -> Screen,
     private val sink: (kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer) -> Boolean,
     private val problem: (String) -> Unit,
+    /** R38: the picture got smaller to save bandwidth ([QualityLadder.saving]), or came back. */
+    private val quality: (saving: Boolean, width: Int, height: Int, fps: Int) -> Unit = { _, _, _, _ -> },
 ) {
     data class Screen(val width: Int, val height: Int, val dpi: Int, val rotation: Int)
 
@@ -49,8 +51,20 @@ class MirrorCapture(
     private var reader: ImageReader? = null
     private var config: ByteArray? = null
     private var codec: Codec? = null
+    /** What is being sent now: "h264", "jpeg", or "off". */
+    val codecName: String get() = codec?.wire ?: "off"
     private var size = 0 to 0
     private val governor = BitrateGovernor()
+    private val ladder = QualityLadder()
+    /** R40: the encoder running now is H.265. */
+    private var hevc = false
+    /** R37: the encoder heals a lost frame by refreshing stripes, so a drop needs no key frame. */
+    private var intraRefresh = false
+    /** R35: what the encoder did since the page last asked. */
+    val stats = StreamStats()
+    /** The bitrate the encoder aims for now, and the encoded picture's size. */
+    val targetBps: Int get() = governor.bps
+    val encodedSize: Pair<Int, Int> get() = size
     private var lastKeyRequestMs = 0L
     private var lastStillMs = 0L
 
@@ -70,12 +84,20 @@ class MirrorCapture(
         val s = screen()
         try {
             when (kind) {
-                Codec.H264 -> startH264(s)
+                Codec.H264 -> startVideo(s, hevc = false)
+                // R40: H.265 only on a hardware encoder; otherwise H.264, which every viewer decodes.
+                Codec.H265 -> try {
+                    startVideo(s, hevc = true)
+                } catch (e: Exception) {
+                    stopOutput()
+                    codec = Codec.H264
+                    startVideo(s, hevc = false)
+                }
                 Codec.JPEG -> startStills(s)
             }
         } catch (e: Exception) {
             stopOutput()
-            if (kind == Codec.H264) {
+            if (kind != Codec.JPEG) {
                 problem("This phone's video encoder could not start; sending still pictures instead.")
                 start(Codec.JPEG)
             } else {
@@ -104,7 +126,12 @@ class MirrorCapture(
     /** The browser needs a key frame (joined late, or dropped frames). */
     fun requestKeyFrame() {
         val e = encoder ?: run {
-            lastStillMs = 0
+            // Stills: the screen may be still, so no new picture comes; send the last one again.
+            handler.post {
+                if (reader != null && stillOut.size() > 0) {
+                    sink(MirrorMessages.KIND_JPEG, true, System.nanoTime() / 1000, stillOut.view())
+                }
+            }
             return
         }
         val now = SystemClock.uptimeMillis()
@@ -122,25 +149,30 @@ class MirrorCapture(
 
     // ---- H.264 ----
 
-    private fun startH264(s: Screen) {
-        val info = pickEncoder() ?: throw IllegalStateException("no H.264 encoder")
-        val caps = info.getCapabilitiesForType(MIME)
+    private fun startVideo(s: Screen, hevc: Boolean) {
+        val mime = if (hevc) MIME_HEVC else MIME
+        val info = pickEncoder(mime, hardwareOnly = hevc) ?: throw IllegalStateException("no ${if (hevc) "H.265" else "H.264"} encoder")
+        val caps = info.getCapabilitiesForType(mime)
         val video = caps.videoCapabilities ?: throw IllegalStateException("not a video encoder")
-        val (w, h) = listOf(MAX_EDGE, 1280, 960).map { EncoderSizing.size(s.width, s.height, it) }
+        val level = ladder.level
+        val (w, h) = listOf(level.maxEdge, 1280, 960).filter { it <= level.maxEdge }.map { EncoderSizing.size(s.width, s.height, it) }
             .firstOrNull { (w, h) -> video.isSizeSupported(w, h) } ?: throw IllegalStateException("no supported size")
         val codec = MediaCodec.createByCodecName(info.name)
         try {
+            intraRefresh = caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_IntraRefresh)
             try {
-                codec.configure(format(w, h, caps, lowLatency = true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.configure(format(w, h, caps, lowLatency = true, fps = level.fps, hevc = hevc), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             } catch (e: Exception) {
                 // Some vendors refuse keys they do not know; the plain format works everywhere.
                 codec.reset()
-                codec.configure(format(w, h, caps, lowLatency = false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                intraRefresh = false
+                codec.configure(format(w, h, caps, lowLatency = false, fps = level.fps, hevc = hevc), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             }
             val surface = codec.createInputSurface()
             codec.setCallback(callback, handler)
             codec.start()
             encoder = codec
+            this.hevc = hevc
             size = w to h
             config = null
             display?.resize(w, h, s.dpi)
@@ -151,18 +183,24 @@ class MirrorCapture(
         }
     }
 
-    private fun format(w: Int, h: Int, caps: MediaCodecInfo.CodecCapabilities, lowLatency: Boolean) =
-        MediaFormat.createVideoFormat(MIME, w, h).apply {
+    private fun format(w: Int, h: Int, caps: MediaCodecInfo.CodecCapabilities, lowLatency: Boolean, fps: Int, hevc: Boolean) =
+        MediaFormat.createVideoFormat(if (hevc) MIME_HEVC else MIME, w, h).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, governor.bps)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
-            // Key frames come on request (a viewer joins or falls behind), not on a timer.
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEY_FRAME_SECONDS)
-            // A still screen still sends a frame now and then, so the picture never goes stale.
+            setInteger(MediaFormat.KEY_BIT_RATE, encoderBps(governor.bps, hevc))
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+            // R38: fewer frames a second at a lower level; the encoder drops the rest.
+            if (fps < FPS) setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, fps.toFloat())
+            // Key frames come on request (a viewer joins or falls behind), not on a timer;
+            // with intra refresh (R37) only on join, rotation, and the gateway's request.
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, if (lowLatency && intraRefresh) INTRA_KEY_FRAME_SECONDS else KEY_FRAME_SECONDS)
+            // A still screen still sends a frame now and then (R46: twice a second), so the
+            // picture never goes stale and a lost frame is replaced soon.
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
             if (!lowLatency) return@apply
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-            caps.profileLevels.filter { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline }.maxOfOrNull { it.level }
+            if (intraRefresh) setInteger(MediaFormat.KEY_INTRA_REFRESH_PERIOD, maxOf(1, fps / 2))
+            val profile = if (hevc) MediaCodecInfo.CodecProfileLevel.HEVCProfileMain else MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline
+            setInteger(MediaFormat.KEY_PROFILE, profile)
+            caps.profileLevels.filter { it.profile == profile }.maxOfOrNull { it.level }
                 ?.let { setInteger(MediaFormat.KEY_LEVEL, it) }
             setInteger(MediaFormat.KEY_PRIORITY, 0)
             setInteger(MediaFormat.KEY_LATENCY, 1)
@@ -173,12 +211,12 @@ class MirrorCapture(
             }
         }
 
-    /** A hardware H.264 encoder when there is one, else any. */
-    private fun pickEncoder(): MediaCodecInfo? {
+    /** A hardware encoder for [mime] when there is one, else any (unless [hardwareOnly]). */
+    private fun pickEncoder(mime: String, hardwareOnly: Boolean = false): MediaCodecInfo? {
         val all = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { info ->
-            info.isEncoder && info.supportedTypes.any { it.equals(MIME, ignoreCase = true) }
+            info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
         }
-        return all.firstOrNull { it.isHardwareAccelerated } ?: all.firstOrNull()
+        return all.firstOrNull { it.isHardwareAccelerated } ?: if (hardwareOnly) null else all.firstOrNull()
     }
 
     private val callback = object : MediaCodec.Callback() {
@@ -195,13 +233,23 @@ class MirrorCapture(
                 }
                 if (info.size == 0) return
                 val key = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
-                val payload = AnnexB.withConfig(config, buffer, key)
+                val payload = AnnexB.withConfig(config, buffer, key, hevc)
                 val now = SystemClock.uptimeMillis()
-                if (sink(MirrorMessages.KIND_H264, key, info.presentationTimeUs, payload)) {
+                val size = payload.remaining()
+                val encodeUs = System.nanoTime() / 1000 - info.presentationTimeUs
+                val sent = sink(if (hevc) MirrorMessages.KIND_H265 else MirrorMessages.KIND_H264, key, info.presentationTimeUs, payload)
+                stats.frame(size, key, sent, encodeUs)
+                if (sent) {
                     governor.clean(now)?.let(::setBitrate)
+                    ladder.clean(now)?.let { changeLevel() }
                 } else {
                     governor.dropped(now)?.let(::setBitrate)
-                    requestKeyFrame()
+                    if (ladder.dropped(now, governor.atFloor) != null) {
+                        changeLevel()
+                    } else if (!intraRefresh) {
+                        // R37: with intra refresh the next frames heal the picture; no key frame spike.
+                        requestKeyFrame()
+                    }
                 }
             } finally {
                 runCatching { codec.releaseOutputBuffer(index, false) }
@@ -211,14 +259,29 @@ class MirrorCapture(
         override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
             if (codec !== encoder) return
             // A recoverable error gets a fresh encoder; anything else falls back to stills.
-            if (e.isRecoverable || e.isTransient) start(Codec.H264) else start(Codec.JPEG)
+            when {
+                e.isRecoverable || e.isTransient -> start(this@MirrorCapture.codec ?: Codec.H264)
+                // R40: an H.265 encoder that fails gives way to H.264, not to stills.
+                hevc -> start(Codec.H264)
+                else -> start(Codec.JPEG)
+            }
         }
 
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
     }
 
+    /** R38: start the encoder again at the ladder's new size and frame rate, and tell the page. */
+    private fun changeLevel() {
+        handler.post {
+            val running = codec?.takeIf { it != Codec.JPEG } ?: return@post
+            start(running)
+            val level = ladder.level
+            quality(ladder.saving, size.first, size.second, level.fps)
+        }
+    }
+
     private fun setBitrate(bps: Int) {
-        runCatching { encoder?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bps) }) }
+        runCatching { encoder?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, encoderBps(bps, hevc)) }) }
     }
 
     // ---- Stills ----
@@ -232,7 +295,15 @@ class MirrorCapture(
         display?.resize(w, h, s.dpi)
         display?.surface = r.surface
         lastStillMs = 0
-        handler.post(stillTick)
+        // R46: woken by a new picture instead of polling; a still screen costs nothing.
+        r.setOnImageAvailableListener({ scheduleStill() }, handler)
+    }
+
+    /** A new picture is ready: send it now, or when [STILL_EVERY_MS] has passed since the last. */
+    private fun scheduleStill() {
+        if (handler.hasCallbacks(stillTick)) return
+        val wait = STILL_EVERY_MS - (SystemClock.uptimeMillis() - lastStillMs)
+        if (wait <= 0) handler.post(stillTick) else handler.postDelayed(stillTick, wait)
     }
 
     private var stillFull: Bitmap? = null
@@ -268,7 +339,9 @@ class MirrorCapture(
                     }
                     stillOut.reset()
                     bitmap.compress(Bitmap.CompressFormat.JPEG, STILL_QUALITY, stillOut)
-                    sink(MirrorMessages.KIND_JPEG, true, SystemClock.elapsedRealtimeNanos() / 1000, stillOut.view())
+                    val started = System.nanoTime() / 1000
+                    val sent = sink(MirrorMessages.KIND_JPEG, true, started, stillOut.view())
+                    stats.frame(stillOut.size(), true, sent, null)
                     lastStillMs = SystemClock.uptimeMillis()
                 } catch (e: Exception) {
                     problem("A still picture could not be made (${e.javaClass.simpleName}).")
@@ -276,7 +349,6 @@ class MirrorCapture(
                     image.close()
                 }
             }
-            handler.postDelayed(this, STILL_EVERY_MS)
         }
     }
 
@@ -300,10 +372,16 @@ class MirrorCapture(
 
     companion object {
         private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
+        private const val MIME_HEVC = MediaFormat.MIMETYPE_VIDEO_HEVC
+
+        /** R40: H.265 shows the same picture with fewer bits, so it is given 60 % of H.264's. */
+        fun encoderBps(bps: Int, hevc: Boolean): Int = if (hevc) (bps * 0.6).toInt() else bps
         const val MAX_EDGE = 1920
         const val FPS = 60
         private const val KEY_FRAME_SECONDS = 10
-        private const val REPEAT_AFTER_US = 100_000L
+        private const val REPEAT_AFTER_US = 500_000L
+        /** With intra refresh, a key frame is only asked for; this keeps the encoder from adding its own. */
+        private const val INTRA_KEY_FRAME_SECONDS = 3_600
         private const val KEY_REQUEST_GAP_MS = 200L
         private const val STILL_EDGE = 1280
         private const val STILL_EVERY_MS = 200L

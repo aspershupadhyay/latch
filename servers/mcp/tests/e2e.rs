@@ -3593,6 +3593,41 @@ fn frame(key: bool, ts: u64, payload: &[u8]) -> Vec<u8> {
     f
 }
 
+/// R40: a browser that decodes H.265 offers it; the phone hears it and its
+/// H.265 frames reach the browser byte for byte, as H.264 frames do.
+#[tokio::test]
+async fn a_browser_that_decodes_h265_gets_it_when_the_phone_sends_it() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &[]).await;
+    let (mut ph, ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    assert!(
+        matches!(ready, Got::Text(ref v) if v["t"] == "ready"),
+        "{ready:?}"
+    );
+    let (mut viewer, joined) = join(
+        &gw,
+        json!({"key": VIEWER_KEY, "codecs": ["h265", "h264", "jpeg"]}),
+    )
+    .await;
+    let Got::Text(joined) = joined else {
+        panic!("{joined:?}")
+    };
+    assert_eq!(joined["codec"], "h265");
+    assert_eq!(next_of(&mut ph, "viewer").await["codec"], "h265");
+    let mut key_frame = frame(true, 1, &[0, 0, 0, 1, 0x40, 0x01, 0x0c]);
+    key_frame[0] = 6;
+    ph.send(WsMessage::Binary(key_frame.clone().into()))
+        .await
+        .expect("frame");
+    assert_eq!(next(&mut viewer).await, Got::Frame(key_frame));
+    // It cannot decode after all: H.264 is asked for.
+    send_json(&mut viewer, json!({"t": "codec", "codec": "h264"})).await;
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "codec", "codec": "h264"}))
+    );
+}
+
 #[tokio::test]
 async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back() {
     let gw = start_gateway().await;
@@ -3689,6 +3724,31 @@ async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back()
         Got::Text(json!({"t": "control", "action": "pause"}))
     );
 
+    // R35: the page asks for stats; the phone's numbers come back with the gateway's own drops.
+    send_json(&mut viewer, json!({"t": "stats", "on": true})).await;
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "stats", "on": true}))
+    );
+    send_json(
+        &mut ph,
+        json!({"t": "stats", "frames": 60, "encode_ms": 6.5}),
+    )
+    .await;
+    let stats = next_of(&mut viewer, "stats").await;
+    assert_eq!(
+        (stats["frames"].clone(), stats["gateway_drops"].clone()),
+        (json!(60), json!(0))
+    );
+
+    // R38: the phone says it saves bandwidth; a viewer who joins later is told too.
+    send_json(
+        &mut ph,
+        json!({"t": "quality", "saving": true, "w": 720, "h": 1600, "fps": 30}),
+    )
+    .await;
+    assert_eq!(next_of(&mut viewer, "quality").await["fps"], 30);
+
     // The link takes over from another window; the first one is told why.
     let (mut second, got) = join(&gw, json!({"key": VIEWER_KEY})).await;
     assert!(
@@ -3701,6 +3761,7 @@ async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back()
         2400,
         "the latest screen size first"
     );
+    assert_eq!(next_of(&mut second, "quality").await["saving"], true);
 
     // The phone's network drops: the browser waits, and the picture comes back.
     drop(ph);

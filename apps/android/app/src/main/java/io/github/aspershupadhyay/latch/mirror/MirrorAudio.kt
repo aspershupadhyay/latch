@@ -49,6 +49,11 @@ class MirrorAudio(
      * bandwidth (sound is ~1.5 Mbit/s of raw PCM).
      */
     @Volatile private var listening = false
+    /** R39: the page decodes Opus; set from its `audio_codec` message. */
+    @Volatile var wantOpus = false
+    /** The Opus encoder, made on the audio thread on first use. */
+    private var encoder: OpusEncoder? = null
+
     /** When the last frame with sound in it was captured, and when the last frame went out. */
     @Volatile private var lastSoundMs = 0L
     @Volatile private var lastSentMs = 0L
@@ -146,7 +151,18 @@ class MirrorAudio(
                     // A short tail of silence lets the page's queue drain softly, then nothing.
                     if (shouldSend(listening, now - lastSoundMs, now - lastSentMs)) {
                         lastSentMs = now
-                        sink(MirrorMessages.KIND_PCM, false, SystemClock.elapsedRealtimeNanos() / 1000, ByteBuffer.wrap(buffer, 0, filled))
+                        val stamp = SystemClock.elapsedRealtimeNanos() / 1000
+                        // R39: Opus when the page decodes it, about 96 kbit/s instead of 1.5 Mbit/s.
+                        val opus = if (wantOpus) encoder ?: OpusEncoder.create()?.also { encoder = it } else null
+                        if (opus == null || !opus.encode(buffer, filled, stamp) { packet, ts -> sink(MirrorMessages.KIND_OPUS, false, ts, packet) }) {
+                            if (opus != null) {
+                                // The encoder failed: back to raw sound for this mirror.
+                                wantOpus = false
+                                opus.release()
+                                encoder = null
+                            }
+                            sink(MirrorMessages.KIND_PCM, false, stamp, ByteBuffer.wrap(buffer, 0, filled))
+                        }
                     }
                 }
             } catch (_: Exception) {
@@ -154,6 +170,8 @@ class MirrorAudio(
             } finally {
                 runCatching { record.stop() }
                 record.release()
+                encoder?.release()
+                encoder = null
             }
         }, "latch-mirror-audio").apply {
             priority = Thread.MAX_PRIORITY
@@ -164,8 +182,9 @@ class MirrorAudio(
 
     fun stop() {
         running = false
-        // The next viewer says again whether it plays the sound.
+        // The next viewer says again whether it plays the sound, and how.
         listening = false
+        wantOpus = false
         thread?.join(500)
         thread = null
         restoreVolume()
@@ -211,5 +230,65 @@ class MirrorAudio(
         private const val COPY_CHECK_MS = 3_000L
         /** 20 ms of 16-bit stereo. */
         const val FRAME_BYTES = SAMPLE_RATE / 50 * 2 * 2
+    }
+}
+
+/**
+ * R39: Android's Opus encoder (API 29+) on the audio thread, in sync mode:
+ * one 20 ms PCM frame in, the packets that are ready out. Each packet decodes
+ * on its own, so a dropped one costs 20 ms of sound and nothing more.
+ */
+internal class OpusEncoder private constructor(private val codec: android.media.MediaCodec) {
+    private val info = android.media.MediaCodec.BufferInfo()
+
+    /** Encodes one frame; false when the encoder failed (the caller sends raw PCM). */
+    fun encode(pcm: ByteArray, length: Int, timestampUs: Long, out: (ByteBuffer, Long) -> Unit): Boolean = try {
+        val index = codec.dequeueInputBuffer(INPUT_WAIT_US)
+        if (index >= 0) {
+            val input = codec.getInputBuffer(index) ?: throw IllegalStateException("no input buffer")
+            input.clear()
+            input.put(pcm, 0, minOf(length, input.remaining()))
+            codec.queueInputBuffer(index, 0, minOf(length, input.capacity()), timestampUs, 0)
+        }
+        while (true) {
+            val o = codec.dequeueOutputBuffer(info, 0)
+            if (o < 0) break
+            val packet = codec.getOutputBuffer(o)
+            // The first output is the codec's header (OpusHead), which the page does not need.
+            if (packet != null && info.size > 0 && info.flags and android.media.MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
+                packet.position(info.offset).limit(info.offset + info.size)
+                out(packet, info.presentationTimeUs)
+            }
+            codec.releaseOutputBuffer(o, false)
+        }
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    fun release() {
+        runCatching { codec.stop() }
+        runCatching { codec.release() }
+    }
+
+    companion object {
+        private const val INPUT_WAIT_US = 5_000L
+        const val BITRATE = 96_000
+
+        fun create(): OpusEncoder? = runCatching {
+            val format = android.media.MediaFormat.createAudioFormat(android.media.MediaFormat.MIMETYPE_AUDIO_OPUS, MirrorAudio.SAMPLE_RATE, 2).apply {
+                setInteger(android.media.MediaFormat.KEY_BIT_RATE, BITRATE)
+                setInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE, MirrorAudio.FRAME_BYTES)
+            }
+            val codec = android.media.MediaCodec.createEncoderByType(android.media.MediaFormat.MIMETYPE_AUDIO_OPUS)
+            try {
+                codec.configure(format, null, null, android.media.MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.start()
+            } catch (e: Exception) {
+                codec.release()
+                throw e
+            }
+            OpusEncoder(codec)
+        }.getOrNull()
     }
 }
