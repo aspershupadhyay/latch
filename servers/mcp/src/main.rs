@@ -18,6 +18,8 @@ USAGE:
     latch-gateway pair        Show a new QR code and setup code for a phone on this Wi-Fi
                               (--open: the same code, big, in the browser)
                               (the gateway must be running; uses LATCH_ADMIN_TOKEN)
+    latch-gateway status      Is the gateway running? Its version, phones, Wi-Fi address, and data folder
+                              (uses LATCH_ADMIN_TOKEN for the phones; exit code 1 when not running)
     latch-gateway gen-token   Print a new random token for LATCH_ADMIN_TOKEN or LATCH_MCP_TOKEN
     latch-gateway check-phone [--url URL] [--device ID] [--quick] [--no-prompts] [--report FILE]
                               Check a connected phone end to end over this gateway's MCP
@@ -34,6 +36,11 @@ ENVIRONMENT:
     LATCH_ALLOWED_ORIGINS   comma-separated browser origins allowed to call /mcp
     LATCH_WIFI              1: also serve phones on this Wi-Fi with TLS, on 0.0.0.0:8788
     LATCH_WIFI_BIND         the Wi-Fi listener's address instead (implies LATCH_WIFI)
+    LATCH_NEARBY            0: turn off Find my computer (linking with no QR code)
+    LATCH_NAME              this computer's name in the app's Find my computer list
+
+Installed with install-gateway.sh, the `latch` command wraps these:
+    latch start | pair | status | update | uninstall | autostart on|off | stop | restart | logs
     RUST_LOG                log filter (default info)
 ";
 
@@ -96,6 +103,7 @@ async fn run(mode: String) -> ExitCode {
         }
         "check-phone" => return check_phone().await,
         "pair" => return pair().await,
+        "status" => return status().await,
         "serve" | "stdio" => {}
         other => {
             eprintln!("unknown command: {other}\n\n{USAGE}");
@@ -323,6 +331,98 @@ async fn pair() -> ExitCode {
         .await;
     }
     ExitCode::SUCCESS
+}
+
+/// `latch-gateway status`: what runs on this computer, in a few lines.
+async fn status() -> ExitCode {
+    let style = Style::detect();
+    let bind = Config::from_env(true).map(|c| c.bind).unwrap_or_else(|_| {
+        std::env::var("LATCH_BIND")
+            .ok()
+            .and_then(|b| b.parse().ok())
+            .unwrap_or_else(|| std::net::SocketAddr::from(([127, 0, 0, 1], 8787)))
+    });
+    let token = std::env::var("LATCH_ADMIN_TOKEN").unwrap_or_default();
+    let addr = bind.to_string().replace("0.0.0.0", "127.0.0.1");
+    let data_dir = std::path::PathBuf::from(
+        std::env::var("LATCH_DATA_DIR").unwrap_or_else(|_| "./latch-data".into()),
+    );
+    let row =
+        |label: &str, value: &str| eprintln!("  {}  {value}", style.dim(&format!("{label:<10}")));
+    eprintln!();
+    let health =
+        latch_gateway::phone_check::request_local("GET", &addr, "/healthz", &token, "").await;
+    let running = match &health {
+        Ok((code, body)) if code == "200" => {
+            let version = serde_json::from_str::<serde_json::Value>(body)
+                .ok()
+                .and_then(|v| v["version"].as_str().map(str::to_owned))
+                .unwrap_or_default();
+            row(
+                "Gateway",
+                &format!("{} {}  at http://{addr}", style.bold("running"), version),
+            );
+            true
+        }
+        _ => {
+            row(
+                "Gateway",
+                &format!("{}  (start it with latch start)", style.bold("not running")),
+            );
+            false
+        }
+    };
+    row("Installed", env!("CARGO_PKG_VERSION"));
+    if running && !token.is_empty() {
+        match latch_gateway::phone_check::request_local(
+            "GET",
+            &addr,
+            "/v1/admin/devices",
+            &token,
+            "",
+        )
+        .await
+        {
+            Ok((code, body)) if code == "200" => {
+                let list = serde_json::from_str::<serde_json::Value>(&body).unwrap_or_default();
+                let devices = list["devices"].as_array().cloned().unwrap_or_default();
+                let online = devices.iter().filter(|d| d["connected"] == true).count();
+                let names: Vec<_> = devices.iter().filter_map(|d| d["name"].as_str()).collect();
+                row(
+                    "Phones",
+                    &format!(
+                        "{} paired, {online} connected{}",
+                        devices.len(),
+                        if names.is_empty() {
+                            String::new()
+                        } else {
+                            format!("  ({})", names.join(", "))
+                        }
+                    ),
+                );
+            }
+            Ok((code, _)) if code == "401" => row(
+                "Phones",
+                "unknown: this terminal's LATCH_ADMIN_TOKEN is not the gateway's",
+            ),
+            _ => row("Phones", "unknown"),
+        }
+    }
+    match (wifi::lan_ip(), wifi::existing_pin(&data_dir)) {
+        (Some(ip), Ok(_)) => row(
+            "Wi-Fi",
+            &format!("phones reach it at {ip}:{}", wifi::DEFAULT_BIND.port()),
+        ),
+        (None, Ok(_)) => row("Wi-Fi", "this computer has no address on a home Wi-Fi"),
+        _ => row("Wi-Fi", "off (latch start turns it on)"),
+    }
+    row("Data", &data_dir.display().to_string());
+    eprintln!();
+    if running {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 /// Newline-delimited JSON-RPC on stdin/stdout, per the MCP stdio transport.

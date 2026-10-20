@@ -70,6 +70,8 @@ fun WelcomeScreen(
     onUseSaved: (io.github.aspershupadhyay.latch.data.ConnectionKind) -> Unit = {},
     /** Straight to the camera: the computer already shows Latch's QR code. */
     onScan: (() -> Unit)? = null,
+    /** No camera needed: the phone finds the computer on the Wi-Fi (ADR-060). */
+    onFind: (() -> Unit)? = null,
 ) {
     val signal = LocalSignal.current
     val context = LocalContext.current
@@ -118,6 +120,9 @@ fun WelcomeScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            onFind?.let { find ->
+                IconButtonLarge("Find my computer (no QR code)", LatchIcons.Wifi, find, Modifier.fillMaxWidth(), container = signal.surface, content = signal.text, outline = signal.border)
             }
             IconButtonLarge(if (saved.isEmpty()) "Set up Latch" else "Set up another way", LatchIcons.Plus, onCreateGateway, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk)
             Text(

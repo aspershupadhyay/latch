@@ -247,7 +247,7 @@ pub(crate) async fn post_local(
 }
 
 /// One request with the owner token to the gateway on this computer: (status, body).
-pub(crate) async fn request_local(
+pub async fn request_local(
     method: &str,
     addr: &str,
     path: &str,

@@ -10,6 +10,8 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **Find my computer: connect with no QR code** (ADR-060): tap **Find my computer** in the app; the phone finds the gateway on your Wi-Fi and shows a 6-digit number, the same number appears in the `latch start` window, and you type `y` there when they match. The comparison is built so that another device on the Wi-Fi cannot make the numbers match (commit, then reveal).
+- **The `latch` command**: `latch start`, `pair`, `status`, `autostart on|off`, `stop`, `restart`, `logs`, `update` (keeps keys and phones), `uninstall` (asks about keys and phones), `version`, `help`. `latch-gateway status` shows whether the gateway runs, its phones, and its Wi-Fi address.
 - **A much sharper mirror during videos and games** (owner report 2026-10-20): the bitrate now follows the picture (about 28 Mbit/s for a 1080×2400 phone at 60 fps instead of a fixed 8–12), the phone is sent at its own size up to 2560 px (a 1080-wide screen is no longer rescaled), H.264 uses the High profile and variable bitrate where the phone has them, and busy frames are no longer dropped as if the Wi-Fi were slow (the send queue follows the bitrate instead of a fixed 96 KiB), so motion no longer drags the picture down to 1280 px at 30 fps. On a truly slow Wi-Fi it still steps down: 1920 at 60 first.
 - **Scroll with a trackpad without clicking things**: small trackpad steps add up until they really scroll, the drag allows for Android's touch slop, sideways jitter does not swipe, a scroll never starts at the screen's top or bottom edge (the shade and the home gesture), and a trackpad tap right as a scroll ends is ignored.
 - **Connect in one tap**: the first screen has **Scan the QR code on my computer**. The terminal's QR code has the standard 4-module white border and solid areas painted as background, so a font with line spacing no longer breaks it up; the gateway also writes the same code as a large page (`latch-gateway pair --open` opens it in the browser).
@@ -44,6 +46,8 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 - **The Wi-Fi gateway keeps its address**: when your computer gets a new address on the Wi-Fi, the phone finds it again by its pin, without pairing again. `latch-autostart on` keeps the gateway running in the background, also after a restart.
 
 ### Fixed
+
+- **Dependency audit:** `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382, certificate verification could accept distrusted intermediates; the gateway's own Wi-Fi certificate is pinned, but outbound TLS uses it too).
 
 - **Mirror stutter while sound plays**: the phone's sound shared the gateway's three-frame video queue, so a few sound frames filled it and video frames were dropped and forced key frames. Sound now has its own queue.
 - **WhatsApp put "Message" in front of what you typed from the mirror**, and Backspace deleted it letter by letter: a field that reports its hint as text is now read as empty.

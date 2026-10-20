@@ -18,6 +18,7 @@
 # (a LaunchAgent on macOS, a systemd user service on Linux) so it need not be
 # started by hand. The address and pin stay the same across restarts; if the
 # computer gets a new address on the Wi-Fi, the app finds it again by its pin.
+# `latch` wraps it all: latch start | pair | status | update | uninstall | logs.
 #
 # Options (environment): LATCH_INSTALL_DIR (default ~/.local/bin),
 # LATCH_HOME (default ~/.latch), LATCH_RELEASE (default the beta download URL).
@@ -173,11 +174,111 @@ esac
 EOF
 chmod 755 "$bin_dir/latch-autostart"
 
+# `latch`: one friendly command for everything above, plus update and uninstall.
+cat >"$tmp/latch" <<'LATCH'
+#!/bin/sh
+# Latch gateway on this computer. Run `latch help` for the commands.
+set -eu
+bin="@BIN@"
+home="@HOME@"
+release="@RELEASE@"
+label=io.github.aspershupadhyay.latch-gateway
+env_file="$home/latch.env"
+load() { [ -f "$env_file" ] && . "$env_file"; }
+
+background_on() {
+  case "$(uname -s)" in
+    Darwin) [ -f "$HOME/Library/LaunchAgents/$label.plist" ] ;;
+    *) [ -f "$HOME/.config/systemd/user/latch-gateway.service" ] ;;
+  esac
+}
+
+stop_all() {
+  case "$(uname -s)" in
+    Darwin) launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true ;;
+    *) systemctl --user stop latch-gateway.service 2>/dev/null || true ;;
+  esac
+  # One started by `latch start` in a terminal, too.
+  pkill -f "$bin/latch-gateway serve" 2>/dev/null || true
+}
+
+start_background() {
+  case "$(uname -s)" in
+    Darwin) launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true ;;
+    *) systemctl --user start latch-gateway.service ;;
+  esac
+}
+
+usage() {
+  cat <<USAGE
+latch — the Latch gateway on this computer
+
+  latch start            Start it here and show the QR code for your phone
+  latch pair [--open]    A new QR code (--open: big, in the browser); also approves
+                         phones that use Find my computer
+  latch status           Running? Version, phones, Wi-Fi address
+  latch autostart on|off Keep it running in the background, also after a restart
+  latch stop             Stop it (background and terminal)
+  latch restart          Stop and start the background gateway again
+  latch logs             Follow the background gateway's log
+  latch update           Install the newest beta, keeping your keys and phones
+  latch uninstall [--all]  Remove the programs (--all: also keys and paired phones)
+  latch version          The installed version
+USAGE
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  start) exec "$bin/latch-start" "$@" ;;
+  pair) load; exec "$bin/latch-gateway" pair "$@" ;;
+  status) load; exec "$bin/latch-gateway" status ;;
+  autostart) exec "$bin/latch-autostart" "$@" ;;
+  stop) stop_all; echo "Stopped." ;;
+  restart)
+    stop_all
+    if background_on; then start_background; echo "Restarted in the background."; else echo "Stopped. Start it with: latch start (or latch autostart on)"; fi ;;
+  logs)
+    if [ -f "$home/gateway.log" ]; then exec tail -n 100 -f "$home/gateway.log"; fi
+    echo "No background log yet ($home/gateway.log). With latch start, the log is in that terminal." ;;
+  update)
+    echo "Updating from $release …"
+    was_on=no
+    background_on && was_on=yes
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fsSL -o "$tmp/install-gateway.sh" "$release/install-gateway.sh"
+    LATCH_INSTALL_DIR="$bin" LATCH_HOME="$home" LATCH_RELEASE="$release" sh "$tmp/install-gateway.sh"
+    if [ "$was_on" = yes ]; then "$bin/latch-autostart" on >/dev/null && echo "The background gateway runs the new version."; fi
+    echo "If latch start runs in a terminal, stop it (Ctrl+C) and start it again." ;;
+  uninstall)
+    all=no
+    [ "${1:-}" = "--all" ] && all=yes
+    if [ "$all" = no ] && [ -t 0 ] && [ -d "$home" ]; then
+      printf "Also delete your keys and paired phones in %s? Phones must then be linked again. [y/N] " "$home"
+      read -r answer || answer=
+      case "$answer" in y | Y | yes | YES) all=yes ;; esac
+    fi
+    "$bin/latch-autostart" off >/dev/null 2>&1 || true
+    stop_all
+    rm -f "$bin/latch-gateway" "$bin/latch-start" "$bin/latch-autostart"
+    if [ "$all" = yes ]; then rm -rf "$home"; echo "Removed the gateway, its keys, and its data."; else echo "Removed the gateway. Your keys and phones stay in $home (latch update or the installer brings it back)."; fi
+    rm -f "$bin/latch"
+    echo "Also remove Latch from your AI app, e.g.: claude mcp remove latch" ;;
+  version | --version | -V) exec "$bin/latch-gateway" --version ;;
+  help | --help | -h) usage ;;
+  *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;
+esac
+LATCH
+sed -e "s|@BIN@|$bin_dir|g" -e "s|@HOME@|$home|g" -e "s|@RELEASE@|$release|g" "$tmp/latch" >"$bin_dir/latch"
+chmod 755 "$bin_dir/latch"
+
 echo
 echo "Installed $("$bin_dir/latch-gateway" --version) in $bin_dir"
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *) echo "Add it to your PATH:  echo 'export PATH=\"$bin_dir:\$PATH\"' >> ~/.zshrc && export PATH=\"$bin_dir:\$PATH\"" ;;
 esac
-echo "Start it with:  latch-start   (then scan the QR code it shows in the Latch app)"
-echo "Or keep it running in the background, also after a restart:  latch-autostart on"
+echo "Start it with:  latch start   (then in the Latch app: Scan the QR code, or Find my computer)"
+echo "Or keep it running in the background, also after a restart:  latch autostart on"
+echo "Everything else:  latch help   (status, update, uninstall, logs, …)"

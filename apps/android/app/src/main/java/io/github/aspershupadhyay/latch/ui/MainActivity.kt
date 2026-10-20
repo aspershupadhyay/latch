@@ -159,7 +159,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     SETTINGS("Settings", LatchIcons.Sliders),
 }
 
-private enum class Onboarding { WELCOME, CHOOSE, CREATE, WIFI, JOIN, GUIDE }
+private enum class Onboarding { WELCOME, CHOOSE, CREATE, WIFI, JOIN, GUIDE, NEARBY }
 
 /** Copies text; secrets are flagged so Android hides them from the clipboard preview. */
 fun copyToClipboard(context: Context, label: String, value: String, sensitive: Boolean) {
@@ -223,8 +223,12 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
     var secret by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // ADR-060: Find my computer.
+    var nearby by remember { mutableStateOf<NearbyState>(NearbyState.Searching) }
+    var nearbyJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     BackHandler(enabled = step != Onboarding.WELCOME) {
+        nearbyJob?.cancel()
         step = if (step == Onboarding.CREATE || step == Onboarding.WIFI) Onboarding.CHOOSE else Onboarding.WELCOME
         error = null
     }
@@ -279,6 +283,45 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         }
         connect(asOwner = !Pairing.isCode(key), key = key, needPin = true, input = setup.address)
     }
+    // ADR-060: the computer is linked once its owner answers y; the code then pairs as after a scan.
+    fun linkNearby(computer: io.github.aspershupadhyay.latch.session.NearbyLink.Found) {
+        nearbyJob?.cancel()
+        nearbyJob = scope.launch {
+            try {
+                val code = io.github.aspershupadhyay.latch.session.NearbyLink.link(computer, Build.MODEL ?: "Android phone", Pairing.client()) { number ->
+                    nearby = NearbyState.Number(computer.name, number)
+                }
+                step = Onboarding.WIFI
+                connectWifi(scanned = computer.setupLink(code))
+            } catch (e: io.github.aspershupadhyay.latch.session.NearbyLink.NearbyException) {
+                nearby = NearbyState.Failed(e.message ?: "Linking stopped.")
+            } catch (e: java.io.IOException) {
+                nearby = NearbyState.Failed("Lost the computer on the Wi-Fi. Keep latch-start running and try again.")
+            }
+        }
+    }
+
+    fun findNearby() {
+        nearbyJob?.cancel()
+        nearby = NearbyState.Searching
+        step = Onboarding.NEARBY
+        nearbyJob = scope.launch {
+            val phone = io.github.aspershupadhyay.latch.files.LocalSlots.wifiAddress() as? java.net.Inet4Address
+            if (phone == null) {
+                nearby = NearbyState.Failed("This phone is not on a Wi-Fi. Join the same Wi-Fi as your computer.")
+                return@launch
+            }
+            val found = io.github.aspershupadhyay.latch.session.NearbyLink.discover(phone, Pairing.client())
+            nearby = when {
+                found.isEmpty() -> NearbyState.Failed(
+                    "No computer found. On your computer, run latch-start (it must show “Connect your phone”), and check both are on the same Wi-Fi.",
+                )
+                found.size == 1 -> NearbyState.Found(found).also { linkNearby(found.first()) }
+                else -> NearbyState.Found(found)
+            }
+        }
+    }
+
     val scanner = rememberLauncherForActivityResult(ScanSetupQr()) { text ->
         // From any screen: show the Wi-Fi screen, where progress and any error appear.
         text?.let {
@@ -298,6 +341,21 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
                 secret = ""
                 error = null
                 scanner.launch(Unit)
+            },
+            onFind = ::findNearby,
+        )
+        Onboarding.NEARBY -> FindComputerScreen(
+            nearby,
+            onPick = ::linkNearby,
+            onRetry = ::findNearby,
+            onScanInstead = {
+                nearbyJob?.cancel()
+                error = null
+                scanner.launch(Unit)
+            },
+            onBack = {
+                nearbyJob?.cancel()
+                step = Onboarding.WELCOME
             },
         )
         Onboarding.GUIDE -> GuideScreen(onBack = { step = Onboarding.WELCOME }, onStart = { step = Onboarding.CHOOSE })

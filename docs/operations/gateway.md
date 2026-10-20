@@ -14,6 +14,22 @@ curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/insta
 
 Then `latch-start` runs it for phones on this Wi-Fi and prints the owner key, the AI key, and the address for the phone. Step by step with the phone: [docs/connect-your-phone.md](../connect-your-phone.md).
 
+**The `latch` command** (installed with it) does everything else:
+
+| Command | What it does |
+|---|---|
+| `latch start` | Start the gateway here (same as `latch-start`) and show the QR code; phones that use **Find my computer** are approved in this window |
+| `latch pair [--open]` | A new QR code while the gateway runs (`--open`: big, in the browser), and the place to approve **Find my computer** for a background gateway |
+| `latch status` | Running or not, version, paired and connected phones, Wi-Fi address, data folder (`latch-gateway status` on any system) |
+| `latch autostart on\|off\|status` | Keep it running in the background, also after a restart |
+| `latch stop` / `latch restart` | Stop it (background and terminal) / start the background one again |
+| `latch logs` | Follow the background gateway's log (`~/.latch/gateway.log`) |
+| `latch update` | Install the newest beta with the same folders; keys and phones stay; a background gateway restarts on the new version |
+| `latch uninstall [--all]` | Remove the programs; asks whether to delete keys and paired phones too (`--all` does without asking) |
+| `latch version` / `latch help` | The installed version / this list |
+
+**Find my computer (no QR code, ADR-060):** in the app, **Find my computer** looks for the gateway on port 8788 of the phone's Wi-Fi and shows a 6-digit number. The same number appears in `latch start` (or `latch pair`) with the phone's name; type `y` only when they match. The phone then connects as after a scan. `LATCH_NEARBY=0` turns it off; `LATCH_NAME` sets the name the phone lists.
+
 **Why not the browser download on a Mac:** a file downloaded in a browser gets macOS's quarantine flag, and macOS refuses a quarantined program that Apple has not notarized ("cannot be opened… Move to Trash"); `chmod +x` cannot change that. `curl` sets no such flag. If you already downloaded it in a browser: `xattr -d com.apple.quarantine ~/Downloads/latch-gateway-macos-arm64 && chmod +x ~/Downloads/latch-gateway-macos-arm64`, or open it once, then **System Settings → Privacy & Security → Open Anyway**.
 
 Every merge to `main` publishes the files themselves (~7 MB) next to the Android beta, at `https://github.com/aspershupadhyay/latch/releases/download/beta/<file>`: `latch-gateway-linux-x86_64`, `latch-gateway-macos-arm64` (Apple Silicon), `latch-gateway-macos-x86_64` (Intel Mac), or `latch-gateway-windows-x86_64.exe`, with checksums in `latch-gateway.sha256`. The macOS files are signed ad hoc (Apple Silicon runs nothing unsigned) but not notarized. Building from source (`cargo build --release -p latch-gateway`) needs about 2 GB for the Rust toolchain while building.
