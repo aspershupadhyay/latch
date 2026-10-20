@@ -114,14 +114,19 @@ class LatchApp : Application() {
         )
         val local = LocalSlots(dir = { java.io.File(cacheDir, "local") }, enabled = { settings.preferences.value.localTransfers })
         transfers = PhoneTransfers(files, http, local) { settings.pairing.value?.gatewayUrl }
-        val adbKey = runCatching { io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.key(filesDir) }.getOrNull()
-        val adbWireless = runCatching { io.github.aspershupadhyay.latch.session.adb.AdbWireless(this, filesDir) }.getOrNull()
+        // R49: the ADB key (an RSA key made on first launch) loads off the main thread,
+        // once, shared by Full ADB and its pairing.
+        val adbKey = lazy { runCatching { io.github.aspershupadhyay.latch.session.adb.SocketAdbTransport.key(filesDir) }.getOrNull() }
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) { adbKey.value }
+        val adbWireless = io.github.aspershupadhyay.latch.session.adb.AdbWireless(this) {
+            adbKey.value ?: throw java.io.IOException("could not make the ADB key")
+        }
         session = SessionController(
             scope, settings, bridge, approvals, log, http, grants, consequences, ::appLabel, autonomy, files, transfers,
             batteryRestricted = {
                 runCatching { !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) }.getOrNull()
             },
-            adbKey = adbKey,
+            adbKey = { adbKey.value },
             adbWireless = adbWireless,
             recentCommands = io.github.aspershupadhyay.latch.session.RecentCommands(java.io.File(filesDir, "session/recent-commands.txt")),
             adbJobDir = java.io.File(cacheDir, "adb-jobs"),
@@ -129,6 +134,7 @@ class LatchApp : Application() {
         setup = GatewaySetup(http)
         mirror = io.github.aspershupadhyay.latch.mirror.MirrorController(this, scope, http, settings, session, log, bridge, transfers)
         watchNetwork()
+        listenWhenNeeded()
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
         observeIndicators()
@@ -168,6 +174,17 @@ class LatchApp : Application() {
             }
             .toList()
             .also { installedCache = it }
+    }
+
+    /** R49: the accessibility service hears every redraw only while a session or the mirror runs. */
+    private fun listenWhenNeeded() {
+        scope.launch {
+            combine(session.state, mirror.status, bridge.service) { state, mirrorStatus, service ->
+                val busy = state is SessionState.Active || state is SessionState.Connecting || state is SessionState.Reconnecting ||
+                    mirrorStatus.phase != io.github.aspershupadhyay.latch.mirror.MirrorStatus.Phase.OFF
+                service to busy
+            }.collect { (service, busy) -> service?.listenFully(busy) }
+        }
     }
 
     /**

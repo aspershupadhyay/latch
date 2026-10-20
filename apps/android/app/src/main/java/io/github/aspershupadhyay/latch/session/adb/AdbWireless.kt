@@ -5,7 +5,6 @@ package io.github.aspershupadhyay.latch.session.adb
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import java.io.File
 import java.net.InetAddress
 import java.net.NetworkInterface
 import kotlinx.coroutines.CompletableDeferred
@@ -20,9 +19,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 class AdbWireless(
     private val context: Context,
-    filesDir: File,
+    /** R49: the shared ADB key, loaded off the main thread on first use. */
+    private val keyOf: () -> AdbKey,
 ) {
-    private val key = SocketAdbTransport.key(filesDir)
+    private val key: AdbKey get() = keyOf()
 
     /** The result of a pairing attempt: the connect endpoint to store, or an error message. */
     sealed interface Result {

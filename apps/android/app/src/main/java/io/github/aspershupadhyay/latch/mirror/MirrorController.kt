@@ -611,11 +611,8 @@ class MirrorController(
         val paused = (state as? SessionState.Active)?.paused == true
         if (!paused) ownerControl = false
         val since = System.currentTimeMillis() - STEPS_WINDOW_MS
-        val steps = log.entries.value.asSequence()
-            .filter { it.atMs >= since && it.kind != ActivityKind.SCREEN }
-            .take(STEPS)
+        val steps = log.newest(STEPS) { it.atMs >= since && it.kind != ActivityKind.SCREEN }
             .map { MirrorMessages.Step(it.atMs, it.by.wire, it.summary, it.app) }
-            .toList()
         return MirrorMessages.ai(
             session = if (!live) "off" else if (paused) "paused" else "active",
             owner = ownerControl,

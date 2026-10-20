@@ -5,10 +5,11 @@ package io.github.aspershupadhyay.latch.data
 import io.github.aspershupadhyay.latch.protocol.ActivityItem
 import io.github.aspershupadhyay.latch.protocol.ActivityList
 import io.github.aspershupadhyay.latch.protocol.Protocol
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -66,8 +67,37 @@ data class ActivityEntry(
  * it lives in memory only. Writes happen on one background thread.
  */
 class ActivityLog(private val file: File? = null, private val now: () -> Long = System::currentTimeMillis) {
-    private val _entries = MutableStateFlow<List<ActivityEntry>>(emptyList())
-    val entries: StateFlow<List<ActivityEntry>> = _entries.asStateFlow()
+    /** Newest first, at most [CAPACITY]; guarded by [lock]. R49: adding a line copies nothing. */
+    private val items = ArrayDeque<ActivityEntry>()
+    private val version = MutableStateFlow(0L)
+    private val _latest = MutableStateFlow<ActivityEntry?>(null)
+    private val _count = MutableStateFlow(0)
+    /** The newest line, for Home: changes once per line without copying the list. */
+    val latest: StateFlow<ActivityEntry?> = _latest.asStateFlow()
+    val count: StateFlow<Int> = _count.asStateFlow()
+
+    /** Every line, newest first: copied only while someone collects it (the Activity screen). */
+    val entries: Flow<List<ActivityEntry>> = version.map { snapshot() }
+
+    /** Every line now, newest first. */
+    fun snapshot(): List<ActivityEntry> = synchronized(lock) { items.toList() }
+
+    /** The newest lines that match [filter], at most [limit], without copying the rest. */
+    fun newest(limit: Int, filter: (ActivityEntry) -> Boolean): List<ActivityEntry> = synchronized(lock) {
+        val out = ArrayList<ActivityEntry>(minOf(limit, items.size))
+        for (e in items) {
+            if (out.size >= limit) break
+            if (filter(e)) out += e
+        }
+        out
+    }
+
+    /** Tell collectors; called holding [lock]. */
+    private fun changed() {
+        _latest.value = items.firstOrNull()
+        _count.value = items.size
+        version.value += 1
+    }
     private val writer = file?.let { Executors.newSingleThreadExecutor { r -> Thread(r, "latch-activity").apply { isDaemon = true } } }
     private var appendsSinceCompact = 0
     /** Each entry's number, taken together with the list update, so a rewrite knows what it holds. */
@@ -83,13 +113,10 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
     fun add(kind: ActivityKind, summary: String, app: String? = null, by: ActivityActor = ActivityActor.LATCH) {
         val entry = ActivityEntry(now(), kind, summary.take(MAX_SUMMARY_CHARS), app?.take(MAX_APP_CHARS), by)
         val seq = synchronized(lock) {
-            // One copy per line, newest first, never more than CAPACITY.
-            _entries.update { old ->
-                ArrayList<ActivityEntry>(minOf(old.size + 1, CAPACITY)).apply {
-                    add(entry)
-                    addAll(if (old.size >= CAPACITY) old.subList(0, CAPACITY - 1) else old)
-                }
-            }
+            // Newest first, never more than CAPACITY.
+            items.addFirst(entry)
+            while (items.size > CAPACITY) items.removeLast()
+            changed()
             ++lastSeq
         }
         writer?.execute {
@@ -102,7 +129,10 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
     }
 
     fun clear() {
-        _entries.value = emptyList()
+        synchronized(lock) {
+            items.clear()
+            changed()
+        }
         writer?.execute { runCatching { file!!.delete() } }
     }
 
@@ -113,7 +143,7 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
 
     /** Protocol 1.8 `activity.list`: newest first, optionally only [kinds] and entries since [sinceMs]. */
     fun query(limit: Int, kinds: Collection<String>, sinceMs: Long?): ActivityList {
-        val matching = _entries.value.filter { e ->
+        val matching = snapshot().filter { e ->
             (kinds.isEmpty() || e.kind.wire in kinds) && (sinceMs == null || e.atMs >= sinceMs)
         }
         return ActivityList(matching.take(limit).map(::item), matching.size)
@@ -139,7 +169,12 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
             }.filter { it.atMs >= cutoff }.take(CAPACITY).toList()
         }.getOrDefault(emptyList())
         // Lines added while loading come first; both lists are newest first.
-        synchronized(lock) { _entries.update { (it + saved).sortedByDescending(ActivityEntry::atMs).take(CAPACITY) } }
+        synchronized(lock) {
+            val merged = (items + saved).sortedByDescending(ActivityEntry::atMs).take(CAPACITY)
+            items.clear()
+            items.addAll(merged)
+            changed()
+        }
         compact()
     }
 
@@ -148,7 +183,7 @@ class ActivityLog(private val file: File? = null, private val now: () -> Long = 
         val f = file ?: return
         appendsSinceCompact = 0
         val cutoff = now() - RETENTION_MS
-        val (snapshot, upTo) = synchronized(lock) { _entries.value to lastSeq }
+        val (snapshot, upTo) = synchronized(lock) { items.toList() to lastSeq }
         val kept = snapshot.filter { it.atMs >= cutoff }.asReversed()
         runCatching {
             val tmp = File(f.parentFile, f.name + ".tmp")

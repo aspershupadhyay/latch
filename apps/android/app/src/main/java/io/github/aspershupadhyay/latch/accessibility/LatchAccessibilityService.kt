@@ -25,7 +25,6 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.edit
-import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import io.github.aspershupadhyay.latch.LatchApp
 import io.github.aspershupadhyay.latch.protocol.AppEntry
@@ -87,6 +86,18 @@ class LatchAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         LatchApp.get(this).bridge.attach(this)
+    }
+
+    /**
+     * R49: while no session or mirror runs, only app switches are heard, not every
+     * redraw of every app; a session or mirror turns full listening back on.
+     */
+    fun listenFully(on: Boolean) {
+        val info = serviceInfo ?: return
+        val types = if (on) FULL_EVENTS else IDLE_EVENTS
+        if (info.eventTypes == types) return
+        info.eventTypes = types
+        serviceInfo = info
     }
 
     /** When another app's screen last changed (uptime ms), for smart settle and waits. */
@@ -175,11 +186,18 @@ class LatchAccessibilityService : AccessibilityService() {
         val start = SystemClock.uptimeMillis()
         var previous = screenSignature()
         var firstChangeMs: Long? = null
+        var hashedAt = start
+        var eventsSeen = lastUiEventAtMs
         while (true) {
             delay(SETTLE_STEP_MS)
             val now = SystemClock.uptimeMillis()
             val elapsed = now - start
             if (elapsed >= maxMs) return firstChangeMs
+            // R48: read the tree again after an accessibility event, or every other step
+            // for changes that send none (page transitions); otherwise wait.
+            if (lastUiEventAtMs == eventsSeen && now - hashedAt < SETTLE_FALLBACK_MS) continue
+            eventsSeen = lastUiEventAtMs
+            hashedAt = now
             val current = screenSignature()
             val changed = current != before
             if (changed && current != 0 && firstChangeMs == null) firstChangeMs = elapsed
@@ -904,20 +922,32 @@ class LatchAccessibilityService : AccessibilityService() {
                 ?: throw ProtocolException(ErrorCode.INTERNAL, "could not read the screenshot")
             val software = hardware.copy(Bitmap.Config.ARGB_8888, false)
             hardware.recycle()
-            val scale = MAX_SCREENSHOT_EDGE.toFloat() / max(software.width, software.height)
-            var scaled = if (scale < 1f) {
-                software.scale((software.width * scale).roundToInt(), (software.height * scale).roundToInt())
-                    .also { software.recycle() }
+            // R48: scaled in one pass into a bitmap the marks are drawn on directly, so no
+            // further full-size copy is made.
+            val scale = minOf(1f, MAX_SCREENSHOT_EDGE.toFloat() / max(software.width, software.height))
+            var scaled = if (scale < 1f || marks.isNotEmpty()) {
+                val target = Bitmap.createBitmap((software.width * scale).roundToInt(), (software.height * scale).roundToInt(), Bitmap.Config.ARGB_8888)
+                android.graphics.Canvas(target).drawBitmap(
+                    software,
+                    null,
+                    android.graphics.Rect(0, 0, target.width, target.height),
+                    android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
+                )
+                software.recycle()
+                target
             } else {
                 software
             }
             if (marks.isNotEmpty()) scaled = drawMarks(scaled, marks, scaled.width.toFloat() / screenInfo().width)
+            // Base64 is written while the image is compressed: no copy of the compressed bytes.
             val out = ByteArrayOutputStream()
             // Roadmap R6: WebP is about 40 % smaller than JPEG at the same quality; gateways take it since 1.10.
             val webp = LatchApp.get(this).bridge.gatewayMinor >= WEBP_SINCE_MINOR
-            scaled.compress(if (webp) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.JPEG, SCREENSHOT_QUALITY, out)
+            android.util.Base64OutputStream(out, Base64.NO_WRAP).use { b64 ->
+                scaled.compress(if (webp) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.JPEG, SCREENSHOT_QUALITY, b64)
+            }
             val mime = if (webp) "image/webp" else "image/jpeg"
-            val result = Screenshot(mime, scaled.width, scaled.height, Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+            val result = Screenshot(mime, scaled.width, scaled.height, out.toString(Charsets.US_ASCII.name()))
             scaled.recycle()
             return result
         } finally {
@@ -1344,16 +1374,25 @@ class LatchAccessibilityService : AccessibilityService() {
     /** Waits until an element containing [text] is on screen (or none is, with [gone]). */
     suspend fun waitFor(text: String, gone: Boolean, timeoutMs: Int, maxNodes: Int): WaitResult {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
+        var lastFullMs = 0L
         while (true) {
-            val observation = observe(false, maxNodes)
-            // Text inside input fields is usually what the agent typed itself, not the page answering.
-            val present = observation.nodes.any { n ->
-                !n.sensitive && !n.editable &&
-                    (n.text?.contains(text, ignoreCase = true) == true || n.description?.contains(text, ignoreCase = true) == true)
+            // R48: the cheap text check first; the full observation (every window of the
+            // app, as the AI sees it) only when the answer may have changed, now and then
+            // (text in a window the cheap check does not read), and at the deadline.
+            val now0 = SystemClock.uptimeMillis()
+            val cheap = showsText(text)
+            if (cheap != gone || now0 >= deadline || now0 - lastFullMs >= FULL_WAIT_CHECK_MS) {
+                lastFullMs = now0
+                val observation = observe(false, maxNodes)
+                // Text inside input fields is usually what the agent typed itself, not the page answering.
+                val present = observation.nodes.any { n ->
+                    !n.sensitive && !n.editable &&
+                        (n.text?.contains(text, ignoreCase = true) == true || n.description?.contains(text, ignoreCase = true) == true)
+                }
+                if (present != gone) return WaitResult(true, observation)
+                if (SystemClock.uptimeMillis() >= deadline) return WaitResult(false, observation)
             }
-            if (present != gone) return WaitResult(true, observation)
             val now = SystemClock.uptimeMillis()
-            if (now >= deadline) return WaitResult(false, observation)
             // Look again when the screen changes, and at least every 300 ms, but never more
             // than about 6 times a second: a screen that keeps animating (a video, a map)
             // would otherwise be read in full 40 times a second, slowing the app down.
@@ -1926,7 +1965,17 @@ class LatchAccessibilityService : AccessibilityService() {
         /** Time for the Stop pill's window to move before a gesture starts where it was. */
         private const val PILL_MOVE_MS = 60L
         private const val SIGNATURE_NODES = 300
+        /** What res/xml/latch_accessibility.xml asks for. */
+        private const val FULL_EVENTS = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+            AccessibilityEvent.TYPE_VIEW_SCROLLED or AccessibilityEvent.TYPE_WINDOWS_CHANGED or AccessibilityEvent.TYPE_VIEW_CLICKED or
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED
+        /** Enough to know which app is in front. */
+        private const val IDLE_EVENTS = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
         private const val SETTLE_STEP_MS = 60L
+        /** R48: the tree is hashed at least this often while settling, even without events. */
+        private const val SETTLE_FALLBACK_MS = 120L
+        /** R48: `wait_for` reads the full screen at least this often, beside the cheap text check. */
+        private const val FULL_WAIT_CHECK_MS = 1_500L
         /** Longest wait for the keyboard after a tap on a text field. */
         private const val KEYBOARD_WAIT_MS = 1_000L
         /** How long Enter has to show an effect before the agent hears it did nothing. */

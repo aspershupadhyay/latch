@@ -404,7 +404,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                     Tab.CAPABILITIES -> CapabilitiesRoute(app) { setupOpen = true }
                     Tab.CONNECT -> ConnectRoute(app, signInRequests) { requestsTick++ }
                     Tab.ACTIVITY -> {
-                        val entries by app.log.entries.collectAsStateWithLifecycle()
+                        val entries by app.log.entries.collectAsStateWithLifecycle(app.log.snapshot())
                         val context = LocalContext.current
                         val scope = rememberCoroutineScope()
                         ActivityScreen(entries, app.log::clear) { period ->
@@ -413,7 +413,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                                     withContext(Dispatchers.IO) {
                                         val d = deviceDescriptor()
                                         val report = ActivityReport.build(
-                                            app.log.entries.value, period, System.currentTimeMillis(),
+                                            app.log.snapshot(), period, System.currentTimeMillis(),
                                             "${d.model} · Android ${d.osVersion} · Latch ${d.appVersion}",
                                         )
                                         ReportSaver.save(context, report)
@@ -514,7 +514,9 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     val service by app.bridge.service.collectAsStateWithLifecycle()
     val pending by app.approvals.pending.collectAsStateWithLifecycle()
-    val entries by app.log.entries.collectAsStateWithLifecycle()
+    // R49: Home shows the newest line and a count; it does not hold the whole log.
+    val lastActivity by app.log.latest.collectAsStateWithLifecycle()
+    val activityCount by app.log.count.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     val outdatedGateway by app.session.outdatedGateway.collectAsStateWithLifecycle()
     val update by app.updater.state.collectAsStateWithLifecycle()
@@ -578,8 +580,8 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             encrypted = p.gatewayUrl.startsWith("https://"),
             phoneName = p.name,
             pending = pending,
-            lastActivity = entries.firstOrNull(),
-            activityCount = entries.size,
+            lastActivity = lastActivity,
+            activityCount = activityCount,
             isOwner = isOwner,
             reducedMotion = reducedMotion,
             signInRequests = signInRequests,
