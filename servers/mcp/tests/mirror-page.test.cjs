@@ -248,3 +248,12 @@ test('an H.265 SPS gives the WebCodecs codec string (R40)', () => {
   assert.equal(m.findHevcSps(Uint8Array.from([0, 0, 1, 0x67, 0x42])), null, 'an H.264 SPS is not one');
   assert.equal(m.hevcCodecFromSps(Uint8Array.from([0x42, 0x01, 0x01])), null);
 });
+
+test('a trackpad pinch becomes two fingers on the phone (R42)', () => {
+  assert.deepEqual(m.pinchMessage('move', { x: 10, y: 20 }, 1.23456, -30.04), { t: 'pinch', phase: 'move', x: 10, y: 20, scale: 1.235, angle: -30 });
+  assert.equal(m.pinchMessage('move', { x: 1, y: 1 }, 99, 0).scale, 20, 'never wider than the gateway takes');
+  assert.equal(m.pinchMessage('move', { x: 1, y: 1 }, NaN, NaN).scale, 1);
+  assert.ok(m.pinchScale(1, -50) > 1, 'pinching out spreads the fingers');
+  assert.ok(m.pinchScale(1, 50) < 1);
+  assert.equal(m.pinchScale(0.06, 10000), 0.05);
+});

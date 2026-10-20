@@ -48,6 +48,8 @@ sealed interface MirrorIn {
     data class Stats(val on: Boolean) : MirrorIn
     /** R39: how the page wants the sound: Opus ([opus]) or raw PCM. */
     data class AudioCodec(val opus: Boolean) : MirrorIn
+    /** R42: two fingers around ([x], [y]), [scale] times their first distance apart, turned [angle] degrees. */
+    data class Pinch(val phase: PinchPhase, val x: Int, val y: Int, val scale: Double, val angle: Double) : MirrorIn
     /** From the gateway: a file the owner dropped on the page, to fetch into Downloads (ADR-057). */
     data class File(val url: String, val keyHex: String, val ivHex: String, val sha256: String, val name: String, val size: Long) : MirrorIn
 }
@@ -55,6 +57,7 @@ sealed interface MirrorIn {
 /** How the picture is sent; H265 (R40) only where the phone has a hardware encoder and the browser a decoder. */
 enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg"), H265("h265") }
 enum class Phase(val wire: String) { DOWN("down"), MOVE("move"), UP("up"), CANCEL("cancel") }
+enum class PinchPhase(val wire: String) { START("start"), MOVE("move"), END("end") }
 enum class MirrorKey(val wire: String) {
     BACKSPACE("backspace"), DELETE("delete"), ENTER("enter"), TAB("tab"), LEFT("left"), RIGHT("right"), UP("up"), DOWN("down"),
     // Since ADR-057: editing shortcuts from the computer's keyboard.
@@ -104,6 +107,7 @@ object MirrorMessages {
         "shot" to emptySet(),
         "stats" to setOf("on"),
         "audio_codec" to setOf("codec"),
+        "pinch" to setOf("phase", "x", "y", "scale", "angle"),
         "file" to setOf("url", "key", "iv", "sha256", "name", "size"),
     )
 
@@ -142,6 +146,12 @@ object MirrorMessages {
             "cut" -> MirrorIn.Copy(cut = true)
             "shot" -> MirrorIn.Shot
             "stats" -> MirrorIn.Stats(o.bool("on") ?: return null)
+            "pinch" -> {
+                fun number(name: String): Double? = (o[name] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it.isFinite() }
+                val scale = number("scale")?.takeIf { it in 0.05..20.0 } ?: return null
+                val angle = number("angle")?.takeIf { kotlin.math.abs(it) <= 720.0 } ?: return null
+                MirrorIn.Pinch(o.enum("phase", PinchPhase.entries) { it.wire } ?: return null, coord("x") ?: return null, coord("y") ?: return null, scale, angle)
+            }
             "audio_codec" -> when (o.string("codec")) {
                 "opus" -> MirrorIn.AudioCodec(opus = true)
                 "pcm" -> MirrorIn.AudioCodec(opus = false)

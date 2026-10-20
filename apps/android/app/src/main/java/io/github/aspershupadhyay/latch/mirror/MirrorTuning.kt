@@ -280,6 +280,27 @@ class QualityLadder {
     }
 }
 
+/**
+ * R42: where two fingers are for a pinch from the computer: around the
+ * centre, [scale] times a quarter of the screen's short side apart, turned
+ * [angleDegrees], kept on the screen. Returns x0, y0, x1, y1.
+ */
+object PinchFingers {
+    fun at(cx: Int, cy: Int, scale: Double, angleDegrees: Double, width: Int, height: Int): IntArray {
+        val base = minOf(width, height) / 4.0
+        val half = (base * scale / 2).coerceIn(MIN_HALF_SPAN, maxOf(width, height).toDouble())
+        val a = Math.toRadians(angleDegrees)
+        val dx = kotlin.math.cos(a) * half
+        val dy = kotlin.math.sin(a) * half
+        fun x(v: Double) = v.roundToInt().coerceIn(0, width - 1)
+        fun y(v: Double) = v.roundToInt().coerceIn(0, height - 1)
+        return intArrayOf(x(cx - dx), y(cy - dy), x(cx + dx), y(cy + dy))
+    }
+
+    /** Fingers closer than this would touch as one. */
+    private const val MIN_HALF_SPAN = 24.0
+}
+
 /** H.264 Annex B helpers: a key frame must carry its SPS and PPS so the browser can start there. */
 object AnnexB {
     /** The type of the first NAL unit after a start code, or -1; [hevc] reads H.265's 6-bit type. */

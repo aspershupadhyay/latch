@@ -292,6 +292,21 @@ function statsLines(phone, page) {
   return lines;
 }
 
+/**
+ * R42: a pinch message for the phone: two fingers around point p, `scale`
+ * times their first distance apart, turned `angle` degrees; kept in range.
+ */
+function pinchMessage(phase, p, scale, angle) {
+  const s = Math.min(20, Math.max(0.05, Number.isFinite(scale) ? scale : 1));
+  const a = Math.min(720, Math.max(-720, Number.isFinite(angle) ? angle : 0));
+  return { t: 'pinch', phase, x: p.x, y: p.y, scale: Math.round(s * 1000) / 1000, angle: Math.round(a * 10) / 10 };
+}
+
+/** A trackpad pinch arrives as Ctrl+wheel: the new scale after one event's deltaY. */
+function pinchScale(scale, deltaY) {
+  return Math.min(20, Math.max(0.05, scale * Math.exp(-deltaY / 100)));
+}
+
 /** The viewer key from a link's fragment (#k=...), or null. */
 function keyFromHash(hash) {
   const m = /(?:^#|&)k=([A-Za-z0-9_-]{43})(?:&|$)/.exec(hash || '');
@@ -302,7 +317,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, shortcut,
     clipboardAction, pasteMessage, stamp, statusText, latencyClass, normalizeCode, keyFromHash,
-    clockOffset, summarize, statsLines, findHevcSps, hevcCodecFromSps,
+    clockOffset, summarize, statsLines, findHevcSps, hevcCodecFromSps, pinchMessage, pinchScale,
   };
 }
 
@@ -1080,9 +1095,63 @@ if (typeof document !== 'undefined') {
 
   let wheel = { dx: 0, dy: 0 };
   let wheelTimer = 0;
+  // R42: two fingers from the computer: a trackpad pinch (Ctrl+wheel in Chrome, Edge,
+  // and Firefox; gesture events in Safari, which also turn).
+  let pinch = null;
+  let pinchEndTimer = 0;
+  let pinchSentAt = 0;
+  function pinchStep(phase, p, scale, angle) {
+    if (!screen) return;
+    if (phase === 'start') {
+      if (pinch) return;
+      pinch = { p, scale: 1, angle: 0 };
+      send(pinchMessage('start', p, 1, 0));
+      return;
+    }
+    if (!pinch) return;
+    pinch.scale = scale;
+    pinch.angle = angle;
+    if (phase === 'end') {
+      send(pinchMessage('end', pinch.p, scale, angle));
+      pinch = null;
+      return;
+    }
+    const now = performance.now();
+    if (now - pinchSentAt >= 16) {
+      pinchSentAt = now;
+      send(pinchMessage('move', pinch.p, scale, angle));
+    }
+  }
+  canvas.addEventListener('gesturestart', (event) => {
+    event.preventDefault();
+    const p = point(event) || lastPoint;
+    if (p) pinchStep('start', p, 1, 0);
+  });
+  canvas.addEventListener('gesturechange', (event) => {
+    event.preventDefault();
+    pinchStep('move', null, event.scale, event.rotation);
+  });
+  canvas.addEventListener('gestureend', (event) => {
+    event.preventDefault();
+    pinchStep('end', null, event.scale, event.rotation);
+  });
+
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
     if (!screen) return;
+    if (event.ctrlKey) {
+      if (!pinch) {
+        const p = point(event) || lastPoint;
+        if (!p) return;
+        pinchStep('start', p, 1, 0);
+      }
+      if (!pinch) return;
+      pinchStep('move', null, pinchScale(pinch.scale, event.deltaY), 0);
+      clearTimeout(pinchEndTimer);
+      // A trackpad sends no "end": a short pause ends the pinch.
+      pinchEndTimer = setTimeout(() => { if (pinch) pinchStep('end', null, pinch.scale, pinch.angle); }, 180);
+      return;
+    }
     const rect = pictureRect();
     const p = point(event) || lastPoint;
     if (!p) return;

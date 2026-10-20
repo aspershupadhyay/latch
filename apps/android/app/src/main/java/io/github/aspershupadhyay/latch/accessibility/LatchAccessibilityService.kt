@@ -1677,6 +1677,32 @@ class LatchAccessibilityService : AccessibilityService() {
      * piece left down; with none left (Android cancelled it) it is skipped,
      * so a lift never turns into a stray tap.
      */
+    /**
+     * R42, without Full ADB: the owner's pinch from the mirror played on the
+     * phone as one two-finger gesture, from where the fingers started to where
+     * they ended ([from], [to]: x0, y0, x1, y1).
+     */
+    fun mirrorPinch(from: IntArray, to: IntArray, done: (Boolean) -> Unit) {
+        val builder = GestureDescription.Builder()
+        for (i in 0..1) {
+            val path = Path().apply {
+                moveTo(from[i * 2].toFloat(), from[i * 2 + 1].toFloat())
+                lineTo(to[i * 2].toFloat(), to[i * 2 + 1].toFloat())
+            }
+            builder.addStroke(GestureDescription.StrokeDescription(path, 0, MIRROR_PINCH_MS))
+        }
+        invalidate()
+        val sent = dispatchGesture(
+            builder.build(),
+            object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) = done(true)
+                override fun onCancelled(gestureDescription: GestureDescription?) = done(false)
+            },
+            null,
+        )
+        if (!sent) done(false)
+    }
+
     fun mirrorSegment(segment: io.github.aspershupadhyay.latch.mirror.StrokePlanner.Segment, done: (Boolean) -> Unit) {
         val path = Path()
         segment.points.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x.toFloat(), y.toFloat()) else path.lineTo(x.toFloat(), y.toFloat()) }
@@ -1972,6 +1998,8 @@ class LatchAccessibilityService : AccessibilityService() {
         /** Enough to know which app is in front. */
         private const val IDLE_EVENTS = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
         private const val SETTLE_STEP_MS = 60L
+        /** R42: how long a pinch from the mirror takes on the phone without Full ADB. */
+        private const val MIRROR_PINCH_MS = 300L
         /** R48: the tree is hashed at least this often while settling, even without events. */
         private const val SETTLE_FALLBACK_MS = 120L
         /** R48: `wait_for` reads the full screen at least this often, beside the cheap text check. */

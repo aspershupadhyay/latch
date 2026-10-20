@@ -67,6 +67,7 @@ browser                                       gateway
   ── {"t":"control","action":"pause|resume|stop|end"} ──▶   (stop ends the AI session; end ends mirroring)
   ── {"t":"ping","at":number} / {"t":"sync"} / {"t":"codec","codec":"jpeg"} ──▶
   ── {"t":"stats","on":bool} ──▶                  (R35: the page's stats overlay, Alt+D)
+  ── {"t":"pinch","phase":"start|move|end","x":n,"y":n,"scale":0.05–20,"angle":±720} ──▶   (R42: two fingers around x,y; with Full ADB live through the input helper, without it one gesture at the end)
   ── {"t":"audio_codec","codec":"opus|pcm"} ──▶   (R39: Opus when the browser's WebCodecs decodes it; the phone falls back to PCM when its encoder fails)
 ```
 

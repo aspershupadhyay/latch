@@ -184,4 +184,24 @@ class MirrorInputTest {
         assertEquals(600_000, MirrorCapture.encoderBps(1_000_000, hevc = true))
         assertEquals(1_000_000, MirrorCapture.encoderBps(1_000_000, hevc = false))
     }
+
+    @Test fun aPinchFromTheComputerIsTwoFingersOnTheScreen() {
+        // A 1080x2400 phone: the fingers start a quarter of the short side apart.
+        assertEquals(listOf(405, 1200, 675, 1200), PinchFingers.at(540, 1200, 1.0, 0.0, 1080, 2400).toList())
+        assertEquals(listOf(270, 1200, 810, 1200), PinchFingers.at(540, 1200, 2.0, 0.0, 1080, 2400).toList())
+        // Turned a quarter: one above the other.
+        assertEquals(listOf(540, 1065, 540, 1335), PinchFingers.at(540, 1200, 1.0, 90.0, 1080, 2400).toList())
+        // Never off the screen, never on top of each other.
+        val edge = PinchFingers.at(0, 0, 20.0, 0.0, 1080, 2400)
+        assertTrue(edge.all { it >= 0 } && edge[2] <= 1079)
+        val close = PinchFingers.at(540, 1200, 0.05, 0.0, 1080, 2400)
+        assertEquals(48, close[2] - close[0])
+        assertEquals("pd 1 2 3 4", ShellInputCommands.pinch(PinchPhase.START, intArrayOf(1, 2, 3, 4)))
+        assertEquals("pu 1 2 3 4", ShellInputCommands.pinch(PinchPhase.END, intArrayOf(1, 2, 3, 4)))
+        assertEquals(
+            MirrorIn.Pinch(PinchPhase.MOVE, 540, 1200, 1.8, -30.5),
+            MirrorMessages.parse("""{"t":"pinch","phase":"move","x":540,"y":1200,"scale":1.8,"angle":-30.5}"""),
+        )
+        assertNull(MirrorMessages.parse("""{"t":"pinch","phase":"move","x":540,"y":1200,"scale":50,"angle":0}"""))
+    }
 }

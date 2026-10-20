@@ -126,5 +126,34 @@
  },
  {
   "t": "audio_codec"
+ },
+ {
+  "t": "pinch",
+  "phase": "start",
+  "x": 540,
+  "y": 1200,
+  "scale": 50
+ },
+ {
+  "t": "pinch",
+  "phase": "twist",
+  "x": 1,
+  "y": 1,
+  "scale": 1
+ },
+ {
+  "t": "pinch",
+  "phase": "move",
+  "x": -1,
+  "y": 1,
+  "scale": 1
+ },
+ {
+  "t": "pinch",
+  "phase": "move",
+  "x": 1,
+  "y": 1,
+  "scale": 1,
+  "angle": 1000
  }
 ]

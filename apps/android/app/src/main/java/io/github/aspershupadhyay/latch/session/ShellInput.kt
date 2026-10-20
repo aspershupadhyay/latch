@@ -126,6 +126,13 @@ object ShellInput {
                         injector.touch(downAt, now, action, x, y)
                     }
                     "s" -> injector.scroll(parts[1].toFloat(), parts[2].toFloat(), parts[3].toFloat(), parts[4].toFloat())
+                    // R42: two fingers (pinch, turn): down, move, up; x0 y0 x1 y1.
+                    "pd", "pm", "pu" -> {
+                        val f = FloatArray(4) { parts[it + 1].toFloat() }
+                        val now = SystemClock.uptimeMillis()
+                        if (parts[0] == "pd") downAt = now
+                        injector.twoFingers(downAt, now, parts[0], f)
+                    }
                     "k" -> injector.key(parts[1].toInt(), parts.getOrNull(2)?.toInt() ?: 0)
                     "t" -> injector.text(String(Base64.getDecoder().decode(parts[1]), Charsets.UTF_8))
                     "cg" -> {
@@ -187,6 +194,38 @@ object ShellInput {
                 send(event)
             } finally {
                 event.recycle()
+            }
+        }
+
+        private val fingers = arrayOf(
+            MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_FINGER },
+            MotionEvent.PointerProperties().apply { id = 1; toolType = MotionEvent.TOOL_TYPE_FINGER },
+        )
+
+        /** R42: "pd" puts two fingers down (one, then the second), "pm" moves both, "pu" lifts the second, then the first. */
+        fun twoFingers(downAt: Long, now: Long, step: String, f: FloatArray) {
+            fun coords(up: Boolean) = arrayOf(
+                MotionEvent.PointerCoords().apply { x = f[0]; y = f[1]; pressure = 1f; size = 1f },
+                MotionEvent.PointerCoords().apply { x = f[2]; y = f[3]; pressure = if (up) 0f else 1f; size = 1f },
+            )
+            val second = 1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT
+            val events = when (step) {
+                "pd" -> listOf(
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_DOWN, 1, fingers, coords(false), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_POINTER_DOWN or second, 2, fingers, coords(false), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                )
+                "pm" -> listOf(MotionEvent.obtain(downAt, now, MotionEvent.ACTION_MOVE, 2, fingers, coords(false), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0))
+                else -> listOf(
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_POINTER_UP or second, 2, fingers, coords(true), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                    MotionEvent.obtain(downAt, now, MotionEvent.ACTION_UP, 1, fingers, coords(true), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0),
+                )
+            }
+            for (event in events) {
+                try {
+                    send(event)
+                } finally {
+                    event.recycle()
+                }
             }
         }
 

@@ -87,6 +87,9 @@ const MAX_COORDINATE: i32 = 16_384;
 const MAX_TEXT_CHARS: usize = 256;
 /// Most characters one paste from the computer's clipboard carries (ADR-057).
 const MAX_PASTE_CHARS: usize = 4096;
+/// How far a pinch may squeeze or spread, as a factor of where it started (R42).
+const MIN_PINCH_SCALE: f64 = 0.05;
+const MAX_PINCH_SCALE: f64 = 20.0;
 
 // Close codes the page understands (docs/protocol/mirror.md).
 pub const CLOSE_REFUSED: u16 = 4401;
@@ -739,6 +742,15 @@ pub enum Phase {
     Cancel,
 }
 
+/// R42: a two-finger pinch (and turn) from the computer, start to end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PinchPhase {
+    Start,
+    Move,
+    End,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Key {
@@ -852,6 +864,15 @@ pub enum ViewerMessage {
     AudioCodec {
         codec: AudioCodec,
     },
+    /// R42: two fingers around (x, y), `scale` times their starting distance
+    /// apart, turned `angle` degrees from where they started.
+    Pinch {
+        phase: PinchPhase,
+        x: i32,
+        y: i32,
+        scale: f64,
+        angle: f64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -883,6 +904,15 @@ impl ViewerMessage {
                     && !text.chars().any(char::is_control)
             }
             ViewerMessage::Ping { at } => at.is_finite(),
+            ViewerMessage::Pinch {
+                x, y, scale, angle, ..
+            } => {
+                point(*x, *y)
+                    && scale.is_finite()
+                    && (MIN_PINCH_SCALE..=MAX_PINCH_SCALE).contains(scale)
+                    && angle.is_finite()
+                    && angle.abs() <= 720.0
+            }
             ViewerMessage::Paste { text } => {
                 !text.is_empty()
                     && text.chars().count() <= MAX_PASTE_CHARS

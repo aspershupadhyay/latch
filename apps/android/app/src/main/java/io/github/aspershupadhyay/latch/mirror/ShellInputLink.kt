@@ -64,6 +64,13 @@ object ShellInputCommands {
 
     fun scroll(x: Int, y: Int, dx: Int, dy: Int): String = "s $x $y $dx $dy"
 
+    /** R42: two fingers down, moved, or lifted, at [f] (x0, y0, x1, y1). */
+    fun pinch(phase: PinchPhase, f: IntArray): String = "${when (phase) {
+        PinchPhase.START -> "pd"
+        PinchPhase.MOVE -> "pm"
+        PinchPhase.END -> "pu"
+    }} ${f[0]} ${f[1]} ${f[2]} ${f[3]}"
+
     fun key(code: Int, meta: Int = 0): String = "k $code $meta"
 
     fun text(text: String): String = "t " + Base64.getEncoder().encodeToString(text.toByteArray(Charsets.UTF_8))

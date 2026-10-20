@@ -655,6 +655,9 @@ class MirrorController(
             var tick: Job? = null
             var wheelAt: Pair<Int, Int>? = null
             var shellStroke = false
+            // R42: a pinch in progress: through the input helper, or played at its end without it.
+            var pinchFrom: IntArray? = null
+            var pinchShell = false
             var wheelDx = 0
             var wheelDy = 0
 
@@ -743,6 +746,42 @@ class MirrorController(
                                     }
                                     ignoring = false
                                     shellStroke = false
+                                }
+                            }
+                            is MirrorIn.Pinch -> {
+                                val s = screen()
+                                val f = PinchFingers.at(m.x, m.y, m.scale, m.angle, s.width, s.height)
+                                when (m.phase) {
+                                    PinchPhase.START -> {
+                                        val refusal = service.mirrorRefusal(m.x, m.y)
+                                            ?: service.mirrorRefusal(f[0], f[1])
+                                            ?: service.mirrorRefusal(f[2], f[3])
+                                        if (refusal != null) {
+                                            pinchFrom = null
+                                            notice(refusal)
+                                            continue
+                                        }
+                                        ownerInput()
+                                        service.mirrorTouched()
+                                        pinchFrom = f
+                                        pinchShell = keys.ready
+                                        if (pinchShell) keys.send(ShellInputCommands.pinch(m.phase, f))
+                                    }
+                                    PinchPhase.MOVE -> if (pinchFrom != null && pinchShell) keys.send(ShellInputCommands.pinch(m.phase, f))
+                                    PinchPhase.END -> {
+                                        val from = pinchFrom
+                                        if (from != null) {
+                                            if (pinchShell) {
+                                                keys.send(ShellInputCommands.pinch(m.phase, f))
+                                            } else {
+                                                // Without Full ADB: one gesture from start to end (accessibility has no live pinch).
+                                                service.mirrorPinch(from, f) { }
+                                            }
+                                            service.mirrorTouched()
+                                        }
+                                        pinchFrom = null
+                                        pinchShell = false
+                                    }
                                 }
                             }
                             is MirrorIn.Wheel -> {

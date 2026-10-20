@@ -689,7 +689,7 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** an older page treats `4404` as a network drop and keeps retrying with its key, which joins once the phone mirrors; an older app makes a new key each time, as before.
 
-## ADR-059 — A faster, lighter mirror stream (R35–R40, R46–R50)
+## ADR-059 — A faster, lighter mirror stream (R35–R42, R46–R50)
 **Status:** accepted (2026-10-20, owner request 2026-10-19 "make our stream faster … optimize the app", and 2026-10-20 "continue with the rest of the backlog items") · **Builds on:** ADR-051 (live mirror), ADR-055 (sound), ADR-057 · **Protocol:** device protocol unchanged; mirror channel additive ([docs/protocol/mirror.md](../protocol/mirror.md))
 
 **Decision:**
@@ -699,6 +699,8 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 - **Follow the network (R38).** At the bitrate floor with frames still dropping, the encoder restarts at 1280 then 960 on the long edge and 30 fps, and steps back up after 15 clean seconds; `{"t":"quality"}` tells the page ("Saving bandwidth"), kept for late viewers.
 - **Opus sound (R39).** When the page's WebCodecs decodes Opus it sends `{"t":"audio_codec","codec":"opus"}`; the phone encodes with Android's Opus encoder (API 29+, 96 kbit/s) and sends frame kind 5 on the sound queue; a failed encoder falls back to PCM, a failed decoder asks for PCM. Sound goes out only while the page plays it (R45).
 - **H.265 where both ends can (R40).** A browser whose worker decodes `hev1` offers `h265` first; the phone uses H.265 only from a hardware encoder (Main profile, 60 % of H.264's bitrate for the same picture) and sends frame kind 6, else H.264 (kind 1). The page decodes by the frame's kind, takes the codec string from the SPS, and asks for H.264 if H.265 fails to decode. AV1 is not built: hardware AV1 encoders are rare on phones (the owner's test phone has none), so it could not be checked; it would follow the same pattern (a frame kind, an offer, a fallback).
+- **Pinch from the computer (R42).** Ctrl+wheel and Safari's gesture events become `pinch` start/move/end messages (validated like other input); Full ADB's input helper injects two live pointers, accessibility plays one two-finger gesture at the end.
+- **Not built: WebTransport (R41).** It needs a QUIC client on the phone (Cronet) and an HTTP/3 server in the gateway with short-lived certificates; both are new dependencies that wait for the owner's decision and for R35 numbers showing loss on real Wi-Fi.
 - **Lighter both ends (R46, R48–R50).** Stills on the image callback, one copy per frame, 500 ms repeat on a still screen; cheaper `wait_for`, settle, and screenshots; O(1) activity log; idle accessibility listening; gateway hot paths without copies or the global map.
 
 **Threat review:** nothing new leaves the phone beyond encoder counters (frame counts, sizes, times) and the same sound in another encoding; every new message is validated and rebuilt by the gateway and covered by the shared viewer fixtures. The two new page scripts are served by the gateway under the mirror page's CSP (`script-src 'self'`).
