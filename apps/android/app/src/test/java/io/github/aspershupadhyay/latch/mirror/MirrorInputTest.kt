@@ -204,4 +204,12 @@ class MirrorInputTest {
         )
         assertNull(MirrorMessages.parse("""{"t":"pinch","phase":"move","x":540,"y":1200,"scale":50,"angle":0}"""))
     }
+
+    @Test fun theClipboardFollowsOnlyWhileTheOwnerSwitchedItOn() {
+        // R44: the page's switch and the helper's command.
+        assertEquals(MirrorIn.ClipboardFollow(true), MirrorMessages.parse("""{"t":"clipboard_follow","on":true}"""))
+        assertNull(MirrorMessages.parse("""{"t":"clipboard_follow","on":true,"text":"x"}"""))
+        assertEquals("cw 1", ShellInputCommands.watchClipboard(true))
+        assertEquals("cw 0", ShellInputCommands.watchClipboard(false))
+    }
 }

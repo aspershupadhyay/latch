@@ -48,6 +48,8 @@ sealed interface MirrorIn {
     data class Stats(val on: Boolean) : MirrorIn
     /** R39: how the page wants the sound: Opus ([opus]) or raw PCM. */
     data class AudioCodec(val opus: Boolean) : MirrorIn
+    /** R44: the owner's switch on the page: copies on the phone go to the computer by themselves. */
+    data class ClipboardFollow(val on: Boolean) : MirrorIn
     /** R42: two fingers around ([x], [y]), [scale] times their first distance apart, turned [angle] degrees. */
     data class Pinch(val phase: PinchPhase, val x: Int, val y: Int, val scale: Double, val angle: Double) : MirrorIn
     /** From the gateway: a file the owner dropped on the page, to fetch into Downloads (ADR-057). */
@@ -108,6 +110,7 @@ object MirrorMessages {
         "stats" to setOf("on"),
         "audio_codec" to setOf("codec"),
         "pinch" to setOf("phase", "x", "y", "scale", "angle"),
+        "clipboard_follow" to setOf("on"),
         "file" to setOf("url", "key", "iv", "sha256", "name", "size"),
     )
 
@@ -146,6 +149,7 @@ object MirrorMessages {
             "cut" -> MirrorIn.Copy(cut = true)
             "shot" -> MirrorIn.Shot
             "stats" -> MirrorIn.Stats(o.bool("on") ?: return null)
+            "clipboard_follow" -> MirrorIn.ClipboardFollow(o.bool("on") ?: return null)
             "pinch" -> {
                 fun number(name: String): Double? = (o[name] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it.isFinite() }
                 val scale = number("scale")?.takeIf { it in 0.05..20.0 } ?: return null

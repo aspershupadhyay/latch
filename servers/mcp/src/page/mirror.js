@@ -547,6 +547,7 @@ if (typeof document !== 'undefined') {
         showMode();
         // R39: about 96 kbit/s of Opus instead of 1.5 Mbit/s of raw sound, when this browser decodes it.
         if (opusOk) send({ t: 'audio_codec', codec: 'opus' });
+        if (followCopies) send({ t: 'clipboard_follow', on: true });
         show('app');
         cover('Waiting for the picture…');
         canvas.focus();
@@ -1497,6 +1498,18 @@ if (typeof document !== 'undefined') {
     el.addEventListener('click', () => runAction(el.dataset.action));
   }
   $('show-notifications').setAttribute('aria-pressed', String(notificationsShown));
+  // R44: copies on the phone come here by themselves; off until the owner turns it on, remembered here.
+  let followCopies = false;
+  try { followCopies = localStorage.getItem('latch-follow-copies') === '1'; } catch { /* no storage */ }
+  $('follow-copies').setAttribute('aria-pressed', String(followCopies));
+  $('follow-copies').addEventListener('click', () => {
+    followCopies = !followCopies;
+    try { localStorage.setItem('latch-follow-copies', followCopies ? '1' : '0'); } catch { /* no storage */ }
+    $('follow-copies').setAttribute('aria-pressed', String(followCopies));
+    send({ t: 'clipboard_follow', on: followCopies });
+    toast(followCopies ? 'Text you copy on the phone now comes to this computer (with Full ADB on).' : 'Copies stay on the phone; Ctrl/Cmd+C still copies.');
+  });
+
   $('show-notifications').addEventListener('click', () => {
     notificationsShown = !notificationsShown;
     $('show-notifications').setAttribute('aria-pressed', String(notificationsShown));

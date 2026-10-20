@@ -155,5 +155,13 @@
   "y": 1,
   "scale": 1,
   "angle": 1000
+ },
+ {
+  "t": "clipboard_follow"
+ },
+ {
+  "t": "clipboard_follow",
+  "on": true,
+  "text": "x"
  }
 ]

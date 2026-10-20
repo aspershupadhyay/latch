@@ -864,6 +864,11 @@ pub enum ViewerMessage {
     AudioCodec {
         codec: AudioCodec,
     },
+    /// R44: the owner's switch: copies on the phone go to the computer by
+    /// themselves (through the Full ADB input helper), until switched off.
+    ClipboardFollow {
+        on: bool,
+    },
     /// R42: two fingers around (x, y), `scale` times their starting distance
     /// apart, turned `angle` degrees from where they started.
     Pinch {

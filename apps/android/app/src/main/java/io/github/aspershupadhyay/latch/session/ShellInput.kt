@@ -107,6 +107,8 @@ object ShellInput {
 
     private fun serve(reader: BufferedReader, writer: BufferedWriter, injector: Injector) {
         var downAt = 0L
+        // R44: the owner's switch on the page; the watch thread writes too, so writes take the writer's lock.
+        val watch = ClipboardWatch(writer)
         while (true) {
             val line = runCatching { reader.readLine() }.getOrNull() ?: return
             val parts = line.split(' ')
@@ -137,10 +139,13 @@ object ShellInput {
                     "t" -> injector.text(String(Base64.getDecoder().decode(parts[1]), Charsets.UTF_8))
                     "cg" -> {
                         val text = runCatching { Clipboard.text() }.getOrNull()
-                        writer.write(if (text.isNullOrEmpty()) "cg -\n" else "cg ${Base64.getEncoder().encodeToString(text.toByteArray())}\n")
-                        writer.flush()
+                        synchronized(writer) {
+                            writer.write(if (text.isNullOrEmpty()) "cg -\n" else "cg ${Base64.getEncoder().encodeToString(text.toByteArray())}\n")
+                            writer.flush()
+                        }
                     }
-                    "p" -> {
+                    "cw" -> watch.set(parts.getOrNull(1) == "1")
+                    "p" -> synchronized(writer) {
                         writer.write("p ${parts.getOrNull(1).orEmpty()}\n")
                         writer.flush()
                     }
@@ -148,8 +153,10 @@ object ShellInput {
             } catch (e: Exception) {
                 // A malformed line is skipped; the app only sends well-formed ones.
                 runCatching {
-                    writer.write("e ${describe(e).replace('\n', ' ').take(200)}\n")
-                    writer.flush()
+                    synchronized(writer) {
+                        writer.write("e ${describe(e).replace('\n', ' ').take(200)}\n")
+                        writer.flush()
+                    }
                 }
             }
         }
@@ -263,11 +270,78 @@ object ShellInput {
         }
     }
 
+    /**
+     * R44: while the owner's switch is on, a new copy on the phone goes to the
+     * app. Only the clip's description (when it was made, whether Android marks
+     * it sensitive) is checked every [WATCH_MS], which does not count as reading
+     * it; the text is read once per new copy, and a sensitive one (a password
+     * manager's) never.
+     */
+    private class ClipboardWatch(private val writer: BufferedWriter) {
+        @Volatile private var on = false
+        private var thread: Thread? = null
+
+        fun set(value: Boolean) {
+            on = value
+            if (value && thread == null) {
+                thread = Thread({ run() }, "latch-clipboard-watch").apply {
+                    isDaemon = true
+                    start()
+                }
+            }
+        }
+
+        private fun run() {
+            // Only copies made after the switch went on follow.
+            var seen = runCatching { Clipboard.description()?.timestamp }.getOrNull()
+            while (true) {
+                Thread.sleep(WATCH_MS)
+                if (!on) continue
+                val description = runCatching { Clipboard.description() }.getOrNull() ?: continue
+                if (description.timestamp == seen) continue
+                seen = description.timestamp
+                if (description.extras?.getBoolean(EXTRA_IS_SENSITIVE) == true) continue
+                if (!description.hasMimeType("text/*")) continue
+                val text = runCatching { Clipboard.text() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: continue
+                runCatching {
+                    synchronized(writer) {
+                        writer.write("cc ${Base64.getEncoder().encodeToString(text.toByteArray())}\n")
+                        writer.flush()
+                    }
+                }
+            }
+        }
+    }
+
     /** The clipboard as the shell reads it: IClipboard's arguments changed across Android versions. */
     private object Clipboard {
-        fun text(): String? {
+        private fun service(): Any {
             val binder = Class.forName("android.os.ServiceManager").getMethod("getService", String::class.java).invoke(null, "clipboard") as IBinder
-            val service = Class.forName("android.content.IClipboard\$Stub").getMethod("asInterface", IBinder::class.java).invoke(null, binder)
+            return Class.forName("android.content.IClipboard\$Stub").getMethod("asInterface", IBinder::class.java).invoke(null, binder)
+                ?: error("no clipboard service")
+        }
+
+        /** (package), (package, user), (package, attribution tag, user), (package, attribution tag, user, device). */
+        private fun arguments(method: Method): Array<Any?> {
+            var strings = 0
+            return method.parameterTypes.map { type ->
+                when (type) {
+                    String::class.java -> if (strings++ == 0) "com.android.shell" else null
+                    Int::class.javaPrimitiveType -> 0
+                    else -> null
+                }
+            }.toTypedArray()
+        }
+
+        /** What the clip is and when it was made, without reading it (R44). */
+        fun description(): android.content.ClipDescription? {
+            val service = service()
+            val get = service.javaClass.methods.first { it.name == "getPrimaryClipDescription" }
+            return get.invoke(service, *arguments(get)) as android.content.ClipDescription?
+        }
+
+        fun text(): String? {
+            val service = service()
             val get = service.javaClass.methods.first { it.name == "getPrimaryClip" }
             var strings = 0
             // (package), (package, user), (package, attribution tag, user), (package, attribution tag, user, device).
@@ -285,5 +359,8 @@ object ShellInput {
     }
 
     private const val INJECT_ASYNC = 0
+    private const val WATCH_MS = 400L
+    /** ClipDescription.EXTRA_IS_SENSITIVE (Android 13), as a string so older phones run this too. */
+    private const val EXTRA_IS_SENSITIVE = "android.content.extra.IS_SENSITIVE"
     private const val SCROLL_DP = 64f
 }

@@ -376,6 +376,7 @@ class MirrorController(
                 is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at, System.nanoTime() / 1000))
                 is MirrorIn.Stats -> scope.launch { statsFor(message.on) }
                 is MirrorIn.AudioCodec -> capture?.audio?.wantOpus = message.opus
+                is MirrorIn.ClipboardFollow -> scope.launch { followClipboard(message.on) }
                 is MirrorIn.Shot -> shot()
                 is MirrorIn.File -> receive(message)
                 else -> input.trySend(Input.Message(message, SystemClock.uptimeMillis()))
@@ -417,6 +418,8 @@ class MirrorController(
             h.post { capture?.stop() }
             aiJob?.cancel()
             statusJob?.cancel()
+            // The helper stops with the viewer, and its clipboard watch with it.
+            clipboardFollow = false
             stopKeys()
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WAITING)
         }
@@ -429,13 +432,31 @@ class MirrorController(
 
     // ---- The input helper (ADR-057) ----
 
+    /** R44: the page's switch; it holds until the viewer leaves or the helper stops. */
+    @Volatile private var clipboardFollow = false
+
+    private fun followClipboard(on: Boolean) {
+        clipboardFollow = on
+        if (!keys.ready) {
+            // The helper starting now picks it up; without Full ADB it never will.
+            if (on && !session.fullAdbOn()) notice("Copies follow to the computer only with Full ADB on; Ctrl/Cmd+C still copies.")
+            return
+        }
+        keys.send(ShellInputCommands.watchClipboard(on))
+    }
+
     /** Starts the helper when Full ADB is on and it is not running; tells the page how input goes. */
     private fun checkKeys() {
         val on = session.fullAdbOn()
         if (on && !keysWanted && keysFailed < KEYS_TRIES) {
             keysWanted = true
             keys.start(
-                started = { link?.sendText(MirrorMessages.input("keys")) },
+                started = {
+                    link?.sendText(MirrorMessages.input("keys"))
+                    // The clipboard text is never logged; it goes only to this viewer.
+                    keys.onCopied = { text -> link?.sendText(MirrorMessages.clipboard(fitClipboard(text))) }
+                    if (clipboardFollow) keys.send(ShellInputCommands.watchClipboard(true))
+                },
                 ended = { why ->
                     keysWanted = false
                     link?.sendText(MirrorMessages.input("basic"))
