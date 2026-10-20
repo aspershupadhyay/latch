@@ -22,14 +22,26 @@ pub fn setup_link(address: &str, code: &str) -> String {
     format!("{address}&code={compact}")
 }
 
+/// White border around the code, in modules: the QR standard asks for 4,
+/// and scanners lose a code whose finder patterns touch a dark terminal.
+const QUIET: usize = 4;
+
+fn qr_code(text: &str) -> Option<QrCode> {
+    QrCode::with_error_correction_level(text.as_bytes(), EcLevel::L).ok()
+}
+
 /// `text` as a QR code in half-block characters, two modules per character
 /// row, dark on light with a quiet zone, so it scans on dark and light
-/// terminals alike. With `color` false (NO_COLOR), light modules are drawn
-/// as full blocks instead, which reads correctly on a dark terminal.
+/// terminals alike. With `color`, a cell whose two modules match is a space
+/// painted with the background colour, which fills the whole cell: a font
+/// with line spacing then leaves no white stripes through dark areas (a
+/// common reason a terminal code does not scan). With `color` false
+/// (NO_COLOR), light modules are drawn as full blocks instead, which reads
+/// correctly on a dark terminal.
 pub fn qr(text: &str, color: bool) -> Option<String> {
-    let code = QrCode::with_error_correction_level(text.as_bytes(), EcLevel::L).ok()?;
+    let code = qr_code(text)?;
     let width = code.width();
-    let quiet = 2;
+    let quiet = QUIET;
     let size = width + 2 * quiet;
     let colors = code.to_colors();
     let dark = |x: usize, y: usize| -> bool {
@@ -39,20 +51,34 @@ pub fn qr(text: &str, color: bool) -> Option<String> {
             && y < width + quiet
             && colors[(y - quiet) * width + (x - quiet)] == Color::Dark
     };
+    // xterm-256 colours: pure black and pure white, whatever the terminal theme.
+    let shade = |is_dark: bool| if is_dark { 16 } else { 231 };
     let mut out = String::new();
     for row in (0..size).step_by(2) {
         out.push_str("    ");
-        if color {
-            // Black on white, whatever the terminal's own colours are.
-            out.push_str("\x1b[38;5;16;48;5;231m");
-        }
+        let (mut fg, mut bg) = (None, None);
         for x in 0..size {
             let (top, bottom) = (dark(x, row), row + 1 < size && dark(x, row + 1));
-            let (top, bottom) = if color {
-                (top, bottom)
-            } else {
-                (!top, !bottom && row + 1 < size)
-            };
+            if color {
+                // Matching modules: a space on the right background. Mixed: the top half in the foreground.
+                let want_bg = shade(bottom);
+                if bg != Some(want_bg) {
+                    let _ = write!(out, "\x1b[48;5;{want_bg}m");
+                    bg = Some(want_bg);
+                }
+                if top == bottom {
+                    out.push(' ');
+                } else {
+                    let want_fg = shade(top);
+                    if fg != Some(want_fg) {
+                        let _ = write!(out, "\x1b[38;5;{want_fg}m");
+                        fg = Some(want_fg);
+                    }
+                    out.push('▀');
+                }
+                continue;
+            }
+            let (top, bottom) = (!top, !bottom && row + 1 < size);
             out.push(match (top, bottom) {
                 (true, true) => '█',
                 (true, false) => '▀',
@@ -66,6 +92,111 @@ pub fn qr(text: &str, color: bool) -> Option<String> {
         out.push('\n');
     }
     Some(out)
+}
+
+/// `text` as an SVG QR code: one path of square modules with a quiet zone.
+pub fn qr_svg(text: &str) -> Option<String> {
+    let code = qr_code(text)?;
+    let width = code.width();
+    let size = width + 2 * QUIET;
+    let mut path = String::new();
+    for (i, c) in code.to_colors().iter().enumerate() {
+        if *c == Color::Dark {
+            let _ = write!(path, "M{} {}h1v1h-1z", i % width + QUIET, i / width + QUIET);
+        }
+    }
+    Some(format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {size} {size}\" shape-rendering=\"crispEdges\" role=\"img\" aria-label=\"QR code for the Latch app\"><rect width=\"{size}\" height=\"{size}\" fill=\"#fff\"/><path fill=\"#000\" d=\"{path}\"/></svg>"
+    ))
+}
+
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// A page with the setup QR code as large as the screen allows, for when the
+/// terminal's code is too small or its font breaks it up. It is a local file
+/// (no server, nothing reachable from the network) holding the same
+/// single-use, expiring code the terminal shows.
+pub fn qr_page(setup: &PhoneSetup) -> Option<String> {
+    let link = setup_link(&setup.address, &setup.code);
+    let svg = qr_svg(&link)?;
+    let minutes = OWNER_CODE_TTL_MS / 60_000;
+    let code = html_escape(&setup.code);
+    let address = html_escape(&setup.address);
+    Some(format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="referrer" content="no-referrer">
+<title>Connect your phone to Latch</title>
+<style>
+  :root {{ color-scheme: light; }}
+  body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f1ec; color: #1b1b1b;
+         font: 18px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+  main {{ text-align: center; padding: 24px; }}
+  .code {{ width: min(70vh, 86vw); height: min(70vh, 86vw); background: #fff; padding: 0; border-radius: 12px;
+          box-shadow: 0 6px 30px rgba(0,0,0,.12); margin: 12px auto 20px; }}
+  .code svg {{ width: 100%; height: 100%; display: block; }}
+  h1 {{ font-size: 26px; margin: 0; }}
+  ol {{ display: inline-block; text-align: left; margin: 8px 0 0; padding-left: 22px; }}
+  .typed {{ margin-top: 18px; color: #555; font-size: 15px; word-break: break-all; }}
+  .typed b {{ font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 22px; letter-spacing: 2px; color: #1b1b1b; }}
+</style>
+</head>
+<body>
+<main>
+  <h1>Point your phone's camera here</h1>
+  <div class="code">{svg}</div>
+  <ol>
+    <li>Open <b>Latch</b> on your phone.</li>
+    <li>Tap <b>Scan QR code</b> and hold the phone about 20&nbsp;cm from the screen.</li>
+  </ol>
+  <p class="typed">Can't scan? Tap <b style="font-size:inherit;letter-spacing:0">Enter it by hand</b> and type<br>
+    address <span>{address}</span><br>setup code <b>{code}</b> · single use, expires in {minutes} min</p>
+</main>
+</body>
+</html>
+"#
+    ))
+}
+
+/// Writes [qr_page] to `setup-qr.html` in `dir`, readable only by this user.
+pub fn write_qr_page(dir: &Path, setup: &PhoneSetup) -> Option<std::path::PathBuf> {
+    let page = qr_page(setup)?;
+    let path = dir.join("setup-qr.html");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(&path).ok()?;
+    std::io::Write::write_all(&mut file, page.as_bytes()).ok()?;
+    Some(path)
+}
+
+/// Opens `path` in the computer's default browser; false when that failed.
+pub fn open_in_browser(path: &Path) -> bool {
+    let mut cmd = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", ""]);
+        c
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    cmd.arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// The NO_COLOR convention (no-color.org): set and not empty.
@@ -112,6 +243,8 @@ impl Style {
 pub struct PhoneSetup {
     pub address: String,
     pub code: String,
+    /// The same code as a large page in the browser ([write_qr_page]), when written.
+    pub page: Option<std::path::PathBuf>,
 }
 
 /// The "connect your phone" block: steps, QR code, and the typed fallback.
@@ -122,14 +255,25 @@ pub fn phone_block(style: Style, setup: &PhoneSetup) -> String {
     let _ = writeln!(out, "  {}", style.bold("Connect your phone"));
     let _ = writeln!(
         out,
-        "    In the Latch app: {} → {} → {}, then point the camera here.\n",
-        style.bold("Set up Latch"),
-        style.bold("Computer on Wi-Fi"),
-        style.bold("Scan QR code")
+        "    Open Latch on your phone, tap {}, and point the camera here.\n",
+        style.bold("Scan the QR code on my computer")
     );
     match qr(&link, !no_color()) {
         Some(code) => out.push_str(&code),
         None => out.push_str("    (the QR code could not be drawn; enter the details below)\n"),
+    }
+    if let Some(page) = &setup.page {
+        let _ = writeln!(
+            out,
+            "    {}  file://{}",
+            style.dim("Hard to scan? A big code:"),
+            page.display()
+        );
+        let _ = writeln!(
+            out,
+            "    {}",
+            style.dim("(or run latch-gateway pair --open)")
+        );
     }
     let _ = writeln!(out);
     let _ = writeln!(
@@ -285,9 +429,83 @@ mod tests {
         );
         let drawn = qr(&link, true).expect("drawn");
         let rows = drawn.lines().count();
-        // Version 5 (37 modules) plus the quiet zone, two modules per row.
-        assert!(rows <= 21, "{rows} rows");
-        assert!(drawn.contains('█'));
+        // Version 5 (37 modules) plus the 4-module quiet zone, two modules per row.
+        assert!(rows <= 23, "{rows} rows");
+        assert!(drawn.contains('▀'));
+        let plain = qr(&link, false).expect("drawn");
+        assert!(plain.contains('█'));
+    }
+
+    #[test]
+    fn the_terminal_code_decodes_to_the_link_it_draws() {
+        // Rebuild the module grid from the coloured drawing and compare with the encoder's.
+        let link = setup_link("https://192.168.1.5:8788#pin=abc", "K7QX-M2PD");
+        let drawn = qr(&link, true).expect("drawn");
+        let code = qr_code(&link).expect("code");
+        let width = code.width();
+        let size = width + 2 * QUIET;
+        let mut grid = vec![vec![false; size]; size];
+        for (row, line) in drawn.lines().enumerate() {
+            let (mut fg, mut bg) = (false, false);
+            let mut x = 0;
+            let mut chars = line.trim_start_matches(' ').chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '\x1b' {
+                    let seq: String = chars.by_ref().take_while(|c| *c != 'm').collect();
+                    match seq.as_str() {
+                        "[48;5;16" => bg = true,
+                        "[48;5;231" => bg = false,
+                        "[38;5;16" => fg = true,
+                        "[38;5;231" => fg = false,
+                        _ => {}
+                    }
+                    continue;
+                }
+                let top = if c == '▀' { fg } else { bg };
+                grid[2 * row][x] = top;
+                if 2 * row + 1 < size {
+                    grid[2 * row + 1][x] = bg;
+                }
+                x += 1;
+            }
+            assert_eq!(x, size, "row {row} is {x} modules wide");
+        }
+        let colors = code.to_colors();
+        for y in 0..size {
+            for x in 0..size {
+                let inside =
+                    (QUIET..QUIET + width).contains(&x) && (QUIET..QUIET + width).contains(&y);
+                let want = inside && colors[(y - QUIET) * width + (x - QUIET)] == Color::Dark;
+                assert_eq!(grid[y][x], want, "module {x},{y}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_big_code_page_is_self_contained_and_escaped() {
+        let setup = PhoneSetup {
+            address: "https://192.168.1.5:8788#pin=a<b".into(),
+            code: "K7QX-M2PD".into(),
+            page: None,
+        };
+        let page = qr_page(&setup).expect("page");
+        assert!(page.contains("<svg"));
+        assert!(page.contains("K7QX-M2PD"));
+        assert!(page.contains("pin=a&lt;b"));
+        assert!(!page.contains("pin=a<b"));
+        assert!(!page.contains("<script"));
+        assert!(page.contains("default-src 'none'"));
+        let dir = std::env::temp_dir().join(format!("latch-qr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = write_qr_page(&dir, &setup).expect("written");
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), page);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -303,6 +521,7 @@ mod tests {
                 phone: Some(PhoneSetup {
                     address: "https://192.168.1.5:8788#pin=abc".into(),
                     code: "K7QX-M2PD".into(),
+                    page: None,
                 }),
                 wifi_without_address: None,
             },

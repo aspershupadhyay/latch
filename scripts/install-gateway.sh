@@ -87,7 +87,7 @@ fi
 cat >"$bin_dir/latch-start" <<EOF
 #!/bin/sh
 # Starts the Latch gateway for phones on this Wi-Fi, with the keys in $home/latch.env.
-# It shows a QR code: scan it in the Latch app (Computer on Wi-Fi → Scan QR code).
+# It shows a QR code: open Latch on the phone and tap "Scan the QR code on my computer".
 . "$home/latch.env"
 echo
 echo "  AI app setup, once (Claude Code):"

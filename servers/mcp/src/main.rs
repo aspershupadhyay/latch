@@ -16,6 +16,7 @@ USAGE:
     latch-gateway [serve]     Run the HTTP gateway (MCP at /mcp, phones at /v1/device, console at /)
     latch-gateway stdio       Speak MCP on stdin/stdout and serve phones over HTTP in the background
     latch-gateway pair        Show a new QR code and setup code for a phone on this Wi-Fi
+                              (--open: the same code, big, in the browser)
                               (the gateway must be running; uses LATCH_ADMIN_TOKEN)
     latch-gateway gen-token   Print a new random token for LATCH_ADMIN_TOKEN or LATCH_MCP_TOKEN
     latch-gateway check-phone [--url URL] [--device ID] [--quick] [--no-prompts] [--report FILE]
@@ -225,7 +226,15 @@ async fn start_wifi(
 fn phone_setup(state: &AppState, address: String) -> Option<PhoneSetup> {
     match state.pairings.lock() {
         Ok(mut pairings) => match pairings.create_owner(now_ms()) {
-            Ok((code, _)) => Some(PhoneSetup { address, code }),
+            Ok((code, _)) => {
+                let mut setup = PhoneSetup {
+                    address,
+                    code,
+                    page: None,
+                };
+                setup.page = terminal::write_qr_page(&state.config.data_dir, &setup);
+                Some(setup)
+            }
             Err(e) => {
                 tracing::warn!(error = %e, "no setup code");
                 None
@@ -268,13 +277,24 @@ async fn pair() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let setup = PhoneSetup {
+    let mut setup = PhoneSetup {
         address: wifi::phone_address(ip, port, &pin),
         code,
+        page: None,
     };
+    setup.page = terminal::write_qr_page(&config.data_dir, &setup);
     eprintln!();
     eprint!("{}", terminal::phone_block(Style::detect(), &setup));
     eprintln!();
+    // `pair --open`: the same code, big, in the browser (a terminal font can break a code up).
+    if std::env::args().skip(2).any(|a| a == "--open") {
+        match &setup.page {
+            Some(page) if terminal::open_in_browser(page) => {
+                eprintln!("    Opened the big code in your browser.\n");
+            }
+            _ => eprintln!("    The big code could not be opened; use the link above.\n"),
+        }
+    }
     ExitCode::SUCCESS
 }
 
