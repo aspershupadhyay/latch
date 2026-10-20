@@ -139,6 +139,9 @@ struct Viewer {
     text: mpsc::Sender<ToViewer>,
     waiting_key: bool,
     last_sync_ms: u64,
+    /// Video frames this gateway dropped for the viewer since the phone's last
+    /// `stats` (R35): a full queue, or deltas skipped while waiting for a key frame.
+    dropped: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -370,6 +373,19 @@ impl Mirrors {
         if session.generation != generation {
             return;
         }
+        if kind == "stats" {
+            // R35: the phone's numbers for the overlay, with this gateway's own drops added.
+            if let Some(v) = session.viewer.as_mut()
+                && let Ok(Value::Object(mut stats)) = serde_json::from_str::<Value>(message)
+            {
+                stats.insert("gateway_drops".into(), json!(v.dropped));
+                v.dropped = 0;
+                let _ = v
+                    .text
+                    .try_send(ToViewer::Text(Value::Object(stats).to_string()));
+            }
+            return;
+        }
         match kind {
             "screen" => session.screen = Some(message.to_owned()),
             "ai" => session.ai = Some(message.to_owned()),
@@ -411,11 +427,13 @@ impl Mirrors {
         let mut want_sync = false;
         if viewer.waiting_key && !key {
             // A delta frame without the frames before it would only show garbage.
+            viewer.dropped = viewer.dropped.saturating_add(1);
             want_sync = now.saturating_sub(viewer.last_sync_ms) >= 4 * SYNC_REQUEST_GAP_MS;
         } else {
             match viewer.video.try_send(frame) {
                 Ok(()) => viewer.waiting_key = false,
                 Err(mpsc::error::TrySendError::Full(_)) => {
+                    viewer.dropped = viewer.dropped.saturating_add(1);
                     viewer.waiting_key = true;
                     want_sync = now.saturating_sub(viewer.last_sync_ms) >= SYNC_REQUEST_GAP_MS;
                 }
@@ -560,6 +578,7 @@ impl Mirrors {
             text: text_tx,
             waiting_key: true,
             last_sync_ms: now,
+            dropped: 0,
         });
         if let Some(p) = &session.phone {
             let _ = p.try_send(ToPhone::Text(text(
@@ -780,6 +799,10 @@ pub enum ViewerMessage {
     Notifications {
         show: bool,
     },
+    /// The page shows its stats overlay (R35): the phone reports once a second while on.
+    Stats {
+        on: bool,
+    },
 }
 
 impl ViewerMessage {
@@ -827,6 +850,7 @@ const PHONE_TEXT_KINDS: &[&str] = &[
     "clipboard",
     "status",
     "input",
+    "stats",
 ];
 
 fn phone_kind(raw: &str) -> Option<String> {

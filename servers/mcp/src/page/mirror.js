@@ -144,6 +144,7 @@ const SHORTCUTS = {
   KeyO: 'screen_light', KeyF: 'full', KeyR: 'rotate', KeyM: 'sound',
   ArrowUp: 'volume_up', ArrowDown: 'volume_down',
   KeyP: 'shot', 'Shift+KeyP': 'record', KeyU: 'send_file', KeyW: 'pop_out', KeyI: 'show_notifications',
+  KeyD: 'stats',
   Slash: 'help', 'Shift+Slash': 'help',
 };
 
@@ -198,6 +199,50 @@ function normalizeCode(text) {
   return /^\d{6}$/.test(digits) ? digits : null;
 }
 
+// ---- Stream stats (R35, Alt+D) ----
+
+/**
+ * The phone's frame clock minus this page's `performance.now()`, in ms, from
+ * ping/pong samples `{sent, rtt, phoneUs}`: the sample with the shortest round
+ * trip, assuming the pong was stamped halfway. Null without a sample.
+ */
+function clockOffset(samples) {
+  let best = null;
+  for (const s of samples) {
+    if (!Number.isFinite(s.phoneUs) || !Number.isFinite(s.rtt) || !Number.isFinite(s.sent)) continue;
+    if (!best || s.rtt < best.rtt) best = s;
+  }
+  return best ? best.phoneUs / 1000 - (best.sent + best.rtt / 2) : null;
+}
+
+/** Average, 95th percentile, and maximum of a list of numbers; null when empty. */
+function summarize(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const sum = sorted.reduce((a, b) => a + b, 0);
+  return { avg: sum / sorted.length, p95: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))], max: sorted[sorted.length - 1] };
+}
+
+/** The overlay's lines from the phone's last `stats` message and this page's last second. */
+function statsLines(phone, page) {
+  const ms = (v) => (v == null ? '–' : `${v.toFixed(1)} ms`);
+  const sum = (s) => (s ? `${ms(s.avg)} (p95 ${ms(s.p95)})` : '–');
+  const lines = [];
+  if (phone) {
+    const rate = Number.isFinite(phone.kbps) ? `${(phone.kbps / 1000).toFixed(1)} Mbit/s` : '–';
+    const target = Number.isFinite(phone.target_kbps) ? ` (aim ${(phone.target_kbps / 1000).toFixed(1)})` : '';
+    lines.push(`Stream   ${phone.codec || '?'} ${phone.w}×${phone.h}  ${phone.frames} fps  ${rate}${target}`);
+    lines.push(`Phone    encode ${ms(phone.encode_ms)} (max ${ms(phone.encode_max_ms)})  key frames ${phone.key_frames}  dropped ${phone.drops}`);
+    lines.push(`Gateway  dropped ${Number.isFinite(phone.gateway_drops) ? phone.gateway_drops : '–'}`);
+  } else {
+    lines.push('Stream   waiting for the phone\'s numbers…');
+  }
+  lines.push(`Network  capture→page ${page.synced ? sum(page.transit) : 'syncing clocks…'}  ping ${page.rtt == null ? '–' : `${Math.round(page.rtt)} ms`}`);
+  lines.push(`Page     ${page.frames} fps  decode ${sum(page.decode)}  draw ${sum(page.draw)}  skipped ${page.skipped}`);
+  lines.push(`Total    glass-to-glass ≈ ${page.synced ? sum(page.total) : '–'} + the screen's own delay`);
+  return lines;
+}
+
 /** The viewer key from a link's fragment (#k=...), or null. */
 function keyFromHash(hash) {
   const m = /(?:^#|&)k=([A-Za-z0-9_-]{43})(?:&|$)/.exec(hash || '');
@@ -208,6 +253,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, shortcut,
     clipboardAction, pasteMessage, stamp, statusText, latencyClass, normalizeCode, keyFromHash,
+    clockOffset, summarize, statsLines,
   };
 }
 
@@ -432,8 +478,17 @@ if (typeof document !== 'undefined') {
         const rtt = Math.max(0, Math.round(performance.now() - m.at));
         $('live').className = `live ${latencyClass(rtt)}`;
         $('live-text').textContent = `Live ${rtt} ms`;
+        perf.rtt = rtt;
+        if (Number.isFinite(m.phone_us)) {
+          clockSamples.push({ sent: m.at, rtt, phoneUs: m.phone_us });
+          if (clockSamples.length > 12) clockSamples.shift();
+          perf.offset = clockOffset(clockSamples);
+        }
         break;
       }
+      case 'stats':
+        perf.phone = m;
+        break;
       case 'notice':
         if (typeof m.text === 'string') toast(m.text);
         break;
@@ -469,6 +524,63 @@ if (typeof document !== 'undefined') {
   function uncover() {
     $('cover').hidden = true;
   }
+
+  // R35: per-frame timings for the stats overlay, kept only while it is open.
+  const clockSamples = [];
+  const perf = {
+    on: false, offset: null, rtt: null, phone: null,
+    frames: 0, skipped: 0, transit: [], decode: [], draw: [], total: [], pending: new Map(),
+  };
+
+  function toggleStats() {
+    perf.on = !perf.on;
+    $('stats').hidden = !perf.on;
+    send({ t: 'stats', on: perf.on });
+    if (perf.on) {
+      // Ask for the clock now instead of waiting for the next ping.
+      send({ t: 'ping', at: performance.now() });
+      $('stats').textContent = 'Measuring…';
+    }
+  }
+
+  /** A frame arrived: when the phone captured it, on this page's clock (null before clocks are synced). */
+  function captured(ts) {
+    return perf.offset == null ? null : ts / 1000 - perf.offset;
+  }
+
+  function frameArrived(ts, arrived) {
+    if (!perf.on) return;
+    perf.frames += 1;
+    if (perf.pending.size > 240) perf.pending.clear();
+    perf.pending.set(ts, arrived);
+    const at = captured(ts);
+    if (at != null) perf.transit.push(arrived - at);
+  }
+
+  function frameShown(ts, decoded, drawn) {
+    if (!perf.on) return;
+    const arrived = perf.pending.get(ts);
+    perf.pending.delete(ts);
+    if (arrived != null) perf.decode.push(decoded - arrived);
+    perf.draw.push(drawn - decoded);
+    const at = captured(ts);
+    if (at != null) perf.total.push(drawn - at);
+  }
+
+  setInterval(() => {
+    if (!perf.on) return;
+    const page = {
+      synced: perf.offset != null, rtt: perf.rtt, frames: perf.frames, skipped: perf.skipped,
+      transit: summarize(perf.transit), decode: summarize(perf.decode), draw: summarize(perf.draw), total: summarize(perf.total),
+    };
+    $('stats').textContent = statsLines(perf.phone, page).join('\n');
+    perf.frames = 0;
+    perf.skipped = 0;
+    perf.transit = [];
+    perf.decode = [];
+    perf.draw = [];
+    perf.total = [];
+  }, 1000);
 
   function resetDecoder() {
     if (decoder && decoder.state !== 'closed') {
@@ -577,7 +689,9 @@ if (typeof document !== 'undefined') {
     try {
       decoder = new VideoDecoder({
         output: (frame) => {
+          const decoded = performance.now();
           draw(frame, frame.displayWidth, frame.displayHeight);
+          frameShown(frame.timestamp, decoded, performance.now());
           frame.close();
         },
         error: () => fallBackToStills("This browser couldn't decode the phone's video; showing still pictures instead."),
@@ -603,9 +717,16 @@ if (typeof document !== 'undefined') {
       toast('Screenshot saved to your downloads.');
       return;
     }
+    const arrived = performance.now();
     if (frame.kind === KIND_JPEG) {
+      frameArrived(frame.ts, arrived);
       createImageBitmap(new Blob([frame.data], { type: 'image/jpeg' }))
-        .then((bitmap) => { draw(bitmap, bitmap.width, bitmap.height); bitmap.close(); })
+        .then((bitmap) => {
+          const decoded = performance.now();
+          draw(bitmap, bitmap.width, bitmap.height);
+          frameShown(frame.ts, decoded, performance.now());
+          bitmap.close();
+        })
         .catch(() => {});
       return;
     }
@@ -617,10 +738,12 @@ if (typeof document !== 'undefined') {
     if (!decoder || (waitKey && !frame.key)) return;
     if (!frame.key && decoder.decodeQueueSize > 2) {
       // Behind: skip to the next key frame instead of showing the past late.
+      perf.skipped += 1;
       waitKey = true;
       send({ t: 'sync' });
       return;
     }
+    frameArrived(frame.ts, arrived);
     try {
       decoder.decode(new EncodedVideoChunk({ type: frame.key ? 'key' : 'delta', timestamp: frame.ts, data: frame.data }));
       if (frame.key) waitKey = false;
@@ -1055,6 +1178,7 @@ if (typeof document !== 'undefined') {
       case 'pop_out': popOut(); break;
       case 'show_notifications': $('show-notifications').click(); break;
       case 'help': $('help').showModal(); break;
+      case 'stats': toggleStats(); break;
       default: break;
     }
   }

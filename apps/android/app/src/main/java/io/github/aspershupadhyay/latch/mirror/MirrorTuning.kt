@@ -159,6 +159,70 @@ class BitrateGovernor(
     }
 }
 
+/**
+ * R35: what the encoder did since the last report, for the page's stats
+ * overlay. Encode time is from the frame's capture timestamp (the display's
+ * monotonic clock, as `System.nanoTime`) to the encoder handing it out.
+ */
+class StreamStats {
+    data class Snapshot(
+        val frames: Int,
+        val keyFrames: Int,
+        val drops: Int,
+        val kbits: Long,
+        val encodeAvgMs: Double?,
+        val encodeMaxMs: Double?,
+    )
+
+    private var frames = 0
+    private var keyFrames = 0
+    private var drops = 0
+    private var bytes = 0L
+    private var encodeSumUs = 0L
+    private var encodeMaxUs = 0L
+    private var encoded = 0
+
+    /** One encoded frame of [size] bytes; [sent] false when the socket was too far behind. */
+    @Synchronized
+    fun frame(size: Int, key: Boolean, sent: Boolean, encodeUs: Long?) {
+        if (!sent) {
+            drops++
+            return
+        }
+        frames++
+        if (key) keyFrames++
+        bytes += size
+        // A timestamp on another clock (or none) gives nonsense; leave it out.
+        if (encodeUs != null && encodeUs in 0..MAX_ENCODE_US) {
+            encodeSumUs += encodeUs
+            encodeMaxUs = maxOf(encodeMaxUs, encodeUs)
+            encoded++
+        }
+    }
+
+    /** The numbers since the last call, and a fresh start. */
+    @Synchronized
+    fun take(): Snapshot {
+        val snapshot = Snapshot(
+            frames, keyFrames, drops, bytes * 8 / 1000,
+            if (encoded > 0) encodeSumUs / 1000.0 / encoded else null,
+            if (encoded > 0) encodeMaxUs / 1000.0 else null,
+        )
+        frames = 0
+        keyFrames = 0
+        drops = 0
+        bytes = 0
+        encodeSumUs = 0
+        encodeMaxUs = 0
+        encoded = 0
+        return snapshot
+    }
+
+    private companion object {
+        const val MAX_ENCODE_US = 2_000_000L
+    }
+}
+
 /** H.264 Annex B helpers: a key frame must carry its SPS and PPS so the browser can start there. */
 object AnnexB {
     /** The type of the first NAL unit after a start code, or -1. */

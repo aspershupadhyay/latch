@@ -29,7 +29,8 @@ phone                                         gateway
   ── binary frames ──▶
   ── {"t":"screen","w":1080,"h":2400,"rotation":0} ──▶
   ── {"t":"ai","session":"off|active|paused","owner":bool,"working":bool,"steps":[{"at":ms,"by":"ai|owner|latch","text":"…","app":"…"}]} ──▶
-  ── {"t":"pong","at":n} ──▶                      (answers a viewer ping)
+  ── {"t":"pong","at":n,"phone_us":n} ──▶        (answers a viewer ping; phone_us, since R35, is the phone's frame clock now, so the page lines frame timestamps up with its own)
+  ── {"t":"stats","codec":…,"frames":n,"key_frames":n,"drops":n,"kbps":n,"target_kbps":n,"w":n,"h":n,"encode_ms":n,"encode_max_ms":n} ──▶   (R35: the last second, once a second while the page asked; the gateway adds "gateway_drops")
   ── {"t":"notice","text":"…"} ──▶                (one line for the page, e.g. "Type passwords on the phone")
   ── {"t":"status","battery":0-100,"charging":bool,"network":"wifi|cellular|ethernet|none","signal":0-4} ──▶   (any field may be missing; ADR-057)
   ── {"t":"input","mode":"keys"|"basic"} ──▶       (keys: the Full ADB input helper runs; ADR-057)
@@ -49,7 +50,7 @@ A phone that disconnects without `end` keeps its viewer for 15 s; reconnecting w
 browser                                       gateway
   ── {"t":"join","code":"123456"|"key":"…","codecs":["h264","jpeg"]} ──▶
   ◀── {"t":"joined","version":1,"device":"Pixel 8","codec":"h264","key":"…"}   (keep the key to reconnect)
-  ◀── the phone's screen / ai / pong / notice / status / input / clipboard messages, {"t":"phone","online":bool}, binary frames
+  ◀── the phone's screen / ai / pong / notice / status / input / clipboard / stats messages, {"t":"phone","online":bool}, binary frames
   ◀── {"t":"volume","percent":0-100}             (an AI app set the computer's volume, ADR-056)
   ── {"t":"touch","phase":"down|move|up|cancel","x":int,"y":int} ──▶
   ── {"t":"wheel","x":int,"y":int,"dx":int,"dy":int} ──▶
@@ -64,6 +65,7 @@ browser                                       gateway
   ── {"t":"notifications","show":bool} ──▶        (gateway only: Android 15's screen-share protection through Full ADB, ADR-057)
   ── {"t":"control","action":"pause|resume|stop|end"} ──▶   (stop ends the AI session; end ends mirroring)
   ── {"t":"ping","at":number} / {"t":"sync"} / {"t":"codec","codec":"jpeg"} ──▶
+  ── {"t":"stats","on":bool} ──▶                  (R35: the page's stats overlay, Alt+D)
 ```
 
 Coordinates are phone screen pixels (0–16384). The gateway drops anything else, rebuilds what passes from its fields, and limits a viewer to 1000 messages a second. `screen_light` and `notifications` never reach the phone's mirror link: the gateway runs them as Full ADB commands and answers with a `notice`. A viewer message is at most 16 KiB; a phone message at most 64 KiB (clipboard text). A code joins only when nobody watches; the key takes over from another window (that one is closed with 4409).

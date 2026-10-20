@@ -270,6 +270,8 @@ class MirrorController(
 
     private fun stopParts() {
         watching = false
+        statsJob?.cancel()
+        statsJob = null
         ownerControl = false
         stopKeys()
         statusJob?.cancel()
@@ -367,7 +369,8 @@ class MirrorController(
                 is MirrorIn.Sync -> handler?.post { capture?.requestKeyFrame() }
                 is MirrorIn.CodecChoice -> handler?.post { capture?.start(message.codec) }
                 is MirrorIn.Sound -> handler?.post { capture?.audio?.quietPhone(message.on) }
-                is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at))
+                is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at, System.nanoTime() / 1000))
+                is MirrorIn.Stats -> scope.launch { statsFor(message.on) }
                 is MirrorIn.Shot -> shot()
                 is MirrorIn.File -> receive(message)
                 else -> input.trySend(Input.Message(message, SystemClock.uptimeMillis()))
@@ -451,6 +454,25 @@ class MirrorController(
     }
 
     // ---- The phone's state, and a screenshot, for the page (ADR-057) ----
+
+    private var statsJob: Job? = null
+
+    /** R35: once a second while the page shows its stats overlay and someone watches. */
+    private fun statsFor(on: Boolean) {
+        statsJob?.cancel()
+        statsJob = null
+        if (!on) return
+        capture?.stats?.take()
+        statsJob = scope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(1_000)
+                val c = capture ?: continue
+                if (!watching) continue
+                val (w, h) = c.encodedSize
+                link?.sendText(MirrorMessages.stats(c.stats.take(), c.targetBps / 1000, w, h, c.codecName))
+            }
+        }
+    }
 
     private fun startStatus() {
         statusJob?.cancel()

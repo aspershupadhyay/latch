@@ -165,3 +165,31 @@ test('a letterboxed or turned picture maps to the right phone pixels', () => {
   assert.deepEqual(m.mapPoint(500, 0, turnedRect, screen, true), { x: 0, y: 0 });
   assert.deepEqual(m.mapPoint(0, 1000, turnedRect, screen, true), { x: 999, y: 499 });
 });
+
+test('stream stats: clocks line up by the fastest ping, and the overlay reads plainly (R35)', () => {
+  // Phone clock = page clock + 5000 ms. The 10 ms round trip is trusted over the 80 ms one.
+  const offset = m.clockOffset([
+    { sent: 1000, rtt: 80, phoneUs: (1000 + 70 + 5000) * 1000 },
+    { sent: 3000, rtt: 10, phoneUs: (3000 + 5 + 5000) * 1000 },
+  ]);
+  assert.equal(offset, 5000);
+  assert.equal(m.clockOffset([]), null);
+  assert.equal(m.clockOffset([{ sent: 1, rtt: 2 }]), null, 'an older phone sends no clock');
+
+  assert.equal(m.summarize([]), null);
+  const s = m.summarize([4, 1, 3, 2, 10]);
+  assert.equal(s.avg, 4);
+  assert.equal(s.max, 10);
+
+  const lines = m.statsLines(
+    { codec: 'h264', w: 1080, h: 2400, frames: 60, kbps: 8200, target_kbps: 8000, encode_ms: 6.1, encode_max_ms: 12, key_frames: 0, drops: 1, gateway_drops: 2 },
+    { synced: true, rtt: 9, frames: 59, skipped: 0, transit: s, decode: s, draw: s, total: s },
+  );
+  assert.match(lines[0], /h264 1080×2400 {2}60 fps {2}8\.2 Mbit\/s \(aim 8\.0\)/);
+  assert.match(lines[1], /encode 6\.1 ms/);
+  assert.match(lines[2], /dropped 2/);
+  assert.match(lines[5], /glass-to-glass ≈ 4\.0 ms/);
+  const unsynced = m.statsLines(null, { synced: false, rtt: null, frames: 0, skipped: 0, transit: null, decode: null, draw: null, total: null });
+  assert.match(unsynced.join('\n'), /syncing clocks/);
+  assert.equal(m.shortcut({ altKey: true, code: 'KeyD' }), 'stats');
+});

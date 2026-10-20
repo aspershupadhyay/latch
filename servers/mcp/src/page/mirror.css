@@ -72,6 +72,12 @@ canvas {
   position: absolute; inset: 8px; border-radius: 26px; display: grid; place-items: center; padding: 24px;
   background: rgba(30, 34, 40, 0.92); text-align: center; color: var(--muted);
 }
+/* R35: stream stats over the picture (Alt+D). */
+.stats {
+  position: absolute; left: 16px; top: 16px; margin: 0; padding: 8px 10px; max-width: calc(100% - 32px);
+  background: rgba(0, 0, 0, 0.72); color: #d7f5dd; border-radius: 10px; pointer-events: none;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap;
+}
 /* Phone-style navigation bar: icon buttons like Android's own. */
 .keys {
   display: flex; gap: 6px; align-items: center; justify-content: center;

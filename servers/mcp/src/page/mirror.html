@@ -67,6 +67,7 @@
         <div id="frame" class="frame">
           <canvas id="screen" tabindex="0" aria-label="Phone screen. Click to tap, drag to swipe, scroll to scroll, and type to type into the field in focus on the phone. Escape is Back."></canvas>
           <div id="cover" class="cover" hidden><p id="cover-text">Waiting for the picture…</p></div>
+          <pre id="stats" class="stats" hidden aria-live="off"></pre>
         </div>
         <nav class="keys" aria-label="Phone buttons">
           <button type="button" data-button="back" aria-label="Back" title="Back (Esc or Alt+B)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5 L7 12 L16 19 Z"/></svg></button>
@@ -126,6 +127,7 @@
         <dt>Alt+P</dt><dd>Screenshot (Alt+Shift+P: record)</dd>
         <dt>Alt+U</dt><dd>Send files (or drop them here)</dd>
         <dt>Alt+I</dt><dd>Show notifications in the mirror</dd>
+        <dt>Alt+D</dt><dd>Stream stats: delay of each step, frame rate, bitrate</dd>
       </dl>
     </div>
     <button id="help-close" type="button" class="primary">Close</button>

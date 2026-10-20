@@ -3689,6 +3689,23 @@ async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back()
         Got::Text(json!({"t": "control", "action": "pause"}))
     );
 
+    // R35: the page asks for stats; the phone's numbers come back with the gateway's own drops.
+    send_json(&mut viewer, json!({"t": "stats", "on": true})).await;
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "stats", "on": true}))
+    );
+    send_json(
+        &mut ph,
+        json!({"t": "stats", "frames": 60, "encode_ms": 6.5}),
+    )
+    .await;
+    let stats = next_of(&mut viewer, "stats").await;
+    assert_eq!(
+        (stats["frames"].clone(), stats["gateway_drops"].clone()),
+        (json!(60), json!(0))
+    );
+
     // The link takes over from another window; the first one is told why.
     let (mut second, got) = join(&gw, json!({"key": VIEWER_KEY})).await;
     assert!(

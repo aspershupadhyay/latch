@@ -49,8 +49,15 @@ class MirrorCapture(
     private var reader: ImageReader? = null
     private var config: ByteArray? = null
     private var codec: Codec? = null
+    /** What is being sent now: "h264", "jpeg", or "off". */
+    val codecName: String get() = codec?.wire ?: "off"
     private var size = 0 to 0
     private val governor = BitrateGovernor()
+    /** R35: what the encoder did since the page last asked. */
+    val stats = StreamStats()
+    /** The bitrate the encoder aims for now, and the encoded picture's size. */
+    val targetBps: Int get() = governor.bps
+    val encodedSize: Pair<Int, Int> get() = size
     private var lastKeyRequestMs = 0L
     private var lastStillMs = 0L
 
@@ -197,7 +204,11 @@ class MirrorCapture(
                 val key = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
                 val payload = AnnexB.withConfig(config, buffer, key)
                 val now = SystemClock.uptimeMillis()
-                if (sink(MirrorMessages.KIND_H264, key, info.presentationTimeUs, payload)) {
+                val size = payload.remaining()
+                val encodeUs = System.nanoTime() / 1000 - info.presentationTimeUs
+                val sent = sink(MirrorMessages.KIND_H264, key, info.presentationTimeUs, payload)
+                stats.frame(size, key, sent, encodeUs)
+                if (sent) {
                     governor.clean(now)?.let(::setBitrate)
                 } else {
                     governor.dropped(now)?.let(::setBitrate)
@@ -268,7 +279,9 @@ class MirrorCapture(
                     }
                     stillOut.reset()
                     bitmap.compress(Bitmap.CompressFormat.JPEG, STILL_QUALITY, stillOut)
-                    sink(MirrorMessages.KIND_JPEG, true, SystemClock.elapsedRealtimeNanos() / 1000, stillOut.view())
+                    val started = System.nanoTime() / 1000
+                    val sent = sink(MirrorMessages.KIND_JPEG, true, started, stillOut.view())
+                    stats.frame(stillOut.size(), true, sent, null)
                     lastStillMs = SystemClock.uptimeMillis()
                 } catch (e: Exception) {
                     problem("A still picture could not be made (${e.javaClass.simpleName}).")

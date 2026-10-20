@@ -44,6 +44,8 @@ sealed interface MirrorIn {
     data class Copy(val cut: Boolean) : MirrorIn
     /** A full-resolution screenshot for the computer (ADR-057). */
     data object Shot : MirrorIn
+    /** R35: the page shows its stats overlay; the phone reports once a second while [on]. */
+    data class Stats(val on: Boolean) : MirrorIn
     /** From the gateway: a file the owner dropped on the page, to fetch into Downloads (ADR-057). */
     data class File(val url: String, val keyHex: String, val ivHex: String, val sha256: String, val name: String, val size: Long) : MirrorIn
 }
@@ -93,6 +95,7 @@ object MirrorMessages {
         "copy" to emptySet(),
         "cut" to emptySet(),
         "shot" to emptySet(),
+        "stats" to setOf("on"),
         "file" to setOf("url", "key", "iv", "sha256", "name", "size"),
     )
 
@@ -130,6 +133,7 @@ object MirrorMessages {
             "copy" -> MirrorIn.Copy(cut = false)
             "cut" -> MirrorIn.Copy(cut = true)
             "shot" -> MirrorIn.Shot
+            "stats" -> MirrorIn.Stats(o.bool("on") ?: return null)
             "file" -> {
                 fun hex(name: String, length: Int) = o.string(name)?.takeIf { v -> v.length == length && v.all { it in '0'..'9' || it in 'a'..'f' } }
                 val name = o.string("name")?.takeIf { validFileName(it) } ?: return null
@@ -205,9 +209,26 @@ object MirrorMessages {
         )
     }.toString()
 
-    fun pong(at: Double): String = buildJsonObject {
+    /** The answer to a ping; [phoneUs] is the phone's frame clock now (R35), so the page can line frames up with its own. */
+    fun pong(at: Double, phoneUs: Long? = null): String = buildJsonObject {
         put("t", "pong")
         put("at", at)
+        phoneUs?.let { put("phone_us", it) }
+    }.toString()
+
+    /** R35: the encoder's last second, for the page's stats overlay. */
+    fun stats(s: StreamStats.Snapshot, bitrateKbps: Int, width: Int, height: Int, codec: String): String = buildJsonObject {
+        put("t", "stats")
+        put("codec", codec)
+        put("frames", s.frames)
+        put("key_frames", s.keyFrames)
+        put("drops", s.drops)
+        put("kbps", s.kbits)
+        put("target_kbps", bitrateKbps)
+        put("w", width)
+        put("h", height)
+        s.encodeAvgMs?.let { put("encode_ms", kotlin.math.round(it * 10) / 10) }
+        s.encodeMaxMs?.let { put("encode_max_ms", kotlin.math.round(it * 10) / 10) }
     }.toString()
 
     fun notice(text: String): String = buildJsonObject {
