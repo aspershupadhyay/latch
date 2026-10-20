@@ -193,3 +193,47 @@ test('stream stats: clocks line up by the fastest ping, and the overlay reads pl
   assert.match(unsynced.join('\n'), /syncing clocks/);
   assert.equal(m.shortcut({ altKey: true, code: 'KeyD' }), 'stats');
 });
+
+test('sound plays from a ring buffer with a 40 ms cushion and jumps forward when late (R47)', () => {
+  let Processor = null;
+  const vm = require('node:vm');
+  const context = {
+    AudioWorkletProcessor: class { constructor() { this.port = {}; } },
+    registerProcessor: (name, cls) => { assert.equal(name, 'latch-sound'); Processor = cls; },
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/page/mirror-audio.js'), 'utf8'), context);
+  const p = new Processor();
+  const quantum = () => { const out = [[new Float32Array(128), new Float32Array(128)]]; p.process([], out); return out[0]; };
+  const frames = (n, value) => { const s = new Int16Array(n * 2); s.fill(value); return s; };
+
+  // Less than the cushion: silence while it fills.
+  p.push(frames(960, 16384));
+  assert.equal(quantum()[0][0], 0);
+  p.push(frames(960, 16384));
+  const [left, right] = quantum();
+  assert.equal(left[0], 0.5);
+  assert.equal(right[127], 0.5);
+  // Far behind (more than 150 ms queued): only the newest 40 ms is kept.
+  p.push(frames(9600, 8192));
+  assert.equal(p.queued, 1920);
+  assert.equal(quantum()[0][0], 0.25);
+  // Run dry: silence, then wait for the cushion again.
+  for (let i = 0; i < 20; i++) quantum();
+  assert.equal(p.queued, 0);
+  assert.equal(p.started, false);
+});
+
+test('the video worker parses with the shared helpers (R36)', () => {
+  const vm = require('node:vm');
+  const page = fs.readFileSync(path.join(__dirname, '../src/page/mirror.js'), 'utf8');
+  const worker = fs.readFileSync(path.join(__dirname, '../src/page/mirror-worker.js'), 'utf8');
+  const posted = [];
+  const context = { performance, postMessage: (m) => posted.push(m), Blob, Uint8Array, DataView, ArrayBuffer, Number };
+  context.importScripts = () => vm.runInContext(page, context);
+  vm.createContext(context);
+  vm.runInContext(worker, context);
+  // A frame before the decoder exists is ignored without an error; reset is harmless.
+  context.onmessage({ data: { t: 'reset' } });
+  context.onmessage({ data: { t: 'frame', buffer: new ArrayBuffer(4) } });
+  assert.deepEqual(posted, []);
+});

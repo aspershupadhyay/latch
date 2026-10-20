@@ -21,6 +21,10 @@ const PAGE_CSS: &str = include_str!("page/gateway.css");
 const ROBOTS_TXT: &str = include_str!("page/robots.txt");
 const MIRROR_HTML: &str = include_str!("page/mirror.html");
 const MIRROR_JS: &str = include_str!("page/mirror.js");
+/// R36: decodes and draws the video in a Worker.
+const MIRROR_WORKER_JS: &str = include_str!("page/mirror-worker.js");
+/// R47: plays the sound from a ring buffer on the audio thread.
+const MIRROR_AUDIO_JS: &str = include_str!("page/mirror-audio.js");
 const MIRROR_CSS: &str = include_str!("page/mirror.css");
 
 /// Largest MCP request body: room for the biggest `adb` call the protocol
@@ -37,6 +41,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         // Live mirror (R30, ADR-051): the owner's page, the phone's stream, the browser's socket.
         .route("/mirror", get(mirror_page))
         .route("/mirror.js", get(mirror_js))
+        .route("/mirror-worker.js", get(mirror_worker_js))
+        .route("/mirror-audio.js", get(mirror_audio_js))
         .route("/mirror.css", get(mirror_css))
         .route("/v1/mirror/phone", get(crate::mirror::phone_upgrade))
         .route("/v1/mirror/view", get(crate::mirror::view_upgrade))
@@ -692,6 +698,14 @@ fn mirror_file(body: &'static str, content_type: &'static str) -> Response {
 
 async fn mirror_page() -> Response {
     mirror_file(MIRROR_HTML, "text/html; charset=utf-8")
+}
+
+async fn mirror_worker_js() -> Response {
+    mirror_file(MIRROR_WORKER_JS, "text/javascript; charset=utf-8")
+}
+
+async fn mirror_audio_js() -> Response {
+    mirror_file(MIRROR_AUDIO_JS, "text/javascript; charset=utf-8")
 }
 
 async fn mirror_js() -> Response {

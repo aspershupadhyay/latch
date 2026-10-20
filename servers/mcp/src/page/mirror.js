@@ -278,7 +278,20 @@ if (typeof document !== 'undefined') {
   };
 
   const canvas = $('screen');
-  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  // R36: a Worker decodes and draws, where the browser can hand it the canvas;
+  // otherwise this page does, as before.
+  const video = typeof Worker === 'function' && typeof OffscreenCanvas === 'function' && typeof canvas.transferControlToOffscreen === 'function'
+    ? new Worker('/mirror-worker.js')
+    : null;
+  let ctx = null;
+  if (video) {
+    const offscreen = canvas.transferControlToOffscreen();
+    video.postMessage({ t: 'init', canvas: offscreen }, [offscreen]);
+  } else {
+    ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  }
+  // The picture's size, as drawn (the canvas's own size is the worker's once handed over).
+  const picture = { w: 0, h: 0 };
   let socket = null;
   let key = null;
   let screen = null;
@@ -541,6 +554,7 @@ if (typeof document !== 'undefined') {
 
   function toggleStats() {
     perf.on = !perf.on;
+    if (video) video.postMessage({ t: 'timings', on: perf.on });
     $('stats').hidden = !perf.on;
     send({ t: 'stats', on: perf.on });
     if (perf.on) {
@@ -589,7 +603,24 @@ if (typeof document !== 'undefined') {
     perf.total = [];
   }, 1000);
 
+  if (video) {
+    video.onmessage = (event) => {
+      const m = event.data;
+      switch (m.t) {
+        case 'size': picture.w = m.w; picture.h = m.h; break;
+        case 'drawn': lastFrameAt = performance.now(); uncover(); break;
+        case 'shown': frameShown(m.ts, m.decoded - performance.timeOrigin, m.drawn - performance.timeOrigin); break;
+        case 'skipped': perf.skipped += 1; break;
+        case 'sync': send({ t: 'sync' }); break;
+        case 'error': decodeFailed(); break;
+        case 'unsupported': fallBackToStills("This browser can't decode the phone's video; showing still pictures instead."); break;
+        default: break;
+      }
+    };
+  }
+
   function resetDecoder() {
+    if (video) video.postMessage({ t: 'reset' });
     if (decoder && decoder.state !== 'closed') {
       try { decoder.close(); } catch { /* already closed */ }
     }
@@ -624,6 +655,15 @@ if (typeof document !== 'undefined') {
         gain.connect(audio.destination);
         mix = audio.createGain();
         mix.connect(gain);
+        // R47: the ring buffer on the audio thread; until it loads (or without it), the old way.
+        if (audio.audioWorklet && typeof AudioWorkletNode === 'function') {
+          audio.audioWorklet.addModule('/mirror-audio.js')
+            .then(() => {
+              sound = new AudioWorkletNode(audio, 'latch-sound', { numberOfInputs: 0, outputChannelCount: [2] });
+              sound.connect(mix);
+            })
+            .catch(() => { sound = null; });
+        }
       } catch { audio = null; }
     }
     if (audio && audio.state === 'suspended') audio.resume().then(tellPhoneSound).catch(() => {});
@@ -639,8 +679,16 @@ if (typeof document !== 'undefined') {
     send({ t: 'sound', on: playing });
   }
 
+  let sound = null;
+
   function playPcm(bytes) {
     if (!soundOn || !audio || audio.state !== 'running') return;
+    if (sound) {
+      // The frame's own buffer moves to the audio thread (the header is 10 bytes, so the
+      // samples stay 2-byte aligned): no copy and no conversion here.
+      sound.port.postMessage(new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1), [bytes.buffer]);
+      return;
+    }
     const samples = Math.floor(bytes.byteLength / 4);
     if (!samples) return;
     const view = new DataView(bytes.buffer, bytes.byteOffset, samples * 4);
@@ -669,6 +717,8 @@ if (typeof document !== 'undefined') {
       canvas.width = cw;
       canvas.height = ch;
     }
+    picture.w = cw;
+    picture.h = ch;
     if (turned) {
       ctx.setTransform(0, 1, -1, 0, height, 0);
       ctx.drawImage(source, 0, 0, width, height);
@@ -744,6 +794,13 @@ if (typeof document !== 'undefined') {
       return;
     }
     const arrived = performance.now();
+    if (video) {
+      // R36: the worker decodes and draws; this page only times the arrival.
+      if (frame.kind === KIND_H264 && !usingH264) return;
+      frameArrived(frame.ts, arrived);
+      video.postMessage({ t: 'frame', buffer }, [buffer]);
+      return;
+    }
     if (frame.kind === KIND_JPEG) {
       frameArrived(frame.ts, arrived);
       createImageBitmap(new Blob([frame.data], { type: 'image/jpeg' }))
@@ -837,7 +894,7 @@ if (typeof document !== 'undefined') {
 
   /** The picture's rect on the page: object-fit: contain may add bars, e.g. in full screen. */
   function pictureRect() {
-    return containedRect(canvas.getBoundingClientRect(), canvas.width, canvas.height);
+    return containedRect(canvas.getBoundingClientRect(), picture.w || canvas.width, picture.h || canvas.height);
   }
 
   function point(event) {
@@ -1143,7 +1200,7 @@ if (typeof document !== 'undefined') {
     const phone = $('phone');
     const box = canvas.getBoundingClientRect();
     const height = Math.min(900, Math.max(480, Math.round(box.height + 80)));
-    const width = Math.round(height * (canvas.width && canvas.height ? canvas.width / canvas.height : 0.5)) + 24;
+    const width = Math.round(height * (picture.w && picture.h ? picture.w / picture.h : 0.5)) + 24;
     try {
       pip = await window.documentPictureInPicture.requestWindow({ width, height });
     } catch {
@@ -1269,6 +1326,7 @@ if (typeof document !== 'undefined') {
   });
   $('rotate').addEventListener('click', () => {
     turned = !turned;
+    if (video) video.postMessage({ t: 'turned', on: turned });
     $('rotate').setAttribute('aria-pressed', String(turned));
     // Ask for a fresh key frame so the turned picture appears at once.
     send({ t: 'sync' });
