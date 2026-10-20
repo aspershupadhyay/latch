@@ -41,7 +41,7 @@ phone                                         gateway
 
 The signed envelope is the device protocol's: `{"type":"signed","payload":"<start JSON>","sig":"<base64 DER ECDSA P-256>"}` over `latch-signed-v1\n<connection>\n<payload>`.
 
-**Binary frames:** byte 0 kind (`1` H.264 Annex B access unit, `2` JPEG, `3` sound: 48 kHz stereo 16-bit little-endian PCM, 20 ms a frame (ADR-055), `4` a full-resolution PNG screenshot the owner asked for (ADR-057), `5` one Opus packet of the same sound, 20 ms, sent instead of `3` once the page asked for it (R39, ADR-059)), byte 1 flags (bit 0: key frame), bytes 2–9 timestamp in µs (big-endian), then the payload; at most 8 MiB. H.264 key frames carry their SPS and PPS, so a decoder can start at any key frame. The browser derives its codec string (`avc1.PPCCLL`) from the SPS.
+**Binary frames:** byte 0 kind (`1` H.264 Annex B access unit, `2` JPEG, `3` sound: 48 kHz stereo 16-bit little-endian PCM, 20 ms a frame (ADR-055), `4` a full-resolution PNG screenshot the owner asked for (ADR-057), `5` one Opus packet of the same sound, 20 ms, sent instead of `3` once the page asked for it (R39, ADR-059), `6` an H.265 Annex B access unit whose key frames carry VPS, SPS, and PPS (R40)), byte 1 flags (bit 0: key frame), bytes 2–9 timestamp in µs (big-endian), then the payload; at most 8 MiB. H.264 key frames carry their SPS and PPS, so a decoder can start at any key frame. The browser derives its codec string (`avc1.PPCCLL`) from the SPS.
 
 A phone that disconnects without `end` keeps its viewer for 15 s; reconnecting with the same key resumes (`{"t":"phone","online":false|true}` tells the viewer). Revoking the phone ends the mirror.
 
@@ -49,7 +49,7 @@ A phone that disconnects without `end` keeps its viewer for 15 s; reconnecting w
 
 ```text
 browser                                       gateway
-  ── {"t":"join","code":"123456"|"key":"…","codecs":["h264","jpeg"]} ──▶
+  ── {"t":"join","code":"123456"|"key":"…","codecs":["h265","h264","jpeg"]} ──▶   (h265 only from a browser whose worker decodes it, R40; the gateway picks h265, then h264, then jpeg)
   ◀── {"t":"joined","version":1,"device":"Pixel 8","codec":"h264","key":"…"}   (keep the key to reconnect)
   ◀── the phone's screen / ai / pong / notice / status / input / clipboard / stats / quality messages, {"t":"phone","online":bool}, binary frames
   ◀── {"t":"volume","percent":0-100}             (an AI app set the computer's volume, ADR-056)

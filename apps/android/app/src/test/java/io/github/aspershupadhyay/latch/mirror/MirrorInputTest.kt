@@ -170,4 +170,18 @@ class MirrorInputTest {
         assertEquals("a key frame that has its SPS is sent as is", already, AnnexB.withConfig(config, already, key = true))
         assertEquals(-1, AnnexB.firstNalType(java.nio.ByteBuffer.wrap(byteArrayOf(1, 2, 3))))
     }
+
+    @Test fun anH265KeyFrameGetsItsVpsSpsAndPpsOnce() {
+        // R40: H.265 NAL types are 6 bits after the forbidden bit: 0x40 is a VPS (32), 0x26 an IDR (19).
+        val config = byteArrayOf(0, 0, 0, 1, 0x40, 0x01, 0x0c, 0, 0, 0, 1, 0x42, 0x01, 0x01)
+        val idr = java.nio.ByteBuffer.wrap(byteArrayOf(0, 0, 0, 1, 0x26, 0x01, 0x11))
+        assertEquals(19, AnnexB.firstNalType(idr, hevc = true))
+        val joined = AnnexB.withConfig(config, idr, key = true, hevc = true)
+        assertEquals(config.size + 7, joined.remaining())
+        val already = java.nio.ByteBuffer.wrap(config + byteArrayOf(0, 0, 1, 0x26, 0x01))
+        assertEquals(32, AnnexB.firstNalType(already, hevc = true))
+        assertEquals(already, AnnexB.withConfig(config, already, key = true, hevc = true))
+        assertEquals(600_000, MirrorCapture.encoderBps(1_000_000, hevc = true))
+        assertEquals(1_000_000, MirrorCapture.encoderBps(1_000_000, hevc = false))
+    }
 }

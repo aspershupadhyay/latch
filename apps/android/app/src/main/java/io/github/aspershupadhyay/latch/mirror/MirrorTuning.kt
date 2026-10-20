@@ -282,8 +282,8 @@ class QualityLadder {
 
 /** H.264 Annex B helpers: a key frame must carry its SPS and PPS so the browser can start there. */
 object AnnexB {
-    /** The type of the first NAL unit after a start code, or -1. */
-    fun firstNalType(frame: java.nio.ByteBuffer): Int {
+    /** The type of the first NAL unit after a start code, or -1; [hevc] reads H.265's 6-bit type. */
+    fun firstNalType(frame: java.nio.ByteBuffer, hevc: Boolean = false): Int {
         val b = frame.duplicate()
         var zeros = 0
         while (b.hasRemaining()) {
@@ -291,7 +291,9 @@ object AnnexB {
             if (v == 0) {
                 zeros++
             } else if (v == 1 && zeros >= 2) {
-                return if (b.hasRemaining()) b.get().toInt() and 0x1f else -1
+                if (!b.hasRemaining()) return -1
+                val header = b.get().toInt() and 0xff
+                return if (hevc) (header shr 1) and 0x3f else header and 0x1f
             } else {
                 return -1
             }
@@ -299,11 +301,13 @@ object AnnexB {
         return -1
     }
 
-    /** [frame] with [config] (SPS and PPS) in front when it is a key frame that lacks them. */
-    fun withConfig(config: ByteArray?, frame: java.nio.ByteBuffer, key: Boolean): java.nio.ByteBuffer {
-        if (!key || config == null || firstNalType(frame) == 7) return frame
+    /** [frame] with [config] (SPS and PPS; for H.265 also VPS) in front when it is a key frame that lacks them. */
+    fun withConfig(config: ByteArray?, frame: java.nio.ByteBuffer, key: Boolean, hevc: Boolean = false): java.nio.ByteBuffer {
+        if (!key || config == null || firstNalType(frame, hevc) == if (hevc) HEVC_VPS else 7) return frame
         val out = java.nio.ByteBuffer.allocate(config.size + frame.remaining())
         out.put(config).put(frame.duplicate()).flip()
         return out
     }
+
+    private const val HEVC_VPS = 32
 }

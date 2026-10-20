@@ -237,3 +237,14 @@ test('the video worker parses with the shared helpers (R36)', () => {
   context.onmessage({ data: { t: 'frame', buffer: new ArrayBuffer(4) } });
   assert.deepEqual(posted, []);
 });
+
+test('an H.265 SPS gives the WebCodecs codec string (R40)', () => {
+  // NAL header (type 33), ids, profile 1 (Main), compatibility 0x60000000,
+  // constraints 0x90 00 00 [03] 00 00 00 with an emulation-prevention byte, level 93.
+  const sps = Uint8Array.from([0x42, 0x01, 0x01, 0x01, 0x60, 0, 0, 0, 0x90, 0, 0, 3, 0, 0, 0, 0x5d, 0xa0]);
+  assert.equal(m.hevcCodecFromSps(sps), 'hev1.1.6.L93.90');
+  const unit = Uint8Array.from([0, 0, 0, 1, 0x40, 0x01, 0x0c, 0, 0, 0, 1, ...sps]);
+  assert.deepEqual(Array.from(m.findHevcSps(unit)), Array.from(sps));
+  assert.equal(m.findHevcSps(Uint8Array.from([0, 0, 1, 0x67, 0x42])), null, 'an H.264 SPS is not one');
+  assert.equal(m.hevcCodecFromSps(Uint8Array.from([0x42, 0x01, 0x01])), null);
+});

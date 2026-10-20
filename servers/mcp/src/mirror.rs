@@ -53,6 +53,8 @@ pub const KIND_PCM: u8 = 3;
 pub const KIND_SHOT: u8 = 4;
 /// R39: one Opus packet of the phone's sound (48 kHz stereo, 20 ms).
 pub const KIND_OPUS: u8 = 5;
+/// R40: an H.265 Annex B access unit; key frames carry VPS, SPS, and PPS.
+pub const KIND_H265: u8 = 6;
 pub const FLAG_KEY: u8 = 1;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -177,6 +179,9 @@ struct Viewer {
 pub enum Codec {
     H264,
     Jpeg,
+    /// R40: offered by a browser that decodes it; the phone sends it only from a
+    /// hardware encoder and otherwise H.264, which every such browser decodes too.
+    H265,
 }
 
 enum ToPhone {
@@ -580,7 +585,9 @@ impl Mirrors {
                 "watching in another window now",
             ));
         }
-        let codec = if join.codecs.contains(&Codec::H264) {
+        let codec = if join.codecs.contains(&Codec::H265) {
+            Codec::H265
+        } else if join.codecs.contains(&Codec::H264) {
             Codec::H264
         } else {
             Codec::Jpeg
@@ -918,7 +925,7 @@ pub fn valid_frame(frame: &[u8]) -> bool {
         && frame.len() <= MAX_FRAME_BYTES
         && matches!(
             frame[0],
-            KIND_H264 | KIND_JPEG | KIND_PCM | KIND_SHOT | KIND_OPUS
+            KIND_H264 | KIND_JPEG | KIND_PCM | KIND_SHOT | KIND_OPUS | KIND_H265
         )
 }
 
@@ -1482,6 +1489,8 @@ mod tests {
         frame[0] = KIND_SHOT;
         assert!(valid_frame(&frame));
         frame[0] = KIND_OPUS;
+        assert!(valid_frame(&frame));
+        frame[0] = KIND_H265;
         assert!(valid_frame(&frame));
         frame[0] = 9;
         assert!(!valid_frame(&frame));

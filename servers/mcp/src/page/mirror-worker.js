@@ -91,7 +91,7 @@ function shown(ts, decoded) {
   if (timings) postMessage({ t: 'shown', ts, decoded, drawn: now() });
 }
 
-function configure(sps) {
+function configure(sps, codec, hevc) {
   const spsHex = Array.from(sps, (b) => b.toString(16).padStart(2, '0')).join('');
   if (decoder && decoder.state === 'configured' && spsHex === decoderSps) return true;
   reset();
@@ -103,13 +103,13 @@ function configure(sps) {
         shown(frame.timestamp, decoded);
         frame.close();
       },
-      error: () => postMessage({ t: 'error' }),
+      error: () => postMessage({ t: 'error', hevc }),
     });
-    decoder.configure({ codec: codecFromSps(sps), optimizeForLatency: true });
+    decoder.configure({ codec, optimizeForLatency: true });
     decoderSps = spsHex;
     return true;
   } catch {
-    postMessage({ t: 'unsupported' });
+    postMessage(hevc ? { t: 'error', hevc } : { t: 'unsupported' });
     return false;
   }
 }
@@ -128,10 +128,13 @@ function onFrame(buffer) {
       .catch(() => {});
     return;
   }
-  if (frame.kind !== KIND_H264 || typeof VideoDecoder !== 'function') return;
+  const hevc = frame.kind === KIND_H265;
+  if ((frame.kind !== KIND_H264 && !hevc) || typeof VideoDecoder !== 'function') return;
   if (frame.key) {
-    const sps = findSps(frame.data);
-    if (!sps || !configure(sps)) return;
+    // R40: H.264 or H.265, by the frame's kind; the codec string comes from its SPS.
+    const sps = hevc ? findHevcSps(frame.data) : findSps(frame.data);
+    const codec = sps && (hevc ? hevcCodecFromSps(sps) : codecFromSps(sps));
+    if (!codec || !configure(sps, codec, hevc)) return;
   }
   if (!decoder || (waitKey && !frame.key)) return;
   if (!frame.key && decoder.decodeQueueSize > 2) {

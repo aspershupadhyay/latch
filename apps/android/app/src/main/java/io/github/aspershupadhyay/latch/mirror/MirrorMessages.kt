@@ -52,7 +52,8 @@ sealed interface MirrorIn {
     data class File(val url: String, val keyHex: String, val ivHex: String, val sha256: String, val name: String, val size: Long) : MirrorIn
 }
 
-enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg") }
+/** How the picture is sent; H265 (R40) only where the phone has a hardware encoder and the browser a decoder. */
+enum class Codec(val wire: String) { H264("h264"), JPEG("jpeg"), H265("h265") }
 enum class Phase(val wire: String) { DOWN("down"), MOVE("move"), UP("up"), CANCEL("cancel") }
 enum class MirrorKey(val wire: String) {
     BACKSPACE("backspace"), DELETE("delete"), ENTER("enter"), TAB("tab"), LEFT("left"), RIGHT("right"), UP("up"), DOWN("down"),
@@ -73,6 +74,8 @@ object MirrorMessages {
     const val KIND_SHOT: Byte = 4
     /** R39: one Opus packet of 48 kHz stereo sound, 20 ms. */
     const val KIND_OPUS: Byte = 5
+    /** R40: an H.265 (HEVC) Annex B access unit; key frames carry VPS, SPS, and PPS. */
+    const val KIND_H265: Byte = 6
     const val HEADER_BYTES = 10
     const val MAX_COORDINATE = 16_384
     const val MAX_TEXT_CHARS = 256

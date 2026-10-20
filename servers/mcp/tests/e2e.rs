@@ -3593,6 +3593,41 @@ fn frame(key: bool, ts: u64, payload: &[u8]) -> Vec<u8> {
     f
 }
 
+/// R40: a browser that decodes H.265 offers it; the phone hears it and its
+/// H.265 frames reach the browser byte for byte, as H.264 frames do.
+#[tokio::test]
+async fn a_browser_that_decodes_h265_gets_it_when_the_phone_sends_it() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &[]).await;
+    let (mut ph, ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    assert!(
+        matches!(ready, Got::Text(ref v) if v["t"] == "ready"),
+        "{ready:?}"
+    );
+    let (mut viewer, joined) = join(
+        &gw,
+        json!({"key": VIEWER_KEY, "codecs": ["h265", "h264", "jpeg"]}),
+    )
+    .await;
+    let Got::Text(joined) = joined else {
+        panic!("{joined:?}")
+    };
+    assert_eq!(joined["codec"], "h265");
+    assert_eq!(next_of(&mut ph, "viewer").await["codec"], "h265");
+    let mut key_frame = frame(true, 1, &[0, 0, 0, 1, 0x40, 0x01, 0x0c]);
+    key_frame[0] = 6;
+    ph.send(WsMessage::Binary(key_frame.clone().into()))
+        .await
+        .expect("frame");
+    assert_eq!(next(&mut viewer).await, Got::Frame(key_frame));
+    // It cannot decode after all: H.264 is asked for.
+    send_json(&mut viewer, json!({"t": "codec", "codec": "h264"})).await;
+    assert_eq!(
+        next(&mut ph).await,
+        Got::Text(json!({"t": "codec", "codec": "h264"}))
+    );
+}
+
 #[tokio::test]
 async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back() {
     let gw = start_gateway().await;

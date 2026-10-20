@@ -14,6 +14,8 @@ const KIND_PCM = 3;
 const KIND_SHOT = 4;
 // R39: one Opus packet of the phone's sound.
 const KIND_OPUS = 5;
+// R40: an H.265 access unit, from phones with a hardware encoder.
+const KIND_H265 = 6;
 const FLAG_KEY = 1;
 const HEADER_BYTES = 10;
 /** How long a page waits for the phone to mirror again before it asks for a code (ADR-058). */
@@ -24,7 +26,7 @@ function parseFrame(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength <= HEADER_BYTES) return null;
   const view = new DataView(buffer);
   const kind = view.getUint8(0);
-  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM && kind !== KIND_SHOT && kind !== KIND_OPUS) return null;
+  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM && kind !== KIND_SHOT && kind !== KIND_OPUS && kind !== KIND_H265) return null;
   const flags = view.getUint8(1);
   const ts = Number(view.getBigUint64(2));
   return { kind, key: (flags & FLAG_KEY) !== 0, ts, data: new Uint8Array(buffer, HEADER_BYTES) };
@@ -57,6 +59,51 @@ function findSps(bytes) {
 function codecFromSps(sps) {
   const hex = (b) => b.toString(16).padStart(2, '0').toUpperCase();
   return `avc1.${hex(sps[1])}${hex(sps[2])}${hex(sps[3])}`;
+}
+
+/** R40: the SPS (NAL type 33) of an H.265 access unit, or null. */
+function findHevcSps(bytes) {
+  for (const nal of nalUnits(bytes)) {
+    if (nal.length > 14 && ((nal[0] >> 1) & 0x3f) === 33) return nal;
+  }
+  return null;
+}
+
+/** A NAL unit without its emulation-prevention bytes (00 00 03 → 00 00). */
+function unescapeNal(nal) {
+  const out = [];
+  let zeros = 0;
+  for (const b of nal) {
+    if (zeros >= 2 && b === 3) { zeros = 0; continue; }
+    out.push(b);
+    zeros = b === 0 ? zeros + 1 : 0;
+  }
+  return Uint8Array.from(out);
+}
+
+/**
+ * The WebCodecs codec string of an H.265 SPS (ISO/IEC 14496-15 annex E):
+ * hev1.[space]profile.compatibility.tier+level[.constraints], e.g. hev1.1.6.L93.B0.
+ */
+function hevcCodecFromSps(sps) {
+  const b = unescapeNal(sps);
+  // 2-byte NAL header, then one byte of ids before profile_tier_level.
+  const p = 3;
+  if (b.length < p + 12) return null;
+  const space = b[p] >> 6;
+  const tier = (b[p] >> 5) & 1;
+  const profile = b[p] & 0x1f;
+  let flags = ((b[p + 1] << 24) | (b[p + 2] << 16) | (b[p + 3] << 8) | b[p + 4]) >>> 0;
+  let reversed = 0;
+  for (let i = 0; i < 32; i++) {
+    reversed = ((reversed << 1) | (flags & 1)) >>> 0;
+    flags >>>= 1;
+  }
+  const constraints = Array.from(b.subarray(p + 5, p + 11));
+  while (constraints.length && constraints[constraints.length - 1] === 0) constraints.pop();
+  const level = b[p + 11];
+  return `hev1.${['', 'A', 'B', 'C'][space]}${profile}.${reversed.toString(16).toUpperCase()}.${tier ? 'H' : 'L'}${level}`
+    + constraints.map((c) => `.${c.toString(16).toUpperCase()}`).join('');
 }
 
 /**
@@ -255,7 +302,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, shortcut,
     clipboardAction, pasteMessage, stamp, statusText, latencyClass, normalizeCode, keyFromHash,
-    clockOffset, summarize, statsLines,
+    clockOffset, summarize, statsLines, findHevcSps, hevcCodecFromSps,
   };
 }
 
@@ -302,6 +349,8 @@ if (typeof document !== 'undefined') {
   let waitKey = true;
   let h264 = false;
   let usingH264 = false;
+  // R40: this browser decodes H.265 in the worker.
+  let h265 = false;
   let lastFrameAt = 0;
   let retry = 0;
   // ADR-058: while the phone is not mirroring, the page asks again now and then.
@@ -348,6 +397,14 @@ if (typeof document !== 'undefined') {
     if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   }
 
+  async function probeH265() {
+    try {
+      return Boolean((await VideoDecoder.isConfigSupported({ codec: 'hev1.1.6.L120.90', optimizeForLatency: true })).supported);
+    } catch {
+      return false;
+    }
+  }
+
   async function probeH264() {
     if (typeof VideoDecoder !== 'function' || !window.isSecureContext) return false;
     for (const codec of ['avc1.42E01F', 'avc1.42E033', 'avc1.42C033']) {
@@ -375,7 +432,9 @@ if (typeof document !== 'undefined') {
     ws.binaryType = 'arraybuffer';
     socket = ws;
     $('live-text').textContent = 'Connecting';
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...join, codecs: h264 ? ['h264', 'jpeg'] : ['jpeg'] }));
+    // R40: H.265 first when this browser decodes it (in the worker); the phone sends it only from a hardware encoder.
+    const codecs = [...(h265 ? ['h265'] : []), ...(h264 ? ['h264'] : []), 'jpeg'];
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', ...join, codecs }));
     ws.onmessage = (event) => {
       if (socket !== ws) return;
       if (typeof event.data === 'string') onText(event.data);
@@ -465,7 +524,8 @@ if (typeof document !== 'undefined') {
         store.set(key);
         if (location.hash) history.replaceState(null, '', location.pathname);
         $('device').textContent = m.device || 'Phone';
-        usingH264 = m.codec === 'h264';
+        // Either video codec: the frames say which one arrives.
+        usingH264 = m.codec === 'h264' || m.codec === 'h265';
         inputMode = 'basic';
         $('smooth').hidden = true;
         saving = false;
@@ -616,7 +676,16 @@ if (typeof document !== 'undefined') {
         case 'shown': frameShown(m.ts, m.decoded - performance.timeOrigin, m.drawn - performance.timeOrigin); break;
         case 'skipped': perf.skipped += 1; break;
         case 'sync': send({ t: 'sync' }); break;
-        case 'error': decodeFailed(); break;
+        case 'error':
+          if (m.hevc) {
+            // R40: this H.265 stream did not decode after all; H.264 from now on.
+            h265 = false;
+            send({ t: 'codec', codec: 'h264' });
+            video.postMessage({ t: 'reset' });
+          } else {
+            decodeFailed();
+          }
+          break;
         case 'unsupported': fallBackToStills("This browser can't decode the phone's video; showing still pictures instead."); break;
         default: break;
       }
@@ -864,7 +933,7 @@ if (typeof document !== 'undefined') {
     const arrived = performance.now();
     if (video) {
       // R36: the worker decodes and draws; this page only times the arrival.
-      if (frame.kind === KIND_H264 && !usingH264) return;
+      if ((frame.kind === KIND_H264 || frame.kind === KIND_H265) && !usingH264) return;
       frameArrived(frame.ts, arrived);
       video.postMessage({ t: 'frame', buffer }, [buffer]);
       return;
@@ -1432,6 +1501,7 @@ if (typeof document !== 'undefined') {
 
   (async () => {
     h264 = await probeH264();
+    h265 = h264 && Boolean(video) && await probeH265();
     opusOk = await probeOpus();
     $('mode-note').textContent = modeNote();
     key = keyFromHash(location.hash) || store.get();
