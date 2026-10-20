@@ -170,7 +170,7 @@ object NearbyLink {
 
     private suspend fun call(client: OkHttpClient, request: Request): JsonObject = withContext(Dispatchers.IO) {
         client.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
+            val text = response.body.string()
             val json = runCatching { Json.parseToJsonElement(text) as JsonObject }.getOrNull()
             when {
                 response.code == 404 -> throw NearbyException("This computer has linking without a QR code turned off. Use the QR code.")
