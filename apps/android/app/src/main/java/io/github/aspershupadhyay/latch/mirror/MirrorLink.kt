@@ -45,7 +45,7 @@ class MirrorLink(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .socketFactory(LowLatencySockets())
         .build()
-    private val url = gatewayUrl.trimEnd('/') + "/v1/mirror/phone"
+    @Volatile private var url = gatewayUrl.trimEnd('/') + "/v1/mirror/phone"
     private val timer = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "latch-mirror-link").apply { isDaemon = true } }
     @Volatile private var socket: WebSocket? = null
     @Volatile private var wanted = false
@@ -56,6 +56,20 @@ class MirrorLink(
     fun start() {
         wanted = true
         connect()
+    }
+
+    /** The gateway is at [gatewayUrl] now (a Wi-Fi gateway found at a new address); go there at once. */
+    fun moveTo(gatewayUrl: String) {
+        url = gatewayUrl.trimEnd('/') + "/v1/mirror/phone"
+        retryNow()
+    }
+
+    /** The network came back: reconnect now instead of after the backoff. A live socket is left alone. */
+    fun retryNow() {
+        if (!wanted || socket != null) return
+        retry?.cancel(false)
+        attempt = 0
+        runCatching { timer.execute { if (socket == null) connect() } }
     }
 
     /** Ends the mirror: tells the gateway (so the viewer hears it at once) and closes. */
@@ -79,18 +93,20 @@ class MirrorLink(
      * the frame was dropped, so the encoder sends a key frame next. Video is
      * never queued behind a slow network.
      */
-    fun sendFrame(frame: ByteArray): Boolean {
+    fun sendFrame(frame: ByteString): Boolean {
         val s = socket ?: return false
         // A delta frame waits behind little; a key frame (it restarts the picture) may wait a bit more.
         val key = frame.size > 1 && frame[1].toInt() and 1 != 0
         if (!started || s.queueSize() > if (key) MAX_QUEUED_BYTES else MAX_QUEUED_DELTA_BYTES) return false
-        return s.send(frame.toByteString())
+        return s.send(frame)
     }
 
+    fun sendFrame(frame: ByteArray): Boolean = sendFrame(frame.toByteString())
+
     /** A frame the owner asked for (a screenshot): sent even when video is behind. */
-    fun sendFrameAlways(frame: ByteArray): Boolean {
+    fun sendFrameAlways(frame: ByteString): Boolean {
         val s = socket ?: return false
-        return started && s.send(frame.toByteString())
+        return started && s.send(frame)
     }
 
     private fun connect() {

@@ -23,6 +23,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -75,6 +76,19 @@ class DeviceLink(
     /** The gateway moved to [url] (a Wi-Fi gateway with a new address); the next attempt uses it. */
     fun moveTo(url: String) {
         base = url.trimEnd('/')
+        retryNow()
+    }
+
+    /** Wakes a link waiting between attempts, so it tries again at once. */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * The network came back (or the gateway moved): try now instead of at the end
+     * of the backoff, which reaches 30 s after a few failures. A connected link
+     * ignores it.
+     */
+    fun retryNow() {
+        if (connection == null) wake.trySend(Unit)
     }
     private val json = "application/json".toMediaType()
     // Long polls wait up to 25 s on the gateway; leave room for slow networks.
@@ -231,7 +245,7 @@ class DeviceLink(
                 failures++
                 connection = null
                 events.retrying(failures)
-                delay(min(30_000L, 1_000L shl min(failures, 5)))
+                withTimeoutOrNull(min(30_000L, 1_000L shl min(failures, 5))) { wake.receive() }
             }
         }
     }

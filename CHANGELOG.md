@@ -10,6 +10,10 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **Reconnect without a new code** (ADR-058): stop mirroring on the phone and start it again, and the mirror page on your computer comes back by itself (it waits for the phone); no new 6-digit code. **Forget computers** on Home, or the emergency Stop, makes computers need a code again.
+- **Disconnect keeps your connection**: Settings → Disconnect now keeps the keys, and the first screen offers **Reconnect** in one tap, with no QR code or key. **Forget keys** removes them as before.
+- **Back at once when the Wi-Fi is**: the phone's link to the gateway and the mirror reconnect the moment the network returns, and the mirror finds your computer at a new Wi-Fi address on its own.
+- **A new QR scanner**: full-screen camera with a frame, reads codes anywhere in view and light-on-dark terminal codes, pinch or slider zoom, tap to focus, flashlight, a focus mode for cameras that stay blurry (Auto, Refocus, Close-up), a brightness slider for bright monitors, reading a photo of the code instead, and a clear message when a QR code is not Latch's.
 - **Mirror feels like a second screen** (ADR-057): with Full ADB on, clicks, drags, scrolling, and typing reach the phone as real touches and keys, so drags follow the pointer live and typing behaves as on a keyboard ("Smooth input" on the page). Lower delay throughout: no Nagle buffering on the phone's socket, a small send buffer, shorter queues, a higher bitrate.
 - **Copy and paste between computer and phone**: Ctrl/Cmd+V pastes text from the computer into the phone (a pasted picture or file is sent to the phone); Ctrl/Cmd+C or X copies what is selected on the phone to the computer.
 - **Send files by dropping them on the mirror** (or the upload button, or pasting): they are saved in the phone's Downloads, encrypted on the way and checked.

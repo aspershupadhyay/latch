@@ -131,3 +131,19 @@ Every phone action goes back and forth between your Vercel function and your Ups
 ### Fix: The AI says Latch's own screen is off limits
 
 That's on purpose: an AI can never read or tap Latch itself, so it can't approve its own requests. Switch to the app you want the AI to use, or let it press **Home** or open an app. Both are allowed from Latch's screen.
+
+### Fix: The QR code won't scan
+
+1. Hold the phone 20–30 cm from the screen with the whole code inside the frame. If it is small, pinch or use **Zoom**.
+2. Still blurry? Tap the code to focus, or tap **Focus** until it says **Refocus** (or **Close-up** when you are very near).
+3. A bright monitor can wash the code out: tap **Light** and slide toward darker. Turning the screen's brightness down helps too.
+4. Light-on-dark codes (a dark terminal with `NO_COLOR`) scan as they are.
+5. Or take a photo of the code (or a screenshot on the computer, sent to the phone) and tap **Photo**. Or tap **Type** and enter the address and setup code under the QR code.
+
+Setup codes work once, for 15 minutes. If it says the code is wrong or expired, run `latch-gateway pair` on the computer for a new one.
+
+### Fix: The phone won't connect again after I disconnected
+
+- **Settings → Disconnect** keeps the connection: the first screen shows **Reconnect** — one tap, no key or QR code. Only **Forget keys** removes them; then run `latch-gateway pair` on the computer and scan the new code.
+- **Mirror:** stopping on the phone no longer needs a new code. Leave the mirror page open; it says *Waiting for the phone* and comes back by itself when you start mirroring again. After **Forget computers** or the emergency **Stop**, type the new code.
+- **Wi-Fi dropped:** the phone reconnects the moment Wi-Fi is back, and finds your computer if it got a new address on the same Wi-Fi. If the computer moved to another network, set it up again from **Connect**.

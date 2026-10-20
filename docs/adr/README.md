@@ -665,3 +665,27 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Limits:** the input helper and notifications switch need Full ADB. Injected text covers printable ASCII; other characters fall back to accessibility. Android 12+ shows its "pasted from your clipboard" note when an app reads text Latch put there. A future Android may move the hidden input or clipboard APIs; the helper then fails with its message and the mirror falls back.
 
 **Rollback:** without Full ADB, or with an older app or gateway, the mirror works as in ADR-051; the new page buttons answer with a notice.
+
+## ADR-058 — Reconnect without a new code: the mirror remembers the computer; Disconnect keeps the keys
+**Status:** accepted (2026-10-20, owner request "whenever I've disconnected through phone for the screen mirroring and gateway it does not let me connect … make it easy as fuck to connect the devices … more simple") · **Builds on:** ADR-051 (live mirror), ADR-052 (kept connections), ADR-054 (QR setup) · **Supersedes:** ADR-051's "the key dies when mirroring ends" · **Protocol:** device protocol unchanged; mirror channel additive (close code `4404`)
+
+**Problem:** every Stop on the phone made a new viewer key, so the mirror page that was open on the computer closed for good and the owner had to read and type a fresh 6-digit code for every restart. **Disconnect** deleted the phone's keys, so getting back on the Wi-Fi gateway needed a new QR code from the computer's terminal (the first one works once). A Wi-Fi drop left the link in a backoff of up to 30 s, and a mirror running without an AI session never looked for a computer that changed its Wi-Fi address.
+
+**Decision:**
+- **The phone keeps its mirror key** per pairing, sealed in the Keystore like the device token. Starting mirroring again (Android's capture consent is still asked every time) uses the same key, so a page that watched before joins without a code. A new key is made when the pairing changes, after 30 days unused, on **Forget computers** (Home's mirror card, shown once a computer watched), on the emergency **Stop**, on **Disconnect → Forget keys**, and on revocation.
+- **The page waits for the phone.** A well-formed key with no live mirror behind it is closed with the new code `4404` (a malformed one still with `4401`). On `4404` or `4410` with a key, the page shows *Waiting for the phone* and asks again every 2 s for a minute, then every 5 s, for 30 minutes, at once when the tab comes back to the front, and joins the moment the phone mirrors; **Enter a code instead** leaves it. The page keeps the key in `localStorage` (falling back to session storage), so a reopened tab comes back too.
+- **Disconnect keeps the keys by default.** Settings → **Disconnect from this relay** now offers **Disconnect** (the connection moves to the kept slot of ADR-052; the first screen shows *Reconnect: your …* — one tap, no key or QR code) and **Forget keys** (as before).
+- **Reconnect when the network does.** On Android's "default network available", the gateway link and the mirror retry at once instead of waiting out their backoff. The mirror asks for the Wi-Fi gateway at a new address (ADR-052's pinned search) after two failed attempts and every fifth, also without an AI session, and follows the session's search when it finds one.
+
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| Someone who once had the link or the page open | watch a later mirror | Only while the owner mirrors again, each time after Android's consent, and only until the owner presses Forget computers or the emergency Stop, disconnects with Forget keys, or 30 days pass unused. The phone's card says so next to **Copy link** |
+| Someone guessing keys | find a live mirror | 256-bit keys; `4404` says only that no mirror runs for that key, which is true of every guess |
+| Someone at the owner's computer | reuse the key from the browser | The same computer and browser profile the owner watches from; Forget computers on the phone ends it |
+| A page on another site | join | Unchanged: cross-origin upgrades are refused |
+
+**Checks:** Rust e2e: a made-up key closes with `4404`, a malformed one with `4401`, the phone's `end` closes the viewer with `4410`, and the same key joins again after the phone starts with it. Android: the scanner's still-picture decoder and focus arithmetic (JVM). *Needs phone:* stop and start the mirror with the page open; Disconnect → Reconnect over Wi-Fi; Wi-Fi off and on during a session and a mirror.
+
+**Rollback:** an older page treats `4404` as a network drop and keeps retrying with its key, which joins once the phone mirrors; an older app makes a new key each time, as before.
+

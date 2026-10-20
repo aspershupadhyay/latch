@@ -61,8 +61,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import io.github.aspershupadhyay.latch.BuildConfig
 import io.github.aspershupadhyay.latch.LatchApp
 import io.github.aspershupadhyay.latch.data.SavedApproval
@@ -93,6 +91,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -280,8 +279,8 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         }
         connect(asOwner = !Pairing.isCode(key), key = key, needPin = true, input = setup.address)
     }
-    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { connectWifi(scanned = it) }
+    val scanner = rememberLauncherForActivityResult(ScanSetupQr()) { text ->
+        text?.let { connectWifi(scanned = it) }
     }
 
     when (step) {
@@ -305,13 +304,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
                 setCode = { secret = it; error = null },
                 scan = {
                     error = null
-                    scanner.launch(
-                        ScanOptions()
-                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            .setPrompt("Point at the QR code in your computer's terminal")
-                            .setBeepEnabled(false)
-                            .setOrientationLocked(false),
-                    )
+                    scanner.launch(Unit)
                 },
                 connect = { connectWifi() },
                 back = { step = Onboarding.CHOOSE; error = null },
@@ -355,17 +348,21 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     // AI apps waiting for approval, checked every few seconds while Latch is on screen.
     var requestsTick by remember { mutableIntStateOf(0) }
     val ownerKeyVersion by app.settings.ownerKeyVersion.collectAsStateWithLifecycle()
-    val requestsFlow = remember(pairing, isOwner, ownerKeyVersion, requestsTick) {
+    // R49: every 3 s on Connect, where AI apps are added, and every 12 s elsewhere; a
+    // waiting request keeps it quick. Switching tabs asks at once.
+    val onConnect = tab == Tab.CONNECT
+    val requestsFlow = remember(pairing, isOwner, ownerKeyVersion, requestsTick, onConnect) {
         val owner = pairing?.let { p -> app.settings.ownerKey()?.let { OwnerClient(app.http, p.gatewayUrl, it) } }
         if (owner == null) {
             flowOf(emptyList<SignInRequest>())
         } else {
             flow {
                 while (true) {
-                    emit(runCatching { owner.signInRequests() }.getOrDefault(emptyList()))
-                    delay(3_000)
+                    val requests = runCatching { owner.signInRequests() }.getOrDefault(emptyList())
+                    emit(requests)
+                    delay(if (onConnect || requests.isNotEmpty()) 3_000 else 12_000)
                 }
-            }
+            }.flowOn(kotlinx.coroutines.Dispatchers.IO)
         }
     }
     val signInRequests by requestsFlow.collectAsStateWithLifecycle(emptyList())
@@ -558,6 +555,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
     }
     val statuses = remember(prefs, service, now) { app.session.capabilityStatuses() }
     val mirror by app.mirror.status.collectAsStateWithLifecycle()
+    val mirrorRemembered by app.settings.mirrorRemembered.collectAsStateWithLifecycle()
     val mirrorConsent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
         if (result.resultCode == android.app.Activity.RESULT_OK && data != null) app.mirror.allowed(result.resultCode, data) else app.mirror.declined()
@@ -589,6 +587,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             slowRelayMs = slowRelayMs,
             update = update,
             mirror = mirror,
+            mirrorRemembered = mirrorRemembered,
         ),
         HomeActions(
             start = {
@@ -640,6 +639,10 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             },
             stopMirror = { app.mirror.stop() },
             copyMirrorLink = { mirror.link?.let { copySensitive(context, "Latch mirror link", it) } },
+            forgetMirrorComputers = {
+                app.settings.forgetMirrorComputers()
+                android.widget.Toast.makeText(context, "Done. Computers need a new code next time.", android.widget.Toast.LENGTH_LONG).show()
+            },
         ),
     )
 }
@@ -884,6 +887,7 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         isOwner = isOwner,
         version = BuildConfig.VERSION_NAME,
         onForget = { app.session.forget() },
+        onDisconnectKeep = { app.session.keepAndSetUpAnother() },
         onOpenAccessibility = { openAccessibilityFor(context) },
         onOpenSetup = openSetup,
         update = update,

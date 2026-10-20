@@ -43,8 +43,19 @@ class MirrorAudio(
     @Volatile private var loudBeforeQuiet = false
     @Volatile private var lastLoudMs = 0L
 
+    /**
+     * R45: whether the page plays the sound. Frames go out only then, and not
+     * through long silence, so a muted page or a quiet phone costs no
+     * bandwidth (sound is ~1.5 Mbit/s of raw PCM).
+     */
+    @Volatile private var listening = false
+    /** When the last frame with sound in it was captured, and when the last frame went out. */
+    @Volatile private var lastSoundMs = 0L
+    @Volatile private var lastSentMs = 0L
+
     /** [on]: the computer plays the sound, so the phone's speaker goes quiet; off: it plays again. */
     fun quietPhone(on: Boolean) {
+        listening = on
         if (on && running && savedVolume == null) {
             val now = SystemClock.uptimeMillis()
             val volume = runCatching { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrNull() ?: return
@@ -130,7 +141,13 @@ class MirrorAudio(
                     }
                     if (filled <= 0) continue
                     checkCopyAfterQuiet(isLoud(buffer, filled))
-                    sink(MirrorMessages.KIND_PCM, false, SystemClock.elapsedRealtimeNanos() / 1000, ByteBuffer.wrap(buffer, 0, filled))
+                    val now = SystemClock.uptimeMillis()
+                    if (!isSilent(buffer, filled)) lastSoundMs = now
+                    // A short tail of silence lets the page's queue drain softly, then nothing.
+                    if (shouldSend(listening, now - lastSoundMs, now - lastSentMs)) {
+                        lastSentMs = now
+                        sink(MirrorMessages.KIND_PCM, false, SystemClock.elapsedRealtimeNanos() / 1000, ByteBuffer.wrap(buffer, 0, filled))
+                    }
                 }
             } catch (_: Exception) {
                 // The projection ended or the recorder failed: the picture carries on without sound.
@@ -147,6 +164,8 @@ class MirrorAudio(
 
     fun stop() {
         running = false
+        // The next viewer says again whether it plays the sound.
+        listening = false
         thread?.join(500)
         thread = null
         restoreVolume()
@@ -164,6 +183,29 @@ class MirrorAudio(
     }
 
     companion object {
+        /**
+         * Whether a frame goes out: someone listens, and there was sound within
+         * [SILENT_TAIL_MS], or one keep-alive every [KEEP_ALIVE_MS] through silence.
+         */
+        fun shouldSend(listening: Boolean, sinceSoundMs: Long, sinceSentMs: Long): Boolean =
+            listening && (sinceSoundMs <= SILENT_TAIL_MS || sinceSentMs >= KEEP_ALIVE_MS)
+
+        const val KEEP_ALIVE_MS = 1_000L
+
+        /** Digital silence, or close to it: every left and right sample within a few steps of zero. */
+        fun isSilent(buffer: ByteArray, length: Int): Boolean {
+            var i = 0
+            while (i + 1 < length) {
+                val sample = (buffer[i].toInt() and 0xff) or (buffer[i + 1].toInt() shl 8)
+                if (sample > SILENT || sample < -SILENT) return false
+                i += 2
+            }
+            return true
+        }
+
+        /** Silence sent after the last sound, so the page's queue ends without a click. */
+        const val SILENT_TAIL_MS = 300L
+        private const val SILENT = 8
         const val SAMPLE_RATE = 48_000
         private const val LOUD = 64
         private const val COPY_CHECK_MS = 3_000L

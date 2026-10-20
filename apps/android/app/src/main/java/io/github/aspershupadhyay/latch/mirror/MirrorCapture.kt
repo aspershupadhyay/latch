@@ -235,6 +235,15 @@ class MirrorCapture(
         handler.post(stillTick)
     }
 
+    private var stillFull: Bitmap? = null
+    private var stillCropped: Bitmap? = null
+    private val stillOut = StillBuffer()
+
+    /** A JPEG buffer whose bytes are lent to the sink without a copy (the sink copies them once). */
+    private class StillBuffer : ByteArrayOutputStream(64 * 1024) {
+        fun view(): ByteBuffer = ByteBuffer.wrap(buf, 0, count)
+    }
+
     /** Sends the newest picture at most [STILL_EVERY_MS] apart; a still screen sends nothing new. */
     private val stillTick = object : Runnable {
         override fun run() {
@@ -244,12 +253,22 @@ class MirrorCapture(
                 try {
                     val plane = image.planes[0]
                     val stride = plane.rowStride / plane.pixelStride
-                    val full = createBitmap(stride, image.height)
+                    // R46: the same bitmaps and buffer every tick instead of new ones five times a second.
+                    val full = stillFull?.takeIf { it.width == stride && it.height == image.height }
+                        ?: createBitmap(stride, image.height).also { stillFull?.recycle(); stillFull = it }
                     full.copyPixelsFromBuffer(plane.buffer)
-                    val bitmap = if (stride == image.width) full else Bitmap.createBitmap(full, 0, 0, image.width, image.height)
-                    val out = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, STILL_QUALITY, out)
-                    sink(MirrorMessages.KIND_JPEG, true, SystemClock.elapsedRealtimeNanos() / 1000, ByteBuffer.wrap(out.toByteArray()))
+                    val bitmap = if (stride == image.width) {
+                        full
+                    } else {
+                        val cropped = stillCropped?.takeIf { it.width == image.width && it.height == image.height }
+                            ?: createBitmap(image.width, image.height).also { stillCropped?.recycle(); stillCropped = it }
+                        val area = android.graphics.Rect(0, 0, image.width, image.height)
+                        android.graphics.Canvas(cropped).drawBitmap(full, area, area, null)
+                        cropped
+                    }
+                    stillOut.reset()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, STILL_QUALITY, stillOut)
+                    sink(MirrorMessages.KIND_JPEG, true, SystemClock.elapsedRealtimeNanos() / 1000, stillOut.view())
                     lastStillMs = SystemClock.uptimeMillis()
                 } catch (e: Exception) {
                     problem("A still picture could not be made (${e.javaClass.simpleName}).")
@@ -273,6 +292,10 @@ class MirrorCapture(
             reader = null
             runCatching { r.close() }
         }
+        stillFull?.recycle()
+        stillCropped?.recycle()
+        stillFull = null
+        stillCropped = null
     }
 
     companion object {

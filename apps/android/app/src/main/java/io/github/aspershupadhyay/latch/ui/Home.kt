@@ -233,7 +233,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 }
             }
         }
-        MirrorCard(state.mirror, actions)
+        MirrorCard(state.mirror, actions, state.mirrorRemembered)
         Card {
             ListRow(
                 icon = LatchIcons.Cloud,

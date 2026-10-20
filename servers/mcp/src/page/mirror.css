@@ -19,6 +19,7 @@ button {
 button:hover { border-color: #303740; }
 button:focus-visible, input:focus-visible, canvas:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
 button.primary { background: var(--ember); border-color: var(--ember); color: #120804; font-weight: 600; }
+button.link { background: none; border-color: transparent; color: var(--muted); text-decoration: underline; margin-top: 8px; }
 button.danger { color: var(--red); }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }

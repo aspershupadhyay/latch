@@ -294,4 +294,32 @@ object LatchIcons {
         moveTo(12f, 11f); lineTo(12f, 16f)
         dot(12f, 8f)
     }
+
+    /** A lightning bolt: the flashlight in the QR scanner. */
+    val Flash = icon("flash") {
+        moveTo(13f, 3f); lineTo(5.5f, 13.5f); lineTo(11.5f, 13.5f); lineTo(10.5f, 21f); lineTo(18.5f, 10f); lineTo(12.5f, 10f); close()
+    }
+
+    val Close = icon("close") {
+        moveTo(6f, 6f); lineTo(18f, 18f)
+        moveTo(18f, 6f); lineTo(6f, 18f)
+    }
+
+    /** A sun: the scanner's brightness. */
+    val Sun = icon("sun") {
+        circle(12f, 12f, 3.8f)
+        moveTo(12f, 3f); lineTo(12f, 5f); moveTo(12f, 19f); lineTo(12f, 21f)
+        moveTo(3f, 12f); lineTo(5f, 12f); moveTo(19f, 12f); lineTo(21f, 12f)
+        moveTo(5.6f, 5.6f); lineTo(7f, 7f); moveTo(17f, 17f); lineTo(18.4f, 18.4f)
+        moveTo(5.6f, 18.4f); lineTo(7f, 17f); moveTo(17f, 7f); lineTo(18.4f, 5.6f)
+    }
+
+    /** A focus square with a dot: the scanner's focus mode. */
+    val Focus = icon("focus") {
+        moveTo(4f, 9f); lineTo(4f, 4f); lineTo(9f, 4f)
+        moveTo(15f, 4f); lineTo(20f, 4f); lineTo(20f, 9f)
+        moveTo(20f, 15f); lineTo(20f, 20f); lineTo(15f, 20f)
+        moveTo(9f, 20f); lineTo(4f, 20f); lineTo(4f, 15f)
+        dot(12f, 12f)
+    }
 }

@@ -446,6 +446,8 @@ fun SettingsScreen(
     version: String,
     onForget: () -> Unit,
     onOpenAccessibility: () -> Unit,
+    /** Disconnects but keeps the keys, so reconnecting is one tap with no QR code or key. */
+    onDisconnectKeep: () -> Unit = {},
     onOpenSetup: () -> Unit = {},
     update: UpdateState = UpdateState.Idle,
     checkUpdates: Boolean = true,
@@ -559,7 +561,7 @@ fun SettingsScreen(
             ListRow(
                 LatchIcons.Leave,
                 "Disconnect from this relay",
-                "Stops everything and removes this phone's keys",
+                "Stops everything. Reconnect later in one tap, or forget the keys",
                 tint = signal.danger,
                 titleColor = signal.danger,
                 onClick = { confirmForget = true },
@@ -619,9 +621,19 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirmForget = false },
             title = { Text("Disconnect this phone?") },
-            text = { Text("Everything stops and this phone forgets its keys. To connect again, you'll need your secret key or a new join code.") },
-            confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text("Disconnect", color = signal.danger) } },
-            dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Cancel") } },
+            text = {
+                Text(
+                    "Everything stops. Disconnect keeps this connection on the phone, so reconnecting is one tap on the first screen, with no QR code or key.\n\n" +
+                        "Forget keys removes them for good: to connect again you'll need a new QR code (run latch-gateway pair on your computer), your secret key, or a join code.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmForget = false; onDisconnectKeep() }) { Text("Disconnect") } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { confirmForget = false; onForget() }) { Text("Forget keys", color = signal.danger) }
+                    TextButton(onClick = { confirmForget = false }) { Text("Cancel") }
+                }
+            },
         )
     }
 }

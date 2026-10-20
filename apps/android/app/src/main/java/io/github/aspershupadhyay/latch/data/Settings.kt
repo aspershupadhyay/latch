@@ -92,6 +92,9 @@ data class Preferences(
     val bothConnected: Boolean = true,
 )
 
+/** ADR-058: a remembered mirror key unused this long is replaced, so an old link stops working. */
+const val MIRROR_KEY_IDLE_MS = 30L * 24 * 60 * 60 * 1000
+
 /** R29 (b): the port `adb tcpip` opens, reached by Latch on the phone's own loopback. */
 const val ADB_FIXED_PORT = 5555
 
@@ -104,6 +107,12 @@ class Settings(private val context: Context) {
     private val vault = TokenVault(context, "latch_device_token")
     /** Present only when this phone's owner also owns the gateway. */
     private val ownerVault = TokenVault(context, "latch_owner_key")
+
+    /** ADR-058: the live mirror's viewer key, sealed like the token. */
+    private val mirrorVault = TokenVault(context, "latch_mirror_key")
+    private val _mirrorRemembered = MutableStateFlow(prefs.getBoolean("mirror_remembered", false))
+    /** Whether a computer that watched the mirror comes back without a new code (ADR-058). */
+    val mirrorRemembered: StateFlow<Boolean> = _mirrorRemembered.asStateFlow()
 
     private val _isOwner = MutableStateFlow(ownerVault.load() != null)
     val isOwner: StateFlow<Boolean> = _isOwner.asStateFlow()
@@ -277,6 +286,39 @@ class Settings(private val context: Context) {
         ownerVault.store(key)
         _isOwner.value = true
         _ownerKeyVersion.value += 1
+    }
+
+    /**
+     * The viewer key for mirroring through the pairing [deviceId] (ADR-058). It is
+     * kept across mirrors, so a computer that watched before joins the next one
+     * without a new code; a different pairing, or [MIRROR_KEY_IDLE_MS] unused,
+     * makes a new one. [forgetMirrorComputers] ends it for good.
+     */
+    fun mirrorKey(deviceId: String, now: Long = System.currentTimeMillis()): String {
+        val kept = mirrorVault.load()?.split('\t')?.takeIf { it.size == 3 }
+        val key = kept?.takeIf { it[0] == deviceId && now - (it[2].toLongOrNull() ?: 0L) < MIRROR_KEY_IDLE_MS }?.get(1)
+            ?: newMirrorKey()
+        mirrorVault.store("$deviceId\t$key\t$now")
+        return key
+    }
+
+    /** Marks the kept key as used by a computer, so the Home card offers to forget it. */
+    fun mirrorWatched() {
+        if (_mirrorRemembered.value) return
+        prefs.edit { putBoolean("mirror_remembered", true) }
+        _mirrorRemembered.value = true
+    }
+
+    /** Computers that watched before need a new code next time (ADR-058). */
+    fun forgetMirrorComputers() {
+        mirrorVault.clear()
+        prefs.edit { remove("mirror_remembered") }
+        _mirrorRemembered.value = false
+    }
+
+    private fun newMirrorKey(): String {
+        val bytes = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
 
     /** Forgets the connection in use. A kept connection of the other kind stays kept. */

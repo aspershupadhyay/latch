@@ -44,6 +44,8 @@ data class HomeState(
     val update: UpdateState = UpdateState.Idle,
     /** Live mirror to the owner's browser (R30). */
     val mirror: io.github.aspershupadhyay.latch.mirror.MirrorStatus = io.github.aspershupadhyay.latch.mirror.MirrorStatus(),
+    /** A computer that watched before comes back without a new code (ADR-058). */
+    val mirrorRemembered: Boolean = false,
 )
 
 class HomeActions(
@@ -66,6 +68,7 @@ class HomeActions(
     val startMirror: () -> Unit = {},
     val stopMirror: () -> Unit = {},
     val copyMirrorLink: () -> Unit = {},
+    val forgetMirrorComputers: () -> Unit = {},
 )
 
 data class ConnectState(
