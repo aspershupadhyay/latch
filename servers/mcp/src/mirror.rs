@@ -121,6 +121,8 @@ struct Session {
     /// The phone's latest `status` and `input` messages (ADR-057).
     status: Option<String>,
     input: Option<String>,
+    /// The phone's latest `quality` message (R38): smaller picture to save bandwidth.
+    quality: Option<String>,
     /// Where the phone reached this gateway, for links it follows (ADR-057).
     base: String,
 }
@@ -243,6 +245,7 @@ impl Mirrors {
                     ai: None,
                     status: None,
                     input: None,
+                    quality: None,
                     base: base.to_owned(),
                 },
             );
@@ -391,6 +394,7 @@ impl Mirrors {
             "ai" => session.ai = Some(message.to_owned()),
             "status" => session.status = Some(message.to_owned()),
             "input" => session.input = Some(message.to_owned()),
+            "quality" => session.quality = Some(message.to_owned()),
             _ => {}
         }
         if let Some(v) = &session.viewer {
@@ -559,6 +563,7 @@ impl Mirrors {
             &session.ai,
             &session.status,
             &session.input,
+            &session.quality,
         ]
         .into_iter()
         .flatten()
@@ -851,6 +856,7 @@ const PHONE_TEXT_KINDS: &[&str] = &[
     "status",
     "input",
     "stats",
+    "quality",
 ];
 
 fn phone_kind(raw: &str) -> Option<String> {

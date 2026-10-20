@@ -216,6 +216,15 @@ object MirrorMessages {
         phoneUs?.let { put("phone_us", it) }
     }.toString()
 
+    /** R38: the stream got smaller to save bandwidth, or is back at full quality. */
+    fun quality(saving: Boolean, width: Int, height: Int, fps: Int): String = buildJsonObject {
+        put("t", "quality")
+        put("saving", saving)
+        put("w", width)
+        put("h", height)
+        put("fps", fps)
+    }.toString()
+
     /** R35: the encoder's last second, for the page's stats overlay. */
     fun stats(s: StreamStats.Snapshot, bitrateKbps: Int, width: Int, height: Int, codec: String): String = buildJsonObject {
         put("t", "stats")

@@ -38,6 +38,8 @@ class MirrorCapture(
     private val screen: () -> Screen,
     private val sink: (kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer) -> Boolean,
     private val problem: (String) -> Unit,
+    /** R38: the picture got smaller to save bandwidth ([QualityLadder.saving]), or came back. */
+    private val quality: (saving: Boolean, width: Int, height: Int, fps: Int) -> Unit = { _, _, _, _ -> },
 ) {
     data class Screen(val width: Int, val height: Int, val dpi: Int, val rotation: Int)
 
@@ -53,6 +55,9 @@ class MirrorCapture(
     val codecName: String get() = codec?.wire ?: "off"
     private var size = 0 to 0
     private val governor = BitrateGovernor()
+    private val ladder = QualityLadder()
+    /** R37: the encoder heals a lost frame by refreshing stripes, so a drop needs no key frame. */
+    private var intraRefresh = false
     /** R35: what the encoder did since the page last asked. */
     val stats = StreamStats()
     /** The bitrate the encoder aims for now, and the encoded picture's size. */
@@ -111,7 +116,12 @@ class MirrorCapture(
     /** The browser needs a key frame (joined late, or dropped frames). */
     fun requestKeyFrame() {
         val e = encoder ?: run {
-            lastStillMs = 0
+            // Stills: the screen may be still, so no new picture comes; send the last one again.
+            handler.post {
+                if (reader != null && stillOut.size() > 0) {
+                    sink(MirrorMessages.KIND_JPEG, true, System.nanoTime() / 1000, stillOut.view())
+                }
+            }
             return
         }
         val now = SystemClock.uptimeMillis()
@@ -133,16 +143,19 @@ class MirrorCapture(
         val info = pickEncoder() ?: throw IllegalStateException("no H.264 encoder")
         val caps = info.getCapabilitiesForType(MIME)
         val video = caps.videoCapabilities ?: throw IllegalStateException("not a video encoder")
-        val (w, h) = listOf(MAX_EDGE, 1280, 960).map { EncoderSizing.size(s.width, s.height, it) }
+        val level = ladder.level
+        val (w, h) = listOf(level.maxEdge, 1280, 960).filter { it <= level.maxEdge }.map { EncoderSizing.size(s.width, s.height, it) }
             .firstOrNull { (w, h) -> video.isSizeSupported(w, h) } ?: throw IllegalStateException("no supported size")
         val codec = MediaCodec.createByCodecName(info.name)
         try {
+            intraRefresh = caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_IntraRefresh)
             try {
-                codec.configure(format(w, h, caps, lowLatency = true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.configure(format(w, h, caps, lowLatency = true, fps = level.fps), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             } catch (e: Exception) {
                 // Some vendors refuse keys they do not know; the plain format works everywhere.
                 codec.reset()
-                codec.configure(format(w, h, caps, lowLatency = false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                intraRefresh = false
+                codec.configure(format(w, h, caps, lowLatency = false, fps = level.fps), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             }
             val surface = codec.createInputSurface()
             codec.setCallback(callback, handler)
@@ -158,16 +171,21 @@ class MirrorCapture(
         }
     }
 
-    private fun format(w: Int, h: Int, caps: MediaCodecInfo.CodecCapabilities, lowLatency: Boolean) =
+    private fun format(w: Int, h: Int, caps: MediaCodecInfo.CodecCapabilities, lowLatency: Boolean, fps: Int) =
         MediaFormat.createVideoFormat(MIME, w, h).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, governor.bps)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
-            // Key frames come on request (a viewer joins or falls behind), not on a timer.
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEY_FRAME_SECONDS)
-            // A still screen still sends a frame now and then, so the picture never goes stale.
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+            // R38: fewer frames a second at a lower level; the encoder drops the rest.
+            if (fps < FPS) setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, fps.toFloat())
+            // Key frames come on request (a viewer joins or falls behind), not on a timer;
+            // with intra refresh (R37) only on join, rotation, and the gateway's request.
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, if (lowLatency && intraRefresh) INTRA_KEY_FRAME_SECONDS else KEY_FRAME_SECONDS)
+            // A still screen still sends a frame now and then (R46: twice a second), so the
+            // picture never goes stale and a lost frame is replaced soon.
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
             if (!lowLatency) return@apply
+            if (intraRefresh) setInteger(MediaFormat.KEY_INTRA_REFRESH_PERIOD, maxOf(1, fps / 2))
             setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
             caps.profileLevels.filter { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline }.maxOfOrNull { it.level }
                 ?.let { setInteger(MediaFormat.KEY_LEVEL, it) }
@@ -210,9 +228,15 @@ class MirrorCapture(
                 stats.frame(size, key, sent, encodeUs)
                 if (sent) {
                     governor.clean(now)?.let(::setBitrate)
+                    ladder.clean(now)?.let { changeLevel() }
                 } else {
                     governor.dropped(now)?.let(::setBitrate)
-                    requestKeyFrame()
+                    if (ladder.dropped(now, governor.atFloor) != null) {
+                        changeLevel()
+                    } else if (!intraRefresh) {
+                        // R37: with intra refresh the next frames heal the picture; no key frame spike.
+                        requestKeyFrame()
+                    }
                 }
             } finally {
                 runCatching { codec.releaseOutputBuffer(index, false) }
@@ -226,6 +250,16 @@ class MirrorCapture(
         }
 
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
+    }
+
+    /** R38: start the encoder again at the ladder's new size and frame rate, and tell the page. */
+    private fun changeLevel() {
+        handler.post {
+            if (codec != Codec.H264) return@post
+            start(Codec.H264)
+            val level = ladder.level
+            quality(ladder.saving, size.first, size.second, level.fps)
+        }
     }
 
     private fun setBitrate(bps: Int) {
@@ -243,7 +277,15 @@ class MirrorCapture(
         display?.resize(w, h, s.dpi)
         display?.surface = r.surface
         lastStillMs = 0
-        handler.post(stillTick)
+        // R46: woken by a new picture instead of polling; a still screen costs nothing.
+        r.setOnImageAvailableListener({ scheduleStill() }, handler)
+    }
+
+    /** A new picture is ready: send it now, or when [STILL_EVERY_MS] has passed since the last. */
+    private fun scheduleStill() {
+        if (handler.hasCallbacks(stillTick)) return
+        val wait = STILL_EVERY_MS - (SystemClock.uptimeMillis() - lastStillMs)
+        if (wait <= 0) handler.post(stillTick) else handler.postDelayed(stillTick, wait)
     }
 
     private var stillFull: Bitmap? = null
@@ -289,7 +331,6 @@ class MirrorCapture(
                     image.close()
                 }
             }
-            handler.postDelayed(this, STILL_EVERY_MS)
         }
     }
 
@@ -316,7 +357,9 @@ class MirrorCapture(
         const val MAX_EDGE = 1920
         const val FPS = 60
         private const val KEY_FRAME_SECONDS = 10
-        private const val REPEAT_AFTER_US = 100_000L
+        private const val REPEAT_AFTER_US = 500_000L
+        /** With intra refresh, a key frame is only asked for; this keeps the encoder from adding its own. */
+        private const val INTRA_KEY_FRAME_SECONDS = 3_600
         private const val KEY_REQUEST_GAP_MS = 200L
         private const val STILL_EDGE = 1280
         private const val STILL_EVERY_MS = 200L

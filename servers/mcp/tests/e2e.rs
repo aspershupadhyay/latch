@@ -3706,6 +3706,14 @@ async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back()
         (json!(60), json!(0))
     );
 
+    // R38: the phone says it saves bandwidth; a viewer who joins later is told too.
+    send_json(
+        &mut ph,
+        json!({"t": "quality", "saving": true, "w": 720, "h": 1600, "fps": 30}),
+    )
+    .await;
+    assert_eq!(next_of(&mut viewer, "quality").await["fps"], 30);
+
     // The link takes over from another window; the first one is told why.
     let (mut second, got) = join(&gw, json!({"key": VIEWER_KEY})).await;
     assert!(
@@ -3718,6 +3726,7 @@ async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back()
         2400,
         "the latest screen size first"
     );
+    assert_eq!(next_of(&mut second, "quality").await["saving"], true);
 
     // The phone's network drops: the browser waits, and the picture comes back.
     drop(ph);

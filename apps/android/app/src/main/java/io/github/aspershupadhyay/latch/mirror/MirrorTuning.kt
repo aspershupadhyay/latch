@@ -143,6 +143,9 @@ class BitrateGovernor(
         return change(minOf(maxBps, (bps * 1.15).roundToInt()), now)
     }
 
+    /** At the lowest bitrate: only a smaller picture (R38) can save more. */
+    val atFloor: Boolean get() = bps <= minBps
+
     private fun change(to: Int, now: Long): Int {
         bps = to
         lastChangeMs = now
@@ -220,6 +223,60 @@ class StreamStats {
 
     private companion object {
         const val MAX_ENCODE_US = 2_000_000L
+    }
+}
+
+/**
+ * R38: when the lowest bitrate still drops frames, a smaller picture and
+ * fewer frames a second; back up a step after a long clean stretch. Steps
+ * are far apart, since each one restarts the encoder (and sends a key frame).
+ */
+class QualityLadder {
+    data class Level(val maxEdge: Int, val fps: Int)
+
+    var index = 0
+        private set
+    val level: Level get() = LEVELS[index]
+    /** True below full quality: the page says "Saving bandwidth". */
+    val saving: Boolean get() = index > 0
+
+    private var lastChangeMs = Long.MIN_VALUE / 2
+    private var lastDropMs = Long.MIN_VALUE / 2
+    private var windowStartMs = Long.MIN_VALUE / 2
+    private var dropsInWindow = 0
+
+    /** A frame was dropped; returns the lower level when it is time to step down. */
+    fun dropped(now: Long, atFloor: Boolean): Level? {
+        lastDropMs = now
+        if (now - windowStartMs > WINDOW_MS) {
+            windowStartMs = now
+            dropsInWindow = 0
+        }
+        dropsInWindow++
+        if (!atFloor || dropsInWindow < DROPS_TO_STEP || now - lastChangeMs < DOWN_GAP_MS || index >= LEVELS.lastIndex) return null
+        return step(index + 1, now)
+    }
+
+    /** Frames flow; returns the higher level after [UP_CLEAN_MS] without a drop. */
+    fun clean(now: Long): Level? {
+        if (index == 0 || now - lastDropMs < UP_CLEAN_MS || now - lastChangeMs < UP_CLEAN_MS) return null
+        return step(index - 1, now)
+    }
+
+    private fun step(to: Int, now: Long): Level {
+        index = to
+        lastChangeMs = now
+        dropsInWindow = 0
+        windowStartMs = now
+        return level
+    }
+
+    companion object {
+        val LEVELS = listOf(Level(1920, 60), Level(1280, 30), Level(960, 30))
+        const val WINDOW_MS = 2_000L
+        const val DROPS_TO_STEP = 4
+        const val DOWN_GAP_MS = 3_000L
+        const val UP_CLEAN_MS = 15_000L
     }
 }
 

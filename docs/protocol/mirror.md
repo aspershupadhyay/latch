@@ -32,6 +32,7 @@ phone                                         gateway
   ── {"t":"pong","at":n,"phone_us":n} ──▶        (answers a viewer ping; phone_us, since R35, is the phone's frame clock now, so the page lines frame timestamps up with its own)
   ── {"t":"stats","codec":…,"frames":n,"key_frames":n,"drops":n,"kbps":n,"target_kbps":n,"w":n,"h":n,"encode_ms":n,"encode_max_ms":n} ──▶   (R35: the last second, once a second while the page asked; the gateway adds "gateway_drops")
   ── {"t":"notice","text":"…"} ──▶                (one line for the page, e.g. "Type passwords on the phone")
+  ── {"t":"quality","saving":bool,"w":n,"h":n,"fps":n} ──▶   (R38: a smaller picture while the network is slow, or full quality again; kept for a viewer who joins later)
   ── {"t":"status","battery":0-100,"charging":bool,"network":"wifi|cellular|ethernet|none","signal":0-4} ──▶   (any field may be missing; ADR-057)
   ── {"t":"input","mode":"keys"|"basic"} ──▶       (keys: the Full ADB input helper runs; ADR-057)
   ── {"t":"clipboard","text":"…"} ──▶             (only in answer to the owner's copy or cut; ADR-057)
@@ -50,7 +51,7 @@ A phone that disconnects without `end` keeps its viewer for 15 s; reconnecting w
 browser                                       gateway
   ── {"t":"join","code":"123456"|"key":"…","codecs":["h264","jpeg"]} ──▶
   ◀── {"t":"joined","version":1,"device":"Pixel 8","codec":"h264","key":"…"}   (keep the key to reconnect)
-  ◀── the phone's screen / ai / pong / notice / status / input / clipboard / stats messages, {"t":"phone","online":bool}, binary frames
+  ◀── the phone's screen / ai / pong / notice / status / input / clipboard / stats / quality messages, {"t":"phone","online":bool}, binary frames
   ◀── {"t":"volume","percent":0-100}             (an AI app set the computer's volume, ADR-056)
   ── {"t":"touch","phase":"down|move|up|cancel","x":int,"y":int} ──▶
   ── {"t":"wheel","x":int,"y":int,"dx":int,"dy":int} ──▶
@@ -74,7 +75,7 @@ Coordinates are phone screen pixels (0–16384). The gateway drops anything else
 
 ## Flow control
 
-Video is never queued. The gateway holds at most 3 frames per viewer (50 ms at 60 frames a second); when that is full it drops frames until the next key frame and asks the phone for one (at most every 250 ms). The phone drops a delta frame when its socket's send queue passes 96 KiB (a key frame at 512 KiB), asks its encoder for a key frame, and lowers the bitrate while drops repeat. Its socket has no Nagle delay and a 128 KiB send buffer, so a slow network shows up as drops at once rather than as seconds of video queued in the kernel. Sound has its own queue of 8 frames (160 ms), so it never fills the video queue or costs a key frame, and is dropped rather than played late; screenshots wait with the text messages and are never dropped.
+Video is never queued. The gateway holds at most 3 frames per viewer (50 ms at 60 frames a second); when that is full it drops frames until the next key frame and asks the phone for one (at most every 250 ms). The phone drops a delta frame when its socket's send queue passes 96 KiB (a key frame at 512 KiB), asks its encoder for a key frame (or, where the encoder supports intra refresh, lets the next frames heal the picture in half a second without a key frame, R37), and lowers the bitrate while drops repeat; at the lowest bitrate it steps down to a 1280 and then a 960 long edge at 30 frames a second, and back up after 15 clean seconds (R38). A decoder error on the page asks for a key frame; only three in ten seconds make it fall back to stills. A still screen repeats its last frame twice a second (R46). Its socket has no Nagle delay and a 128 KiB send buffer, so a slow network shows up as drops at once rather than as seconds of video queued in the kernel. Sound has its own queue of 8 frames (160 ms), so it never fills the video queue or costs a key frame, and is dropped rather than played late; screenshots wait with the text messages and are never dropped.
 
 ## Input helper (ADR-057)
 

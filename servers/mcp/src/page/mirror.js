@@ -453,7 +453,8 @@ if (typeof document !== 'undefined') {
         usingH264 = m.codec === 'h264';
         inputMode = 'basic';
         $('smooth').hidden = true;
-        $('mode').textContent = usingH264 ? '' : 'Still pictures';
+        saving = false;
+        showMode();
         show('app');
         cover('Waiting for the picture…');
         canvas.focus();
@@ -488,6 +489,12 @@ if (typeof document !== 'undefined') {
       }
       case 'stats':
         perf.phone = m;
+        break;
+      case 'quality':
+        // R38: the phone made the picture smaller because the network is slow.
+        saving = Boolean(m.saving);
+        showMode();
+        if (saving) toast(`Saving bandwidth: ${m.w}×${m.h} at ${m.fps} frames a second while the network is slow.`);
         break;
       case 'notice':
         if (typeof m.text === 'string') toast(m.text);
@@ -673,6 +680,25 @@ if (typeof document !== 'undefined') {
     uncover();
   }
 
+  let saving = false;
+  function showMode() {
+    $('mode').textContent = !usingH264 ? 'Still pictures' : saving ? 'Saving bandwidth' : '';
+  }
+
+  // R37: a decoder error asks for a key frame first; only repeated errors mean this browser can't decode.
+  let decodeErrors = [];
+  function decodeFailed() {
+    const now = performance.now();
+    decodeErrors = decodeErrors.filter((t) => now - t < 10000);
+    decodeErrors.push(now);
+    if (decodeErrors.length >= 3) {
+      fallBackToStills("This browser couldn't decode the phone's video; showing still pictures instead.");
+      return;
+    }
+    resetDecoder();
+    send({ t: 'sync' });
+  }
+
   function fallBackToStills(why) {
     resetDecoder();
     h264 = false;
@@ -694,7 +720,7 @@ if (typeof document !== 'undefined') {
           frameShown(frame.timestamp, decoded, performance.now());
           frame.close();
         },
-        error: () => fallBackToStills("This browser couldn't decode the phone's video; showing still pictures instead."),
+        error: () => decodeFailed(),
       });
       decoder.configure({ codec: codecFromSps(sps), optimizeForLatency: true });
       decoderSps = spsHex;
