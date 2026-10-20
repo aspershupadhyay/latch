@@ -46,6 +46,8 @@ sealed interface MirrorIn {
     data object Shot : MirrorIn
     /** R35: the page shows its stats overlay; the phone reports once a second while [on]. */
     data class Stats(val on: Boolean) : MirrorIn
+    /** R39: how the page wants the sound: Opus ([opus]) or raw PCM. */
+    data class AudioCodec(val opus: Boolean) : MirrorIn
     /** From the gateway: a file the owner dropped on the page, to fetch into Downloads (ADR-057). */
     data class File(val url: String, val keyHex: String, val ivHex: String, val sha256: String, val name: String, val size: Long) : MirrorIn
 }
@@ -69,6 +71,8 @@ object MirrorMessages {
     const val KIND_PCM: Byte = 3
     /** A full-resolution PNG screenshot the owner asked for (ADR-057). */
     const val KIND_SHOT: Byte = 4
+    /** R39: one Opus packet of 48 kHz stereo sound, 20 ms. */
+    const val KIND_OPUS: Byte = 5
     const val HEADER_BYTES = 10
     const val MAX_COORDINATE = 16_384
     const val MAX_TEXT_CHARS = 256
@@ -96,6 +100,7 @@ object MirrorMessages {
         "cut" to emptySet(),
         "shot" to emptySet(),
         "stats" to setOf("on"),
+        "audio_codec" to setOf("codec"),
         "file" to setOf("url", "key", "iv", "sha256", "name", "size"),
     )
 
@@ -134,6 +139,11 @@ object MirrorMessages {
             "cut" -> MirrorIn.Copy(cut = true)
             "shot" -> MirrorIn.Shot
             "stats" -> MirrorIn.Stats(o.bool("on") ?: return null)
+            "audio_codec" -> when (o.string("codec")) {
+                "opus" -> MirrorIn.AudioCodec(opus = true)
+                "pcm" -> MirrorIn.AudioCodec(opus = false)
+                else -> null
+            }
             "file" -> {
                 fun hex(name: String, length: Int) = o.string(name)?.takeIf { v -> v.length == length && v.all { it in '0'..'9' || it in 'a'..'f' } }
                 val name = o.string("name")?.takeIf { validFileName(it) } ?: return null

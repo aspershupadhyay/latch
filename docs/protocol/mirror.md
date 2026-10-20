@@ -41,7 +41,7 @@ phone                                         gateway
 
 The signed envelope is the device protocol's: `{"type":"signed","payload":"<start JSON>","sig":"<base64 DER ECDSA P-256>"}` over `latch-signed-v1\n<connection>\n<payload>`.
 
-**Binary frames:** byte 0 kind (`1` H.264 Annex B access unit, `2` JPEG, `3` sound: 48 kHz stereo 16-bit little-endian PCM, 20 ms a frame (ADR-055), `4` a full-resolution PNG screenshot the owner asked for (ADR-057)), byte 1 flags (bit 0: key frame), bytes 2–9 timestamp in µs (big-endian), then the payload; at most 8 MiB. H.264 key frames carry their SPS and PPS, so a decoder can start at any key frame. The browser derives its codec string (`avc1.PPCCLL`) from the SPS.
+**Binary frames:** byte 0 kind (`1` H.264 Annex B access unit, `2` JPEG, `3` sound: 48 kHz stereo 16-bit little-endian PCM, 20 ms a frame (ADR-055), `4` a full-resolution PNG screenshot the owner asked for (ADR-057), `5` one Opus packet of the same sound, 20 ms, sent instead of `3` once the page asked for it (R39, ADR-059)), byte 1 flags (bit 0: key frame), bytes 2–9 timestamp in µs (big-endian), then the payload; at most 8 MiB. H.264 key frames carry their SPS and PPS, so a decoder can start at any key frame. The browser derives its codec string (`avc1.PPCCLL`) from the SPS.
 
 A phone that disconnects without `end` keeps its viewer for 15 s; reconnecting with the same key resumes (`{"t":"phone","online":false|true}` tells the viewer). Revoking the phone ends the mirror.
 
@@ -67,6 +67,7 @@ browser                                       gateway
   ── {"t":"control","action":"pause|resume|stop|end"} ──▶   (stop ends the AI session; end ends mirroring)
   ── {"t":"ping","at":number} / {"t":"sync"} / {"t":"codec","codec":"jpeg"} ──▶
   ── {"t":"stats","on":bool} ──▶                  (R35: the page's stats overlay, Alt+D)
+  ── {"t":"audio_codec","codec":"opus|pcm"} ──▶   (R39: Opus when the browser's WebCodecs decodes it; the phone falls back to PCM when its encoder fails)
 ```
 
 Coordinates are phone screen pixels (0–16384). The gateway drops anything else, rebuilds what passes from its fields, and limits a viewer to 1000 messages a second. `screen_light` and `notifications` never reach the phone's mirror link: the gateway runs them as Full ADB commands and answers with a `notice`. A viewer message is at most 16 KiB; a phone message at most 64 KiB (clipboard text). A code joins only when nobody watches; the key takes over from another window (that one is closed with 4409).

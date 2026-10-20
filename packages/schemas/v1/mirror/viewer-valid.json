@@ -137,5 +137,13 @@
  {
   "t": "stats",
   "on": true
+ },
+ {
+  "t": "audio_codec",
+  "codec": "opus"
+ },
+ {
+  "t": "audio_codec",
+  "codec": "pcm"
  }
 ]

@@ -12,6 +12,8 @@ const KIND_H264 = 1;
 const KIND_JPEG = 2;
 const KIND_PCM = 3;
 const KIND_SHOT = 4;
+// R39: one Opus packet of the phone's sound.
+const KIND_OPUS = 5;
 const FLAG_KEY = 1;
 const HEADER_BYTES = 10;
 /** How long a page waits for the phone to mirror again before it asks for a code (ADR-058). */
@@ -22,7 +24,7 @@ function parseFrame(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength <= HEADER_BYTES) return null;
   const view = new DataView(buffer);
   const kind = view.getUint8(0);
-  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM && kind !== KIND_SHOT) return null;
+  if (kind !== KIND_H264 && kind !== KIND_JPEG && kind !== KIND_PCM && kind !== KIND_SHOT && kind !== KIND_OPUS) return null;
   const flags = view.getUint8(1);
   const ts = Number(view.getBigUint64(2));
   return { kind, key: (flags & FLAG_KEY) !== 0, ts, data: new Uint8Array(buffer, HEADER_BYTES) };
@@ -468,6 +470,8 @@ if (typeof document !== 'undefined') {
         $('smooth').hidden = true;
         saving = false;
         showMode();
+        // R39: about 96 kbit/s of Opus instead of 1.5 Mbit/s of raw sound, when this browser decodes it.
+        if (opusOk) send({ t: 'audio_codec', codec: 'opus' });
         show('app');
         cover('Waiting for the picture…');
         canvas.focus();
@@ -683,21 +687,27 @@ if (typeof document !== 'undefined') {
 
   function playPcm(bytes) {
     if (!soundOn || !audio || audio.state !== 'running') return;
+    // The header is 10 bytes, so the samples stay 2-byte aligned in the frame's own buffer.
+    const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
+    playSamples(samples, true);
+  }
+
+  /** Interleaved 16-bit stereo; [own] when its buffer may move to the audio thread. */
+  function playSamples(samples, own) {
     if (sound) {
-      // The frame's own buffer moves to the audio thread (the header is 10 bytes, so the
-      // samples stay 2-byte aligned): no copy and no conversion here.
-      sound.port.postMessage(new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1), [bytes.buffer]);
+      // R47: to the audio thread's ring; nothing is converted here.
+      if (own) sound.port.postMessage(samples, [samples.buffer]);
+      else sound.port.postMessage(samples);
       return;
     }
-    const samples = Math.floor(bytes.byteLength / 4);
-    if (!samples) return;
-    const view = new DataView(bytes.buffer, bytes.byteOffset, samples * 4);
-    const buffer = audio.createBuffer(2, samples, 48000);
+    const frames = samples.length >> 1;
+    if (!frames) return;
+    const buffer = audio.createBuffer(2, frames, 48000);
     const left = buffer.getChannelData(0);
     const right = buffer.getChannelData(1);
-    for (let i = 0; i < samples; i++) {
-      left[i] = view.getInt16(i * 4, true) / 32768;
-      right[i] = view.getInt16(i * 4 + 2, true) / 32768;
+    for (let i = 0; i < frames; i++) {
+      left[i] = samples[i * 2] / 32768;
+      right[i] = samples[i * 2 + 1] / 32768;
     }
     const now = audio.currentTime;
     // Keep about 40 ms queued: enough to ride out Wi-Fi jitter, and when the
@@ -708,6 +718,60 @@ if (typeof document !== 'undefined') {
     source.connect(mix || audio.destination);
     source.start(audioAt);
     audioAt += buffer.duration;
+  }
+
+  // ---- R39: Opus from the phone, decoded with WebCodecs ----
+
+  let opusOk = false;
+  let opusDecoder = null;
+
+  async function probeOpus() {
+    if (typeof AudioDecoder !== 'function' || !window.isSecureContext) return false;
+    try {
+      return Boolean((await AudioDecoder.isConfigSupported({ codec: 'opus', sampleRate: 48000, numberOfChannels: 2 })).supported);
+    } catch {
+      return false;
+    }
+  }
+
+  function playOpus(frame) {
+    if (!soundOn || !audio || audio.state !== 'running') return;
+    if (!opusDecoder || opusDecoder.state === 'closed') {
+      try {
+        opusDecoder = new AudioDecoder({
+          output: (data) => {
+            const frames = data.numberOfFrames;
+            const samples = new Int16Array(frames * 2);
+            try {
+              data.copyTo(samples, { planeIndex: 0, format: 's16' });
+            } catch {
+              // A browser that converts only to float: two planes, then 16-bit here.
+              const l = new Float32Array(frames);
+              const r = new Float32Array(frames);
+              data.copyTo(l, { planeIndex: 0, format: 'f32-planar' });
+              data.copyTo(r, { planeIndex: Math.min(1, data.numberOfChannels - 1), format: 'f32-planar' });
+              for (let i = 0; i < frames; i++) {
+                samples[i * 2] = Math.max(-32768, Math.min(32767, Math.round(l[i] * 32768)));
+                samples[i * 2 + 1] = Math.max(-32768, Math.min(32767, Math.round(r[i] * 32768)));
+              }
+            }
+            data.close();
+            playSamples(samples, true);
+          },
+          // Can't decode after all: ask the phone for raw sound instead.
+          error: () => { opusOk = false; opusDecoder = null; send({ t: 'audio_codec', codec: 'pcm' }); },
+        });
+        opusDecoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 2 });
+      } catch {
+        opusOk = false;
+        opusDecoder = null;
+        send({ t: 'audio_codec', codec: 'pcm' });
+        return;
+      }
+    }
+    try {
+      opusDecoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: frame.ts, data: frame.data }));
+    } catch { /* one lost packet is 20 ms of silence */ }
   }
 
   function draw(source, width, height) {
@@ -786,6 +850,10 @@ if (typeof document !== 'undefined') {
     if (!frame) return;
     if (frame.kind === KIND_PCM) {
       playPcm(frame.data);
+      return;
+    }
+    if (frame.kind === KIND_OPUS) {
+      playOpus(frame);
       return;
     }
     if (frame.kind === KIND_SHOT) {
@@ -1364,6 +1432,7 @@ if (typeof document !== 'undefined') {
 
   (async () => {
     h264 = await probeH264();
+    opusOk = await probeOpus();
     $('mode-note').textContent = modeNote();
     key = keyFromHash(location.hash) || store.get();
     if (key) {

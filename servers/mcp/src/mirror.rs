@@ -51,6 +51,8 @@ pub const KIND_JPEG: u8 = 2;
 pub const KIND_PCM: u8 = 3;
 /// A full-resolution PNG screenshot the owner asked for (ADR-057); never dropped.
 pub const KIND_SHOT: u8 = 4;
+/// R39: one Opus packet of the phone's sound (48 kHz stereo, 20 ms).
+pub const KIND_OPUS: u8 = 5;
 pub const FLAG_KEY: u8 = 1;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -448,7 +450,7 @@ impl Mirrors {
             let _ = viewer.text.try_send(ToViewer::Binary(frame));
             return;
         }
-        if frame.first() == Some(&KIND_PCM) {
+        if matches!(frame.first(), Some(&KIND_PCM | &KIND_OPUS)) {
             // Sound never waits for a key frame; when the viewer is behind, a dropped
             // 20 ms is better than late sound.
             let _ = viewer.audio.try_send(frame);
@@ -839,6 +841,17 @@ pub enum ViewerMessage {
     Stats {
         on: bool,
     },
+    /// How the page wants the sound (R39): Opus when it decodes it, else raw PCM.
+    AudioCodec {
+        codec: AudioCodec,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioCodec {
+    Pcm,
+    Opus,
 }
 
 impl ViewerMessage {
@@ -903,7 +916,10 @@ fn phone_kind(raw: &str) -> Option<String> {
 pub fn valid_frame(frame: &[u8]) -> bool {
     frame.len() > FRAME_HEADER_BYTES
         && frame.len() <= MAX_FRAME_BYTES
-        && matches!(frame[0], KIND_H264 | KIND_JPEG | KIND_PCM | KIND_SHOT)
+        && matches!(
+            frame[0],
+            KIND_H264 | KIND_JPEG | KIND_PCM | KIND_SHOT | KIND_OPUS
+        )
 }
 
 // ---- The phone's socket ----
@@ -1464,6 +1480,8 @@ mod tests {
         frame[0] = KIND_PCM;
         assert!(valid_frame(&frame));
         frame[0] = KIND_SHOT;
+        assert!(valid_frame(&frame));
+        frame[0] = KIND_OPUS;
         assert!(valid_frame(&frame));
         frame[0] = 9;
         assert!(!valid_frame(&frame));

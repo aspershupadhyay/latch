@@ -375,6 +375,7 @@ class MirrorController(
                 is MirrorIn.Sound -> handler?.post { capture?.audio?.quietPhone(message.on) }
                 is MirrorIn.Ping -> link?.sendText(MirrorMessages.pong(message.at, System.nanoTime() / 1000))
                 is MirrorIn.Stats -> scope.launch { statsFor(message.on) }
+                is MirrorIn.AudioCodec -> capture?.audio?.wantOpus = message.opus
                 is MirrorIn.Shot -> shot()
                 is MirrorIn.File -> receive(message)
                 else -> input.trySend(Input.Message(message, SystemClock.uptimeMillis()))

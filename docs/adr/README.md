@@ -689,3 +689,20 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** an older page treats `4404` as a network drop and keeps retrying with its key, which joins once the phone mirrors; an older app makes a new key each time, as before.
 
+## ADR-059 — A faster, lighter mirror stream (R35–R39, R46–R50)
+**Status:** accepted (2026-10-20, owner request 2026-10-19 "make our stream faster … optimize the app", and 2026-10-20 "continue with the rest of the backlog items") · **Builds on:** ADR-051 (live mirror), ADR-055 (sound), ADR-057 · **Protocol:** device protocol unchanged; mirror channel additive ([docs/protocol/mirror.md](../protocol/mirror.md))
+
+**Decision:**
+- **Measure (R35).** Alt+D on the page shows each second: stream size, fps, bitrate and the encoder's target; phone encode time (capture timestamp to encoder output); phone and gateway drops; capture→page on a clock synced by the fastest ping (`pong.phone_us`); page decode and draw; skipped deltas; glass-to-glass. `{"t":"stats","on"}` from the page, `stats` once a second from the phone while on; the gateway adds `gateway_drops`.
+- **Off the page's main thread (R36, R47).** A Worker decodes and draws on the canvas it was handed; an AudioWorklet plays sound from a ring buffer. Frame buffers are moved, not copied. Browsers without OffscreenCanvas or AudioWorklet keep the old paths.
+- **Recover without spikes (R37).** Where the encoder supports intra refresh, a phone-side drop heals within half a second without a key frame; a decoder error on the page asks for a key frame and falls back to stills only after three in ten seconds.
+- **Follow the network (R38).** At the bitrate floor with frames still dropping, the encoder restarts at 1280 then 960 on the long edge and 30 fps, and steps back up after 15 clean seconds; `{"t":"quality"}` tells the page ("Saving bandwidth"), kept for late viewers.
+- **Opus sound (R39).** When the page's WebCodecs decodes Opus it sends `{"t":"audio_codec","codec":"opus"}`; the phone encodes with Android's Opus encoder (API 29+, 96 kbit/s) and sends frame kind 5 on the sound queue; a failed encoder falls back to PCM, a failed decoder asks for PCM. Sound goes out only while the page plays it (R45).
+- **Lighter both ends (R46, R48–R50).** Stills on the image callback, one copy per frame, 500 ms repeat on a still screen; cheaper `wait_for`, settle, and screenshots; O(1) activity log; idle accessibility listening; gateway hot paths without copies or the global map.
+
+**Threat review:** nothing new leaves the phone beyond encoder counters (frame counts, sizes, times) and the same sound in another encoding; every new message is validated and rebuilt by the gateway and covered by the shared viewer fixtures. The two new page scripts are served by the gateway under the mirror page's CSP (`script-src 'self'`).
+
+**Checks:** Rust unit and e2e (stats both ways with gateway drops, quality kept for a late viewer, Opus frames valid, a replaced connection's frames ignored on the frame path); Android JVM (StreamStats, QualityLadder, MirrorAudio gating, ActivityLog); node (clock sync, overlay text, audio ring, worker); headless Chromium against a real gateway and a fake phone (overlay numbers, worker drawing, worklet and Opus playback at the expected level). *Needs phone:* every number in the R35 overlay on two phones, intra-refresh support, the quality steps on a congested Wi-Fi, and Opus on Android 10+.
+
+**Rollback:** each part falls back on its own (no stats requested, no Worker or AudioWorklet, no intra refresh, Opus refused); an older page or phone ignores the new messages.
+

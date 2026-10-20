@@ -119,5 +119,12 @@
   "t": "stats",
   "on": true,
   "every": 5
+ },
+ {
+  "t": "audio_codec",
+  "codec": "aac"
+ },
+ {
+  "t": "audio_codec"
  }
 ]
