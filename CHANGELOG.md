@@ -47,7 +47,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Fixed
 
-- **Dependency audit:** `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382, certificate verification could accept distrusted intermediates; the gateway's own Wi-Fi certificate is pinned, but outbound TLS uses it too).
+- **Dependency audit:** MCP TypeScript SDK 1.32.1 in the Vercel gateway and the interop test (GHSA-22jm-h49p-29qw, GHSA-6prh-2h8m-c8cw, GHSA-46jr-4wx8-v453, GHSA-rvq5-wwqv-78pq), and `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382, certificate verification could accept distrusted intermediates; the gateway's own Wi-Fi certificate is pinned, but outbound TLS uses it too).
 
 - **Mirror stutter while sound plays**: the phone's sound shared the gateway's three-frame video queue, so a few sound frames filled it and video frames were dropped and forced key frames. Sound now has its own queue.
 - **WhatsApp put "Message" in front of what you typed from the mirror**, and Backspace deleted it letter by letter: a field that reports its hint as text is now read as empty.
