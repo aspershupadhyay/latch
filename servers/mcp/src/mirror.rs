@@ -87,6 +87,10 @@ const MAX_PASTE_CHARS: usize = 4096;
 pub const CLOSE_REFUSED: u16 = 4401;
 pub const CLOSE_REPLACED: u16 = 4409;
 pub const CLOSE_ENDED: u16 = 4410;
+/// A well-formed link with no mirror behind it right now (ADR-058): the phone
+/// keeps its key across mirrors, so the page waits and joins again when the
+/// owner starts mirroring on the phone.
+pub const CLOSE_WAITING: u16 = 4404;
 
 #[derive(Default)]
 pub struct Mirrors {
@@ -428,7 +432,18 @@ impl Mirrors {
 
     /// A browser asks to watch. Returns what it needs, or why not (without
     /// saying whether a code exists).
-    fn join(&self, join: &Join) -> Result<Joined, &'static str> {
+    fn join(&self, join: &Join) -> Result<Joined, (u16, &'static str)> {
+        self.join_inner(join).map_err(|why| {
+            let code = if why == NOT_MIRRORING {
+                CLOSE_WAITING
+            } else {
+                CLOSE_REFUSED
+            };
+            (code, why)
+        })
+    }
+
+    fn join_inner(&self, join: &Join) -> Result<Joined, &'static str> {
         let now = now_ms();
         let mut inner = lock(&self.inner);
         let device_id = if let Some(key) = join.key.as_deref() {
@@ -441,7 +456,7 @@ impl Mirrors {
                 .iter()
                 .find(|(_, s)| bool::from(s.key_hash.ct_eq(&key_hash)))
                 .map(|(id, _)| id.clone())
-                .ok_or("this mirror has ended; start it again on the phone")?
+                .ok_or(NOT_MIRRORING)?
         } else if let Some(code) = join.code.as_deref() {
             while inner
                 .wrong_codes
@@ -492,7 +507,7 @@ impl Mirrors {
         inner.next_id += 1;
         let id = inner.next_id;
         let Some(session) = inner.sessions.get_mut(&device_id) else {
-            return Err("this mirror has ended; start it again on the phone");
+            return Err(NOT_MIRRORING);
         };
         let by_code = join.key.is_none();
         if by_code {
@@ -607,6 +622,9 @@ impl Mirrors {
         }
     }
 }
+
+/// Why a link has no mirror behind it now; the page waits for the phone (ADR-058).
+const NOT_MIRRORING: &str = "the phone is not mirroring right now; start it again on the phone";
 
 fn end_session(session: Session, why: &'static str) {
     if let Some(v) = session.viewer {
@@ -1096,8 +1114,8 @@ async fn serve_viewer(state: Arc<AppState>, socket: WebSocket) {
     };
     let joined = match state.mirrors.join(&join) {
         Ok(joined) => joined,
-        Err(why) => {
-            let _ = sink.send(close(CLOSE_REFUSED, why)).await;
+        Err((code, why)) => {
+            let _ = sink.send(close(code, why)).await;
             return;
         }
     };

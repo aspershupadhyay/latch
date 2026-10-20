@@ -28,18 +28,30 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
  * and the code to type there, and stop it.
  */
 @Composable
-fun MirrorCard(status: MirrorStatus, actions: HomeActions) {
+fun MirrorCard(status: MirrorStatus, actions: HomeActions, remembered: Boolean = false) {
     val signal = LocalSignal.current
     when (status.phase) {
         MirrorStatus.Phase.OFF -> Card {
             ListRow(
                 icon = LatchIcons.Phone,
                 title = "Mirror on computer",
-                subtitle = "See this screen live in your computer's browser, follow the AI, and take over with mouse and keyboard.",
+                subtitle = if (remembered) {
+                    "Your computer's mirror page reconnects by itself as soon as you start. No code needed."
+                } else {
+                    "See this screen live in your computer's browser, follow the AI, and take over with mouse and keyboard."
+                },
                 tint = signal.accent2,
                 onClick = actions.startMirror,
                 onClickLabel = "Start mirroring to your computer",
             )
+            if (remembered) {
+                androidx.compose.material3.TextButton(
+                    onClick = actions.forgetMirrorComputers,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                ) {
+                    Text("Forget computers", color = signal.text2)
+                }
+            }
         }
         MirrorStatus.Phase.FAILED -> Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
             ListRow(
@@ -59,7 +71,11 @@ fun MirrorCard(status: MirrorStatus, actions: HomeActions) {
                     MirrorStatus.Phase.STARTING -> "Starting the mirror…" to "Connecting to your relay."
                     MirrorStatus.Phase.WATCHING -> "Your computer is watching" to "It sees this screen and can use it. Latch's own screens and password fields stay on the phone."
                     MirrorStatus.Phase.RECONNECTING -> "Reconnecting…" to "The network dropped; the mirror comes back on its own."
-                    else -> "Open on your computer" to "In Chrome, Edge, or Safari, open the address below and type the code."
+                    else -> if (remembered) {
+                        "Waiting for your computer" to "A mirror page left open reconnects by itself. Another computer: open the address below and type the code."
+                    } else {
+                        "Open on your computer" to "In Chrome, Edge, or Safari, open the address below and type the code."
+                    }
                 }
                 Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(title, style = MaterialTheme.typography.titleMedium, color = signal.text)
@@ -96,7 +112,7 @@ fun MirrorCard(status: MirrorStatus, actions: HomeActions) {
                 }
                 if (status.link != null && status.phase == MirrorStatus.Phase.WAITING) {
                     Text(
-                        "The link opens the mirror without the code. Anyone with it can see and use this phone until you stop.",
+                        "The link opens the mirror without the code, now and next time. Anyone with it can see and use this phone while you mirror, until you press Forget computers or the emergency Stop.",
                         style = MaterialTheme.typography.bodySmall,
                         color = signal.text2,
                     )

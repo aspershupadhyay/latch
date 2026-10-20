@@ -39,9 +39,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import java.security.SecureRandom
-import java.util.Base64
 
 /** What the Home screen shows about mirroring. */
 data class MirrorStatus(
@@ -90,6 +89,10 @@ class MirrorController(
     private var key: String? = null
     /** The gateway this mirror runs through; dropped files are fetched from it. */
     @Volatile private var gatewayUrl: String? = null
+    /** The pairing this mirror runs through, so a Wi-Fi gateway at a new address is followed. */
+    @Volatile private var mirrorDeviceId: String? = null
+    /** Reconnect attempts since the mirror last reached its gateway. */
+    @Volatile private var lostCount = 0
     private var displayListener: DisplayManager.DisplayListener? = null
     private var aiJob: Job? = null
     private var inputJob: Job? = null
@@ -106,7 +109,20 @@ class MirrorController(
 
     init {
         // The phone's emergency Stop ends mirroring as well.
-        session.onOwnerStop = { scope.launch { stop("Mirroring ended with Stop") } }
+        // It is a real cut-off: computers that watched need a new code (ADR-058).
+        // The computer moved to a new Wi-Fi address: the mirror follows at once.
+        session.onGatewayMoved = { deviceId, url ->
+            if (deviceId == mirrorDeviceId) {
+                gatewayUrl = url
+                link?.moveTo(url)
+            }
+        }
+        session.onOwnerStop = {
+            scope.launch {
+                stop("Mirroring ended with Stop")
+                settings.forgetMirrorComputers()
+            }
+        }
     }
 
     /** Android's "Share your screen?" dialog, offering the entire screen only where Android allows. */
@@ -204,12 +220,20 @@ class MirrorController(
             return
         }
         watchDisplay(handler)
-        val viewerKey = ByteArray(32).also { SecureRandom().nextBytes(it) }.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
+        // ADR-058: the same key as last time, so the computer that watched comes back by itself.
+        val viewerKey = settings.mirrorKey(pairing.deviceId)
         key = viewerKey
         gatewayUrl = pairing.gatewayUrl
+        mirrorDeviceId = pairing.deviceId
+        lostCount = 0
         link = MirrorLink(http, pairing.gatewayUrl, token, viewerKey, KeystoreSigner.forPairing(pairing.deviceId), linkEvents).also { it.start() }
         startInput()
         log.add(ActivityKind.SESSION, "You started mirroring to your computer", by = ActivityActor.OWNER)
+    }
+
+    /** The network came back: a mirror waiting to reconnect tries again at once. */
+    fun networkBack() {
+        link?.retryNow()
     }
 
     /** Ends mirroring: the page hears it at once, the capture and the service stop. */
@@ -310,13 +334,14 @@ class MirrorController(
     private fun sendFrame(kind: Byte, keyFrame: Boolean, timestampUs: Long, payload: java.nio.ByteBuffer): Boolean {
         val l = link ?: return false
         if (!watching) return true
-        return l.sendFrame(MirrorMessages.frame(kind, keyFrame, timestampUs, payload))
+        return l.sendFrame(MirrorMessages.frameBytes(kind, keyFrame, timestampUs, payload))
     }
 
     // ---- The gateway ----
 
     private val linkEvents = object : MirrorLink.Events {
         override fun ready(code: String?, urls: List<String>) {
+            lostCount = 0
             scope.launch {
                 val k = key ?: return@launch
                 val current = _status.value
@@ -350,6 +375,9 @@ class MirrorController(
         }
 
         override fun reconnecting() {
+            // Twice unanswered, then now and then: the computer may have a new Wi-Fi address.
+            val lost = ++lostCount
+            if (lost == 2 || lost % 5 == 0) mirrorDeviceId?.let(session::findGatewayAgain)
             scope.launch {
                 if (_status.value.phase != MirrorStatus.Phase.OFF) {
                     _status.value = _status.value.copy(phase = MirrorStatus.Phase.RECONNECTING)
@@ -375,6 +403,7 @@ class MirrorController(
             keysFailed = 0
             startStatus()
             log.add(ActivityKind.CONNECTION, "Your computer is watching the screen", by = ActivityActor.OWNER)
+            settings.mirrorWatched()
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WATCHING)
         } else {
             h.post { capture?.stop() }
@@ -431,7 +460,7 @@ class MirrorController(
             while (true) {
                 // Full ADB switched on or off while watching: the input follows.
                 if (ticks++ % 3 == 0) checkKeys()
-                val message = runCatching { statusMessage() }.getOrNull()
+                val message = withContext(Dispatchers.Default) { runCatching { statusMessage() }.getOrNull() }
                 if (message != null && message != last) {
                     link?.sendText(message)
                     last = message
@@ -474,7 +503,7 @@ class MirrorController(
                 } else if (png.size + MirrorMessages.HEADER_BYTES > MAX_SHOT_BYTES) {
                     notice("The screenshot is too large to send.")
                 } else {
-                    link?.sendFrameAlways(MirrorMessages.frame(MirrorMessages.KIND_SHOT, true, System.currentTimeMillis() * 1000, java.nio.ByteBuffer.wrap(png)))
+                    link?.sendFrameAlways(MirrorMessages.frameBytes(MirrorMessages.KIND_SHOT, true, System.currentTimeMillis() * 1000, java.nio.ByteBuffer.wrap(png)))
                 }
             }
         }
@@ -536,7 +565,8 @@ class MirrorController(
 
     private fun startAi() {
         aiJob?.cancel()
-        aiJob = scope.launch {
+        // R46: off the main thread; it only reads state and sends text.
+        aiJob = scope.launch(Dispatchers.Default) {
             var last = ""
             while (true) {
                 val message = aiMessage()

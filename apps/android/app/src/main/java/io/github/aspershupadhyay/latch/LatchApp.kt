@@ -128,6 +128,7 @@ class LatchApp : Application() {
         )
         setup = GatewaySetup(http)
         mirror = io.github.aspershupadhyay.latch.mirror.MirrorController(this, scope, http, settings, session, log, bridge, transfers)
+        watchNetwork()
         updater = Updater(this, http, scope, BuildConfig.UPDATE_MANIFEST_URL, BuildConfig.UPDATE_DOWNLOAD_PREFIX, BuildConfig.VERSION_CODE.toLong())
         createChannels()
         observeIndicators()
@@ -167,6 +168,24 @@ class LatchApp : Application() {
             }
             .toList()
             .also { installedCache = it }
+    }
+
+    /**
+     * Wi-Fi back after a drop, or a switch to another network: the gateway link
+     * and the live mirror reconnect at once instead of at the end of their backoff.
+     */
+    private fun watchNetwork() {
+        val connectivity = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        runCatching {
+            connectivity.registerDefaultNetworkCallback(
+                object : android.net.ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: android.net.Network) {
+                        session.networkBack()
+                        mirror.networkBack()
+                    }
+                },
+            )
+        }
     }
 
     private fun createChannels() {

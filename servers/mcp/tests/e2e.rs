@@ -3615,11 +3615,15 @@ async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back()
     let wrong = if code == "000000" { "000001" } else { "000000" };
     let (_w, got) = join(&gw, json!({"code": wrong})).await;
     assert_eq!(got, Got::Closed(4401));
+    // A well-formed link with no mirror behind it waits for the phone (ADR-058);
+    // a malformed one is refused.
     let (_w, got) = join(
         &gw,
         json!({"key": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}),
     )
     .await;
+    assert_eq!(got, Got::Closed(4404));
+    let (_w, got) = join(&gw, json!({"key": "short"})).await;
     assert_eq!(got, Got::Closed(4401));
 
     // The code joins once and is exchanged for the key, for reconnects.
@@ -3709,11 +3713,24 @@ async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back()
     assert_eq!(next_of(&mut second, "phone").await["online"], true);
     assert_eq!(next_of(&mut ph, "viewer").await["on"], true);
 
-    // Ending on the phone ends it in the browser, and the link stops working.
+    // Ending on the phone ends it in the browser; the link waits for the phone.
     send_json(&mut ph, json!({"t": "end"})).await;
     assert_eq!(next(&mut second).await, Got::Closed(4410));
     let (_w, got) = join(&gw, json!({"key": VIEWER_KEY})).await;
-    assert_eq!(got, Got::Closed(4401));
+    assert_eq!(got, Got::Closed(4404));
+
+    // ADR-058: the owner starts mirroring again with the key the phone kept,
+    // and the same link joins without a new code.
+    let (_ph, ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    assert!(
+        matches!(ready, Got::Text(ref v) if v["t"] == "ready"),
+        "{ready:?}"
+    );
+    let (_again, got) = join(&gw, json!({"key": VIEWER_KEY})).await;
+    assert!(
+        matches!(got, Got::Text(ref v) if v["t"] == "joined"),
+        "{got:?}"
+    );
 }
 
 #[tokio::test]

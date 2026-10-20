@@ -515,6 +515,7 @@ class SessionController(
             }
         }
         pairing?.let { KeystoreSigner.delete(it.deviceId) }
+        settings.forgetMirrorComputers()
         settings.forgetPairing()
         grants.clearAll()
         _state.value = SessionState.Unpaired
@@ -553,12 +554,32 @@ class SessionController(
 
     @Volatile private var rediscovering = false
 
+    /** The network came back: links waiting between attempts try again at once. */
+    fun networkBack() {
+        link?.retryNow()
+        second?.retryNow()
+    }
+
+    /**
+     * Looks for the Wi-Fi gateway of the pairing [deviceId] at a new address, as
+     * a session does on its own (R24); the live mirror asks too, since it runs
+     * without a session. Found: saved, and every link to it moves there.
+     */
+    fun findGatewayAgain(deviceId: String) {
+        val pairing = settings.pairing.value?.takeIf { it.deviceId == deviceId }
+            ?: settings.saved.value.values.firstOrNull { it.deviceId == deviceId }
+            ?: return
+        findAgain(pairing)
+    }
+
+    /** Called with the device id and new address whenever a Wi-Fi gateway is found again. */
+    @Volatile var onGatewayMoved: ((String, String) -> Unit)? = null
+
     /**
      * A gateway on the Wi-Fi stopped answering: look for it at a new address
      * (R24), by its pin, and carry on there. Hosted relays keep their address.
      */
-    private fun rediscover(kept: Boolean = false) {
-        val pairing = (if (kept) secondKind?.let { settings.saved.value[it] } else settings.pairing.value) ?: return
+    private fun findAgain(pairing: io.github.aspershupadhyay.latch.data.Pairing) {
         val pin = pairing.pin ?: return
         val phone = io.github.aspershupadhyay.latch.files.LocalSlots.wifiAddress() as? java.net.Inet4Address ?: return
         if (rediscovering) return
@@ -567,21 +588,25 @@ class SessionController(
             try {
                 val found = WifiRediscovery.find(pairing.gatewayUrl, pin, phone) ?: return@launch
                 GatewayPins.set(found, pin)
-                if (kept) {
-                    val kind = secondKind ?: return@launch
-                    if (settings.saved.value[kind]?.deviceId != pairing.deviceId) return@launch
-                    settings.moveKept(kind, found)
-                    second?.moveTo(found)
-                } else {
-                    if (settings.pairing.value?.deviceId != pairing.deviceId) return@launch
+                if (settings.pairing.value?.deviceId == pairing.deviceId) {
                     settings.moveGateway(found)
                     link?.moveTo(found)
+                } else {
+                    val kind = settings.saved.value.entries.firstOrNull { it.value.deviceId == pairing.deviceId }?.key ?: return@launch
+                    settings.moveKept(kind, found)
+                    if (secondKind == kind) second?.moveTo(found)
                 }
+                onGatewayMoved?.invoke(pairing.deviceId, found)
                 log.add(ActivityKind.CONNECTION, "Found your computer at its new address on the Wi-Fi")
             } finally {
                 rediscovering = false
             }
         }
+    }
+
+    private fun rediscover(kept: Boolean = false) {
+        val pairing = if (kept) secondKind?.let { settings.saved.value[it] } else settings.pairing.value
+        pairing?.let(::findAgain)
     }
 
     fun clearFailure() {
@@ -616,6 +641,7 @@ class SessionController(
             scope.launch {
                 if (revoked) {
                     stop("The gateway owner revoked this phone")
+                    settings.forgetMirrorComputers()
                     settings.forgetPairing()
                     _state.value = SessionState.Revoked("The gateway owner revoked this phone. Pair again to reconnect.")
                 } else {

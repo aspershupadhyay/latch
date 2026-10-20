@@ -286,7 +286,7 @@ fun SavedConnectionsCard(saved: Map<ConnectionKind, String>, onUse: (ConnectionK
             )
             saved.entries.forEachIndexed { index, (kind, host) ->
                 if (index > 0) RowDivider()
-                ListRow(kind.icon, "Use your ${kind.inSentence}", "$host · no key needed", onClick = { onUse(kind) }, onClickLabel = "Switch to ${kind.title}")
+                ListRow(kind.icon, "Reconnect: your ${kind.inSentence}", "$host · one tap, no key or QR code", onClick = { onUse(kind) }, onClickLabel = "Reconnect through your ${kind.inSentence}")
             }
         }
     }

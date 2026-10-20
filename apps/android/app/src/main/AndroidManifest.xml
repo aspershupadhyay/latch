@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- ADR-055: the phone's sound in the live mirror (playback capture, never calls or the microphone). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- ADR-054: the QR scanner, only while it is open. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Phones and Chromebooks without a camera still install Latch; setup is typed there. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Roadmap R16: brightness, only after the owner allows "Modify system settings" for Latch. -->
     <uses-permission
         android:name="android.permission.WRITE_SETTINGS"
@@ -77,12 +81,12 @@
             </intent-filter>
         </activity>
 
-        <!-- ADR-054: the QR scanner for Wi-Fi setup, upright like the rest of the app.
-             It asks for the camera itself, only when the owner taps Scan. -->
+        <!-- ADR-054: Latch's own QR scanner for Wi-Fi setup (ScanActivity). It asks
+             for the camera itself, only when the owner taps Scan. -->
         <activity
-            android:name="com.journeyapps.barcodescanner.CaptureActivity"
-            android:screenOrientation="fullSensor"
-            tools:replace="screenOrientation" />
+            android:name=".ui.ScanActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Latch" />
 
         <!-- Only the system can bind: BIND_ACCESSIBILITY_SERVICE is a signature permission. -->
         <service

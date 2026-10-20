@@ -14,6 +14,8 @@ const KIND_PCM = 3;
 const KIND_SHOT = 4;
 const FLAG_KEY = 1;
 const HEADER_BYTES = 10;
+/** How long a page waits for the phone to mirror again before it asks for a code (ADR-058). */
+const WAIT_FOR_PHONE_MS = 30 * 60 * 1000;
 
 /** Splits a binary frame into its header fields and payload; null when malformed. */
 function parseFrame(buffer) {
@@ -214,10 +216,19 @@ if (typeof module !== 'undefined') {
 if (typeof document !== 'undefined') {
   const $ = (id) => document.getElementById(id);
   const KEY_STORE = 'latch-mirror-key';
+  // ADR-058: the phone keeps its key across mirrors until the owner forgets this
+  // computer there, so the page keeps it too and comes back without a new code.
   const store = {
-    get() { try { return sessionStorage.getItem(KEY_STORE); } catch { return null; } },
-    set(v) { try { sessionStorage.setItem(KEY_STORE, v); } catch { /* private mode: reconnects need the code again */ } },
-    clear() { try { sessionStorage.removeItem(KEY_STORE); } catch { /* nothing kept */ } },
+    get() { try { return localStorage.getItem(KEY_STORE) || sessionStorage.getItem(KEY_STORE); } catch { return null; } },
+    set(v) {
+      try { localStorage.setItem(KEY_STORE, v); } catch {
+        try { sessionStorage.setItem(KEY_STORE, v); } catch { /* private mode: reconnects need the code again */ }
+      }
+    },
+    clear() {
+      try { localStorage.removeItem(KEY_STORE); } catch { /* nothing kept */ }
+      try { sessionStorage.removeItem(KEY_STORE); } catch { /* nothing kept */ }
+    },
   };
 
   const canvas = $('screen');
@@ -232,6 +243,9 @@ if (typeof document !== 'undefined') {
   let usingH264 = false;
   let lastFrameAt = 0;
   let retry = 0;
+  // ADR-058: while the phone is not mirroring, the page asks again now and then.
+  let waitingSince = 0;
+  let waitTimer = 0;
   let phoneOnline = true;
   let session = 'off';
   let ownerControl = false;
@@ -322,9 +336,11 @@ if (typeof document !== 'undefined') {
       $('join-error').textContent = reason || 'The phone did not accept this.';
       return;
     }
-    if (code === 4410) {
-      store.clear();
-      key = null;
+    if ((code === 4410 || code === 4404) && key) {
+      waitForPhone();
+      return;
+    }
+    if (code === 4410 || code === 4404) {
       showOver('Mirroring ended', `${reason ? reason[0].toUpperCase() + reason.slice(1) + '. ' : ''}Start it again from Latch on the phone.`, false);
       return;
     }
@@ -349,7 +365,31 @@ if (typeof document !== 'undefined') {
     $('over-title').textContent = title;
     $('over-text').textContent = text;
     $('over-again').hidden = !canRetry;
+    $('over-code').hidden = true;
     show('over');
+  }
+
+  /**
+   * The phone stopped mirroring (or has not started yet). It keeps this page's key
+   * (ADR-058), so ask again every few seconds and come back by itself the moment
+   * the owner starts mirroring on the phone. Gives up after WAIT_FOR_PHONE_MS.
+   */
+  function waitForPhone() {
+    const now = Date.now();
+    if (!waitingSince) waitingSince = now;
+    if (now - waitingSince > WAIT_FOR_PHONE_MS) {
+      waitingSince = 0;
+      showOver('Mirroring ended', 'Start mirroring in Latch on the phone, then enter its code here.', false);
+      $('over-code').hidden = false;
+      return;
+    }
+    showOver('Waiting for the phone', 'Start mirroring in Latch on the phone (Home → Mirror on computer). This page connects by itself, no code needed.', false);
+    $('over-code').hidden = false;
+    $('live').className = 'live bad';
+    $('live-text').textContent = 'Waiting';
+    clearTimeout(waitTimer);
+    const elapsed = now - waitingSince;
+    waitTimer = setTimeout(() => { if (!socket && key) connect({ key }); }, elapsed < 60000 ? 2000 : 5000);
   }
 
   function onText(raw) {
@@ -358,6 +398,8 @@ if (typeof document !== 'undefined') {
     switch (m.t) {
       case 'joined':
         retry = 0;
+        waitingSince = 0;
+        clearTimeout(waitTimer);
         if (m.key) { key = m.key; }
         store.set(key);
         if (location.hash) history.replaceState(null, '', location.pathname);
@@ -1083,6 +1125,22 @@ if (typeof document !== 'undefined') {
   });
   $('over-again').addEventListener('click', () => {
     if (key) { show('app'); connect({ key }); } else show('join');
+  });
+  // Waiting for a phone that forgot this computer: join with a fresh code instead.
+  $('over-code').addEventListener('click', () => {
+    clearTimeout(waitTimer);
+    waitingSince = 0;
+    store.clear();
+    key = null;
+    show('join');
+    $('code').focus();
+  });
+  // Back on the tab while waiting: ask at once instead of on the next tick.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && waitingSince && !socket && key) {
+      clearTimeout(waitTimer);
+      connect({ key });
+    }
   });
 
   $('join-form').addEventListener('submit', (event) => {

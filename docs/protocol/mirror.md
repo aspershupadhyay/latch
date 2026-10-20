@@ -68,7 +68,7 @@ browser                                       gateway
 
 Coordinates are phone screen pixels (0–16384). The gateway drops anything else, rebuilds what passes from its fields, and limits a viewer to 1000 messages a second. `screen_light` and `notifications` never reach the phone's mirror link: the gateway runs them as Full ADB commands and answers with a `notice`. A viewer message is at most 16 KiB; a phone message at most 64 KiB (clipboard text). A code joins only when nobody watches; the key takes over from another window (that one is closed with 4409).
 
-**Close codes:** `4401` refused (wrong or expired code, unknown key, bad start), `4409` watching elsewhere now, `4410` mirroring ended.
+**Close codes:** `4401` refused (wrong or expired code, malformed key, bad start), `4404` no mirror for this key right now (the phone keeps its key across mirrors, so the page waits and joins again when the owner starts mirroring, ADR-058), `4409` watching elsewhere now, `4410` mirroring ended.
 
 ## Flow control
 

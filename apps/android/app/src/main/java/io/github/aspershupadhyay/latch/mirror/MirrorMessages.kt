@@ -12,6 +12,8 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import okio.Buffer
+import okio.ByteString
 import java.nio.ByteBuffer
 
 /**
@@ -237,14 +239,21 @@ object MirrorMessages {
     }.toString()
 
     /** A binary frame: kind, flags (bit 0 key frame), timestamp µs big-endian, payload. */
-    fun frame(kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer): ByteArray {
-        val out = ByteArray(HEADER_BYTES + payload.remaining())
-        val b = ByteBuffer.wrap(out)
-        b.put(kind)
-        b.put(if (key) 1 else 0)
-        b.putLong(timestampUs)
-        b.put(payload)
-        return out
+    fun frame(kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer): ByteArray =
+        frameBytes(kind, key, timestampUs, payload).toByteArray()
+
+    /**
+     * The same frame as the socket sends it (R46): the payload is copied once,
+     * into okio's segments, and the snapshot shares them, where building an
+     * array and wrapping it copied every frame twice.
+     */
+    fun frameBytes(kind: Byte, key: Boolean, timestampUs: Long, payload: ByteBuffer): ByteString {
+        val out = Buffer()
+        out.writeByte(kind.toInt())
+        out.writeByte(if (key) 1 else 0)
+        out.writeLong(timestampUs)
+        out.write(payload)
+        return out.snapshot()
     }
 
     // ---- JSON helpers ----
