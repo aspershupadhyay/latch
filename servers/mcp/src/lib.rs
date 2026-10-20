@@ -20,6 +20,7 @@ mod http;
 pub mod links;
 pub mod mcp;
 pub mod mirror;
+pub mod nearby;
 pub mod oauth;
 pub mod pairing;
 pub mod phone_check;
@@ -58,6 +59,10 @@ pub struct AppState {
     pub mirrors: Arc<mirror::Mirrors>,
     /// Tool calls in the current minute, per caller key.
     calls: Mutex<std::collections::HashMap<String, (u64, u32)>>,
+    /// Phones linking with no QR code (ADR-060).
+    pub nearby: nearby::Nearby,
+    /// This computer's name, shown to phones that find it (ADR-060).
+    pub computer_name: String,
 }
 
 impl AppState {
@@ -79,6 +84,8 @@ impl AppState {
                 .unwrap_or(DEFAULT_CALLS_PER_MINUTE),
             calls: Mutex::new(std::collections::HashMap::new()),
             mirrors: Arc::new(mirror::Mirrors::default()),
+            nearby: nearby::Nearby::default(),
+            computer_name: nearby::computer_name(),
         }
     }
 

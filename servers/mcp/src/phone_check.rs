@@ -243,11 +243,22 @@ pub(crate) async fn post_local(
     token: &str,
     body: &str,
 ) -> Result<(String, String), String> {
+    request_local("POST", addr, path, token, body).await
+}
+
+/// One request with the owner token to the gateway on this computer: (status, body).
+pub(crate) async fn request_local(
+    method: &str,
+    addr: &str,
+    path: &str,
+    token: &str,
+    body: &str,
+) -> Result<(String, String), String> {
     let mut stream = tokio::net::TcpStream::connect(addr)
         .await
         .map_err(|e| format!("cannot reach the gateway at {addr}: {e}"))?;
     let head = format!(
-        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\n\
+        "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\n\
          Accept: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         body.len()
     );

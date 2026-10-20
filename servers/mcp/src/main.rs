@@ -171,6 +171,18 @@ async fn run(mode: String) -> ExitCode {
         None => None,
     };
     eprint!("{}", terminal::summary(Style::detect(), &summary));
+    // ADR-060: in a terminal, phones from "Find my computer" are approved here.
+    if !stdio
+        && std::io::IsTerminal::is_terminal(&std::io::stdin())
+        && state.config.wifi_bind.is_some()
+    {
+        tokio::spawn(terminal::approve_nearby(
+            state.config.bind,
+            state.config.admin_token.clone(),
+            Style::detect(),
+            None,
+        ));
+    }
     // No Nagle delay: mirror frames and taps are small and must go out at once.
     let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
         let _ = tcp.set_nodelay(true);
@@ -294,6 +306,21 @@ async fn pair() -> ExitCode {
             }
             _ => eprintln!("    The big code could not be opened; use the link above.\n"),
         }
+    }
+    // ADR-060: wait here for phones from "Find my computer" while the code is valid.
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!(
+            "    Waiting for a phone (Scan, or Find my computer in the app). Ctrl+C when done.\n"
+        );
+        let until = std::time::Instant::now()
+            + std::time::Duration::from_millis(latch_gateway::pairing::OWNER_CODE_TTL_MS);
+        terminal::approve_nearby(
+            config.bind,
+            config.admin_token.clone(),
+            Style::detect(),
+            Some(until),
+        )
+        .await;
     }
     ExitCode::SUCCESS
 }

@@ -13,3 +13,5 @@ apps/android/.kotlin/
 .env
 servers/vercel/.smoke/
 __pycache__/
+# Graphify code graph (local, rebuilt with `graphify update .`)
+graphify-out/

@@ -66,6 +66,17 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .layer(DefaultBodyLimit::max(MCP_BODY_BYTES)),
         )
         .route("/v1/pair", post(pair))
+        .route(
+            "/v1/nearby",
+            get(crate::nearby::hello).post(crate::nearby::start),
+        )
+        .route(
+            "/v1/nearby/{id}",
+            get(crate::nearby::poll).delete(crate::nearby::cancel),
+        )
+        .route("/v1/nearby/{id}/nonce", post(crate::nearby::nonce))
+        .route("/v1/admin/nearby", get(crate::nearby::admin_list))
+        .route("/v1/admin/nearby/{id}", post(crate::nearby::admin_decide))
         .route("/v1/info", get(device_http::info))
         .route("/v1/device", get(device_ws::upgrade))
         .route("/v1/device/hello", post(device_http::hello))
@@ -589,7 +600,7 @@ fn unauthorized() -> Response {
 /// After a rotation only the issued key works, for as long as `LATCH_ADMIN_TOKEN`
 /// stays the token it was issued under; changing `LATCH_ADMIN_TOKEN` is the way
 /// back in, and its first use forgets the rotated key.
-fn is_admin(state: &AppState, headers: &HeaderMap) -> bool {
+pub(crate) fn is_admin(state: &AppState, headers: &HeaderMap) -> bool {
     let Some(token) = secret::bearer(headers.get(header::AUTHORIZATION)) else {
         return false;
     };

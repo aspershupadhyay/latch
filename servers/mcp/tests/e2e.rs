@@ -4176,3 +4176,200 @@ async fn the_mirror_carries_status_clipboard_screenshots_and_dropped_files() {
         .collect();
     assert_eq!(file["sha256"], digest);
 }
+
+/// ADR-060: a phone finds the gateway with no QR code, both sides show the
+/// same number, and only the owner's yes on the computer gives it a code.
+#[tokio::test]
+async fn find_my_computer_links_a_phone_after_the_owner_compares_the_number() {
+    let dir = std::env::temp_dir().join(format!("latch-nearby-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let pin = latch_gateway::wifi::load_or_create(&dir)
+        .expect("certificate")
+        .pin;
+    let data_dir = dir.clone();
+    let gw = start_gateway_with(move |state| state.config.data_dir = data_dir).await;
+
+    let (status, hello) = http(&gw, "GET", "/v1/nearby", None, None, &[]).await;
+    assert_eq!(status, 200);
+    assert_eq!(hello["latch"], "nearby");
+    assert!(hello["name"].as_str().is_some_and(|n| !n.is_empty()));
+
+    let start = |device: &'static str| {
+        let gw = &gw;
+        async move {
+            http(
+                gw,
+                "POST",
+                "/v1/nearby",
+                None,
+                Some(json!({ "device": device })),
+                &[],
+            )
+            .await
+        }
+    };
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let unhex = |s: &str| -> [u8; 32] {
+        let mut out = [0u8; 32];
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).expect("hex");
+        }
+        out
+    };
+
+    let (status, started) = start("Pixel 9").await;
+    assert_eq!(status, 200);
+    let id = started["id"].as_str().expect("id").to_owned();
+    let commit = started["commit"].as_str().expect("commit").to_owned();
+    // Nothing to approve before the nonces are exchanged.
+    let (_, list) = http(&gw, "GET", "/v1/admin/nearby", Some(ADMIN), None, &[]).await;
+    assert_eq!(list["requests"].as_array().map(Vec::len), Some(0));
+
+    let phone_nonce = [42u8; 32];
+    let path = format!("/v1/nearby/{id}/nonce");
+    let (status, revealed) = http(
+        &gw,
+        "POST",
+        &path,
+        None,
+        Some(json!({ "nonce": hex(&phone_nonce) })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200);
+    let gateway_nonce = unhex(revealed["nonce"].as_str().expect("nonce"));
+    assert_eq!(
+        hex(&latch_gateway::nearby::commitment(&gateway_nonce)),
+        commit,
+        "the reveal matches"
+    );
+    assert_eq!(
+        http(
+            &gw,
+            "POST",
+            &path,
+            None,
+            Some(json!({ "nonce": hex(&[1u8; 32]) })),
+            &[]
+        )
+        .await
+        .0,
+        409,
+        "the nonce is set once"
+    );
+
+    // The owner sees the phone and the same number the phone computes from the pin it saw.
+    let phone_number = latch_gateway::nearby::shown(latch_gateway::nearby::number(
+        &pin,
+        &phone_nonce,
+        &gateway_nonce,
+    ));
+    assert_eq!(
+        http(&gw, "GET", "/v1/admin/nearby", None, None, &[])
+            .await
+            .0,
+        401
+    );
+    assert_eq!(
+        http(&gw, "GET", "/v1/admin/nearby", Some(MCP), None, &[])
+            .await
+            .0,
+        401,
+        "AI apps cannot see or approve"
+    );
+    let (_, list) = http(&gw, "GET", "/v1/admin/nearby", Some(ADMIN), None, &[]).await;
+    assert_eq!(list["requests"][0]["device"], "Pixel 9");
+    assert_eq!(list["requests"][0]["number"], phone_number.as_str());
+
+    let decide = format!("/v1/admin/nearby/{id}");
+    assert_eq!(
+        http(
+            &gw,
+            "POST",
+            &decide,
+            Some(MCP),
+            Some(json!({"approve": true})),
+            &[]
+        )
+        .await
+        .0,
+        401
+    );
+    assert_eq!(
+        http(
+            &gw,
+            "POST",
+            &decide,
+            Some(ADMIN),
+            Some(json!({"approve": true})),
+            &[]
+        )
+        .await
+        .0,
+        204
+    );
+
+    let poll = format!("/v1/nearby/{id}");
+    let (status, answer) = http(&gw, "GET", &poll, None, None, &[]).await;
+    assert_eq!(status, 200);
+    assert_eq!(answer["state"], "approved");
+    let code = answer["code"].as_str().expect("code").replace('-', "");
+    let (_, again) = http(&gw, "GET", &poll, None, None, &[]).await;
+    assert_eq!(again["state"], "done", "the code is handed out once");
+
+    let (status, paired) = http(
+        &gw,
+        "POST",
+        "/v1/pair",
+        None,
+        Some(json!({"code": code, "platform": "android", "model": "Pixel 9"})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        paired["owner_key"], ADMIN,
+        "an owner setup code, as after a scan"
+    );
+
+    // A refused phone gets no code.
+    let (_, other) = start("Somebody").await;
+    let other_id = other["id"].as_str().expect("id").to_owned();
+    http(
+        &gw,
+        "POST",
+        &format!("/v1/nearby/{other_id}/nonce"),
+        None,
+        Some(json!({ "nonce": hex(&[7u8; 32]) })),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        http(
+            &gw,
+            "POST",
+            &format!("/v1/admin/nearby/{other_id}"),
+            Some(ADMIN),
+            Some(json!({"approve": false})),
+            &[]
+        )
+        .await
+        .0,
+        204
+    );
+    let (_, answer) = http(
+        &gw,
+        "GET",
+        &format!("/v1/nearby/{other_id}"),
+        None,
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(answer["state"], "denied");
+    assert!(answer.get("code").is_none());
+
+    // Bad input is refused.
+    assert_eq!(start("").await.0, 400);
+    let _ = std::fs::remove_dir_all(&dir);
+}

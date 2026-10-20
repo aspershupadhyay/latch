@@ -1,0 +1,26 @@
+{
+  "description": "ADR-060: the commitment and the 6-digit number both sides show. commit = SHA-256('latch-nearby-commit-v1' || gateway_nonce); number = first 4 bytes of SHA-256('latch-nearby-sas-v1' || pin (UTF-8) || phone_nonce || gateway_nonce), big-endian, mod 1000000, shown as 'NNN NNN'.",
+  "cases": [
+    {
+      "pin": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "phone_nonce": "0000000000000000000000000000000000000000000000000000000000000000",
+      "gateway_nonce": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "commit": "07d9a12b02d41bdeb1491b65e8a859d75e3db3e9b53002aa1c66e991e057bb49",
+      "number": "166 841"
+    },
+    {
+      "pin": "q3Zc0b7sN1uXvH2kLmP9wRtYeA4fDgJiKoQ5aSdE6Bc",
+      "phone_nonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "gateway_nonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "commit": "a96d79c3565851e82ec939e2ea4fc007af6791fbdf15c62ce21eff42a250ce17",
+      "number": "144 595"
+    },
+    {
+      "pin": "_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-abc",
+      "phone_nonce": "0707070707070707070707070707070707070707070707070707070707070707",
+      "gateway_nonce": "0909090909090909090909090909090909090909090909090909090909090909",
+      "commit": "bd0f60321717e9946a18014cef66797248a61bbdb4d07ea61a83f34845106998",
+      "number": "694 162"
+    }
+  ]
+}

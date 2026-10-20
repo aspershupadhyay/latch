@@ -294,6 +294,11 @@ pub fn phone_block(style: Style, setup: &PhoneSetup) -> String {
         "    {}",
         style.dim("New code any time: latch-gateway pair")
     );
+    let _ = writeln!(
+        out,
+        "    {}",
+        style.dim("No camera? In the app tap Find my computer; a number to check appears here.")
+    );
     out
 }
 
@@ -410,6 +415,82 @@ pub async fn request_owner_code(
     }
 }
 
+/// ADR-060: shows each phone that asks to link from "Find my computer" with
+/// its number, and asks the owner, until stdin closes or `until` passes.
+/// It talks to the gateway on this computer with the owner token, so it
+/// serves both `latch-start` in a terminal and `latch-gateway pair` for a
+/// gateway in the background.
+pub async fn approve_nearby(
+    bind: std::net::SocketAddr,
+    admin_token: String,
+    style: Style,
+    until: Option<std::time::Instant>,
+) {
+    use tokio::io::AsyncBufReadExt;
+    let addr = bind.to_string().replace("0.0.0.0", "127.0.0.1");
+    let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    let mut asked = std::collections::HashSet::new();
+    loop {
+        if until.is_some_and(|t| std::time::Instant::now() >= t) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        let Ok((status, body)) =
+            crate::phone_check::request_local("GET", &addr, "/v1/admin/nearby", &admin_token, "")
+                .await
+        else {
+            continue;
+        };
+        if status != "200" {
+            continue;
+        }
+        let Ok(list) = serde_json::from_str::<serde_json::Value>(&body) else {
+            continue;
+        };
+        for request in list["requests"].as_array().into_iter().flatten() {
+            let (Some(id), Some(device), Some(number)) = (
+                request["id"].as_str(),
+                request["device"].as_str(),
+                request["number"].as_str(),
+            ) else {
+                continue;
+            };
+            if !asked.insert(id.to_owned()) {
+                continue;
+            }
+            eprint!("{}", nearby_prompt(style, device, number));
+            let answer = match lines.next_line().await {
+                Ok(Some(line)) => line,
+                _ => return,
+            };
+            let approve = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
+            let path = format!("/v1/admin/nearby/{id}");
+            let body = format!(r#"{{"approve":{approve}}}"#);
+            let done =
+                crate::phone_check::request_local("POST", &addr, &path, &admin_token, &body).await;
+            let line = match (approve, done) {
+                (true, Ok((s, _))) if s == "204" => style.bold("    Allowed. The phone finishes connecting by itself."),
+                (false, Ok((s, _))) if s == "204" => style.dim("    Refused."),
+                _ => style.dim("    That request ended before your answer (it lasts 2 minutes). Try again from the phone."),
+            };
+            eprintln!("{line}\n");
+        }
+    }
+}
+
+/// The question for one phone (ADR-060).
+pub fn nearby_prompt(style: Style, device: &str, number: &str) -> String {
+    let device: String = device.chars().filter(|c| !c.is_control()).collect();
+    format!(
+        "\n  {}  {}\n    The phone shows a number. Only if it is {} on the phone in your hand,\n    type {} and press Enter. Anything else refuses. {} ",
+        style.accent("A phone wants to connect:"),
+        style.bold(&device),
+        style.accent(number),
+        style.bold("y"),
+        style.dim("Allow?"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,6 +560,15 @@ mod tests {
                 assert_eq!(grid[y][x], want, "module {x},{y}");
             }
         }
+    }
+
+    #[test]
+    fn the_nearby_question_names_the_phone_and_the_number_and_strips_controls() {
+        let text = nearby_prompt(Style { ansi: false }, "Pixel\x1b[2J 8", "123 456");
+        assert!(text.contains("Pixel[2J 8"));
+        assert!(!text.contains('\x1b'));
+        assert!(text.contains("123 456"));
+        assert!(text.contains("type y"));
     }
 
     #[test]
