@@ -131,7 +131,11 @@ dependencies {
     // ADR-032: reads the words on unlabeled buttons, on the phone, so approvals see them.
     implementation(libs.mlkit.text.recognition)
     // ADR-054: scans the QR code the Wi-Fi gateway prints, so no key is typed.
-    implementation(libs.zxing.android.embedded)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.zxing.cpp)
+    implementation(libs.zxing.core)
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)

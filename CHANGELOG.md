@@ -47,6 +47,9 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Fixed
 
+- **The mirror lagged over Wi-Fi even on a fast network** (R53): the phone's Wi-Fi stayed in power save, where it sleeps between beacons and the router holds clicks, keys, and the video's acknowledgements until it wakes. While a computer watches, Latch now keeps the phone's Wi-Fi in low-latency mode (released as soon as no one watches), runs the mirror's video and input threads at display priority, and a drag that pauses ends exactly where the pointer stopped.
+- **The QR scanner did not read the terminal's code** (owner report 2026-10-21, after R51): the code the gateway prints was correct (its exact bytes decode), but the app read camera frames with ZXing's Java reader through the old Camera1 API. On simulated camera frames of a terminal code (small modules, sensor noise, a little blur), that reader read 4 of 40 frames at 4 pixels a module and 2 of 20 at ordinary sensor noise, where zxing-cpp read 38 of 40 and 20 of 20. The scanner now uses CameraX (full HD frames, continuous focus, tap to focus where you tap) and zxing-cpp, and **zooms in by itself** on a code it sees but cannot read yet. ZXing's Java reader stays as the fallback. The focus-mode switch is gone; **Focus** now focuses on the frame.
+- **Windows' classic console printed the QR code as escape codes**: the gateway now asks the console to read ANSI colours, and draws the plain code when it refuses.
 - **Dependency audit:** MCP TypeScript SDK 1.32.1 in the Vercel gateway and the interop test (GHSA-22jm-h49p-29qw, GHSA-6prh-2h8m-c8cw, GHSA-46jr-4wx8-v453, GHSA-rvq5-wwqv-78pq), and `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382, certificate verification could accept distrusted intermediates; the gateway's own Wi-Fi certificate is pinned, but outbound TLS uses it too).
 
 - **Mirror stutter while sound plays**: the phone's sound shared the gateway's three-frame video queue, so a few sound frames filled it and video frames were dropped and forced key frames. Sound now has its own queue.
@@ -56,6 +59,8 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Safety and security
 
+- **Fixed: another app on the phone could make Latch open a screen of its choosing** (security review 2026-10-21). Latch's main screen accepts the installer's answer during an in-app update, and any app could send it a fake answer carrying any intent, which Latch then started as itself (intent redirection). Latch now accepts only an answer carrying a secret it put in its own installer request, and passes Android's confirmation screen on without URI grants.
+- **Fixed: Find my computer could replace a trusted gateway's pin** (security review 2026-10-21). While searching the Wi-Fi, the phone wrote each answering computer's certificate pin into the pins it uses for its own gateway; a device answering at the gateway's address at that moment (ARP spoofing on the same Wi-Fi) became trusted there. Searching and linking now use a connection pinned to the found computer alone, and the phone's trusted pins change only when you pair.
 - Each AI app can be limited to the phone apps you pick, from **Connect** in the app (R18).
 - Messages from the phone are signed by a key kept in its keystore; the owner key can be rotated from the app, and changing `LATCH_ADMIN_TOKEN` always recovers access (R19, protocol 1.12).
 - The Vercel gateway's database holds screen content only encrypted (R20).

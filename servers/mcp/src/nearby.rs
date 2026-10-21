@@ -10,7 +10,7 @@
 //! Nothing here is logged with its nonces or codes.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use axum::Json;
@@ -111,6 +111,8 @@ pub struct Nearby {
     requests: Mutex<HashMap<String, Request>>,
     /// (minute, starts in it)
     starts: Mutex<(u64, u32)>,
+    /// The Wi-Fi certificate's pin, read once: it does not change while the gateway runs.
+    pin: OnceLock<String>,
 }
 
 impl Nearby {
@@ -266,8 +268,14 @@ fn now_ms() -> u64 {
 }
 
 /// The Wi-Fi certificate's pin, which the phone saw; None without a Wi-Fi listener.
+/// Read from disk once (these routes take requests from anyone on the Wi-Fi, so
+/// none of them should cost a file read and a key parse).
 fn own_pin(state: &AppState) -> Option<String> {
-    crate::wifi::existing_pin(&state.config.data_dir).ok()
+    if let Some(pin) = state.nearby.pin.get() {
+        return Some(pin.clone());
+    }
+    let pin = crate::wifi::existing_pin(&state.config.data_dir).ok()?;
+    Some(state.nearby.pin.get_or_init(|| pin).clone())
 }
 
 fn no_store(mut response: Response) -> Response {

@@ -8,6 +8,7 @@ import com.google.zxing.DecodeHintType
 import com.google.zxing.InvertedLuminanceSource
 import com.google.zxing.LuminanceSource
 import com.google.zxing.NotFoundException
+import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.ReaderException
 import com.google.zxing.common.HybridBinarizer
@@ -15,8 +16,11 @@ import com.google.zxing.qrcode.QRCodeReader
 
 /**
  * The scanner's plain parts (ADR-054, R32), with no Android types so they are
- * tested on the JVM: reading a QR code from a still picture, normal or light on
- * dark (a terminal draws either), and the camera's focus-area arithmetic.
+ * tested on the JVM: ZXing's Java reader for a still picture or a camera frame,
+ * normal or light on dark (a terminal draws either), and the auto-zoom rule.
+ * The camera itself reads with zxing-cpp (ScanActivity), which keeps reading
+ * small, noisy codes where this reader gives up; this one is the fallback for
+ * phones where the native reader does not load, and for photos it misses.
  */
 object QrDecode {
     /** Hints for camera frames and photos: QR only, and look hard. */
@@ -65,25 +69,38 @@ object QrDecode {
     }
 
     /**
-     * A tap at ([x], [y]) on a [width] × [height] preview as a focus area in the
-     * camera's own coordinates (-1000…1000 on each axis), [sensorDegrees] being
-     * how far the sensor is turned from the screen. Clamped so the area stays on
-     * the sensor.
+     * The text of a QR code in a camera frame's luminance plane ([y], [rowStride]
+     * bytes a row), normal or inverted, or null.
      */
-    fun focusArea(x: Float, y: Float, width: Int, height: Int, sensorDegrees: Int, half: Int = 100): IntArray {
-        val nx = (x / width.coerceAtLeast(1)).coerceIn(0f, 1f)
-        val ny = (y / height.coerceAtLeast(1)).coerceIn(0f, 1f)
-        // The point on the sensor before its rotation is undone.
-        val (sx, sy) = when (((sensorDegrees % 360) + 360) % 360) {
-            90 -> ny to 1f - nx
-            180 -> 1f - nx to 1f - ny
-            270 -> 1f - ny to nx
-            else -> nx to ny
-        }
-        val cx = (sx * 2000 - 1000).toInt().coerceIn(-1000 + half, 1000 - half)
-        val cy = (sy * 2000 - 1000).toInt().coerceIn(-1000 + half, 1000 - half)
-        return intArrayOf(cx - half, cy - half, cx + half, cy + half)
+    fun fromLuminance(y: ByteArray, width: Int, height: Int, rowStride: Int): String? {
+        if (width <= 0 || height <= 0 || rowStride < width || y.size < rowStride * (height - 1) + width) return null
+        val source = PlanarYUVLuminanceSource(y, rowStride, height, 0, 0, width, height, false)
+        return read(source) ?: read(source.invert())
     }
+
+    /**
+     * Auto-zoom: the zoom ratio at which a code seen [side] pixels across, in a
+     * frame whose short edge is [edge] pixels at zoom [current], fills about
+     * [ZOOM_TARGET] of that edge, at most [max] (and [MAX_AUTO_ZOOM]). Null when
+     * the code is big enough already or zooming would barely change it. Digital
+     * zoom crops every camera output, so the frame is measured at [current].
+     */
+    fun zoomFor(side: Float, edge: Int, current: Float, max: Float): Float? {
+        if (side <= 0f || edge <= 0 || current <= 0f) return null
+        val fraction = side / edge
+        if (fraction >= ZOOM_SMALL) return null
+        val next = (current * ZOOM_TARGET / fraction).coerceAtMost(minOf(max, MAX_AUTO_ZOOM))
+        return next.takeIf { it > current * 1.15f }
+    }
+
+    /** A code narrower than this share of the frame's short edge is zoomed in on. */
+    const val ZOOM_SMALL = 0.22f
+
+    /** The share of the frame's short edge a zoomed-in code fills. */
+    const val ZOOM_TARGET = 0.45f
+
+    /** Auto-zoom stops here: more digital zoom only blurs. */
+    const val MAX_AUTO_ZOOM = 3f
 
     private const val MIN_EDGE = 400
 }
