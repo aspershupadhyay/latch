@@ -27,6 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -210,8 +213,8 @@ private fun ActorTag(by: ActivityActor) {
         style = MaterialTheme.typography.labelMedium,
         color = color,
         maxLines = 1,
-        modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 8.dp, vertical = 3.dp)
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = 0.1f))
+            .padding(horizontal = 10.dp, vertical = 3.dp)
             .semantics { contentDescription = "Done by ${if (by == ActivityActor.OWNER) "you" else by.label}" },
     )
 }
@@ -248,9 +251,18 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        item { ScreenTitle("Activity", "What the AI did, what you did, and what Latch did. Kept on this phone for 7 days. Never screen text or typed text.") }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ScreenTitle("Activity", "What the AI did, what you did, and what Latch did.")
+                // The privacy promise gets its own line, where it is seen.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(LatchIcons.Lock, contentDescription = null, tint = signal.success, modifier = Modifier.size(16.dp))
+                    Text("Kept on this phone for 7 days. Never screen text or typed text.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
+                }
+            }
+        }
         if (entries.isNotEmpty()) {
             item {
                 Card {
@@ -270,17 +282,17 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
                 items(ActivityFilter.entries.filter { it == ActivityFilter.ALL || counts[it] != 0 || it == filter }, key = { it.name }) { f ->
                     val selected = f == filter
                     Row(
-                        Modifier.clip(RoundedCornerShape(6.dp))
-                            .background(if (selected) signal.ink else Color.Transparent)
-                            .border(1.dp, if (selected) signal.ink else signal.border2, RoundedCornerShape(6.dp))
+                        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50))
+                            .background(if (selected) signal.ink else signal.surface)
+                            .border(1.dp, if (selected) signal.ink else signal.border2, RoundedCornerShape(50))
                             .selectable(selected = selected, role = Role.Tab) { filter = f }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             "${f.label} ${counts[f] ?: 0}",
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (selected) signal.canvas else signal.text,
+                            color = if (selected) signal.onInk else signal.text,
                             maxLines = 1,
                         )
                     }
@@ -313,22 +325,25 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
                     ActivityKind.REFUSAL -> signal.danger
                     ActivityKind.APPROVAL, ActivityKind.APP -> signal.warning
                     ActivityKind.ACTION, ActivityKind.TASK -> signal.accent
-                    ActivityKind.FILE, ActivityKind.FOLDER -> signal.accent2
+                    ActivityKind.FILE, ActivityKind.FOLDER -> signal.live
                     else -> signal.text2
                 }
-                Card {
+                // One plain list per day, with hairlines between lines: it scans faster than a box per line.
+                Column {
                     ListRow(
                         iconFor(e.kind),
                         e.summary,
                         listOfNotNull(format.format(Date(e.atMs)), e.kind.label, e.app).joinToString(" · "),
                         tint = tint,
+                        titleColor = if (e.kind == ActivityKind.REFUSAL) signal.danger else signal.text,
                         trailing = { ActorTag(e.by) },
                     )
+                    RowDivider()
                 }
             }
         }
         if (entries.isNotEmpty()) {
-            item { TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth()) { Text("Clear activity", color = signal.danger) } }
+            item { TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Clear activity", color = signal.danger) } }
         }
     }
     if (choosePeriod) {
@@ -483,23 +498,27 @@ fun SettingsScreen(
         Card {
             ListRow(LatchIcons.Info, "How to set up Latch", "Every step in plain words", tint = signal.accent, onClick = onOpenGuide, onClickLabel = "Open the setup guide")
             RowDivider()
-            ListRow(LatchIcons.ShieldCheck, "Permissions", "Notifications, screen access, battery", tint = signal.success, onClick = onOpenSetup, onClickLabel = "Open permissions")
+            // One home for Android permissions, screen access included; the turn-off switch is one tap further.
+            ListRow(LatchIcons.ShieldCheck, "Permissions", "Screen access, notifications, battery", tint = signal.success, onClick = onOpenSetup, onClickLabel = "Open permissions")
             RowDivider()
-            ListRow(LatchIcons.Person, "Screen access", "Turn it off in Android's settings at any time", tint = signal.accent2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
+            ListRow(LatchIcons.Person, "Turn off screen access", "In Android's settings, any time", tint = signal.text2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
             RowDivider()
-            ListRow(LatchIcons.Lock, "Privacy", "What's on your screen goes only to your own relay, only while a session runs; screen content is never saved. Activity (what the AI did, no screen text) stays on this phone for 7 days. No tracking by Latch.", tint = signal.text2)
+            ListRow(LatchIcons.Lock, "Privacy", "Screen content is never saved. No tracking.", tint = signal.text2, trailing = { InfoButton(HelpTopic.PRIVACY) })
             RowDivider()
             ListRow(
                 LatchIcons.Eye,
                 "Read unlabeled buttons",
-                "Before the AI taps a button with no label, Latch reads the words on it here on the phone, so an icon-only Send or Pay still asks you. Uses Google ML Kit: the picture and words never leave the phone, but ML Kit sends Google usage statistics (phone model, app version, speed).",
+                "So an icon-only Send or Pay still asks you. Uses Google ML Kit.",
                 tint = signal.accent,
                 trailing = {
-                    LatchSwitch(
-                        checked = readButtons,
-                        onCheckedChange = onReadButtons,
-                        modifier = Modifier.semantics { contentDescription = "Read unlabeled buttons" },
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        InfoButton(HelpTopic.READ_BUTTONS)
+                        LatchSwitch(
+                            checked = readButtons,
+                            onCheckedChange = onReadButtons,
+                            modifier = Modifier.semantics { contentDescription = "Read unlabeled buttons" },
+                        )
+                    }
                 },
             )
         }
@@ -551,7 +570,7 @@ fun SettingsScreen(
                     LatchIcons.Key,
                     "Rotate owner key",
                     if (keyRotation == KeyRotation.Busy) "Changing the key\u2026" else "Makes a new secret key for your relay and saves it on this phone. The old key stops working at once.",
-                    tint = signal.accent2,
+                    tint = signal.live,
                     onClick = { if (keyRotation != KeyRotation.Busy) confirmRotate = true },
                     onClickLabel = "Rotate the owner key",
                 )

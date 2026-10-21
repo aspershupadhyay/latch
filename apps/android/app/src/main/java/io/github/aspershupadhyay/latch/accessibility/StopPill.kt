@@ -42,8 +42,9 @@ class StopPill(
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = Color.argb(46, 237, 237, 239) }
     private val ember = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
-    private val stopFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(229, 72, 77) }
-    private val stopGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    // One red for Stop everywhere (ui/theme/Theme.kt StopRed), with a dark square that stays above 4.5:1 on it.
+    private val stopFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 90, 90) }
+    private val stopGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(11, 11, 14) }
 
     private val h = dp(44f)
     private val padL = dp(11f)

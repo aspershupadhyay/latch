@@ -18,6 +18,22 @@ import io.github.aspershupadhyay.latch.session.SignInRequest
 
 enum class Phase { IDLE, CONNECTING, ACTIVE, PAUSED, RECONNECTING, REVOKED, FAILED }
 
+/** What one finished session did, for the card Home shows when it ends. */
+data class SessionSummary(val minutes: Long, val actions: Int, val apps: Int, val approvals: Int, val refused: Int)
+
+/** Counts the log lines from [startMs] to [endMs]: the AI's actions, the apps they were in, approvals, and refusals. */
+fun summarizeSession(entries: List<ActivityEntry>, startMs: Long, endMs: Long): SessionSummary {
+    val during = entries.filter { it.atMs in startMs..endMs }
+    val actions = during.filter { it.kind == io.github.aspershupadhyay.latch.data.ActivityKind.ACTION && it.by == io.github.aspershupadhyay.latch.data.ActivityActor.AI }
+    return SessionSummary(
+        minutes = ((endMs - startMs).coerceAtLeast(0) + 59_999) / 60_000,
+        actions = actions.size,
+        apps = actions.mapNotNull { it.app }.distinct().size,
+        approvals = during.count { it.kind == io.github.aspershupadhyay.latch.data.ActivityKind.APPROVAL },
+        refused = during.count { it.kind == io.github.aspershupadhyay.latch.data.ActivityKind.REFUSAL },
+    )
+}
+
 data class HomeState(
     val phase: Phase,
     val headline: String,
@@ -46,11 +62,14 @@ data class HomeState(
     val mirror: io.github.aspershupadhyay.latch.mirror.MirrorStatus = io.github.aspershupadhyay.latch.mirror.MirrorStatus(),
     /** A computer that watched before comes back without a new code (ADR-058). */
     val mirrorRemembered: Boolean = false,
+    /** The session that just ended, until the owner closes the card or starts another. */
+    val lastSession: SessionSummary? = null,
 )
 
 class HomeActions(
     val start: () -> Unit = {},
     val stop: () -> Unit = {},
+    val dismissSummary: () -> Unit = {},
     val setPaused: (Boolean) -> Unit = {},
     val extend: () -> Unit = {},
     val setMinutes: (Int) -> Unit = {},

@@ -36,9 +36,10 @@ class ScreenSnapshotTest {
     @get:org.junit.Rule
     val name = org.junit.rules.TestName()
 
-    private fun snap(content: @Composable () -> Unit) =
+    /** Day by default (Robolectric's phone is in light mode); [dark] renders Night. */
+    private fun snap(dark: Boolean = false, content: @Composable () -> Unit) =
         captureRoboImage("src/test/snapshots/${name.methodName}.png") {
-            LatchTheme {
+            LatchTheme(dark = dark) {
                 Box(Modifier.background(LocalSignal.current.canvas)) { content() }
             }
         }
@@ -176,4 +177,50 @@ class ScreenSnapshotTest {
     }
 
     @Test fun guide() = snap { GuideScreen(onBack = {}, onStart = {}) }
+
+    // Night, the second theme (ADR-062), for the screens people see most.
+    @Test fun welcome_scan_night() = snap(dark = true) { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
+    @Test fun welcome_scan() = snap { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
+    @Test fun home_idle_night() = snap(dark = true) { HomeScreen(home(Phase.IDLE), HomeActions()) }
+    @Test fun home_idle() = snap { HomeScreen(home(Phase.IDLE), HomeActions()) }
+    @Test fun home_active_night() = snap(dark = true) { HomeScreen(home(Phase.ACTIVE), HomeActions()) }
+    @Test fun home_approval_night() = snap(dark = true) {
+        HomeScreen(
+            home(Phase.ACTIVE, PendingApproval("n", "Tap “Send” in WhatsApp", "Sends “On my way, 10 min” to Mum.", "high", now, rememberable = true, appName = "WhatsApp")),
+            HomeActions(),
+        )
+    }
+    @Test fun home_appRequest() = snap {
+        HomeScreen(
+            home(Phase.ACTIVE, PendingApproval("n", "Let the AI use Chrome?", "It asked to open Chrome to search the web.", "low", now, kind = io.github.aspershupadhyay.latch.session.ApprovalKind.APP)),
+            HomeActions(),
+        )
+    }
+    @Test fun home_sessionEnded_night() = snap(dark = true) {
+        HomeScreen(
+            home(Phase.IDLE).copy(
+                lastSession = SessionSummary(minutes = 14, actions = 23, apps = 3, approvals = 2, refused = 1),
+                signInRequests = listOf(io.github.aspershupadhyay.latch.session.SignInRequest("r", "Claude", "K7QF", "claude.ai", now)),
+                accessibilityOn = false,
+            ),
+            HomeActions(),
+        )
+    }
+    @Test fun capabilities_night() = snap(dark = true) {
+        CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {})
+    }
+    @Test fun settings_night() = snap(dark = true) {
+        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {})
+    }
+    @Test fun activity_night() = snap(dark = true) {
+        ActivityScreen(
+            listOf(
+                ActivityEntry(now, ActivityKind.ACTION, "Tapped “Search”", app = "Chrome", by = io.github.aspershupadhyay.latch.data.ActivityActor.AI),
+                ActivityEntry(now, ActivityKind.APPROVAL, "You approved: Tap “Send” in WhatsApp", by = io.github.aspershupadhyay.latch.data.ActivityActor.OWNER),
+                ActivityEntry(now, ActivityKind.REFUSAL, "Refused a password field", app = "Bank"),
+                ActivityEntry(now, ActivityKind.ACTION, "Opened Chrome", app = "Chrome", by = io.github.aspershupadhyay.latch.data.ActivityActor.AI),
+            ),
+            onClear = {},
+        )
+    }
 }

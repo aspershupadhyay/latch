@@ -29,6 +29,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,75 +92,79 @@ fun WelcomeScreen(
                 Text("latch", style = MaterialTheme.typography.headlineSmall.copy(fontFamily = GeistMono, letterSpacing = (-0.6).sp), color = signal.text)
             }
             Box(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(signal.clay)
-                    .border(1.dp, signal.accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(vertical = 18.dp, horizontal = 8.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(signal.surface)
+                    .border(1.dp, signal.border, RoundedCornerShape(22.dp)).padding(vertical = 18.dp, horizontal = 8.dp),
             ) {
-                ConnectionIllustration(reducedMotion, Modifier.fillMaxWidth().height(190.dp), onPastel = true)
+                ConnectionIllustration(reducedMotion, Modifier.fillMaxWidth().height(170.dp))
             }
             Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 Text("Let your AI use this phone.", style = MaterialTheme.typography.displaySmall, color = signal.text)
-                Text(
-                    "Only how you allow.",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = signal.accent,
-                )
+                Text("Only how you allow.", style = MaterialTheme.typography.displaySmall, color = signal.accent)
             }
             Text(
-                "Ask Claude, ChatGPT, or another AI to do things on your phone for you. You choose which apps it can use, and you can end the session whenever you want.",
+                "Ask Claude, ChatGPT, or another AI to do things on your phone. You pick the apps, and you can stop it any time.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = signal.text2,
             )
+            // The three promises answer the first worry ("can it act without me?"), so they come before any button.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                Promise(Modifier.weight(1f), LatchIcons.Shield, "Off until you start", signal.success)
+                Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "Only apps you pick", signal.accent)
+                Promise(Modifier.weight(1f), LatchIcons.Stop, "Stop button on screen", signal.danger)
+            }
             notice?.let {
                 Card(color = signal.danger.copy(alpha = 0.12f)) { ListRow(LatchIcons.Warning, it, tint = signal.danger) }
             }
             SavedConnectionsCard(saved, onUseSaved)
-            Spacer(Modifier.size(4.dp))
-            // The shortest way in: the computer runs latch-start and shows a QR code; one scan connects.
-            onScan?.let { scan ->
-                IconButtonLarge("Scan the QR code on my computer", LatchIcons.Camera, scan, Modifier.fillMaxWidth(), container = signal.surface, content = signal.text, outline = signal.accent)
+            Spacer(Modifier.size(2.dp))
+            // One way in is the obvious one: the computer runs latch-start and shows a QR code; one scan connects.
+            // Every other way waits under "Other ways to connect".
+            var others by rememberSaveable { mutableStateOf(false) }
+            if (onScan != null) {
+                IconButtonLarge("Scan the code on my computer", LatchIcons.Camera, onScan, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk, tall = true)
                 Text(
-                    "It's on your computer after you run latch-start. No codes or keys to type.",
+                    "On your computer, run latch-start. It shows the code.",
                     style = MaterialTheme.typography.bodySmall,
                     color = signal.text2,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            } else {
+                IconButtonLarge(if (saved.isEmpty()) "Set up Latch" else "Set up another way", LatchIcons.Plus, onCreateGateway, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk, tall = true)
             }
-            onFind?.let { find ->
-                IconButtonLarge("Find my computer (no QR code)", LatchIcons.Wifi, find, Modifier.fillMaxWidth(), container = signal.surface, content = signal.text, outline = signal.border)
+            if (!others) {
+                SecondaryButton("Other ways to connect", { others = true }, Modifier.fillMaxWidth())
+            } else {
+                Card {
+                    onFind?.let {
+                        ListRow(LatchIcons.Wifi, "Find my computer", "No camera needed. Same Wi-Fi as your computer.", tint = signal.live, onClick = it, onClickLabel = "Find my computer on this Wi-Fi")
+                        RowDivider()
+                    }
+                    if (onScan != null) {
+                        ListRow(LatchIcons.Cloud, if (saved.isEmpty()) "Set up Latch" else "Set up another way", "No computer needed. Free, about 5 minutes.", tint = signal.accent, onClick = onCreateGateway, onClickLabel = "Set up Latch")
+                        RowDivider()
+                    }
+                    ListRow(LatchIcons.Key, "I have a code or a relay", "Someone gave you a join code, or you made a relay before.", tint = signal.text2, onClick = onHaveGateway, onClickLabel = "Connect with a code or relay")
+                }
             }
-            IconButtonLarge(if (saved.isEmpty()) "Set up Latch" else "Set up another way", LatchIcons.Plus, onCreateGateway, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk)
-            Text(
-                "Free · about 5 minutes",
-                style = MaterialTheme.typography.bodySmall,
-                color = signal.text2,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            SecondaryButton("I have a code or a relay already", onHaveGateway, Modifier.fillMaxWidth())
-            TextButton(onClick = onGuide, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onGuide, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Icon(LatchIcons.Info, contentDescription = null, tint = signal.accent, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.size(6.dp))
                 Text("How does setup work?", color = signal.accent, style = MaterialTheme.typography.labelLarge)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                Promise(Modifier.weight(1f), LatchIcons.Shield, "Off until you start", signal.sage, signal.mint)
-                Promise(Modifier.weight(1f), LatchIcons.ShieldCheck, "Only apps you pick", signal.butter, signal.warning)
-                Promise(Modifier.weight(1f), LatchIcons.Stop, "Stop button on screen", signal.pool, signal.accent2)
             }
         }
     }
 }
 
 @Composable
-private fun Promise(modifier: Modifier, icon: ImageVector, text: String, color: Color, hue: Color) {
+private fun Promise(modifier: Modifier, icon: ImageVector, text: String, hue: Color) {
     val signal = LocalSignal.current
     Column(
-        modifier.fillMaxHeight().clip(RoundedCornerShape(10.dp)).background(color).border(1.dp, hue.copy(alpha = 0.22f), RoundedCornerShape(10.dp)).padding(12.dp),
+        modifier.fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(signal.surface).border(1.dp, signal.border, RoundedCornerShape(16.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         IconBadge(icon, hue, size = 32.dp)
-        Text(text, style = MaterialTheme.typography.bodySmall, color = signal.onPastel)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = signal.text)
     }
 }
 
@@ -163,10 +172,10 @@ private fun Promise(modifier: Modifier, icon: ImageVector, text: String, color: 
 private fun StepBadge(number: Int, done: Boolean) {
     val signal = LocalSignal.current
     Box(
-        Modifier.size(32.dp).clip(RoundedCornerShape(7.dp)).background(if (done) signal.success else signal.ink),
+        Modifier.size(32.dp).clip(CircleShape).background(if (done) signal.success else signal.ink),
         contentAlignment = Alignment.Center,
     ) {
-        Text(if (done) "✓" else "%02d".format(number), color = signal.onInk, style = MaterialTheme.typography.labelMedium)
+        Text(if (done) "✓" else "$number", color = if (done) signal.onAccent else signal.onInk, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -191,7 +200,7 @@ private fun SetupStep(number: Int, done: Boolean, title: String, text: String, t
 fun CreateGatewayScreen(state: CreateGatewayState, actions: CreateGatewayActions) {
     val signal = LocalSignal.current
     OnboardingPage {
-        TextButton(onClick = actions.back) { Text("‹ Back", color = signal.accent) }
+        BackBar(actions.back)
         ScreenTitle("Make your relay", "Your relay is a small free website that connects your AI to this phone. It belongs only to you.")
 
         SetupStep(
@@ -237,7 +246,7 @@ fun CreateGatewayScreen(state: CreateGatewayState, actions: CreateGatewayActions
 fun JoinGatewayScreen(state: JoinState, actions: JoinActions) {
     val signal = LocalSignal.current
     OnboardingPage {
-        TextButton(onClick = actions.back) { Text("‹ Back", color = signal.accent) }
+        BackBar(actions.back)
         ScreenTitle("Connect to a relay", "Use this if you already made a relay, or someone gave you a join code.")
         Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {

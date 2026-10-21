@@ -40,7 +40,7 @@ fun MirrorCard(status: MirrorStatus, actions: HomeActions, remembered: Boolean =
                 } else {
                     "See this screen live in your computer's browser, follow the AI, and take over with mouse and keyboard."
                 },
-                tint = signal.accent2,
+                tint = signal.live,
                 onClick = actions.startMirror,
                 onClickLabel = "Start mirroring to your computer",
             )
@@ -63,7 +63,7 @@ fun MirrorCard(status: MirrorStatus, actions: HomeActions, remembered: Boolean =
                 onClickLabel = "Try mirroring again",
             )
         }
-        else -> Card(color = signal.accent2.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
+        else -> Card(color = signal.live.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
             // The code and link let a computer see and use this phone: keep them out of screenshots and casts.
             if (status.code != null || status.link != null) SecureWhileShown()
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -4,12 +4,13 @@ package io.github.aspershupadhyay.latch.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -19,12 +20,17 @@ import androidx.compose.ui.unit.sp
 import io.github.aspershupadhyay.latch.R
 
 /**
- * Latch tokens, "terminal" (2026-10), matching the website: a near-black
- * canvas, hairline borders, Space Grotesk for headings, Geist for words,
- * Geist Mono for labels, numbers, and codes, and one ember accent for action. The app is dark only.
- * Colour still means something: green for done and connected, amber for
- * attention, red for stop. The four group tints (clay, sage, butter, pool)
- * are dark panels washed with a hue, always with light text on them.
+ * Latch tokens (2026-10 design pass, after the UI/UX audit). Two themes that
+ * follow the phone: Night (near-black, the website's look) and Day (dark ink
+ * on white, which reads better outdoors and for older eyes). One family, Geist,
+ * for every word; Geist Mono only for codes, keys, addresses, and numbers.
+ * Every colour has one meaning:
+ * - [ink] is the primary button (cream at night, near-black by day): calm, not a warning.
+ * - [accent] (ember) is the brand and "selected": the tab, a switch, a link.
+ * - [live] (cyan) means a session is running: the AI can act now.
+ * - [success] done, [warning] needs you, and [danger] is Stop and nothing else.
+ * Ember and red never share a job, so "running" and "stopped" differ by hue
+ * (cyan against red) as well as by icon and words.
  */
 @Immutable
 data class Signal(
@@ -36,7 +42,8 @@ data class Signal(
     val text: Color,
     val text2: Color,
     val accent: Color,
-    val accent2: Color,
+    /** A session is live; also files and the mirror. */
+    val live: Color,
     val mint: Color,
     val success: Color,
     val warning: Color,
@@ -45,50 +52,60 @@ data class Signal(
     /** Filled primary buttons. */
     val ink: Color,
     val onInk: Color,
-    /** Tinted group panels; text on them is always [onPastel]. */
-    val clay: Color,
-    val sage: Color,
-    val butter: Color,
-    val pool: Color,
-    val onPastel: Color,
+    /** Text on [accent], [danger], [success], and [warning] fills. */
+    val onAccent: Color,
     /** A second, stronger hairline for edges that must read (inputs, buttons). */
     val border2: Color,
-    /** Faint text: indexes, hints, separators. */
+    /** Faint text and icons: hints, chevrons. At least 3:1 on every surface. */
     val text3: Color,
-) {
-    /** Backgrounds for the status card. White text stays above 4.5:1 on every stop. */
-    val activeBrush get() = Brush.linearGradient(listOf(HeroActive.first, HeroActive.second))
-    val idleBrush get() = Brush.linearGradient(listOf(HeroIdle.first, HeroIdle.second))
-    val attentionBrush get() = Brush.linearGradient(listOf(HeroAttention.first, HeroAttention.second))
-    val stopBrush get() = Brush.linearGradient(listOf(HeroStopped.first, HeroStopped.second))
-}
-
-/** Hero card gradients (start to end): near-black washed with the state's colour. */
-val HeroIdle = Color(0xFF16161A) to Color(0xFF0E0E11)
-val HeroActive = Color(0xFF2E150B) to Color(0xFF140B08)
-val HeroAttention = Color(0xFF2C2109) to Color(0xFF14100A)
-val HeroStopped = Color(0xFF301011) to Color(0xFF150A0B)
-
-/** The brand ember, as on the website (launcher icon, intro, overlays). */
-val Ember = Color(0xFFFF6A3D)
-/** Light ink on dark: the mark, and filled buttons on the hero card. */
-val Cream = Color(0xFFEDEDEF)
-
-private val Terminal = Signal(
-    dark = true,
-    canvas = Color(0xFF09090B), surface = Color(0xFF111114), surface2 = Color(0xFF18181C),
-    border = Color(0xFF222228), border2 = Color(0xFF2E2E36),
-    text = Color(0xFFEDEDEF), text2 = Color(0xFF8E8E98), text3 = Color(0xFF5D5D66),
-    accent = Ember, accent2 = Color(0xFF7DD3E8), mint = Color(0xFFA3D98B),
-    success = Color(0xFF4ADE80), warning = Color(0xFFF5B544), danger = Color(0xFFFF5A5A),
-    disabled = Color(0xFF3A3A42), ink = Ember, onInk = Color(0xFF0A0A0A),
-    clay = Color(0xFF1C1310), sage = Color(0xFF111A14), butter = Color(0xFF1B170D), pool = Color(0xFF0F171A),
-    onPastel = Color(0xFFEDEDEF),
 )
 
-val LocalSignal = staticCompositionLocalOf { Terminal }
+/**
+ * Hero card backgrounds (start to end). The hero is a dark "instrument panel"
+ * in both themes, so its white text stays above 4.5:1. Each state has its own
+ * hue: neutral when ready, cyan while the AI can act, amber while it waits for
+ * the owner, red once stopped.
+ */
+val HeroIdle = Color(0xFF1A1A20) to Color(0xFF101014)
+val HeroActive = Color(0xFF0B2A33) to Color(0xFF0A1418)
+val HeroAttention = Color(0xFF33260A) to Color(0xFF16110A)
+val HeroStopped = Color(0xFF3A1214) to Color(0xFF170A0B)
 
-/** Geist: the words. Bundled (res/font, SIL OFL 1.1), so no download and no network. */
+/** The edge of the hero card in each state, so the state reads at a glance even without colour vision. */
+val HeroLiveEdge = Color(0xFF7DD3E8)
+val HeroAttentionEdge = Color(0xFFF5B544)
+val HeroStoppedEdge = Color(0xFFFF5A5A)
+
+/** The brand ember, as on the website (launcher icon, intro, the logo). */
+val Ember = Color(0xFFFF6A3D)
+/** Light ink on dark: the mark, and the filled button on the hero card. */
+val Cream = Color(0xFFF2F2F4)
+/** Stop, everywhere: the in-app button, the floating pill, the notification action. */
+val StopRed = Color(0xFFFF5A5A)
+
+private val Night = Signal(
+    dark = true,
+    canvas = Color(0xFF0B0B0E), surface = Color(0xFF16161B), surface2 = Color(0xFF1F1F26),
+    border = Color(0xFF2A2A33), border2 = Color(0xFF3A3A45),
+    text = Color(0xFFF2F2F4), text2 = Color(0xFFA1A1AC), text3 = Color(0xFF7A7A86),
+    accent = Ember, live = Color(0xFF7DD3E8), mint = Color(0xFFA3D98B),
+    success = Color(0xFF4ADE80), warning = Color(0xFFF5B544), danger = StopRed,
+    disabled = Color(0xFF45454F), ink = Cream, onInk = Color(0xFF0B0B0E), onAccent = Color(0xFF0B0B0E),
+)
+
+private val Day = Signal(
+    dark = false,
+    canvas = Color(0xFFF4F4F6), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFECECF0),
+    border = Color(0xFFE2E2E8), border2 = Color(0xFFC9C9D2),
+    text = Color(0xFF111114), text2 = Color(0xFF585863), text3 = Color(0xFF7E7E8A),
+    accent = Color(0xFFC2410C), live = Color(0xFF0E7490), mint = Color(0xFF3F7F2A),
+    success = Color(0xFF15803D), warning = Color(0xFFB45309), danger = Color(0xFFC62828),
+    disabled = Color(0xFFB4B4BE), ink = Color(0xFF111114), onInk = Color(0xFFFFFFFF), onAccent = Color(0xFFFFFFFF),
+)
+
+val LocalSignal = staticCompositionLocalOf { Night }
+
+/** Geist: every word. Bundled (res/font, SIL OFL 1.1), so no download and no network. */
 val Geist = FontFamily(
     Font(R.font.geist_regular, FontWeight.Normal),
     Font(R.font.geist_medium, FontWeight.Medium),
@@ -96,52 +113,43 @@ val Geist = FontFamily(
     Font(R.font.geist_bold, FontWeight.Bold),
 )
 
-/** Geist Mono: labels, numbers, codes, addresses, keys. */
+/** Geist Mono: codes, keys, addresses, and numbers that line up. Never for words. */
 val GeistMono = FontFamily(
     Font(R.font.geist_mono_regular, FontWeight.Normal),
     Font(R.font.geist_mono_medium, FontWeight.Medium),
     Font(R.font.geist_mono_semibold, FontWeight.SemiBold),
 )
 
-/** Space Grotesk: headings, as on the website (res/font, SIL OFL 1.1). */
-val SpaceGrotesk = FontFamily(
-    Font(R.font.space_grotesk_medium, FontWeight.Medium),
-    Font(R.font.space_grotesk_semibold, FontWeight.SemiBold),
-    Font(R.font.space_grotesk_bold, FontWeight.Bold),
-)
-
-/** Headlines. */
-val Display = SpaceGrotesk
-
-/** The small uppercase "machine voice" used for captions, tags, and tile labels. */
-val MonoLabel = TextStyle(fontFamily = GeistMono, fontSize = 10.5.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.3.sp)
+/** Small labels: captions, tags, and tab names. Sentence case, 12 sp, never the smallest thing on screen to read. */
+val SmallLabel = TextStyle(fontFamily = Geist, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.1.sp)
 
 private val LatchType = Typography(
-    displayLarge = TextStyle(fontFamily = GeistMono, fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.Medium, letterSpacing = (-2).sp),
-    displayMedium = TextStyle(fontFamily = Display, fontSize = 38.sp, lineHeight = 42.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1.4).sp),
-    displaySmall = TextStyle(fontFamily = Display, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp),
-    headlineSmall = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.55).sp),
-    titleLarge = TextStyle(fontFamily = Display, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.35).sp),
-    titleMedium = TextStyle(fontFamily = Geist, fontSize = 15.5.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.15).sp),
-    titleSmall = TextStyle(fontFamily = Geist, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium),
+    displayLarge = TextStyle(fontFamily = Geist, fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1.6).sp),
+    displayMedium = TextStyle(fontFamily = Geist, fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1.2).sp),
+    displaySmall = TextStyle(fontFamily = Geist, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.9).sp),
+    headlineSmall = TextStyle(fontFamily = Geist, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp),
+    titleLarge = TextStyle(fontFamily = Geist, fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
+    titleMedium = TextStyle(fontFamily = Geist, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.15).sp),
+    titleSmall = TextStyle(fontFamily = Geist, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
     bodyLarge = TextStyle(fontFamily = Geist, fontSize = 16.sp, lineHeight = 24.sp),
-    bodyMedium = TextStyle(fontFamily = Geist, fontSize = 14.sp, lineHeight = 20.sp),
-    bodySmall = TextStyle(fontFamily = Geist, fontSize = 13.sp, lineHeight = 18.sp),
-    labelLarge = TextStyle(fontFamily = Geist, fontSize = 14.5.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.1).sp),
-    labelMedium = TextStyle(fontFamily = GeistMono, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp),
-    labelSmall = MonoLabel,
+    bodyMedium = TextStyle(fontFamily = Geist, fontSize = 15.sp, lineHeight = 22.sp),
+    bodySmall = TextStyle(fontFamily = Geist, fontSize = 14.sp, lineHeight = 20.sp),
+    labelLarge = TextStyle(fontFamily = Geist, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp),
+    labelMedium = TextStyle(fontFamily = Geist, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium),
+    labelSmall = SmallLabel,
 )
 
-/** Latch is dark only: one crafted palette, no light variant to drift out of date. */
+/** Follows the phone's light or dark setting; [dark] forces one (the camera screen is always dark). */
 @Composable
-fun LatchTheme(content: @Composable () -> Unit) {
-    val signal = Terminal
-    val scheme = darkColorScheme(
-        primary = signal.accent, onPrimary = signal.onInk, background = signal.canvas, surface = signal.surface,
+fun LatchTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val signal = if (dark) Night else Day
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    val scheme = base.copy(
+        primary = signal.ink, onPrimary = signal.onInk, background = signal.canvas, surface = signal.surface,
         onBackground = signal.text, onSurface = signal.text, error = signal.danger, outline = signal.border2,
         outlineVariant = signal.border, surfaceVariant = signal.surface2, onSurfaceVariant = signal.text2,
         secondaryContainer = signal.surface2, surfaceContainer = signal.surface, surfaceContainerHigh = signal.surface2,
-        surfaceContainerHighest = Color(0xFF202026), surfaceContainerLow = signal.surface, surfaceContainerLowest = signal.canvas,
+        surfaceContainerHighest = signal.surface2, surfaceContainerLow = signal.surface, surfaceContainerLowest = signal.canvas,
         inverseSurface = signal.text, inverseOnSurface = signal.canvas,
     )
     CompositionLocalProvider(LocalSignal provides signal) {

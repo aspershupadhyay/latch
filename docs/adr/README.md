@@ -767,3 +767,29 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Limits:** needs the gateway's Wi-Fi listener (UDP is bound beside it); a firewall that lets TCP 8788 in but not UDP leaves the mirror on the WebSocket (`ufw allow 8788/udp`). Input from the computer still goes over the WebSocket (small messages, rarely the ones lost). The hosted relay has no mirror.
 
 **Rollback:** both directions mix safely. An older app ignores the gateway's `udp` message (unknown kinds are dropped) and stays on the WebSocket; a newer app offers its key only after that message, so an older gateway, which closes on phone messages it does not know, never receives one. To turn UDP off, block the UDP port: the phone falls back within 3 s.
+
+## ADR-062 — A calmer, clearer look: one meaning per colour, light and dark, the safest answer first
+**Status:** accepted (2026-10-21, owner: "go ahead and fix it also make it feel premium and easy to use even for the child") · **Amends:** ADR-025 (look), ADR-020 (bento tiles), the 2026-10 "terminal" theme (dark only) · **Protocol:** unchanged
+
+**Problem:** a UI/UX audit of every screen (published to the owner as the *Latch Design Audit*) found:
+- The brand ember (#FF6A3D) and the stop red (#FF5A5A) are 14° apart. Ember meant brand, main button, selected, running, and attention at once. The running and stopped hero cards differed by 1.02:1 in brightness, so people with red–green colour blindness could only tell them apart by words.
+- `ListRow` cut subtitles at four lines, which likely hid the end of the Privacy note and the ML Kit disclosure in Settings.
+- The approval card showed up to four answers of similar weight, and for an app request the filled main button was "Allow always", the widest grant. That contradicts "grant the smallest useful scope". Every approval looked the same, and people stop seeing a warning that always looks the same (Anderson, Vance et al.: fMRI and field studies 2015–2018).
+- Home stacked up to six banners above its content. The first screen offered six ways in.
+- Labels were 10.5 sp uppercase monospace, there were three type families, several touch targets were under 48 dp, the four pastel group tints were 1.03–1.06:1 against the surface (invisible), and the app was dark only, although dark text on light reads better for most people (Piepenbrock et al. 2013).
+
+**Decision:**
+- **Colour:** each colour has one job. The main button is neutral `ink` (cream at night, near-black by day). Ember is the brand and "selected" only. A running session is cyan (`live`). Red (`danger`, one `StopRed` everywhere, the floating pill included) means Stop and nothing else. The hero card's edge carries its state too (cyan, amber, red).
+- **Themes:** the app follows the phone's light or dark setting. Night keeps the website's look; Day is dark ink on white. The hero card stays a dark panel in both, so its white text keeps its contrast. The camera screen is always dark.
+- **Type:** Geist for every word; Geist Mono only for codes, keys, addresses, and numbers. Space Grotesk is removed (three font files fewer). Labels are 12 sp or larger, in sentence case.
+- **Approvals:** two answers carry the weight, *Don't allow* and the smallest yes (*Allow once*, or *This session* for an app). Wider answers (*This session*, *Always in …*, *Always allow this app*) wait behind **More choices**. High-risk actions get an amber card with a 2 dp amber edge and a warning glyph, in the app and over other apps. Choices and their protocol words are unchanged.
+- **Home:** one "needs you" slot, most urgent first (screen access, sign-in, update, outdated relay, slow relay), with "N more" for the rest. The hero leads with **Start · 30 minutes** (cream), then the length choice (48 dp). While a session runs, **Stop everything** fills the card's width, with Pause and Add time below. The tiles say what the AI may do and what it last did, in words, not counts. When a session ends, a card says how long it ran, how many actions in how many apps, the questions answered, and the steps refused.
+- **Welcome:** the three promises come before any button. There is one main button (Scan the code on my computer) and "Other ways to connect" for the rest.
+- **Structure:** sub-pages use Android's back arrow (48 dp). Access tiles only open their page (each group's switch is at the top of that page), and Full ADB sits under its own "Most access" caption. Activity is one plain list per day with hairlines between lines. The AI apps tab is named "AI apps" (was "Connect"). Settings keeps one home for permissions, and long disclosures live in ⓘ sheets (Privacy, Reading unlabeled buttons). Subtitles are never cut short.
+- **Touch:** session lengths, filter chips, ⓘ buttons, back, and text buttons are at least 48 dp.
+
+**Threat review:** no new data, permission, or network path. The approval change makes the quick tap the narrower grant. Every answer the owner had is still one tap further at most, and the AI still cannot answer (the card's bounds and the touch filter are unchanged). The floating card's border now always draws, so it cannot pass as part of the app underneath. Full ADB (ADR-046) is unchanged: only its place on the Access page is clearer, and no command filter or confirmation is added.
+
+**Checks:** the app builds with warnings as errors. Unit tests pass, including `SessionSummaryTest`. The screen snapshots (`ScreenSnapshotTest`) were rendered before and after in both themes. *Needs phone:* the UX gate in chapter 09 (a short study with first-time users), and sunlight legibility of Day.
+
+**Rollback:** visual only; revert the commit. Settings, pairing, and protocol are untouched.

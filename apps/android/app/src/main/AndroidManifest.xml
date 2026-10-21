@@ -88,7 +88,7 @@
         <activity
             android:name=".ui.ScanActivity"
             android:exported="false"
-            android:theme="@style/Theme.Latch" />
+            android:theme="@style/Theme.Latch.Camera" />
 
         <!-- Only the system can bind: BIND_ACCESSIBILITY_SERVICE is a signature permission. -->
         <service

@@ -111,25 +111,15 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
     ),
 }
 
-/** The bright hue that marks a group's glyph, count, and edge on its dark tinted panel. */
+/** The hue that marks a group's glyph. Only the glyph is coloured; every card sits on the same surface. */
 private fun Signal.hueOf(group: AccessGroup) = when (group) {
     AccessGroup.AI -> accent
     AccessGroup.SCREEN -> mint
     AccessGroup.FILES -> warning
-    AccessGroup.SHARING -> accent2
+    AccessGroup.SHARING -> live
     AccessGroup.CONTROLS -> mint
     AccessGroup.ADB -> warning
     AccessGroup.WORKING -> text2
-}
-
-private fun Signal.colorOf(group: AccessGroup) = when (group) {
-    AccessGroup.AI -> clay
-    AccessGroup.SCREEN -> sage
-    AccessGroup.FILES -> butter
-    AccessGroup.SHARING -> pool
-    AccessGroup.CONTROLS -> sage
-    AccessGroup.ADB -> butter
-    AccessGroup.WORKING -> surface
 }
 
 /** One line per thing the group allows, for its ⓘ sheet. */
@@ -211,7 +201,7 @@ fun CapabilitiesScreen(
         if (current == null) {
             AccessOverview(
                 enabled, accessibilityOn, auto, onAuto, appsOn, approveEveryAction, showCursor, keepAwake,
-                onOpenSetup, toggleGroup, open = setGroup,
+                onOpenSetup, open = setGroup,
             )
         } else {
             ScreenColumn {
@@ -255,7 +245,6 @@ private fun AccessOverview(
     showCursor: Boolean,
     keepAwake: Boolean,
     onOpenSetup: () -> Unit,
-    toggleGroup: (AccessGroup, Boolean) -> Unit,
     open: (AccessGroup) -> Unit,
 ) {
     val signal = LocalSignal.current
@@ -277,6 +266,7 @@ private fun AccessOverview(
 
         AutoModeCard(auto, onAuto)
 
+        // Tiles only open their page: one tap, one result. Each group's switch is at the top of its page.
         BentoRow {
             GroupTile(
                 AccessGroup.AI,
@@ -285,15 +275,13 @@ private fun AccessOverview(
                     appsOn == 0 -> "No apps yet"
                     else -> "$appsOn app${if (appsOn == 1) "" else "s"} on"
                 } + if (approveEveryAction) " · asks every time" else "",
-                enabled = enabled,
-                onToggle = null,
-                onOpen = { open(AccessGroup.AI) },
-            )
-            GroupTile(AccessGroup.SCREEN, statusOf(AccessGroup.SCREEN, enabled), enabled, { toggleGroup(AccessGroup.SCREEN, it) }) { open(AccessGroup.SCREEN) }
+                on = auto != AutoMode.OFF || appsOn > 0,
+            ) { open(AccessGroup.AI) }
+            GroupTile(AccessGroup.SCREEN, statusOf(AccessGroup.SCREEN, enabled), AccessGroup.SCREEN.capabilities.any { it in enabled }) { open(AccessGroup.SCREEN) }
         }
         BentoRow {
-            GroupTile(AccessGroup.FILES, statusOf(AccessGroup.FILES, enabled), enabled, { toggleGroup(AccessGroup.FILES, it) }) { open(AccessGroup.FILES) }
-            GroupTile(AccessGroup.SHARING, statusOf(AccessGroup.SHARING, enabled), enabled, { toggleGroup(AccessGroup.SHARING, it) }) { open(AccessGroup.SHARING) }
+            GroupTile(AccessGroup.FILES, statusOf(AccessGroup.FILES, enabled), AccessGroup.FILES.capabilities.any { it in enabled }) { open(AccessGroup.FILES) }
+            GroupTile(AccessGroup.SHARING, statusOf(AccessGroup.SHARING, enabled), AccessGroup.SHARING.capabilities.any { it in enabled }) { open(AccessGroup.SHARING) }
         }
 
         Card {
@@ -301,31 +289,31 @@ private fun AccessOverview(
                 AccessGroup.CONTROLS.icon,
                 AccessGroup.CONTROLS.title,
                 statusOf(AccessGroup.CONTROLS, enabled),
-                tint = signal.accent,
+                tint = signal.hueOf(AccessGroup.CONTROLS),
                 onClick = { open(AccessGroup.CONTROLS) },
                 onClickLabel = "Open ${AccessGroup.CONTROLS.title}",
             )
-        }
-
-        Card {
-            ListRow(
-                AccessGroup.ADB.icon,
-                AccessGroup.ADB.title,
-                statusOf(AccessGroup.ADB, enabled),
-                tint = signal.warning,
-                onClick = { open(AccessGroup.ADB) },
-                onClickLabel = "Open ${AccessGroup.ADB.title}",
-            )
-        }
-
-        Card {
+            RowDivider()
             ListRow(
                 AccessGroup.WORKING.icon,
                 AccessGroup.WORKING.title,
                 listOf(if (showCursor) "Cursor shown" else "Cursor hidden", if (keepAwake) "screen stays on" else "screen may lock").joinToString(" · "),
-                tint = signal.accent,
+                tint = signal.hueOf(AccessGroup.WORKING),
                 onClick = { open(AccessGroup.WORKING) },
                 onClickLabel = "Open ${AccessGroup.WORKING.title}",
+            )
+        }
+
+        // The largest grant in the app gets its own place, so it never reads as one more ordinary switch.
+        SectionCaption("Most access")
+        Card {
+            ListRow(
+                AccessGroup.ADB.icon,
+                AccessGroup.ADB.title,
+                if (AccessGroup.ADB.capabilities.any { it in enabled }) "On: the AI can run any ADB command" else "Off. For developers and power users.",
+                tint = signal.warning,
+                onClick = { open(AccessGroup.ADB) },
+                onClickLabel = "Open ${AccessGroup.ADB.title}",
             )
         }
     }
@@ -340,78 +328,35 @@ private fun statusOf(group: AccessGroup, enabled: Set<Capability>): String {
     }
 }
 
-/** A pastel card for one group: icon, count ring, name, state, ⓘ and its switch. */
+/** A card for one group: its glyph, name, and state. Tapping opens the group's page. */
 @Composable
-private fun RowScope.GroupTile(
-    group: AccessGroup,
-    status: String,
-    enabled: Set<Capability>,
-    onToggle: ((Boolean) -> Unit)?,
-    onOpen: () -> Unit,
-) {
+private fun RowScope.GroupTile(group: AccessGroup, status: String, on: Boolean, onOpen: () -> Unit) {
     val signal = LocalSignal.current
-    val ink = signal.onPastel
-    val on = group.capabilities.count { it in enabled }
     Tile(
         modifier = Modifier.weight(1f),
-        color = signal.colorOf(group),
         onClick = onOpen,
         onClickLabel = "Open ${group.title}",
-        minHeight = 184.dp,
+        minHeight = 150.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconBadge(group.icon, signal.hueOf(group), size = 40.dp)
             Spacer(Modifier.weight(1f))
-            if (group.capabilities.isNotEmpty()) CountRing(on, group.capabilities.size, signal.hueOf(group))
+            Chevron()
         }
         Spacer(Modifier.height(6.dp))
-        Text(group.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(status, style = MaterialTheme.typography.bodySmall, color = ink.copy(alpha = 0.72f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(group.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = signal.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Push()
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FeatureInfoButton(group.title, group.intro, featuresOf(group), onPastel = true)
-            Spacer(Modifier.weight(1f))
-            if (onToggle != null) {
-                LatchSwitch(
-                    checked = on > 0,
-                    onCheckedChange = onToggle,
-                    onPastel = true,
-                    modifier = Modifier.semantics { contentDescription = "${group.title}, all switches" },
-                )
-            } else {
-                Box(
-                    Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f))
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(LatchIcons.ChevronRight, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
-                }
-            }
-        }
+        // On or off in words and in a dot, so it never rests on colour alone.
+        StatusDot(if (on) signal.success else signal.text3, status)
     }
 }
 
-/** "2/3" inside a ring that fills as more of the group is on. */
-@Composable
-private fun CountRing(on: Int, total: Int, color: Color) {
-    Box(Modifier.size(40.dp).semantics { contentDescription = "$on of $total on" }, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val stroke = 3.dp.toPx()
-            val inset = stroke / 2
-            val arcSize = Size(size.width - stroke, size.height - stroke)
-            drawArc(color.copy(alpha = 0.16f), 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
-            if (on > 0) drawArc(color, -90f, 360f * on / total, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Butt))
-        }
-        Text("$on/$total", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.bodySmall.letterSpacing), color = color)
-    }
-}
-
-/** Top of a group page: back, name, ⓘ, and a pastel card with the group's one switch. */
+/** Top of a group page: back, name, ⓘ, and a card with the group's one switch. */
 @Composable
 private fun GroupHeader(group: AccessGroup, enabled: Set<Capability>, onBack: () -> Unit, onToggleGroup: (Boolean) -> Unit) {
     val signal = LocalSignal.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-        IconButton(onClick = onBack, modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(signal.surface).border(1.dp, signal.border, RoundedCornerShape(8.dp))) {
+        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
             Icon(LatchIcons.Back, contentDescription = "Back to Access", tint = signal.text, modifier = Modifier.size(20.dp))
         }
         Text(
@@ -422,31 +367,28 @@ private fun GroupHeader(group: AccessGroup, enabled: Set<Capability>, onBack: ()
         )
         FeatureInfoButton(group.title, group.intro, featuresOf(group))
     }
-    val color = signal.colorOf(group)
-    val pastel = group != AccessGroup.WORKING
-    val ink = if (pastel) signal.onPastel else signal.text
-    Card(color = color) {
+    val ink = signal.text
+    Card {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconBadge(group.icon, signal.hueOf(group), size = 44.dp)
             Spacer(Modifier.width(14.dp))
-            Text(group.intro, style = MaterialTheme.typography.bodyMedium, color = ink.copy(alpha = 0.82f), modifier = Modifier.weight(1f))
+            Text(group.intro, style = MaterialTheme.typography.bodyMedium, color = signal.text2, modifier = Modifier.weight(1f))
         }
         if (group.capabilities.isNotEmpty()) {
             val on = group.capabilities.count { it in enabled }
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp).clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.3f)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp).clip(RoundedCornerShape(12.dp))
+                    .background(signal.surface2).border(1.dp, signal.border, RoundedCornerShape(12.dp))
                     .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(if (on > 0) "On" else "Off", style = MaterialTheme.typography.titleMedium, color = ink)
-                    Text(statusOf(group, enabled), style = MaterialTheme.typography.bodySmall, color = ink.copy(alpha = 0.72f))
+                    Text(statusOf(group, enabled), style = MaterialTheme.typography.bodySmall, color = signal.text2)
                 }
                 LatchSwitch(
                     checked = on > 0,
                     onCheckedChange = onToggleGroup,
-                    onPastel = true,
                     modifier = Modifier.semantics { contentDescription = "${group.title}, all switches" },
                 )
             }

@@ -102,9 +102,14 @@ class MainActivity : ComponentActivity() {
         val reducedMotion = AndroidSettings.Global.getFloat(contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         val showIntro = savedInstanceState == null
         setContent {
-            // Latch is dark only, so the status and navigation bars always carry light icons.
-            DisposableEffect(Unit) {
-                val bars = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            // Latch follows the phone's light or dark setting; the bar icons follow it too.
+            val dark = androidx.compose.foundation.isSystemInDarkTheme()
+            DisposableEffect(dark) {
+                val bars = if (dark) {
+                    SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                }
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
                 onDispose {}
             }
@@ -154,7 +159,7 @@ class MainActivity : ComponentActivity() {
 enum class Tab(val label: String, val icon: ImageVector) {
     HOME("Home", LatchIcons.Home),
     CAPABILITIES("Access", LatchIcons.ShieldCheck),
-    CONNECT("Connect", LatchIcons.Plug),
+    CONNECT("AI apps", LatchIcons.Plug),
     ACTIVITY("Activity", LatchIcons.Pulse),
     SETTINGS("Settings", LatchIcons.Sliders),
 }
@@ -407,6 +412,28 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
 @Composable
 private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
+    // When a session started and ended, for the summary card on Home. Watched here, not on Home, so a
+    // session that ends while another tab is open still gets its card.
+    val session by app.session.state.collectAsStateWithLifecycle()
+    var sessionStartMs by rememberSaveable { mutableStateOf<Long?>(null) }
+    var sessionEndMs by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(session) {
+        when (session) {
+            is SessionState.Active -> if (sessionStartMs == null || sessionEndMs != null) {
+                sessionStartMs = System.currentTimeMillis()
+                sessionEndMs = null
+            }
+            SessionState.Idle, is SessionState.Failed, is SessionState.Revoked -> if (sessionStartMs != null && sessionEndMs == null) {
+                sessionEndMs = System.currentTimeMillis()
+            }
+            else -> Unit
+        }
+    }
+    val summary = remember(sessionStartMs, sessionEndMs) {
+        val start = sessionStartMs
+        val end = sessionEndMs
+        if (start == null || end == null) null else summarizeSession(app.log.snapshot(), start, end)
+    }
     val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     var setupOpen by rememberSaveable { mutableStateOf(false) }
     var guideOpen by rememberSaveable { mutableStateOf(false) }
@@ -468,7 +495,12 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                 label = "tabs",
             ) { current ->
                 when (current) {
-                    Tab.HOME -> HomeRoute(app, reducedMotion, signInRequests, go = { tab = it }, openSetup = { setupOpen = true })
+                    Tab.HOME -> HomeRoute(
+                        app, reducedMotion, signInRequests, summary,
+                        dismissSummary = { sessionStartMs = null; sessionEndMs = null },
+                        go = { tab = it },
+                        openSetup = { setupOpen = true },
+                    )
                     Tab.CAPABILITIES -> CapabilitiesRoute(app) { setupOpen = true }
                     Tab.CONNECT -> ConnectRoute(app, signInRequests) { requestsTick++ }
                     Tab.ACTIVITY -> {
@@ -575,7 +607,15 @@ private fun SetupRoute(app: LatchApp, reducedMotion: Boolean, onFinish: () -> Un
 }
 
 @Composable
-private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: List<SignInRequest>, go: (Tab) -> Unit, openSetup: () -> Unit) {
+private fun HomeRoute(
+    app: LatchApp,
+    reducedMotion: Boolean,
+    signInRequests: List<SignInRequest>,
+    lastSession: SessionSummary?,
+    dismissSummary: () -> Unit,
+    go: (Tab) -> Unit,
+    openSetup: () -> Unit,
+) {
     val context = LocalContext.current
     val state by app.session.state.collectAsStateWithLifecycle()
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
@@ -658,6 +698,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
             update = update,
             mirror = mirror,
             mirrorRemembered = mirrorRemembered,
+            lastSession = lastSession,
         ),
         HomeActions(
             start = {
@@ -675,6 +716,7 @@ private fun HomeRoute(app: LatchApp, reducedMotion: Boolean, signInRequests: Lis
                 }
             },
             stop = { app.session.stop() },
+            dismissSummary = dismissSummary,
             setPaused = app.session::setPaused,
             extend = app.session::extend,
             setMinutes = { m -> app.settings.update { it.copy(sessionMinutes = m) } },

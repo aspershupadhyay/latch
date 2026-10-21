@@ -43,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aspershupadhyay.latch.ui.theme.Cream
-import io.github.aspershupadhyay.latch.ui.theme.Display
 import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import io.github.aspershupadhyay.latch.ui.theme.Ember
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
