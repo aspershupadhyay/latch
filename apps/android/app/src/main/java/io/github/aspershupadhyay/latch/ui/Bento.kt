@@ -42,8 +42,8 @@ import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val TileShape = RoundedCornerShape(10.dp)
-val ButtonShape = RoundedCornerShape(6.dp)
+val TileShape = RoundedCornerShape(16.dp)
+val ButtonShape = RoundedCornerShape(14.dp)
 val Gap = 12.dp
 
 /** A row of bento tiles that share the tallest tile's height. */
@@ -76,10 +76,10 @@ fun Tile(
     Column(m.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
 }
 
-/** Small uppercase label at the top of a tile. */
+/** Small label at the top of a tile. */
 @Composable
 fun TileLabel(text: String, color: Color = LocalSignal.current.text2, maxLines: Int = 1) {
-    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+    Text(text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
 
 /** The big number or word that is the point of a tile. */
@@ -124,7 +124,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
         shape = ButtonShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = color ?: signal.ink,
-            contentColor = contentColor ?: if (color == null) signal.onInk else Color.White,
+            contentColor = contentColor ?: if (color == null) signal.onInk else signal.onAccent,
         ),
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
         modifier = modifier.heightIn(min = 52.dp),
@@ -179,7 +179,7 @@ fun CopyRow(label: String, value: String, onCopy: () -> Unit, masked: Boolean = 
     val signal = LocalSignal.current
     if (masked) SecureWhileShown()
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(signal.canvas).border(1.dp, signal.border2, RoundedCornerShape(8.dp)).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(signal.canvas).border(1.dp, signal.border2, RoundedCornerShape(12.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         TileLabel(label, maxLines = 3)

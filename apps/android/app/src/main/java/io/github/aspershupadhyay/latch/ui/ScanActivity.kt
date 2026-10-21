@@ -144,7 +144,7 @@ class ScanActivity : ComponentActivity() {
         val bars = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
         setContent {
-            LatchTheme {
+            LatchTheme(dark = true) {
                 ScanScreen(
                     onResult = { text ->
                         setResult(RESULT_OK, Intent().putExtra(EXTRA_TEXT, text))

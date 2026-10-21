@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -160,7 +161,7 @@ fun SetupScreen(state: SetupState, actions: SetupActions) {
             }
 
             StepCard(state, SetupStep.ACCESSIBILITY, LatchIcons.Person, "Screen access", "Required. Lets Latch read the screen and tap for you.") {
-                StepText("Android allows this only through an accessibility service. Latch uses it only during a session you start, never in password, PIN, or payment fields.")
+                StepText("So the AI can see the screen and tap for you, only during a session you start, and never in password, PIN, or payment fields. Android calls this an accessibility service.")
                 StepButtons(primary = "Turn on screen access" to actions.openAccessibility)
                 Hint(
                     "Greyed out, or “Restricted setting”?",
@@ -195,10 +196,10 @@ fun SetupScreen(state: SetupState, actions: SetupActions) {
 
             Spacer(Modifier.size(4.dp))
             AnimatedVisibility(state.complete, enter = if (state.reducedMotion) EnterTransition.None else fadeIn() + expandVertically()) {
-                PrimaryButton("Done, take me home", actions.finish, Modifier.fillMaxWidth(), color = signal.success, contentColor = signal.onInk)
+                PrimaryButton("Done, take me home", actions.finish, Modifier.fillMaxWidth())
             }
             if (!state.complete) {
-                TextButton(onClick = actions.later, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = actions.later, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text("Finish later", color = signal.text2)
                 }
                 Text(
@@ -262,11 +263,11 @@ private fun StepCard(
 private fun StepNumber(n: Int, current: Boolean) {
     val signal = LocalSignal.current
     Box(
-        Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(if (current) signal.accent else signal.surface2)
-            .border(1.dp, if (current) signal.accent else signal.border2, RoundedCornerShape(6.dp)),
+        Modifier.size(28.dp).clip(CircleShape).background(if (current) signal.ink else signal.surface2)
+            .border(1.dp, if (current) signal.ink else signal.border2, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text("%02d".format(n), style = MaterialTheme.typography.labelMedium, color = if (current) signal.onInk else signal.text2)
+        Text("$n", style = MaterialTheme.typography.labelLarge, color = if (current) signal.onInk else signal.text2)
     }
 }
 

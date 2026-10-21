@@ -29,8 +29,6 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
-import io.github.aspershupadhyay.latch.ui.theme.Cream
-import io.github.aspershupadhyay.latch.ui.theme.Ember
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
 /**
@@ -40,10 +38,8 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
  * guarded connection rather than an open one. Static when motion is reduced.
  */
 @Composable
-fun ConnectionIllustration(reducedMotion: Boolean, modifier: Modifier = Modifier, onPastel: Boolean = false) {
-    val base = LocalSignal.current
-    // On a tinted panel the drawing sinks its shapes a little darker so they still read against the wash.
-    val signal = if (onPastel) base.copy(surface2 = Color.Black.copy(alpha = 0.4f), border = Color.White.copy(alpha = 0.14f), accent = Ember) else base
+fun ConnectionIllustration(reducedMotion: Boolean, modifier: Modifier = Modifier) {
+    val signal = LocalSignal.current
     val sparkle = rememberVectorPainter(LatchIcons.Sparkle)
     val shield = rememberVectorPainter(LatchIcons.Mark)
     val transition = rememberInfiniteTransition(label = "illustration")

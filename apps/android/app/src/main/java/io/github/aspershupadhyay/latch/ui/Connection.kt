@@ -28,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,7 +59,7 @@ private val ConnectionKind.icon: ImageVector get() = if (this == ConnectionKind.
 
 private val ConnectionKind.tagline: String get() = when (this) {
     ConnectionKind.HOSTED -> "Your own free relay on Vercel. Works anywhere."
-    ConnectionKind.WIFI -> "The gateway on your computer. Stays on your home network."
+    ConnectionKind.WIFI -> "Latch on your computer. Stays on your home network."
 }
 
 private val ConnectionKind.facts: List<String> get() = when (this) {
@@ -155,7 +157,7 @@ fun ChooseConnectionScreen(onChoose: (ConnectionKind) -> Unit, onBack: () -> Uni
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TextButton(onClick = onBack) { Text("‹ Back", color = signal.accent) }
+            BackBar(onBack)
             ScreenTitle("How should your AI reach this phone?", "Pick one now. You can add the other later and switch in one tap.")
             ConnectionKind.entries.forEach { kind ->
                 ConnectionOption(kind, selected = picked == kind, onClick = { picked = kind })
@@ -188,7 +190,7 @@ fun WifiGatewayScreen(state: WifiGatewayState, actions: WifiGatewayActions) {
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TextButton(onClick = actions.back) { Text("‹ Back", color = signal.accent) }
+            BackBar(actions.back)
             ScreenTitle("Connect over Wi-Fi", "Run the Latch gateway on your computer. The phone and the computer must be on the same Wi-Fi.")
 
             WifiStep(1, state.installCopied, "Install the gateway", "On your Mac or Linux computer, open Terminal and run this once.") {
@@ -260,10 +262,10 @@ private fun WifiStep(number: Int, done: Boolean, title: String, text: String, co
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
-                    Modifier.size(32.dp).clip(RoundedCornerShape(7.dp)).background(if (done) signal.success else signal.ink),
+                    Modifier.size(32.dp).clip(CircleShape).background(if (done) signal.success else signal.ink),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(if (done) "✓" else "%02d".format(number), color = signal.onInk, style = MaterialTheme.typography.labelMedium)
+                    Text(if (done) "✓" else "$number", color = if (done) signal.onAccent else signal.onInk, style = MaterialTheme.typography.labelLarge)
                 }
                 Text(title, style = MaterialTheme.typography.titleMedium, color = signal.text, modifier = Modifier.weight(1f).semantics { heading() })
             }
@@ -408,7 +410,7 @@ private fun Segment(kind: ConnectionKind, selected: Boolean, modifier: Modifier,
     val signal = LocalSignal.current
     val fill by animateColorAsState(if (selected) signal.ink else Color.Transparent, label = "segment")
     Row(
-        modifier.clip(RoundedCornerShape(7.dp)).background(fill)
+        modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(11.dp)).background(fill)
             .clickable(role = Role.Tab, onClickLabel = kind.title, onClick = onClick)
             .semantics { this.selected = selected }
             .padding(vertical = 10.dp),
@@ -445,7 +447,7 @@ fun FindComputerScreen(
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TextButton(onClick = onBack) { Text("‹ Back", color = signal.accent) }
+            BackBar(onBack)
             when (state) {
                 NearbyState.Searching -> {
                     ScreenTitle("Looking for your computer…", "Keep latch-start running on your computer. The phone and the computer must be on the same Wi-Fi.")

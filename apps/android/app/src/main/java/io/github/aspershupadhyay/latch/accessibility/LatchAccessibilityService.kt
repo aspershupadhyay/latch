@@ -430,29 +430,59 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** A "More choices" link that swaps itself for the wider answers [more] builds. */
+    private fun moreChoices(card: LinearLayout, color: Int, more: () -> android.view.View): android.view.View {
+        val density = resources.displayMetrics.density
+        return TextView(this).apply {
+            text = "More choices"
+            gravity = Gravity.CENTER
+            textSize = 15f
+            setTextColor(color)
+            minHeight = (48 * density).roundToInt()
+            isClickable = true
+            isFocusable = true
+            filterTouchesWhenObscured = true
+            setOnClickListener {
+                val at = card.indexOfChild(this)
+                card.removeView(this)
+                card.addView(more(), at)
+            }
+        }
+    }
+
     fun showApproval(pending: PendingApproval, onAnswer: (ApprovalChoice) -> Unit) {
         if (approvalNonce == pending.nonce) return
         hideApproval()
         val density = resources.displayMetrics.density
         fun dp(v: Int) = (v * density).roundToInt()
-        // Same look and words as the in-app card (ui/Approval.kt), in light and dark.
+        // Same look and words as the in-app card (ui/Approval.kt and ui/theme/Theme.kt), in light and dark.
         val dark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val surface = if (dark) Color.rgb(32, 26, 22) else Color.rgb(255, 251, 245)
-        val text = if (dark) Color.rgb(245, 236, 225) else Color.rgb(31, 26, 22)
-        val text2 = if (dark) Color.rgb(170, 156, 142) else Color.rgb(116, 104, 93)
-        val accent = if (dark) Color.rgb(240, 138, 93) else Color.rgb(181, 74, 38)
-        val warning = if (dark) Color.rgb(242, 177, 76) else Color.rgb(168, 92, 10)
-        val tint = if (pending.risk == "high") warning else accent
+        val high = pending.risk == "high"
+        val warning = if (dark) Color.rgb(245, 181, 68) else Color.rgb(180, 83, 9)
+        // A risky action gets an amber card, so it never looks like the routine ones.
+        val surface = when {
+            high && dark -> Color.rgb(38, 31, 18)
+            high -> Color.rgb(255, 248, 235)
+            dark -> Color.rgb(22, 22, 27)
+            else -> Color.WHITE
+        }
+        val text = if (dark) Color.rgb(242, 242, 244) else Color.rgb(17, 17, 20)
+        val text2 = if (dark) Color.rgb(161, 161, 172) else Color.rgb(88, 88, 99)
+        val accent = if (dark) Color.rgb(255, 106, 61) else Color.rgb(194, 65, 12)
+        val ink = if (dark) Color.rgb(242, 242, 244) else Color.rgb(17, 17, 20)
+        val onInk = if (dark) Color.rgb(11, 11, 14) else Color.WHITE
+        val tint = if (high) warning else accent
         val appRequest = pending.kind == ApprovalKind.APP
         val ownerTask = pending.kind == ApprovalKind.OWNER_TASK
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(18), dp(20), dp(16))
             background = GradientDrawable().apply {
-                cornerRadius = dp(28).toFloat()
+                cornerRadius = dp(24).toFloat()
                 setColor(surface)
-                if (dark) setStroke(dp(1), Color.rgb(58, 49, 42))
+                // A clear edge, so the card never reads as part of the app underneath.
+                setStroke(dp(if (high) 2 else 1), if (high) warning else if (dark) Color.rgb(58, 58, 69) else Color.rgb(201, 201, 210))
             }
             elevation = dp(12).toFloat()
             accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE
@@ -480,7 +510,7 @@ class LatchAccessibilityService : AccessibilityService() {
             setTextColor(text2)
             textSize = 15f
         })
-        // Filled pill buttons: terracotta for the main answer, tinted for the rest.
+        // The main answer is a filled ink button; the rest are outlined.
         fun pill(label: String, primary: Boolean, muted: Boolean = false) = TextView(this).apply {
             this.text = label
             gravity = Gravity.CENTER
@@ -494,10 +524,11 @@ class LatchAccessibilityService : AccessibilityService() {
             isFocusable = true
             // A window from another app drawn over the card must not trick the owner into a tap.
             filterTouchesWhenObscured = true
-            setTextColor(if (primary) (if (dark) Color.rgb(31, 26, 22) else Color.WHITE) else if (muted) text2 else accent)
+            setTextColor(if (primary) onInk else if (muted) text2 else text)
             background = GradientDrawable().apply {
-                cornerRadius = dp(24).toFloat()
-                setColor(if (primary) accent else Color.argb(if (dark) 46 else 26, Color.red(accent), Color.green(accent), Color.blue(accent)))
+                cornerRadius = dp(14).toFloat()
+                setColor(if (primary) ink else Color.argb(if (dark) 13 else 8, Color.red(text), Color.green(text), Color.blue(text)))
+                if (!primary) setStroke(dp(1), Color.argb(56, Color.red(text), Color.green(text), Color.blue(text)))
             }
         }
         // A short delay so a tap meant for the app underneath cannot approve by accident.
@@ -519,12 +550,17 @@ class LatchAccessibilityService : AccessibilityService() {
             card.addView(row(deny("I can't"), allow("Done", ApprovalChoice.ONCE, primary = true)))
         } else if (appRequest) {
             // An app is allowed for a while, never for one command: that would ask again at once.
-            card.addView(row(allow("Allow always", ApprovalChoice.ALWAYS, primary = true)))
-            card.addView(row(allow("Just this session", ApprovalChoice.SESSION), deny("Not now")))
+            // The quick yes is the smallest one; "always" waits behind More choices.
+            card.addView(row(deny("Not now"), allow("This session", ApprovalChoice.SESSION, primary = true)))
+            card.addView(moreChoices(card, text2) { row(allow("Always allow this app", ApprovalChoice.ALWAYS)) })
         } else {
-            card.addView(row(deny("Don't allow"), allow("Allow", ApprovalChoice.ONCE, primary = true)))
+            card.addView(row(deny("Don't allow"), allow("Allow once", ApprovalChoice.ONCE, primary = true)))
             if (pending.rememberable) {
-                card.addView(row(allow("This session", ApprovalChoice.SESSION), allow("Always in ${pending.appName ?: "this app"}".take(40), ApprovalChoice.ALWAYS)))
+                card.addView(
+                    moreChoices(card, text2) {
+                        row(allow("This session", ApprovalChoice.SESSION), allow("Always in ${pending.appName ?: "this app"}".take(40), ApprovalChoice.ALWAYS))
+                    },
+                )
             } else {
                 card.addView(TextView(this).apply {
                     this.text = "Latch asks every time for this kind of action."

@@ -70,6 +70,22 @@ enum class HelpTopic(val title: String, val paragraphs: List<String>) {
             "Ask them to open their relay page and tap “Add a phone”. The code works once and expires after 10 minutes.",
         ),
     ),
+    PRIVACY(
+        "Your privacy",
+        listOf(
+            "What's on your screen goes only to your own relay, and only while a session runs. Screen content is never saved.",
+            "Activity (what the AI did, never screen text or typed text) stays on this phone for 7 days.",
+            "Latch has no tracking and no ads.",
+        ),
+    ),
+    READ_BUTTONS(
+        "Reading unlabeled buttons",
+        listOf(
+            "Some apps draw a button as an icon with no name. Before the AI taps one, Latch reads the words on it here on the phone, so an icon-only Send or Pay still asks you first.",
+            "This uses Google ML Kit. The picture and the words never leave the phone, but ML Kit sends Google usage statistics: your phone model, the app version, and how fast it ran.",
+            "Turn it off and Latch treats unnamed buttons by their position only.",
+        ),
+    ),
     AI_LINK(
         "What is the AI link?",
         listOf(
@@ -112,13 +128,10 @@ fun InfoButton(topic: HelpTopic, modifier: Modifier = Modifier) {
 /** One thing a setting allows, said in one line. */
 data class Feature(val icon: ImageVector, val title: String, val line: String)
 
-/**
- * The ⓘ button of an Access group: a sheet listing, one line each, every
- * thing the group's switch allows. [onPastel] draws it on a pastel card.
- */
+/** The ⓘ button of an Access group: a sheet listing, one line each, every thing the group's switch allows. */
 @Composable
-fun FeatureInfoButton(title: String, intro: String, features: List<Feature>, modifier: Modifier = Modifier, onPastel: Boolean = false) {
-    InfoSheetButton(title, modifier, onPastel) {
+fun FeatureInfoButton(title: String, intro: String, features: List<Feature>, modifier: Modifier = Modifier) {
+    InfoSheetButton(title, modifier) {
         val signal = LocalSignal.current
         Text(intro, style = MaterialTheme.typography.bodyLarge, color = signal.text2)
         features.forEach { f ->
@@ -136,14 +149,14 @@ fun FeatureInfoButton(title: String, intro: String, features: List<Feature>, mod
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InfoSheetButton(title: String, modifier: Modifier = Modifier, onPastel: Boolean = false, body: @Composable () -> Unit) {
+private fun InfoSheetButton(title: String, modifier: Modifier = Modifier, body: @Composable () -> Unit) {
     val signal = LocalSignal.current
     var open by rememberSaveable { mutableStateOf(false) }
     IconButton(
         onClick = { open = true },
-        modifier = modifier.size(40.dp).then(if (onPastel) Modifier.padding(4.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp)) else Modifier),
+        modifier = modifier.size(48.dp),
     ) {
-        Icon(LatchIcons.Info, contentDescription = "Explain: $title", tint = if (onPastel) signal.onPastel else signal.accent, modifier = Modifier.size(20.dp))
+        Icon(LatchIcons.Info, contentDescription = "Explain: $title", tint = signal.accent, modifier = Modifier.size(22.dp))
     }
     if (open) {
         ModalBottomSheet(onDismissRequest = { open = false }, containerColor = signal.surface) {
@@ -252,7 +265,7 @@ fun GuideScreen(onBack: () -> Unit, onStart: (() -> Unit)? = null) {
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            TextButton(onClick = onBack) { Text("‹ Back", color = signal.accent) }
+            BackBar(onBack)
             ScreenTitle("How to set up Latch", "Seven short steps. You can stop at any time; nothing is shared until you start a session.")
             GUIDE.forEachIndexed { index, step ->
                 Card {

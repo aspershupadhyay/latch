@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Latch" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Latch" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/canvas</item>
     </style>
-    <color name="canvas">#09090B</color>
+    <!-- The camera screen is dark in both themes. -->
+    <style name="Theme.Latch.Camera" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+    <!-- The app follows the phone's light or dark setting; values-night holds the dark canvas. -->
+    <color name="canvas">#F4F4F6</color>
     <color name="accent">#C2532D</color>
 </resources>

@@ -94,7 +94,7 @@ fun AppsScreen(
     ) {
         item {
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("‹ Access") }
+                BackBar(onBack, "Access")
             }
             ScreenTitle("Apps the AI can use", "$onCount switched on. Others ask you the first time the AI needs them.")
         }
@@ -102,9 +102,9 @@ fun AppsScreen(
             Card(color = signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
                 ListRow(
                     LatchIcons.ShieldCheck,
-                    "Switched on means no questions",
-                    "In these apps the AI reads the screen, taps, types, sends, and deletes without asking, and every action is listed in Activity. " +
-                        if (trustCritical) "Payments, installs, and permission pop-ups run without asking too." else "Payments, app installs, Android permission prompts, and account deletion still ask you on the phone.",
+                    "On means no questions in that app",
+                    "Everything it does is listed in Activity. " +
+                        if (trustCritical) "Payments, installs, and permissions don't ask either." else "Payments, installs, permissions, and deleting an account still ask you.",
                     tint = signal.accent,
                 )
             }
@@ -145,13 +145,14 @@ fun AppsScreen(
                     items(chips, key = { it.first }) { (name, count) ->
                         val selected = name == category
                         Row(
-                            Modifier.clip(RoundedCornerShape(6.dp))
-                                .background(if (selected) signal.ink else Color.Transparent)
-                                .border(1.dp, if (selected) signal.ink else signal.border2, RoundedCornerShape(6.dp))
+                            Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50))
+                                .background(if (selected) signal.ink else signal.surface)
+                                .border(1.dp, if (selected) signal.ink else signal.border2, RoundedCornerShape(50))
                                 .selectable(selected = selected, role = Role.Tab) { category = name }
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("$name $count", style = MaterialTheme.typography.labelLarge, color = if (selected) signal.canvas else signal.text, maxLines = 1)
+                            Text("$name $count", style = MaterialTheme.typography.labelLarge, color = if (selected) signal.onInk else signal.text, maxLines = 1)
                         }
                     }
                 }

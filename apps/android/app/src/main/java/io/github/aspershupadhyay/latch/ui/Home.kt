@@ -41,6 +41,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import io.github.aspershupadhyay.latch.ui.theme.StopRed
+import io.github.aspershupadhyay.latch.ui.theme.HeroStoppedEdge
+import io.github.aspershupadhyay.latch.ui.theme.HeroAttentionEdge
+import io.github.aspershupadhyay.latch.ui.theme.HeroLiveEdge
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +70,6 @@ import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.ApprovalKind
 import io.github.aspershupadhyay.latch.ui.theme.Cream
-import io.github.aspershupadhyay.latch.ui.theme.Ember
 import io.github.aspershupadhyay.latch.ui.theme.HeroActive
 import io.github.aspershupadhyay.latch.ui.theme.HeroAttention
 import io.github.aspershupadhyay.latch.ui.theme.HeroIdle
@@ -70,23 +78,37 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import java.text.DateFormat
 import java.util.Date
 
+/** Something on Home that needs the owner, most urgent first. Only the first shows until the owner asks for the rest. */
+private enum class Notice { SCREEN_ACCESS, SIGN_IN, UPDATE, OUTDATED_RELAY, SLOW_RELAY }
+
+private fun HomeState.notices(): List<Notice> = buildList {
+    if (!accessibilityOn) add(Notice.SCREEN_ACCESS)
+    if (signInRequests.isNotEmpty()) add(Notice.SIGN_IN)
+    if (update.shownOnHome()) add(Notice.UPDATE)
+    if (outdatedGateway != null) add(Notice.OUTDATED_RELAY)
+    if (slowRelayMs != null) add(Notice.SLOW_RELAY)
+}
+
 @Composable
 fun HomeScreen(state: HomeState, actions: HomeActions) {
     val signal = LocalSignal.current
     val motion = !state.reducedMotion
+    var showAllNotices by rememberSaveable { mutableStateOf(false) }
+    val notices = state.notices()
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
-            LatchLogo(42.dp)
+            LatchLogo(40.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(greeting(), style = MaterialTheme.typography.headlineSmall, color = signal.text)
-                Text(state.phoneName, style = MaterialTheme.typography.labelMedium, color = signal.text2)
+                Text(state.phoneName, style = MaterialTheme.typography.bodySmall, color = signal.text2)
             }
+            // It says what is checked: the link to the relay is encrypted. Who runs the relay is in Settings.
             Pill(
-                if (state.encrypted) "Private" else "Not private",
+                if (state.encrypted) "Encrypted" else "Not encrypted",
                 if (state.encrypted) signal.success else signal.warning,
                 if (state.encrypted) LatchIcons.Lock else LatchIcons.Warning,
             )
@@ -102,163 +124,215 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             state.pending?.let { p -> ApprovalCard(p, actions.answer) }
         }
 
-        AnimatedVisibility(
-            visible = state.outdatedGateway != null,
-            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
-            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
-        ) {
-            Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
-                ListRow(
-                    icon = LatchIcons.Warning,
-                    title = "Update your relay",
-                    subtitle = "Your relay runs an older version, so your AI can't use the newest, faster tools. Tap for the steps.",
-                    tint = signal.warning,
-                    onClick = actions.openGatewayUpdateHelp,
-                    onClickLabel = "Show how to update the relay",
-                )
-            }
-        }
+        state.lastSession?.takeIf { state.phase != Phase.ACTIVE && state.phase != Phase.PAUSED }?.let { SessionEndedCard(it, actions) }
 
-        AnimatedVisibility(
-            visible = state.slowRelayMs != null,
-            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
-            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
-        ) {
-            Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
-                ListRow(
-                    icon = LatchIcons.Warning,
-                    title = "Your relay is slow",
-                    subtitle = "Its database is far away: each step waits ${state.slowRelayMs ?: 0} ms for it, many times per action. Move the database to your relay's region. Tap for the steps.",
-                    tint = signal.warning,
-                    onClick = actions.openRelaySpeedHelp,
-                    onClickLabel = "Show how to make the relay faster",
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = state.update.shownOnHome(),
-            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
-            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
-        ) {
-            UpdateCard(state.update, state.reducedMotion, actions.installUpdate)
-        }
-
-        AnimatedVisibility(
-            visible = state.signInRequests.isNotEmpty(),
-            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
-            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
-        ) {
-            state.signInRequests.firstOrNull()?.let { request ->
-                Card(color = signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
-                    ListRow(
-                        icon = LatchIcons.Sparkle,
-                        title = "${request.clientName} wants to connect",
-                        subtitle = "Code ${request.match} · tap to review",
-                        tint = signal.accent,
-                        onClick = actions.reviewSignIns,
-                        onClickLabel = "Review sign-in request",
+        // One place for whatever needs the owner, so the hero and its buttons never move far down.
+        if (notices.isNotEmpty()) {
+            (if (showAllNotices) notices else notices.take(1)).forEach { NoticeCard(it, state, actions) }
+            if (notices.size > 1) {
+                androidx.compose.material3.TextButton(
+                    onClick = { showAllNotices = !showAllNotices },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        if (showAllNotices) "Show less" else "${notices.size - 1} more ${if (notices.size == 2) "thing needs" else "things need"} you",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = signal.text2,
                     )
                 }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = !state.accessibilityOn,
-            enter = if (motion) fadeIn() + expandVertically() else EnterTransition.None,
-            exit = if (motion) fadeOut() + shrinkVertically() else ExitTransition.None,
-        ) {
-            Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
-                ListRow(
-                    icon = LatchIcons.Person,
-                    title = "One step left: screen access",
-                    subtitle = "Latch needs it to see the screen and tap for the AI. Tap to turn it on.",
-                    tint = signal.warning,
-                    onClick = actions.openSetup,
-                    onClickLabel = "Finish setup",
-                )
             }
         }
 
         BentoRow {
             Tile(
                 Modifier.weight(1f),
-                color = signal.clay,
                 onClick = actions.goCapabilities,
                 onClickLabel = "Change what the AI can do",
-                minHeight = 168.dp,
+                minHeight = 150.dp,
             ) {
-                TileHead(LatchIcons.ShieldCheck, "Access", signal.accent)
-                Spacer(Modifier.height(10.dp))
-                BigNumber("${state.enabled.size}")
-                Push()
-                TileNote(
-                    if (state.enabled.isEmpty()) "Nothing allowed yet. Tap to choose." else state.enabled.joinToString(" \u00b7 ") { shortName(it) },
-                    color = signal.onPastel.copy(alpha = 0.72f),
-                    maxLines = 2,
+                TileHead(LatchIcons.ShieldCheck, "Allowed", signal.accent)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (state.enabled.isEmpty()) "Nothing yet" else allowedSentence(state.enabled),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = signal.text,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Push()
+                TileNote(if (state.enabled.isEmpty()) "Tap to choose" else "Tap to change", maxLines = 1)
             }
             Tile(
                 Modifier.weight(1f),
-                color = signal.pool,
                 onClick = actions.goActivity,
                 onClickLabel = "Open activity",
-                minHeight = 168.dp,
+                minHeight = 150.dp,
             ) {
-                TileHead(LatchIcons.Pulse, "Activity", signal.accent2)
-                Spacer(Modifier.height(10.dp))
-                BigNumber("${state.activityCount}")
+                TileHead(LatchIcons.Pulse, "Last action", signal.live)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    state.lastActivity?.summary ?: "Nothing yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = signal.text,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Push()
                 TileNote(
-                    state.lastActivity?.let { "${it.summary} \u00b7 ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it.atMs))}" } ?: "Nothing yet",
-                    color = signal.onPastel.copy(alpha = 0.72f),
-                    maxLines = 2,
+                    state.lastActivity?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it.atMs)) } ?: "See everything it did",
+                    maxLines = 1,
                 )
             }
         }
-        Tile(color = signal.butter, onClick = actions.goConnect, onClickLabel = "Connect an AI app", minHeight = 0.dp) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(LatchIcons.Plug, signal.warning, size = 42.dp)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Connect your AI", style = MaterialTheme.typography.titleMedium, color = signal.onPastel)
-                    Text(
-                        if (state.isOwner) "Claude, ChatGPT, or another AI app" else "Ask the relay's owner to connect your AI",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = signal.onPastel.copy(alpha = 0.72f),
-                    )
-                }
-                Box(Modifier.size(34.dp).clip(RoundedCornerShape(6.dp)).background(signal.accent), contentAlignment = Alignment.Center) {
-                    Icon(LatchIcons.ChevronRight, contentDescription = null, tint = signal.onInk, modifier = Modifier.size(18.dp))
-                }
-            }
-        }
-        MirrorCard(state.mirror, actions, state.mirrorRemembered)
         Card {
             ListRow(
-                icon = LatchIcons.Cloud,
-                title = "Relay",
-                subtitle = state.gatewayHost + if (state.isOwner) " \u00b7 yours" else "",
-                tint = signal.accent2,
+                icon = LatchIcons.Plug,
+                title = "Connect your AI",
+                subtitle = if (state.isOwner) "Claude, ChatGPT, or another AI app" else "Ask the relay's owner to connect your AI",
+                tint = signal.accent,
+                onClick = actions.goConnect,
+                onClickLabel = "Connect an AI app",
+            )
+        }
+        MirrorCard(state.mirror, actions, state.mirrorRemembered)
+        Text(
+            "Relay: ${state.gatewayHost}" + if (state.isOwner) " (yours)" else "",
+            style = MaterialTheme.typography.bodySmall,
+            color = signal.text3,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        )
+    }
+}
+
+/**
+ * How the session went, once it ends: people remember an experience by its
+ * end, so the end says plainly what happened and that nothing else did.
+ */
+@Composable
+private fun SessionEndedCard(summary: SessionSummary, actions: HomeActions) {
+    val signal = LocalSignal.current
+    fun n(count: Int, one: String, many: String) = "$count ${if (count == 1) one else many}"
+    Card(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
+        Column(Modifier.padding(start = 16.dp, top = 14.dp, end = 4.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(LatchIcons.Check, signal.success, size = 34.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Session ended", style = MaterialTheme.typography.titleMedium, color = signal.text)
+                    Text(n(summary.minutes.toInt(), "minute", "minutes"), style = MaterialTheme.typography.bodySmall, color = signal.text2)
+                }
+                androidx.compose.material3.IconButton(onClick = actions.dismissSummary, modifier = Modifier.size(48.dp)) {
+                    Icon(LatchIcons.Close, contentDescription = "Close the summary", tint = signal.text2)
+                }
+            }
+            Text(
+                if (summary.actions == 0) {
+                    "The AI did nothing on this phone."
+                } else {
+                    "The AI took ${n(summary.actions, "action", "actions")} in ${n(summary.apps, "app", "apps")}. " +
+                        "You answered ${n(summary.approvals, "question", "questions")}" +
+                        if (summary.refused > 0) ", and Latch refused ${n(summary.refused, "step", "steps")}." else "."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = signal.text,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            androidx.compose.material3.TextButton(onClick = actions.goActivity, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("See every step", style = MaterialTheme.typography.labelLarge, color = signal.accent)
+            }
+        }
+    }
+}
+
+/** One thing that needs the owner, as a tinted row they can tap. */
+@Composable
+private fun NoticeCard(notice: Notice, state: HomeState, actions: HomeActions) {
+    val signal = LocalSignal.current
+    val wash = if (signal.dark) 0.14f else 0.08f
+    when (notice) {
+        Notice.SCREEN_ACCESS -> Card(color = signal.warning.copy(alpha = wash)) {
+            ListRow(
+                icon = LatchIcons.Person,
+                title = "One step left: screen access",
+                subtitle = "So Latch can see the screen and tap for the AI. Tap to turn it on.",
+                tint = signal.warning,
+                onClick = actions.openSetup,
+                onClickLabel = "Finish setup",
+            )
+        }
+        Notice.SIGN_IN -> state.signInRequests.firstOrNull()?.let { request ->
+            Card(color = signal.accent.copy(alpha = wash)) {
+                ListRow(
+                    icon = LatchIcons.Sparkle,
+                    title = "${request.clientName} wants to connect",
+                    subtitle = "Code ${request.match}. Tap to check it and answer.",
+                    tint = signal.accent,
+                    onClick = actions.reviewSignIns,
+                    onClickLabel = "Review sign-in request",
+                )
+            }
+        }
+        Notice.UPDATE -> UpdateCard(state.update, state.reducedMotion, actions.installUpdate)
+        Notice.OUTDATED_RELAY -> Card(color = signal.warning.copy(alpha = wash)) {
+            ListRow(
+                icon = LatchIcons.Warning,
+                title = "Update your relay",
+                subtitle = "It runs an older version, so your AI misses the newest, faster tools. Tap for the steps.",
+                tint = signal.warning,
+                onClick = actions.openGatewayUpdateHelp,
+                onClickLabel = "Show how to update the relay",
+            )
+        }
+        Notice.SLOW_RELAY -> Card(color = signal.warning.copy(alpha = wash)) {
+            ListRow(
+                icon = LatchIcons.Warning,
+                title = "Your relay is slow",
+                subtitle = "Its database is far away (${state.slowRelayMs ?: 0} ms each time). Tap for how to move it closer.",
+                tint = signal.warning,
+                onClick = actions.openRelaySpeedHelp,
+                onClickLabel = "Show how to make the relay faster",
             )
         }
     }
 }
 
-/** A square glyph chip in the tile's hue and a mono uppercase label at the top of a tinted tile. */
-@Composable
-private fun TileHead(icon: ImageVector, label: String, tint: Color) {
-    val signal = LocalSignal.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconBadge(icon, tint, size = 34.dp)
-        Spacer(Modifier.width(10.dp))
-        TileLabel(label, color = signal.onPastel.copy(alpha = 0.8f))
+/** What the AI may do, in words: "Can read the screen, tap, and type." */
+private fun allowedSentence(enabled: List<Capability>): String {
+    val words = enabled.map { verbOf(it) }.distinct()
+    return "Can " + when (words.size) {
+        1 -> words[0]
+        2 -> "${words[0]} and ${words[1]}"
+        3 -> "${words[0]}, ${words[1]}, and ${words[2]}"
+        else -> "${words[0]}, ${words[1]}, and ${words.size - 2} more"
     }
 }
 
+private fun verbOf(c: Capability) = when (c) {
+    Capability.DEVICE_INFO -> "see phone info"
+    Capability.UI_OBSERVE -> "read the screen"
+    Capability.SCREEN_CAPTURE -> "take screenshots"
+    Capability.INPUT_GESTURE -> "tap and swipe"
+    Capability.INPUT_TEXT -> "type"
+    Capability.NAV_GLOBAL -> "go back and home"
+    Capability.APP_LAUNCH -> "open apps"
+    Capability.FILE_READ -> "see files"
+    Capability.FILE_WRITE -> "save files"
+    Capability.APP_SHARE -> "share"
+    Capability.CLIPBOARD_WRITE -> "copy text"
+    Capability.ACTIVITY_READ -> "read the log"
+    Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS -> "change phone controls"
+    Capability.ADB_SHELL -> "use full ADB"
+}
+
+/** A glyph chip in the tile's hue and a small label at the top of a tile. */
 @Composable
-private fun BigNumber(text: String) {
-    Text(text, style = MaterialTheme.typography.displayLarge, color = LocalSignal.current.onPastel, maxLines = 1)
+private fun TileHead(icon: ImageVector, label: String, tint: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconBadge(icon, tint, size = 34.dp)
+        Spacer(Modifier.width(10.dp))
+        TileLabel(label)
+    }
 }
 
 private fun greeting(): String = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
@@ -268,18 +342,30 @@ private fun greeting(): String = when (java.util.Calendar.getInstance().get(java
     else -> "Up late"
 }
 
+/** Text on the hero card, which is dark in both themes. */
+private val OnHero = Color.White
+private val HeroInk = Color(0xFF0B0B0E)
+
 @Composable
 private fun HeroCard(state: HomeState, actions: HomeActions) {
     val motion = !state.reducedMotion
     val (start, end) = when {
         state.pending != null -> HeroAttention
-        state.phase == Phase.ACTIVE -> HeroActive
+        state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED -> HeroActive
         state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> HeroStopped
         else -> HeroIdle
+    }
+    // The edge says the state too: cyan live, amber waiting, red stopped, quiet when ready.
+    val edgeTarget = when {
+        state.pending != null -> HeroAttentionEdge.copy(alpha = 0.55f)
+        state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED -> HeroLiveEdge.copy(alpha = 0.45f)
+        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> HeroStoppedEdge.copy(alpha = 0.5f)
+        else -> Color.White.copy(alpha = 0.1f)
     }
     val spec = tween<Color>(if (motion) 600 else 0)
     val from by animateColorAsState(start, spec, label = "heroStart")
     val to by animateColorAsState(end, spec, label = "heroEnd")
+    val edge by animateColorAsState(edgeTarget, spec, label = "heroEdge")
     val orb = when (state.phase) {
         Phase.IDLE -> OrbState.IDLE
         Phase.CONNECTING, Phase.RECONNECTING -> OrbState.CONNECTING
@@ -291,43 +377,34 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
 
     Column(
         Modifier.fillMaxWidth().clip(HeroShape).background(Brush.linearGradient(listOf(from, to)))
-            .drawBehind { heroDecoration(live) }
-            .border(1.dp, Color.White.copy(alpha = if (live) 0.14f else 0.09f), HeroShape)
-            .padding(22.dp),
+            .drawBehind { heroDecoration() }
+            .border(1.5.dp, edge, HeroShape)
+            .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusOrb(orb, state.headline, state.reducedMotion)
+            StatusOrb(orb, state.headline, state.reducedMotion, size = 68.dp)
             Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }) {
+            Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnimatedContent(
                     targetState = state.headline,
                     transitionSpec = { if (motion) fadeIn(tween(250)) togetherWith fadeOut(tween(150)) else EnterTransition.None togetherWith ExitTransition.None },
                     label = "headline",
-                ) { Text(it, style = MaterialTheme.typography.headlineSmall, color = Color.White) }
-                Text(state.detail, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                ) { Text(it, style = MaterialTheme.typography.headlineSmall, color = OnHero) }
+                Text(state.detail, style = MaterialTheme.typography.bodyMedium, color = OnHero.copy(alpha = 0.85f))
             }
         }
         state.minutesLeft?.let { left ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(LatchIcons.Clock, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
+                Icon(LatchIcons.Clock, contentDescription = null, tint = OnHero.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("${if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"} left \u00b7 stops by itself", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                Text("${if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"} left · stops by itself", style = MaterialTheme.typography.bodyMedium, color = OnHero.copy(alpha = 0.85f))
             }
         }
         if (live) {
+            // Stop is the biggest thing on the card and the only red on it.
+            IconButtonLarge("Stop everything", LatchIcons.Stop, actions.stop, Modifier.fillMaxWidth(), container = StopRed, content = HeroInk, tall = true)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                IconButtonLarge("Stop", LatchIcons.Stop, actions.stop, Modifier.weight(1.3f), container = LocalSignal.current.danger, content = LocalSignal.current.onInk)
-                // The session still ends by itself; Extend adds the chosen length once more.
-                IconButtonLarge(
-                    "+${SESSION_LENGTHS.firstOrNull { it.first == state.sessionMinutes }?.second ?: "${state.sessionMinutes}m"}",
-                    LatchIcons.Clock,
-                    actions.extend,
-                    Modifier.weight(1f).semantics { contentDescription = "Extend the session by ${spokenLength(state.sessionMinutes)}" },
-                    container = Color.White.copy(alpha = 0.08f),
-                    content = Color.White,
-                    outline = Color.White.copy(alpha = 0.22f),
-                )
                 if (state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED) {
                     val paused = state.phase == Phase.PAUSED
                     IconButtonLarge(
@@ -336,50 +413,62 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                         { actions.setPaused(!paused) },
                         Modifier.weight(1f),
                         container = Color.White.copy(alpha = 0.08f),
-                        content = Color.White,
+                        content = OnHero,
                         outline = Color.White.copy(alpha = 0.22f),
                     )
                 }
+                // The session still ends by itself; Extend adds the chosen length once more.
+                IconButtonLarge(
+                    "Add ${SESSION_LENGTHS.firstOrNull { it.first == state.sessionMinutes }?.second ?: "${state.sessionMinutes}m"}",
+                    LatchIcons.Clock,
+                    actions.extend,
+                    Modifier.weight(1f).semantics { contentDescription = "Extend the session by ${spokenLength(state.sessionMinutes)}" },
+                    container = Color.White.copy(alpha = 0.08f),
+                    content = OnHero,
+                    outline = Color.White.copy(alpha = 0.22f),
+                )
             }
         } else {
-            Text("SESSION LENGTH", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.6f))
-            // A segmented control: equal widths, so no label ever wraps.
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.35f))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                SESSION_LENGTHS.forEach { (m, label) ->
-                    val selected = state.sessionMinutes == m
-                    Box(
-                        Modifier.weight(1f).clip(RoundedCornerShape(5.dp))
-                            .background(if (selected) Cream else Color.Transparent)
-                            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length ${spokenLength(m)}") { actions.setMinutes(m) }
-                            .padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (selected) Color(0xFF0A0A0A) else Color.White.copy(alpha = 0.75f),
-                            maxLines = 1,
-                        )
-                    }
-                }
-            }
             IconButtonLarge(
-                if (state.accessibilityOn) "Start session" else "Finish setup to start",
+                if (state.accessibilityOn) "Start · ${spokenLength(state.sessionMinutes)}" else "Finish setup to start",
                 if (state.accessibilityOn) LatchIcons.Play else LatchIcons.ShieldCheck,
                 if (state.accessibilityOn) actions.start else actions.openSetup,
                 Modifier.fillMaxWidth(),
-                container = LocalSignal.current.accent,
-                content = LocalSignal.current.onInk,
+                container = Cream,
+                content = HeroInk,
+                tall = true,
             )
+            if (state.accessibilityOn) {
+                Text("Stops by itself after", style = MaterialTheme.typography.labelMedium, color = OnHero.copy(alpha = 0.7f))
+                // A segmented control: equal widths, so no label ever wraps; 48 dp tall for a thumb.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.35f))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp)).padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    SESSION_LENGTHS.forEach { (m, label) ->
+                        val selected = state.sessionMinutes == m
+                        Box(
+                            Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(11.dp))
+                                .background(if (selected) Color.White.copy(alpha = 0.92f) else Color.Transparent)
+                                .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length ${spokenLength(m)}") { actions.setMinutes(m) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) HeroInk else OnHero.copy(alpha = 0.8f),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-private val HeroShape = RoundedCornerShape(12.dp)
+private val HeroShape = RoundedCornerShape(22.dp)
 
 /** Session lengths the owner can pick, shortest first; short labels so six fit one row. */
 private val SESSION_LENGTHS = listOf(15 to "15m", 30 to "30m", 60 to "1h", 120 to "2h", 240 to "4h", 480 to "8h")
@@ -391,39 +480,32 @@ private fun spokenLength(minutes: Int): String = when {
     else -> "${minutes / 60} hours"
 }
 
-/** A faint engineering grid that fades down the card, and ember corner ticks: the hero's texture, as on the website. */
-private fun DrawScope.heroDecoration(live: Boolean) {
+/** A faint grid that fades down the card: the hero's texture, as on the website. */
+private fun DrawScope.heroDecoration() {
     val step = 22.dp.toPx()
     val line = 1.dp.toPx()
     var x = step
     while (x < size.width) {
-        drawLine(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent), endY = size.height * 0.8f), Offset(x, 0f), Offset(x, size.height), line)
+        drawLine(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.04f), Color.Transparent), endY = size.height * 0.7f), Offset(x, 0f), Offset(x, size.height), line)
         x += step
     }
     var y = step
-    while (y < size.height * 0.8f) {
-        drawLine(Color.White.copy(alpha = 0.05f * (1f - y / (size.height * 0.8f))), Offset(0f, y), Offset(size.width, y), line)
+    while (y < size.height * 0.7f) {
+        drawLine(Color.White.copy(alpha = 0.04f * (1f - y / (size.height * 0.7f))), Offset(0f, y), Offset(size.width, y), line)
         y += step
     }
-    val tick = 12.dp.toPx()
-    val inset = 10.dp.toPx()
-    val ember = Ember.copy(alpha = if (live) 0.9f else 0.55f)
-    drawLine(ember, Offset(inset, inset), Offset(inset + tick, inset), line)
-    drawLine(ember, Offset(inset, inset), Offset(inset, inset + tick), line)
-    drawLine(ember, Offset(size.width - inset, size.height - inset), Offset(size.width - inset - tick, size.height - inset), line)
-    drawLine(ember, Offset(size.width - inset, size.height - inset), Offset(size.width - inset, size.height - inset - tick), line)
 }
 
-/** A tall square-shouldered button with an icon in front of its label. */
+/** A big button with an icon in front of its label; [tall] for the one main action on a screen. */
 @Composable
-fun IconButtonLarge(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, container: Color, content: Color, outline: Color? = null) {
+fun IconButtonLarge(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, container: Color, content: Color, outline: Color? = null, tall: Boolean = false) {
     Button(
         onClick = onClick,
         shape = ButtonShape,
         border = outline?.let { BorderStroke(1.dp, it) },
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
-        modifier = modifier.heightIn(min = 52.dp),
+        modifier = modifier.heightIn(min = if (tall) 58.dp else 52.dp),
     ) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))

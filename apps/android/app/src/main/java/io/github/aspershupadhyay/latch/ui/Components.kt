@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val CardShape = RoundedCornerShape(10.dp)
+val CardShape = RoundedCornerShape(16.dp)
 
 /**
  * A line symbol in a small square chip of its own colour: the visual anchor of
@@ -69,13 +69,9 @@ fun IconBadge(icon: ImageVector, tint: Color, size: Dp = 36.dp, fill: Color? = n
     }
 }
 
-/**
- * On/off switch: dark knob on the ember track when on, a quiet hairline track
- * when off. [onPastel] is kept for callers; the tinted panels are dark, so the
- * same switch reads on them.
- */
+/** On/off switch: a light knob on the ember track when on, a quiet hairline track when off. */
 @Composable
-fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true, onPastel: Boolean = false) {
+fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val signal = LocalSignal.current
     androidx.compose.material3.Switch(
         checked = checked,
@@ -83,14 +79,14 @@ fun LatchSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifie
         modifier = modifier,
         enabled = enabled,
         colors = androidx.compose.material3.SwitchDefaults.colors(
-            checkedThumbColor = signal.onInk,
+            checkedThumbColor = signal.onAccent,
             checkedTrackColor = signal.accent,
             checkedBorderColor = Color.Transparent,
             uncheckedThumbColor = signal.text2,
-            uncheckedTrackColor = if (onPastel) Color.Black.copy(alpha = 0.35f) else signal.surface2,
+            uncheckedTrackColor = signal.surface2,
             uncheckedBorderColor = signal.border2,
             disabledCheckedTrackColor = signal.accent.copy(alpha = 0.35f),
-            disabledCheckedThumbColor = signal.onInk.copy(alpha = 0.8f),
+            disabledCheckedThumbColor = signal.onAccent.copy(alpha = 0.8f),
             disabledUncheckedTrackColor = signal.surface,
             disabledUncheckedThumbColor = signal.disabled,
             disabledUncheckedBorderColor = signal.border,
@@ -141,7 +137,8 @@ fun ListRow(
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = signal.text2, maxLines = 4, overflow = TextOverflow.Ellipsis) }
+            // Never cut short: a subtitle may be a disclosure. Long explanations belong in an ⓘ sheet instead.
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = signal.text2) }
         }
         if (trailing != null) {
             Spacer(Modifier.width(12.dp))
@@ -158,19 +155,19 @@ fun Chevron() {
     Icon(LatchIcons.ChevronRight, contentDescription = null, tint = LocalSignal.current.text3, modifier = Modifier.size(18.dp))
 }
 
-/** Small tag with an icon, e.g. "Encrypted" or "High risk": mono caps in a hairline box. */
+/** Small tag with an icon, e.g. "Encrypted" or "High risk", in sentence case inside a soft capsule. */
 @Composable
-fun Pill(text: String, color: Color, icon: ImageVector? = null, fill: Color = color.copy(alpha = 0.08f)) {
-    val shape = RoundedCornerShape(4.dp)
+fun Pill(text: String, color: Color, icon: ImageVector? = null, fill: Color = color.copy(alpha = 0.10f)) {
+    val shape = RoundedCornerShape(50)
     Row(
-        Modifier.clip(shape).background(fill).border(1.dp, color.copy(alpha = 0.4f), shape).padding(horizontal = 8.dp, vertical = 4.dp),
+        Modifier.clip(shape).background(fill).border(1.dp, color.copy(alpha = 0.32f), shape).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         icon?.let {
-            Icon(it, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+            Icon(it, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(5.dp))
         }
-        Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
+        Text(text, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
     }
 }
 
@@ -178,14 +175,30 @@ fun Pill(text: String, color: Color, icon: ImageVector? = null, fill: Color = co
 @Composable
 fun Header(title: String, subtitle: String? = null) = ScreenTitle(title, subtitle)
 
-/** Section caption above a card: an ember tick and a mono uppercase label, like the website's section labels. */
+/** Section caption above a card: a quiet heading in sentence case. */
 @Composable
 fun SectionCaption(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = LocalSignal.current.text2,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 2.dp).semantics { heading() },
+    )
+}
+
+/**
+ * The top of a sub-page: Android's back arrow (48 dp, where the thumb and
+ * habit expect it) and an optional small title. The screen's big title
+ * follows below it.
+ */
+@Composable
+fun BackBar(onBack: () -> Unit, label: String = "Back") {
     val signal = LocalSignal.current
-    Row(Modifier.padding(start = 2.dp, top = 12.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(width = 8.dp, height = 2.dp).background(signal.accent))
-        Spacer(Modifier.width(8.dp))
-        Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = signal.text2, modifier = Modifier.semantics { heading() })
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+            Icon(LatchIcons.Back, contentDescription = label, tint = signal.text)
+        }
+        if (label != "Back") Text(label, style = MaterialTheme.typography.titleSmall, color = signal.text2)
     }
 }
 
@@ -255,6 +268,6 @@ fun StatusOrb(state: OrbState, description: String, reducedMotion: Boolean, size
 fun DoneMark(size: Dp = 28.dp) {
     val signal = LocalSignal.current
     Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.24f)).background(signal.success), contentAlignment = Alignment.Center) {
-        Icon(LatchIcons.Check, contentDescription = "Done", tint = signal.onInk, modifier = Modifier.size(size * 0.6f))
+        Icon(LatchIcons.Check, contentDescription = "Done", tint = signal.onAccent, modifier = Modifier.size(size * 0.6f))
     }
 }
