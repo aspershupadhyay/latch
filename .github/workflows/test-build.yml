@@ -100,7 +100,8 @@ jobs:
       - working-directory: apps/android
         env:
           LATCH_KEYSTORE_PASSWORD: ${{ secrets.LATCH_KEYSTORE_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease
+        # One APK per chip type besides the universal one; the in-app updater takes the phone's own.
+        run: ./gradlew --no-daemon assembleRelease -Platch.abiSplits=true
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         continue-on-error: true
         with: { pattern: latch-gateway-*, path: gateways }
@@ -108,7 +109,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp apps/android/app/build/outputs/apk/release/app-release.apk latch-android.apk
+          out=apps/android/app/build/outputs/apk/release
+          cp "$out/app-universal-release.apk" latch-android.apk
+          abis=(arm64-v8a armeabi-v7a x86_64 x86)
+          apks='[]'
+          for abi in "${abis[@]}"; do
+            cp "$out/app-$abi-release.apk" "latch-android-$abi.apk"
+            apks=$(jq -c \
+              --arg abi "$abi" \
+              --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/beta/latch-android-$abi.apk" \
+              --arg sha "$(sha256sum "latch-android-$abi.apk" | cut -d' ' -f1)" \
+              --argjson size "$(stat -c %s "latch-android-$abi.apk")" \
+              '. + [{abi: $abi, url: $url, sha256: $sha, size: $size}]' <<< "$apks")
+          done
           shopt -s nullglob
           cp gateways/*/* . || true
           # The one-line installer for macOS and Linux (no quarantine, checksum checked).
@@ -127,10 +140,12 @@ jobs:
             --arg sha "$(cut -d' ' -f1 latch-android.apk.sha256)" \
             --argjson size "$(stat -c %s latch-android.apk)" \
             --arg commit "${GITHUB_SHA::7}" \
-            '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit}' > latch-update.json
-          notes="Download: https://github.com/$GITHUB_REPOSITORY/releases/download/beta/latch-android.apk · Website: https://aspershupadhyay.github.io/latch/ · Latch $LATCH_VERSION_NAME (${GITHUB_SHA::7}), the newest beta for testing on your own phone. Gateway for your computer: on macOS or Linux run curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/beta/install-gateway.sh | sh (a browser download is blocked by macOS); or latch-gateway-<system> below (checksums in latch-gateway.sha256). Android 11+. Signed release build; updates from inside the app. Not a stable release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
+            --argjson apks "$apks" \
+            '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit, apks: $apks}' > latch-update.json
+          notes="Download: https://github.com/$GITHUB_REPOSITORY/releases/download/beta/latch-android.apk · Website: https://aspershupadhyay.github.io/latch/ · Latch $LATCH_VERSION_NAME (${GITHUB_SHA::7}), the newest beta for testing on your own phone (latch-android.apk works on every device; latch-android-arm64-v8a.apk is the smaller download for almost every phone). Gateway for your computer: on macOS or Linux run curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/beta/install-gateway.sh | sh (a browser download is blocked by macOS); or latch-gateway-<system> below (checksums in latch-gateway.sha256). Android 11+. Signed release build; updates from inside the app. Not a stable release: CI checks run in ci.yml, and the real-device checklist is in docs/platform/android.md."
           gh release delete beta --cleanup-tag --yes || true
-          gh release create beta latch-android.apk latch-android.apk.sha256 latch-update.json install-gateway.sh "${gateways[@]}" \
+          sha256sum latch-android-*.apk >> latch-android.apk.sha256
+          gh release create beta latch-android.apk latch-android-*.apk latch-android.apk.sha256 latch-update.json install-gateway.sh "${gateways[@]}" \
             --prerelease --target "$GITHUB_SHA" --title "Latch beta" --notes "$notes"
           # The old test-build copy is retired (owner request): only the beta release stays.
           gh release delete test-build --cleanup-tag --yes || true

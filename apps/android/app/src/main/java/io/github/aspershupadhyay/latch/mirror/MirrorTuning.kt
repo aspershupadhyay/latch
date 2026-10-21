@@ -124,7 +124,13 @@ object EncoderSizing {
 object VideoBudget {
     /** The ceiling for a [width]×[height] picture at [fps]. */
     fun maxBps(width: Int, height: Int, fps: Int): Int =
-        (width.toDouble() * height * fps * BITS_PER_PIXEL).toLong().coerceIn(FLOOR_MAX_BPS.toLong(), CEILING_BPS.toLong()).toInt()
+        (width.toDouble() * height * bitsFps(fps) * BITS_PER_PIXEL).toLong().coerceIn(FLOOR_MAX_BPS.toLong(), CEILING_BPS.toLong()).toInt()
+
+    /**
+     * R54: above 60 fps each frame differs less from the last, so frames past 60
+     * count half: 120 fps gets the bits of 90, not of 120.
+     */
+    private fun bitsFps(fps: Int): Int = if (fps > 60) 60 + (fps - 60) / 2 else fps
 
     /** Where a new viewer starts: most of the ceiling, so the first seconds are already sharp. */
     fun startBps(width: Int, height: Int, fps: Int): Int = (maxBps(width, height, fps) * START_SHARE).toInt()
@@ -275,12 +281,15 @@ class StreamStats {
  * fewer frames a second; back up a step after a long clean stretch. Steps
  * are far apart, since each one restarts the encoder (and sends a key frame).
  */
-class QualityLadder {
+class QualityLadder(topFps: Int = 60) {
     data class Level(val maxEdge: Int, val fps: Int)
+
+    /** R54: a 120 Hz phone starts at its own rate; the first step down is 60 at full size. */
+    private val levels = levelsFor(topFps)
 
     var index = 0
         private set
-    val level: Level get() = LEVELS[index]
+    val level: Level get() = levels[index]
     /** True below full quality: the page says "Saving bandwidth". */
     val saving: Boolean get() = index > 0
 
@@ -297,7 +306,7 @@ class QualityLadder {
             dropsInWindow = 0
         }
         dropsInWindow++
-        if (!atFloor || dropsInWindow < DROPS_TO_STEP || now - lastChangeMs < DOWN_GAP_MS || index >= LEVELS.lastIndex) return null
+        if (!atFloor || dropsInWindow < DROPS_TO_STEP || now - lastChangeMs < DOWN_GAP_MS || index >= levels.lastIndex) return null
         return step(index + 1, now)
     }
 
@@ -318,6 +327,10 @@ class QualityLadder {
     companion object {
         /** Full size first (up to [MirrorCapture.MAX_EDGE]); 1920 at 60 before giving up frames. */
         val LEVELS = listOf(Level(MirrorCapture.MAX_EDGE, 60), Level(1920, 60), Level(1280, 30), Level(960, 30))
+
+        /** [LEVELS] with a level at [topFps] on top when the phone's screen runs faster than 60 Hz. */
+        fun levelsFor(topFps: Int): List<Level> =
+            if (topFps > LEVELS[0].fps) listOf(Level(MirrorCapture.MAX_EDGE, minOf(topFps, MirrorCapture.MAX_FPS))) + LEVELS else LEVELS
         const val WINDOW_MS = 2_000L
         const val DROPS_TO_STEP = 4
         const val DOWN_GAP_MS = 3_000L

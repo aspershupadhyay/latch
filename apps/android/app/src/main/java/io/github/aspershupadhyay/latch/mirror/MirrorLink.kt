@@ -211,11 +211,14 @@ class MirrorLink(
  * Sockets for the mirror (ADR-057): no Nagle delay on small frames, and a
  * small send buffer, so a slow network shows up as dropped frames (and a
  * lower bitrate) at once instead of seconds of video queued in the kernel.
+ * R54: marked DSCP AF41, so the Wi-Fi sends them in its video queue (WMM)
+ * ahead of other apps' downloads; the gateway marks its side the same way.
  */
 internal class LowLatencySockets(private val base: javax.net.SocketFactory = javax.net.SocketFactory.getDefault()) : javax.net.SocketFactory() {
     private fun tune(s: java.net.Socket): java.net.Socket = s.apply {
         tcpNoDelay = true
         runCatching { sendBufferSize = SEND_BUFFER_BYTES }
+        runCatching { trafficClass = INTERACTIVE_TOS }
     }
 
     override fun createSocket(): java.net.Socket = tune(base.createSocket())
@@ -228,5 +231,8 @@ internal class LowLatencySockets(private val base: javax.net.SocketFactory = jav
 
     companion object {
         const val SEND_BUFFER_BYTES = 128 * 1024
+
+        /** DSCP AF41 as the IP TOS byte: Wi-Fi user priority 4, the video queue (RFC 8325). */
+        const val INTERACTIVE_TOS = 0x88
     }
 }

@@ -68,6 +68,13 @@ canvas {
   display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain;
   border-radius: 26px; background: #000; touch-action: none; cursor: pointer;
 }
+/* R54: the instant touch dot (mirror.js showDot). */
+.touch-dot {
+  position: absolute; left: 0; top: 0; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28); border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none; display: none; will-change: transform; z-index: 2;
+}
+.touch-dot.on { display: block; }
 .cover {
   position: absolute; inset: 8px; border-radius: 26px; display: grid; place-items: center; padding: 24px;
   background: rgba(30, 34, 40, 0.92); text-align: center; color: var(--muted);

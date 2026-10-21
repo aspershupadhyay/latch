@@ -34,6 +34,7 @@ import io.github.aspershupadhyay.latch.session.SessionController
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -218,6 +219,7 @@ class MirrorController(
                 projection, handler, ::screen, ::sendFrame,
                 problem = { problem -> scope.launch { notice(problem) } },
                 quality = { saving, w, h, fps -> link?.sendText(MirrorMessages.quality(saving, w, h, fps)) },
+                topFps = topFps(),
             ).also {
                 // The phone's sound too, when the owner allowed audio recording (ADR-055).
                 val audioAllowed = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) ==
@@ -326,6 +328,20 @@ class MirrorController(
         display.getRealMetrics(metrics)
         @Suppress("DEPRECATION")
         return MirrorCapture.Screen(metrics.widthPixels, metrics.heightPixels, dpi, display.rotation * 90)
+    }
+
+    /**
+     * R54: the screen's highest refresh rate at its current size (120 on a 120 Hz phone).
+     * Not part of [screen]: adaptive refresh moves the current rate all the time, and that
+     * must not restart the encoder.
+     */
+    private fun topFps(): Int {
+        val display = context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY) ?: return MirrorCapture.FPS
+        val mode = display.mode
+        val hz = display.supportedModes
+            .filter { it.physicalWidth == mode.physicalWidth && it.physicalHeight == mode.physicalHeight }
+            .maxOfOrNull { it.refreshRate } ?: mode.refreshRate
+        return hz.roundToInt().coerceIn(MirrorCapture.FPS, MirrorCapture.MAX_FPS)
     }
 
     private fun watchDisplay(handler: Handler) {

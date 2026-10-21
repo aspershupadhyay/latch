@@ -153,7 +153,8 @@ class Updater(
         http.newCall(request).execute().use { response ->
             if (response.code == 404) throw UpdateException("No build is published yet.")
             if (!response.isSuccessful) throw UpdateException("GitHub answered ${response.code}. Try again later.")
-            UpdateManifest.parse(response.body.string(), downloadPrefix)
+            // The APK for this phone's chip type when the release has one: a third of the universal one's size.
+            UpdateManifest.parse(response.body.string(), downloadPrefix).forAbis(Build.SUPPORTED_ABIS.toList())
         }
     }
 

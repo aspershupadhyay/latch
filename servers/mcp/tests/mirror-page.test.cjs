@@ -257,3 +257,9 @@ test('a trackpad pinch becomes two fingers on the phone (R42)', () => {
   assert.ok(m.pinchScale(1, 50) < 1);
   assert.equal(m.pinchScale(0.06, 10000), 0.05);
 });
+
+test('the instant touch dot sits under the pointer inside its frame (R54)', () => {
+  const frame = { left: 100.4, top: 50, width: 400, height: 800 };
+  assert.equal(m.dotTransform(300, 450, frame), 'translate(200px, 400px)');
+  assert.equal(m.dotTransform(100.4, 50, frame), 'translate(0px, 0px)');
+});

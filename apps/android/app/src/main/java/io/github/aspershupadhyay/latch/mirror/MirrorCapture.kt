@@ -40,6 +40,8 @@ class MirrorCapture(
     private val problem: (String) -> Unit,
     /** R38: the picture got smaller to save bandwidth ([QualityLadder.saving]), or came back. */
     private val quality: (saving: Boolean, width: Int, height: Int, fps: Int) -> Unit = { _, _, _, _ -> },
+    /** R54: the screen's highest refresh rate; a 120 Hz phone is mirrored at 120 fps while the network allows. */
+    topFps: Int = FPS,
 ) {
     data class Screen(val width: Int, val height: Int, val dpi: Int, val rotation: Int)
 
@@ -55,7 +57,7 @@ class MirrorCapture(
     val codecName: String get() = codec?.wire ?: "off"
     private var size = 0 to 0
     private val governor = BitrateGovernor()
-    private val ladder = QualityLadder()
+    private val ladder = QualityLadder(topFps)
     /** R40: the encoder running now is H.265. */
     private var hevc = false
     /** R37: the encoder heals a lost frame by refreshing stripes, so a drop needs no key frame. */
@@ -69,6 +71,8 @@ class MirrorCapture(
     private var freshViewer = true
     private var lastKeyRequestMs = 0L
     private var lastStillMs = 0L
+    /** Frames a second the encoder runs at now (the ladder's, or 60 where the encoder cannot do more). */
+    private var encodedFps = FPS
 
     init {
         val s = screen()
@@ -167,22 +171,25 @@ class MirrorCapture(
         val align = maxOf(8, video.widthAlignment, video.heightAlignment)
         val sizes = listOf(level.maxEdge, 1920, 1280, 960).filter { it <= level.maxEdge }.distinct()
             .flatMap { listOf(EncoderSizing.size(s.width, s.height, it, align), EncoderSizing.size(s.width, s.height, it)) }
+        fun keepsUp(w: Int, h: Int, rate: Int) = runCatching { video.areSizeAndRateSupported(w, h, rate.toDouble()) }.getOrDefault(false)
+        // R54: above 60 fps only at a size the encoder keeps up with at that rate; otherwise 60.
+        val fps = if (level.fps > FPS && sizes.none { (w, h) -> keepsUp(w, h, level.fps) }) FPS else level.fps
         // Prefer a size the encoder keeps up with at the full frame rate; any size it takes otherwise.
-        val (w, h) = sizes.firstOrNull { (w, h) -> runCatching { video.areSizeAndRateSupported(w, h, level.fps.toDouble()) }.getOrDefault(false) }
+        val (w, h) = sizes.firstOrNull { (w, h) -> keepsUp(w, h, fps) }
             ?: sizes.firstOrNull { (w, h) -> video.isSizeSupported(w, h) } ?: throw IllegalStateException("no supported size")
         // The budget follows the picture: more pixels and frames get more bits (VideoBudget).
-        governor.fitTo(VideoBudget.maxBps(w, h, level.fps), VideoBudget.startBps(w, h, level.fps), restart = freshViewer)
+        governor.fitTo(VideoBudget.maxBps(w, h, fps), VideoBudget.startBps(w, h, fps), restart = freshViewer)
         freshViewer = false
         val codec = MediaCodec.createByCodecName(info.name)
         try {
             intraRefresh = caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_IntraRefresh)
             try {
-                codec.configure(format(w, h, caps, lowLatency = true, fps = level.fps, hevc = hevc), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.configure(format(w, h, caps, lowLatency = true, fps = fps, hevc = hevc), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             } catch (e: Exception) {
                 // Some vendors refuse keys they do not know; the plain format works everywhere.
                 codec.reset()
                 intraRefresh = false
-                codec.configure(format(w, h, caps, lowLatency = false, fps = level.fps, hevc = hevc), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.configure(format(w, h, caps, lowLatency = false, fps = fps, hevc = hevc), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             }
             val surface = codec.createInputSurface()
             codec.setCallback(callback, handler)
@@ -190,6 +197,7 @@ class MirrorCapture(
             encoder = codec
             this.hevc = hevc
             size = w to h
+            encodedFps = fps
             config = null
             display?.resize(w, h, s.dpi)
             display?.surface = surface
@@ -204,8 +212,9 @@ class MirrorCapture(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, encoderBps(governor.bps, hevc))
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            // R38: fewer frames a second at a lower level; the encoder drops the rest.
-            if (fps < FPS) setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, fps.toFloat())
+            // At most [fps] frames reach the encoder; it drops the rest. Always set: a 120 Hz
+            // screen sends up to 120 a second, which at a 60 fps budget halved each frame's bits.
+            setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, fps.toFloat())
             // Key frames come on request (a viewer joins or falls behind), not on a timer;
             // with intra refresh (R37) only on join, rotation, and the gateway's request.
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, if (lowLatency && intraRefresh) INTRA_KEY_FRAME_SECONDS else KEY_FRAME_SECONDS)
@@ -300,8 +309,7 @@ class MirrorCapture(
         handler.post {
             val running = codec?.takeIf { it != Codec.JPEG } ?: return@post
             restart(running)
-            val level = ladder.level
-            quality(ladder.saving, size.first, size.second, level.fps)
+            quality(ladder.saving, size.first, size.second, encodedFps)
         }
     }
 
@@ -404,6 +412,8 @@ class MirrorCapture(
         /** The longest side sent: a 1440p phone's own size fits; larger screens are scaled. */
         const val MAX_EDGE = 2560
         const val FPS = 60
+        /** R54: the most frames a second the mirror sends (120 Hz phones). */
+        const val MAX_FPS = 120
         private const val KEY_FRAME_SECONDS = 10
         private const val REPEAT_AFTER_US = 500_000L
         /** With intra refresh, a key frame is only asked for; this keeps the encoder from adding its own. */

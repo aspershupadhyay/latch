@@ -81,4 +81,37 @@ class UpdateManifestTest {
             copyHashing(ByteArrayInputStream(ByteArray(10)), ByteArrayOutputStream(), maxBytes = 9)
         }
     }
+
+    private fun abiApks(vararg entries: String) = ""","apks":[${entries.joinToString(",")}]"""
+
+    private fun abiApk(abi: String, url: String = "${prefix}beta/latch-android-$abi.apk", hash: String = "b".repeat(64), size: Long = 20_000_000) =
+        """{"abi":"$abi","url":"$url","sha256":"$hash","size":$size}"""
+
+    @Test
+    fun aPhoneTakesTheApkForItsOwnChipType() {
+        val info = UpdateManifest.parse(manifest(extra = abiApks(abiApk("arm64-v8a"), abiApk("armeabi-v7a", size = 18_000_000), abiApk("x86_64"))), prefix)
+        // A 64-bit ARM phone (which also runs 32-bit code) takes its first, preferred type.
+        val arm64 = info.forAbis(listOf("arm64-v8a", "armeabi-v7a"))
+        assertEquals("${prefix}beta/latch-android-arm64-v8a.apk", arm64.apkUrl)
+        assertEquals("b".repeat(64), arm64.sha256)
+        assertEquals(20_000_000L, arm64.size)
+        assertEquals("${prefix}beta/latch-android-armeabi-v7a.apk", info.forAbis(listOf("armeabi-v7a")).apkUrl)
+        // A chip type with no APK of its own, or an older release without the list: the universal APK.
+        assertEquals("${prefix}beta/latch-android.apk", info.forAbis(listOf("x86")).apkUrl)
+        assertEquals("${prefix}beta/latch-android.apk", UpdateManifest.parse(manifest(), prefix).forAbis(listOf("arm64-v8a")).apkUrl)
+    }
+
+    @Test
+    fun everyChipTypesApkIsCheckedLikeTheUniversalOne() {
+        listOf(
+            abiApks(abiApk("arm64-v8a", url = "https://example.com/evil.apk")),
+            abiApks(abiApk("arm64-v8a", hash = "nothex")),
+            abiApks(abiApk("arm64-v8a", size = 0)),
+            abiApks(abiApk("arm64-v8a", size = UpdateManifest.MAX_APK_BYTES + 1)),
+            abiApks(abiApk("mips")),
+            abiApks(abiApk("arm64-v8a"), abiApk("arm64-v8a")),
+        ).forEach { extra ->
+            assertThrows(extra, UpdateException::class.java) { UpdateManifest.parse(manifest(extra = extra), prefix) }
+        }
+    }
 }

@@ -759,6 +759,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "socket2",
  "subtle",
  "thiserror",
  "time",

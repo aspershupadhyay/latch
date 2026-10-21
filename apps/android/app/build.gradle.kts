@@ -94,6 +94,18 @@ android {
         abortOnError = true
     }
 
+    // One APK per chip type besides the universal one, so a phone downloads only the native code
+    // it runs (ML Kit's reader alone is ~11 MB per chip type). Only when asked (CI's release
+    // builds pass -Platch.abiSplits=true), so debug builds and the emulator test keep one APK.
+    splits {
+        abi {
+            isEnable = providers.gradleProperty("latch.abiSplits").orNull == "true"
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            isUniversalApk = true
+        }
+    }
+
     testOptions {
         unitTests.isReturnDefaultValues = true
         // Robolectric renders the real Compose screens for snapshot tests.
