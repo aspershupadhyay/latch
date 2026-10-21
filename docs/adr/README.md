@@ -829,3 +829,21 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** pick Look and tap (every-app off), or revert the commit; the stored `all_apps` flag is then ignored.
 
+## ADR-065 — Access asks only about what is private or permanent
+**Status:** accepted (2026-10-21, owner: "still too many options in the access tab … some of the permission is not required cus any apps can perform such action in just secs") · **Amends:** ADR-064 (Access layout and presets) · **Protocol:** unchanged
+
+**Problem:** after ADR-064 the Access tab still showed three cards, an apps row, six Fine-tune groups, and Full ADB: eleven ways in, and inside them about twenty switches. Most guarded actions any app performs in a second (go back or home, change the volume, the flashlight, copy text, open the share sheet, read Latch's own log). Decision time grows with the number of choices (Hick–Hyman law), people hold about four things in mind at once (Cowan 2001), and repeated permission prompts and lists stop being read (Felt et al. 2012, Android permissions; Anderson, Vance et al. 2015–2018, warning habituation). Asking about trivial things also teaches people to agree without reading the questions that matter.
+
+**Decision:**
+- **Ask only about what is private or permanent:** which apps, your files, and full ADB. Everything else comes with the level the owner picks.
+- **Access shows six things:** three cards (Only look, Look and tap, Everything) and one card with three rows: **Your apps**, **Files** (folders, photos, Downloads; on with Everything, or its own switch on its page), and **More choices**.
+- **Levels:** Only look = read the screen, screenshots, and Latch's log. Look and tap adds tapping, typing, back and home, opening apps, the share sheet, copying text, and the phone controls (sound, brightness, flashlight, settings panels); each new app still asks once. Everything adds files and every ordinary app (ADR-064). No level includes full ADB.
+- **More choices** holds what most people never change: Auto mode, Ask me before every action, Answer from your AI chat, Always allowed answers, the cursor and keep-awake switches, Android's brightness and Do Not Disturb permissions when a control needs them, and Full ADB under its own **Most access** caption. Back from Full ADB returns to More choices.
+- The per-capability switch pages for screen, sharing, and controls are no longer shown; the capability groups stay defined (`AccessGroupTest`) so the levels and the History log keep their meaning.
+
+**Threat review:** no new grant. The actions that moved into Look and tap are reversible and low-impact, and consequential ones inside them (sending in an app that is not switched on, paying, installing) still ask exactly as before. Files and every-app access still need Everything or their own switch. Full ADB (ADR-046) is still off until the owner turns it on by itself, now one level deeper, with no command filter or confirmation added.
+
+**Checks:** the app builds with warnings as errors; unit tests (`SetupStateTest`, `AccessGroupTest`, `AutonomyTest`) and lint pass; the Access screen was rendered (`capabilities_night`). *Needs phone:* the chapter 09 UX gate with first-time users.
+
+**Rollback:** revert the commit; settings and protocol are untouched.
+

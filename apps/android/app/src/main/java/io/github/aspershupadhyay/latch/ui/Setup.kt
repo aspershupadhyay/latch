@@ -60,16 +60,12 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
  * the owner turns it on by itself and pairs wireless debugging.
  */
 enum class AccessPreset(val title: String, val note: String, val icon: ImageVector, val capabilities: Set<Capability>) {
-    LOOK("Only look", "It can see the screen. It can't touch.", LatchIcons.Eye, setOf(Capability.UI_OBSERVE)),
-    LOOK_AND_TAP(
-        "Look and tap",
-        "It can open apps, tap, and scroll. Each new app asks you once.",
-        LatchIcons.Tap,
-        setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE, Capability.NAV_GLOBAL, Capability.APP_LAUNCH),
-    ),
+    LOOK("Only look", "It sees the screen. It can't touch anything.", LatchIcons.Eye, LOOK_CAPS),
+    // Everyday actions any app does in a second (back, volume, flashlight, copy, share) come with tapping: no switch each (ADR-065).
+    LOOK_AND_TAP("Look and tap", "It taps, types, and opens apps. Each new app asks you once.", LatchIcons.Tap, TAP_CAPS),
     EVERYTHING(
         "Everything",
-        "Every app, no questions. Bank apps ask once; payments always ask.",
+        "Every app and your files, no questions. Bank apps ask once; payments always ask.",
         LatchIcons.Sparkle,
         Capability.entries.toSet() - Capability.DEVICE_INFO - Capability.ADB_SHELL,
     ),
@@ -84,6 +80,13 @@ enum class AccessPreset(val title: String, val note: String, val icon: ImageVect
             entries.firstOrNull { it.capabilities == enabled - Capability.DEVICE_INFO - Capability.ADB_SHELL }
     }
 }
+
+private val LOOK_CAPS = setOf(Capability.UI_OBSERVE, Capability.SCREEN_CAPTURE, Capability.ACTIVITY_READ)
+private val TAP_CAPS = LOOK_CAPS + setOf(
+    Capability.INPUT_GESTURE, Capability.INPUT_TEXT, Capability.NAV_GLOBAL, Capability.APP_LAUNCH,
+    Capability.APP_SHARE, Capability.CLIPBOARD_WRITE,
+    Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS,
+)
 
 enum class SetupStep { NOTIFICATIONS, ACCESSIBILITY, BATTERY, ACCESS }
 
