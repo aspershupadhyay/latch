@@ -74,7 +74,7 @@ enum class HelpTopic(val title: String, val paragraphs: List<String>) {
         "Your privacy",
         listOf(
             "What's on your screen goes only to your own relay, and only while a session runs. Screen content is never saved.",
-            "Activity (what the AI did, never screen text or typed text) stays on this phone for 7 days.",
+            "History (what the AI did, never screen text or typed text) stays on this phone for 7 days.",
             "Latch has no tracking and no ads.",
         ),
     ),
@@ -104,7 +104,7 @@ enum class HelpTopic(val title: String, val paragraphs: List<String>) {
     APPS(
         "Choosing apps",
         listOf(
-            "The AI can only use apps you switch on. In those apps it works without asking you every time, and everything it does is listed in Activity.",
+            "The AI can only use apps you switch on. In those apps it works without asking you every time, and everything it does is listed in History.",
             "If the AI needs an app that's off, Latch asks you first, on the phone and in your AI chat.",
         ),
     ),
@@ -112,7 +112,7 @@ enum class HelpTopic(val title: String, val paragraphs: List<String>) {
         "What is Auto mode?",
         listOf(
             "With Auto mode on, the AI can use every app and do everything in them without asking, including paying, installing apps, and answering Android's permission pop-ups.",
-            "Use it only when you trust the task. Latch still never types passwords, PINs, or one-time codes, the red Stop button still ends everything at once, and every action is listed in Activity.",
+            "Use it only when you trust the task. Latch still never types passwords, PINs, or one-time codes, the red Stop button still ends everything at once, and every action is listed in History.",
         ),
     ),
 }
@@ -246,7 +246,7 @@ private val GUIDE = listOf(
     ),
     GuideStep(
         "Connect your AI app",
-        "In the Connect tab, copy the AI link and add it to your AI app (in Claude: Settings → Connectors → Add custom connector). " +
+        "In Settings → Your AI apps, copy the AI link and add it to your AI app (in Claude: Settings → Connectors → Add custom connector). " +
             "When a 4-letter code shows in both places, tap Approve in Latch.",
     ),
     GuideStep(

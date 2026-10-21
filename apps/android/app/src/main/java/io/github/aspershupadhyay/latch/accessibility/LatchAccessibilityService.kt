@@ -459,19 +459,19 @@ class LatchAccessibilityService : AccessibilityService() {
         val dark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
         val high = pending.risk == "high"
-        val warning = if (dark) Color.rgb(245, 181, 68) else Color.rgb(180, 83, 9)
+        val warning = if (dark) Color.rgb(232, 176, 75) else Color.rgb(180, 83, 9)
         // A risky action gets an amber card, so it never looks like the routine ones.
         val surface = when {
-            high && dark -> Color.rgb(38, 31, 18)
+            high && dark -> Color.rgb(36, 29, 18)
             high -> Color.rgb(255, 248, 235)
-            dark -> Color.rgb(22, 22, 27)
+            dark -> Color.rgb(23, 21, 19)
             else -> Color.WHITE
         }
-        val text = if (dark) Color.rgb(242, 242, 244) else Color.rgb(17, 17, 20)
-        val text2 = if (dark) Color.rgb(161, 161, 172) else Color.rgb(88, 88, 99)
-        val accent = if (dark) Color.rgb(255, 106, 61) else Color.rgb(194, 65, 12)
-        val ink = if (dark) Color.rgb(242, 242, 244) else Color.rgb(17, 17, 20)
-        val onInk = if (dark) Color.rgb(11, 11, 14) else Color.WHITE
+        val text = if (dark) Color.rgb(246, 242, 236) else Color.rgb(23, 20, 15)
+        val text2 = if (dark) Color.rgb(180, 171, 160) else Color.rgb(94, 85, 75)
+        val accent = if (dark) Color.rgb(255, 122, 69) else Color.rgb(194, 65, 12)
+        val ink = if (dark) Color.rgb(246, 242, 236) else Color.rgb(23, 20, 15)
+        val onInk = if (dark) Color.rgb(20, 17, 15) else Color.WHITE
         val tint = if (high) warning else accent
         val appRequest = pending.kind == ApprovalKind.APP
         val ownerTask = pending.kind == ApprovalKind.OWNER_TASK

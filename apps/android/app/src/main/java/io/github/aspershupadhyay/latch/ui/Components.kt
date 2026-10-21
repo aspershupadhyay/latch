@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val CardShape = RoundedCornerShape(16.dp)
+val CardShape = RoundedCornerShape(22.dp)
 
 /**
  * A line symbol in a small square chip of its own colour: the visual anchor of

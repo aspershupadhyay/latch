@@ -1,5 +1,5 @@
 Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
-- No phone is paired with this gateway. Fix: the owner opens the Latch app's Connect tab and connects the phone to this gateway.
+- No phone is paired with this gateway. Fix: the owner opens the Latch app (Settings → Your AI apps) and connects the phone to this gateway.
 Verdict: not ready.
 ---
 Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
@@ -12,7 +12,7 @@ Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pa
   - Session: 1 min left.
   - Switched on but Android has not allowed it: ui.observe, input.gesture. Fix: Android Settings → Accessibility → Latch → On (on Android 13+, first allow restricted settings in Latch's App info).
   - Off: input.text, app.launch, so the AI cannot type or open apps. Fix: the owner switches them on in the Latch app's Access tab.
-  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings tab → Check for updates).
+  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings → Check for updates).
   - Note: the owner approves every action, so each step waits for a tap on the phone.
   Not ready until the fixes above are done.
 - d_expired "Tablet" (Galaxy Tab): connected, app protocol 1.8.

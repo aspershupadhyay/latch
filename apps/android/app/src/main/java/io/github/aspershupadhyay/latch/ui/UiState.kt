@@ -80,6 +80,7 @@ class HomeActions(
     val goConnect: () -> Unit = {},
     val goActivity: () -> Unit = {},
     val openSetup: () -> Unit = {},
+    val openSettings: () -> Unit = {},
     val reviewSignIns: () -> Unit = {},
     val openGatewayUpdateHelp: () -> Unit = {},
     val openRelaySpeedHelp: () -> Unit = {},

@@ -182,6 +182,12 @@ class ScreenSnapshotTest {
     @Test fun welcome_scan_night() = snap(dark = true) { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
     @Test fun welcome_scan() = snap { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
     @Test fun home_idle_night() = snap(dark = true) { HomeScreen(home(Phase.IDLE), HomeActions()) }
+    @Test fun sessionBar_night() = snap(dark = true) {
+        androidx.compose.foundation.layout.Column {
+            SessionBar(io.github.aspershupadhyay.latch.session.SessionState.Active(now + 60_000, paused = false), waiting = false, reducedMotion = true, stop = {}, open = {})
+            LatchTabBar(Tab.CAPABILITIES, {}, badge = 1)
+        }
+    }
     @Test fun home_idle() = snap { HomeScreen(home(Phase.IDLE), HomeActions()) }
     @Test fun home_active_night() = snap(dark = true) { HomeScreen(home(Phase.ACTIVE), HomeActions()) }
     @Test fun home_approval_night() = snap(dark = true) {

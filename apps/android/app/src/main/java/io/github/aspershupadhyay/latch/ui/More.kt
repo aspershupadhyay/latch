@@ -255,7 +255,7 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ScreenTitle("Activity", "What the AI did, what you did, and what Latch did.")
+                ScreenTitle("History", "Everything your AI did, in plain words. You and Latch too.")
                 // The privacy promise gets its own line, where it is seen.
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(LatchIcons.Lock, contentDescription = null, tint = signal.success, modifier = Modifier.size(16.dp))
@@ -464,6 +464,10 @@ fun SettingsScreen(
     /** Disconnects but keeps the keys, so reconnecting is one tap with no QR code or key. */
     onDisconnectKeep: () -> Unit = {},
     onOpenSetup: () -> Unit = {},
+    /** AI apps: connect one, answer its sign-in, switch between Wi-Fi and the internet. */
+    onOpenConnect: () -> Unit = {},
+    aiWaiting: Int = 0,
+    connection: io.github.aspershupadhyay.latch.data.ConnectionKind = io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED,
     update: UpdateState = UpdateState.Idle,
     checkUpdates: Boolean = true,
     onCheckUpdates: (Boolean) -> Unit = {},
@@ -484,6 +488,20 @@ fun SettingsScreen(
     var confirmRotate by remember { mutableStateOf(false) }
     ScreenColumn {
         ScreenTitle("Settings")
+        Card(color = if (aiWaiting > 0) signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.08f) else null) {
+            ListRow(
+                LatchIcons.Plug,
+                "Your AI apps",
+                if (aiWaiting > 0) {
+                    "$aiWaiting waiting for your OK. Tap to answer."
+                } else {
+                    "Connect Claude or another AI \u00b7 ${connection.title}"
+                },
+                tint = signal.accent,
+                onClick = onOpenConnect,
+                onClickLabel = "Open your AI apps",
+            )
+        }
         Card {
             ListRow(
                 LatchIcons.Cloud,

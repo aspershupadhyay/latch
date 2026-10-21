@@ -56,7 +56,7 @@ pub fn render_diagnosis(input: &DiagnosisInput) -> String {
     );
     if input.phones.is_empty() {
         out.push_str(
-            "- No phone is paired with this gateway. Fix: the owner opens the Latch app's Connect tab and connects the phone to this gateway.\n\
+            "- No phone is paired with this gateway. Fix: the owner opens the Latch app (Settings → Your AI apps) and connects the phone to this gateway.\n\
              Verdict: not ready.\n",
         );
         return out;
@@ -144,7 +144,7 @@ pub fn render_diagnosis(input: &DiagnosisInput) -> String {
         if latch_protocol::minor_version(&live.protocol).unwrap_or(0) < gateway_minor {
             let _ = writeln!(
                 out,
-                "  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings tab → Check for updates)."
+                "  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings → Check for updates)."
             );
         }
         if live.battery_restricted == Some(true) {

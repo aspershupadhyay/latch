@@ -38,13 +38,13 @@ class StopPill(
     private val d = resources.displayMetrics.density
     private fun dp(v: Float) = v * d
 
-    private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(242, 17, 17, 20) }
-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = Color.argb(46, 237, 237, 239) }
-    private val ember = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
-    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
-    // One red for Stop everywhere (ui/theme/Theme.kt StopRed), with a dark square that stays above 4.5:1 on it.
-    private val stopFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 90, 90) }
-    private val stopGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(11, 11, 14) }
+    private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(242, 23, 21, 19) }
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = Color.argb(46, 246, 242, 236) }
+    private val ember = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 122, 69) }
+    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 122, 69) }
+    // One red for Stop everywhere (ui/theme/Theme.kt StopRed), with a white square that stays above 4.5:1 on it.
+    private val stopFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(217, 58, 63) }
+    private val stopGlyph = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 255, 255) }
 
     private val h = dp(44f)
     private val padL = dp(11f)

@@ -904,7 +904,7 @@ private fun AutoModeCard(auto: AutoMode, onAuto: (AutoMode) -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("The AI will be able to use every app on this phone and do everything in them without asking you, including:")
                     Text("• send messages, post, and delete\n• pay, buy, and transfer money\n• install apps and answer Android's permission pop-ups")
-                    Text("Latch still never types passwords, PINs, or one-time codes. The red Stop button ends everything at once, and every action is listed in Activity.")
+                    Text("Latch still never types passwords, PINs, or one-time codes. The red Stop button ends everything at once, and every action is listed in History.")
                 }
             },
             confirmButton = {
