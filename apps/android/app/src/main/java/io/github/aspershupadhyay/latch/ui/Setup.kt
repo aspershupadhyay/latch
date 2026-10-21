@@ -69,7 +69,7 @@ enum class AccessPreset(val title: String, val note: String, val icon: ImageVect
     ),
     EVERYTHING(
         "Everything",
-        "Every app, typing, sending, and files, without asking. Bank and password apps ask once; payments and installs always ask.",
+        "Every app, no questions. Bank apps ask once; payments always ask.",
         LatchIcons.Sparkle,
         Capability.entries.toSet() - Capability.DEVICE_INFO - Capability.ADB_SHELL,
     ),
