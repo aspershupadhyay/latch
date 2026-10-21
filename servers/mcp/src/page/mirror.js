@@ -1041,6 +1041,8 @@ if (typeof document !== 'undefined') {
   // ---- Input ----
 
   let pointerId = null;
+  let lastWheelAt = -Infinity;
+  const WHEEL_CLICK_GUARD_MS = 150;
   let lastMoveAt = 0;
   let pendingMove = null;
   let lastPoint = null;
@@ -1057,6 +1059,11 @@ if (typeof document !== 'undefined') {
   canvas.addEventListener('pointerdown', (event) => {
     wakeAudio();
     if (pointerId !== null || event.button !== 0) return;
+    // A trackpad can report a tap as the fingers lift from a scroll; that is not a click.
+    if (event.pointerType === 'mouse' && performance.now() - lastWheelAt < WHEEL_CLICK_GUARD_MS) {
+      event.preventDefault();
+      return;
+    }
     const p = point(event);
     if (!p) return;
     pointerId = event.pointerId;
@@ -1156,6 +1163,7 @@ if (typeof document !== 'undefined') {
     const rect = pictureRect();
     const p = point(event) || lastPoint;
     if (!p) return;
+    lastWheelAt = performance.now();
     const d = wheelPixels(event, rect, screen, turned);
     wheel.dx += d.dx;
     wheel.dy += d.dy;

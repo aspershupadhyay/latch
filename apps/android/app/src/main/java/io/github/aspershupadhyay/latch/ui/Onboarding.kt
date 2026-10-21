@@ -68,6 +68,10 @@ fun WelcomeScreen(
     onGuide: () -> Unit = {},
     saved: Map<io.github.aspershupadhyay.latch.data.ConnectionKind, String> = emptyMap(),
     onUseSaved: (io.github.aspershupadhyay.latch.data.ConnectionKind) -> Unit = {},
+    /** Straight to the camera: the computer already shows Latch's QR code. */
+    onScan: (() -> Unit)? = null,
+    /** No camera needed: the phone finds the computer on the Wi-Fi (ADR-060). */
+    onFind: (() -> Unit)? = null,
 ) {
     val signal = LocalSignal.current
     val context = LocalContext.current
@@ -106,6 +110,20 @@ fun WelcomeScreen(
             }
             SavedConnectionsCard(saved, onUseSaved)
             Spacer(Modifier.size(4.dp))
+            // The shortest way in: the computer runs latch-start and shows a QR code; one scan connects.
+            onScan?.let { scan ->
+                IconButtonLarge("Scan the QR code on my computer", LatchIcons.Camera, scan, Modifier.fillMaxWidth(), container = signal.surface, content = signal.text, outline = signal.accent)
+                Text(
+                    "It's on your computer after you run latch-start. No codes or keys to type.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = signal.text2,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            onFind?.let { find ->
+                IconButtonLarge("Find my computer (no QR code)", LatchIcons.Wifi, find, Modifier.fillMaxWidth(), container = signal.surface, content = signal.text, outline = signal.border)
+            }
             IconButtonLarge(if (saved.isEmpty()) "Set up Latch" else "Set up another way", LatchIcons.Plus, onCreateGateway, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk)
             Text(
                 "Free · about 5 minutes",

@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.aspershupadhyay.latch.data.ConnectionKind
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
@@ -416,5 +418,70 @@ private fun Segment(kind: ConnectionKind, selected: Boolean, modifier: Modifier,
         Icon(kind.icon, contentDescription = null, tint = if (selected) signal.onInk else signal.text2, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         Text(kind.short, style = MaterialTheme.typography.labelLarge, color = if (selected) signal.onInk else signal.text)
+    }
+}
+
+/** What the Find my computer screen shows (ADR-060). */
+sealed interface NearbyState {
+    data object Searching : NearbyState
+    data class Found(val computers: List<io.github.aspershupadhyay.latch.session.NearbyLink.Found>) : NearbyState
+    /** The number both screens show, while the owner answers on the computer. */
+    data class Number(val computer: String, val number: String) : NearbyState
+    data class Failed(val message: String) : NearbyState
+}
+
+/** Find my computer: no QR code; the phone finds the computer and both show the same number (ADR-060). */
+@Composable
+fun FindComputerScreen(
+    state: NearbyState,
+    onPick: (io.github.aspershupadhyay.latch.session.NearbyLink.Found) -> Unit,
+    onRetry: () -> Unit,
+    onScanInstead: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val signal = LocalSignal.current
+    Box(Modifier.fillMaxSize().background(signal.canvas)) {
+        Column(
+            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(onClick = onBack) { Text("‹ Back", color = signal.accent) }
+            when (state) {
+                NearbyState.Searching -> {
+                    ScreenTitle("Looking for your computer…", "Keep latch-start running on your computer. The phone and the computer must be on the same Wi-Fi.")
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = signal.accent)
+                }
+                is NearbyState.Found -> {
+                    ScreenTitle("Which one is your computer?", "Tap yours. A number appears here and on your computer.")
+                    state.computers.forEach { computer ->
+                        PrimaryButton(computer.name, { onPick(computer) }, Modifier.fillMaxWidth())
+                    }
+                }
+                is NearbyState.Number -> {
+                    ScreenTitle("Check the number", "Your computer (${state.computer}) shows a number too.")
+                    Card {
+                        Text(
+                            state.number,
+                            style = MaterialTheme.typography.displayMedium.copy(letterSpacing = 4.sp),
+                            color = signal.text,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                        )
+                    }
+                    Text(
+                        "Same number on the computer? Type y there and press Enter. This phone connects by itself. Different number? Type n there and go back.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = signal.text2,
+                    )
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = signal.accent)
+                }
+                is NearbyState.Failed -> {
+                    ScreenTitle("Not connected yet", null)
+                    Text(state.message, color = signal.danger, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    PrimaryButton("Look again", onRetry, Modifier.fillMaxWidth())
+                }
+            }
+            SecondaryButton("Scan the QR code instead", onScanInstead, Modifier.fillMaxWidth())
+        }
     }
 }

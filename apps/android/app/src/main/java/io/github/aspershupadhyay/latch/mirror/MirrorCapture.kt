@@ -65,6 +65,8 @@ class MirrorCapture(
     /** The bitrate the encoder aims for now, and the encoded picture's size. */
     val targetBps: Int get() = governor.bps
     val encodedSize: Pair<Int, Int> get() = size
+    /** The next encoder serves a new viewer: its bitrate starts high again. */
+    private var freshViewer = true
     private var lastKeyRequestMs = 0L
     private var lastStillMs = 0L
 
@@ -78,6 +80,12 @@ class MirrorCapture(
 
     /** Starts sending [kind] frames (a viewer joined, or switched to stills). */
     fun start(kind: Codec) {
+        freshViewer = true
+        restart(kind)
+    }
+
+    /** [start] for the same viewer (an error, a smaller picture): the bitrate keeps what the network showed. */
+    private fun restart(kind: Codec) {
         audio?.start()
         stopOutput()
         codec = kind
@@ -99,7 +107,7 @@ class MirrorCapture(
             stopOutput()
             if (kind != Codec.JPEG) {
                 problem("This phone's video encoder could not start; sending still pictures instead.")
-                start(Codec.JPEG)
+                restart(Codec.JPEG)
             } else {
                 problem("The screen could not be captured (${e.javaClass.simpleName}).")
             }
@@ -120,7 +128,7 @@ class MirrorCapture(
             display?.resize(s.width, s.height, s.dpi)
             return
         }
-        start(running)
+        restart(running)
     }
 
     /** The browser needs a key frame (joined late, or dropped frames). */
@@ -155,8 +163,16 @@ class MirrorCapture(
         val caps = info.getCapabilitiesForType(mime)
         val video = caps.videoCapabilities ?: throw IllegalStateException("not a video encoder")
         val level = ladder.level
-        val (w, h) = listOf(level.maxEdge, 1280, 960).filter { it <= level.maxEdge }.map { EncoderSizing.size(s.width, s.height, it) }
-            .firstOrNull { (w, h) -> video.isSizeSupported(w, h) } ?: throw IllegalStateException("no supported size")
+        // The screen's own size when the encoder takes it (sides a multiple of 8), else 16-aligned, else smaller.
+        val align = maxOf(8, video.widthAlignment, video.heightAlignment)
+        val sizes = listOf(level.maxEdge, 1920, 1280, 960).filter { it <= level.maxEdge }.distinct()
+            .flatMap { listOf(EncoderSizing.size(s.width, s.height, it, align), EncoderSizing.size(s.width, s.height, it)) }
+        // Prefer a size the encoder keeps up with at the full frame rate; any size it takes otherwise.
+        val (w, h) = sizes.firstOrNull { (w, h) -> runCatching { video.areSizeAndRateSupported(w, h, level.fps.toDouble()) }.getOrDefault(false) }
+            ?: sizes.firstOrNull { (w, h) -> video.isSizeSupported(w, h) } ?: throw IllegalStateException("no supported size")
+        // The budget follows the picture: more pixels and frames get more bits (VideoBudget).
+        governor.fitTo(VideoBudget.maxBps(w, h, level.fps), VideoBudget.startBps(w, h, level.fps), restart = freshViewer)
+        freshViewer = false
         val codec = MediaCodec.createByCodecName(info.name)
         try {
             intraRefresh = caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_IntraRefresh)
@@ -198,7 +214,14 @@ class MirrorCapture(
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
             if (!lowLatency) return@apply
             if (intraRefresh) setInteger(MediaFormat.KEY_INTRA_REFRESH_PERIOD, maxOf(1, fps / 2))
-            val profile = if (hevc) MediaCodecInfo.CodecProfileLevel.HEVCProfileMain else MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline
+            // High profile (CABAC, 8×8 transforms) gives a visibly cleaner picture than Baseline at the
+            // same bits; with no B-frames it adds no delay, and every browser decodes it.
+            val profile = when {
+                hevc -> MediaCodecInfo.CodecProfileLevel.HEVCProfileMain
+                caps.profileLevels.any { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileHigh } ->
+                    MediaCodecInfo.CodecProfileLevel.AVCProfileHigh
+                else -> MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline
+            }
             setInteger(MediaFormat.KEY_PROFILE, profile)
             caps.profileLevels.filter { it.profile == profile }.maxOfOrNull { it.level }
                 ?.let { setInteger(MediaFormat.KEY_LEVEL, it) }
@@ -206,8 +229,10 @@ class MirrorCapture(
             setInteger(MediaFormat.KEY_LATENCY, 1)
             setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
-            if (caps.encoderCapabilities?.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR) == true) {
-                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            // Variable bitrate: a busy frame (a scene cut, a game explosion) may take more bits than a
+            // calm one instead of turning to blocks; the governor still caps the average.
+            if (caps.encoderCapabilities?.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR) == true) {
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
             }
         }
 
@@ -260,10 +285,10 @@ class MirrorCapture(
             if (codec !== encoder) return
             // A recoverable error gets a fresh encoder; anything else falls back to stills.
             when {
-                e.isRecoverable || e.isTransient -> start(this@MirrorCapture.codec ?: Codec.H264)
+                e.isRecoverable || e.isTransient -> restart(this@MirrorCapture.codec ?: Codec.H264)
                 // R40: an H.265 encoder that fails gives way to H.264, not to stills.
-                hevc -> start(Codec.H264)
-                else -> start(Codec.JPEG)
+                hevc -> restart(Codec.H264)
+                else -> restart(Codec.JPEG)
             }
         }
 
@@ -274,7 +299,7 @@ class MirrorCapture(
     private fun changeLevel() {
         handler.post {
             val running = codec?.takeIf { it != Codec.JPEG } ?: return@post
-            start(running)
+            restart(running)
             val level = ladder.level
             quality(ladder.saving, size.first, size.second, level.fps)
         }
@@ -376,7 +401,8 @@ class MirrorCapture(
 
         /** R40: H.265 shows the same picture with fewer bits, so it is given 60 % of H.264's. */
         fun encoderBps(bps: Int, hevc: Boolean): Int = if (hevc) (bps * 0.6).toInt() else bps
-        const val MAX_EDGE = 1920
+        /** The longest side sent: a 1440p phone's own size fits; larger screens are scaled. */
+        const val MAX_EDGE = 2560
         const val FPS = 60
         private const val KEY_FRAME_SECONDS = 10
         private const val REPEAT_AFTER_US = 500_000L

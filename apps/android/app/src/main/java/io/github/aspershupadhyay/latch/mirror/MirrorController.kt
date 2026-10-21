@@ -340,6 +340,7 @@ class MirrorController(
     private fun sendFrame(kind: Byte, keyFrame: Boolean, timestampUs: Long, payload: java.nio.ByteBuffer): Boolean {
         val l = link ?: return false
         if (!watching) return true
+        capture?.let { l.bitrateBps = it.targetBps }
         return l.sendFrame(MirrorMessages.frameBytes(kind, keyFrame, timestampUs, payload))
     }
 
@@ -681,6 +682,7 @@ class MirrorController(
             var pinchShell = false
             var wheelDx = 0
             var wheelDy = 0
+            var wheelLastMs = 0L
 
             fun pump() {
                 if (inFlight != null) return
@@ -704,7 +706,10 @@ class MirrorController(
                 val service = bridge.service.value ?: return
                 if (planner.active || inFlight != null || queue.isNotEmpty()) return
                 val s = service.screen()
-                WheelGesture.plan(at.first, at.second, wheelDx, wheelDy, s.width, s.height).forEach { queue.addLast(it to false) }
+                val slop = android.view.ViewConfiguration.get(service).scaledTouchSlop
+                // Too little to scroll yet: keep adding the trackpad's small steps instead of tapping.
+                if (!WheelGesture.enough(wheelDx, wheelDy, slop)) return
+                WheelGesture.plan(at.first, at.second, wheelDx, wheelDy, s.width, s.height, slop).forEach { queue.addLast(it to false) }
                 wheelAt = null
                 wheelDx = 0
                 wheelDy = 0
@@ -815,6 +820,13 @@ class MirrorController(
                                     keys.send(ShellInputCommands.scroll(m.x, m.y, m.dx, m.dy))
                                 } else {
                                     ownerInput()
+                                    // A remainder from a scroll that ended long ago is not added to a new one.
+                                    val nowMs = SystemClock.uptimeMillis()
+                                    if (nowMs - wheelLastMs > WHEEL_IDLE_MS) {
+                                        wheelDx = 0
+                                        wheelDy = 0
+                                    }
+                                    wheelLastMs = nowMs
                                     wheelAt = m.x to m.y
                                     wheelDx += m.dx
                                     wheelDy += m.dy
@@ -969,6 +981,8 @@ class MirrorController(
 
     companion object {
         private const val AI_REFRESH_MS = 400L
+        /** Wheel steps further apart than this belong to separate scrolls. */
+        private const val WHEEL_IDLE_MS = 400L
         private const val STATUS_EVERY_MS = 5_000L
         private const val KEYS_TRIES = 2
         private const val FILE_WAIT_MS = 30_000L

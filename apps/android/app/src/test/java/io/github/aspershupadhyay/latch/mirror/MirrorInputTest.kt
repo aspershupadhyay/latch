@@ -86,15 +86,33 @@ class MirrorInputTest {
     }
 
     @Test fun theWheelScrollsByTheDistanceAndEndsStill() {
-        val s = WheelGesture.plan(540, 1200, 0, 400, 1080, 2400)
+        // 400 px of content needs 400 px plus the slop the app spends before it scrolls.
+        val s = WheelGesture.plan(540, 1200, 0, 400, 1080, 2400, slop = 24)
         assertEquals(2, s.size)
-        assertEquals(listOf(540 to 1200, 540 to 800), s[0].points)
+        assertEquals(listOf(540 to 1200, 540 to 776), s[0].points)
         assertTrue(s[0].continues)
-        assertEquals(listOf(540 to 800), s[1].points)
+        assertEquals(listOf(540 to 776), s[1].points)
         assertFalse(s[1].continues)
         assertTrue(s[1].continuation)
-        assertEquals(listOf(540 to 1200, 540 to 2399), WheelGesture.plan(540, 1200, 0, -5000, 1080, 2400)[0].points)
-        assertEquals(emptyList<Segment>(), WheelGesture.plan(540, 0, 0, 100, 1080, 2400))
+        // A long scroll stays out of the top and bottom 6 % (the shade and the home gesture).
+        assertEquals(listOf(540 to 144, 540 to 2255), WheelGesture.plan(540, 1200, 0, -5000, 1080, 2400, slop = 24)[0].points)
+    }
+
+    @Test fun aTrackpadsTinyStepsNeverBecomeATap() {
+        // Owner report 2026-10-20: scrolling with the trackpad clicked things.
+        assertEquals(emptyList<Segment>(), WheelGesture.plan(540, 1200, 0, 3, 1080, 2400, slop = 24))
+        assertEquals(emptyList<Segment>(), WheelGesture.plan(540, 1200, 5, -23, 1080, 2400, slop = 24))
+        assertFalse(WheelGesture.enough(5, 23, slop = 24))
+        assertTrue(WheelGesture.enough(0, -24, slop = 24))
+        // Sideways jitter during a vertical scroll does not swipe a pager.
+        val down = WheelGesture.plan(540, 1200, 7, 60, 1080, 2400, slop = 24)[0].points
+        assertEquals(540, down[1].first)
+        // Every played drag is longer than the slop, wherever the pointer is, even at an edge.
+        for (y in listOf(0, 10, 1200, 2390, 2399)) for (dy in listOf(24, -24, 300, -300)) {
+            val p = WheelGesture.plan(540, y, 0, dy, 1080, 2400, slop = 24)[0].points
+            assertTrue("y=$y dy=$dy", kotlin.math.abs(p[1].second - p[0].second) > 24)
+            assertTrue("y=$y dy=$dy", p.all { it.second in 144..2255 })
+        }
     }
 
     @Test fun typingEditsAtTheCursor() {
@@ -135,6 +153,10 @@ class MirrorInputTest {
     }
 
     @Test fun theEncoderSizeFitsAndAligns() {
+        // With 8-aligned sides a 1080-wide phone is sent at its own size: nothing is resampled.
+        assertEquals(1080 to 2400, EncoderSizing.size(1080, 2400, 2560, align = 8))
+        assertEquals(1440 to 3200, EncoderSizing.size(1440, 3200, 4000, align = 8))
+        assertEquals(1152 to 2560, EncoderSizing.size(1440, 3200, 2560, align = 8))
         assertEquals(864 to 1920, EncoderSizing.size(1080, 2400, 1920))
         assertEquals(1072 to 2400, EncoderSizing.size(1080, 2400, 4000))
         assertEquals(1920 to 864, EncoderSizing.size(2400, 1080, 1920))
@@ -142,19 +164,46 @@ class MirrorInputTest {
         assertEquals(16 to 16, EncoderSizing.size(1, 1, 1920))
     }
 
-    @Test fun theBitrateBacksOffOnDropsAndRecoversSlowly() {
+    @Test fun theBitrateBacksOffOnDropsAndRecovers() {
         val g = BitrateGovernor(startBps = 6_000_000)
         assertNull(g.dropped(10_000))
-        assertEquals(4_200_000, g.dropped(10_100))
-        assertNull(g.dropped(10_200))
-        assertNull("at most one step down a second", g.dropped(10_300))
-        assertEquals(2_940_000, g.dropped(11_200))
+        assertNull("one busy moment is not a slow network", g.dropped(10_100))
+        assertEquals(4_500_000, g.dropped(10_200))
+        assertNull(g.dropped(10_300))
+        assertNull(g.dropped(10_400))
+        assertNull("at most one step down a second", g.dropped(10_500))
+        assertEquals(3_375_000, g.dropped(11_300))
         assertNull(g.clean(12_000))
-        assertEquals(3_381_000, g.clean(16_300))
-        repeat(100) { g.clean(20_000L + it * 6_000) }
+        assertEquals(4_050_000, g.clean(14_600))
+        repeat(100) { g.clean(20_000L + it * 4_000) }
         assertEquals(12_000_000, g.bps)
-        repeat(100) { g.dropped(2_000_000L + it * 1_100) }
-        assertEquals(1_000_000, g.bps)
+        repeat(300) { g.dropped(2_000_000L + it * 400) }
+        assertEquals(1_500_000, g.bps)
+        assertTrue(g.atFloor)
+    }
+
+    @Test fun theBudgetFollowsThePictureAndANewViewerStartsSharp() {
+        // A 1080×2400 phone at 60 fps: about 28 Mbit/s for motion, starting at three quarters.
+        assertEquals(27_993_600, VideoBudget.maxBps(1080, 2400, 60))
+        assertEquals(20_995_200, VideoBudget.startBps(1080, 2400, 60))
+        assertEquals("a small picture still gets a usable ceiling", 4_000_000, VideoBudget.maxBps(432, 960, 30))
+        assertEquals("never past what a Wi-Fi carries well", 40_000_000, VideoBudget.maxBps(2560, 2560, 120))
+        val g = BitrateGovernor()
+        g.fitTo(VideoBudget.maxBps(1080, 2400, 60), VideoBudget.startBps(1080, 2400, 60), restart = true)
+        assertEquals(20_995_200, g.bps)
+        repeat(30) { g.clean(10_000L + it * 4_000) }
+        assertEquals(27_993_600, g.bps)
+        // A smaller picture for the same viewer keeps what the network showed, under its own ceiling.
+        g.fitTo(VideoBudget.maxBps(576, 1280, 30), VideoBudget.startBps(576, 1280, 30), restart = false)
+        assertEquals(4_000_000, g.bps)
+    }
+
+    @Test fun busyFramesAtASharpBitrateAreNotDroppedAsIfTheNetworkWereSlow() {
+        // Before: 96 KiB, less than one frame of a video at full size.
+        assertEquals(96L * 1024, MirrorLink.queueLimit(key = false, bps = 4_000_000))
+        assertEquals(315_000L, MirrorLink.queueLimit(key = false, bps = 21_000_000))
+        assertEquals(630_000L, MirrorLink.queueLimit(key = true, bps = 21_000_000))
+        assertEquals(512L * 1024, MirrorLink.queueLimit(key = true, bps = 0))
     }
 
     @Test fun keyFramesCarryTheirParameterSets() {

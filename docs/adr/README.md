@@ -710,3 +710,33 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** each part falls back on its own (no stats requested, no Worker or AudioWorklet, no intra refresh, Opus refused); an older page or phone ignores the new messages.
 
+
+## ADR-060 — Find my computer: connect over Wi-Fi with no QR code, by comparing a number
+**Status:** accepted (2026-10-20, owner: "can't we make this more easy … so even a child can link it"; on the proposal "the phone finds the computer on its own and both screens show the same short number to confirm": "yes go ahead and build this") · **Builds on:** ADR-042 (gateway on the owner's computer), ADR-052 (pin-checked address search), ADR-054 (owner setup codes) · **Protocol:** additive gateway routes (`/v1/nearby…`, `/v1/admin/nearby…`); the device protocol is unchanged
+
+**Problem:** the QR code carries the gateway's address and certificate pin, which is what makes the phone's first connection safe. Without it the phone does not know which computer on the Wi-Fi is the owner's, nor its key, and anyone on the same Wi-Fi could pose as the gateway (or ask the gateway for an owner code).
+
+**Decision:**
+- **Finding it.** In the app, **Find my computer** tries port 8788 (the Wi-Fi listener's default) on every address of the phone's /24, as the reconnect search does (ADR-052), and keeps the hosts that complete a TLS handshake and answer `GET /v1/nearby` with `{"latch":"nearby"}` and the computer's name. The certificate's pin is recorded at that handshake, and every later request to that host is pinned to it, so the host cannot change keys during linking. No new listener or broadcast on either side.
+- **The number.** A commitment-then-reveal exchange, as in Bluetooth numeric comparison, so a device in the middle cannot pick values that make the two numbers agree:
+  1. phone → `POST /v1/nearby {"device": name}`; the gateway draws a 32-byte `Ng` and answers `{"id", "commit": SHA-256("latch-nearby-commit-v1" ‖ Ng)}`.
+  2. phone draws `Np` and sends it (`POST /v1/nearby/{id}/nonce`); only then does the gateway reveal `Ng`. The phone checks it against the commitment.
+  3. both compute `SHA-256("latch-nearby-sas-v1" ‖ pin ‖ Np ‖ Ng)`, take its first 4 bytes as a big-endian number mod 1 000 000, and show it as `123 456`. The phone uses the pin it saw, the gateway its own.
+  A device in the middle has to commit to its own nonce before it sees the other side's, so it matches the numbers by chance only once in a million tries, and each try needs the owner to approve.
+- **Approving.** The owner approves **on the computer only**, where the owner key lives: the request and its number appear in the `latch-start` terminal (when it is a terminal) and in `latch-gateway pair` (for a gateway in the background). The owner types `y` only when the phone shows the same number; anything else refuses. On approval the gateway makes an owner setup code (ADR-054) and returns it once to the waiting phone (`GET /v1/nearby/{id}`, long poll), over the pinned connection. The phone then pairs with `/v1/pair` exactly as after a scan. The phone can also cancel.
+- **Limits:** at most 3 requests waiting, 10 new requests a minute, each request lives 2 minutes and is answered once, a device name of at most 40 printable characters, a number shown only after the nonces are exchanged. `LATCH_NEARBY=0` turns the routes off (they answer 404). The admin routes need `LATCH_ADMIN_TOKEN`, so MCP tokens and AI apps cannot approve.
+
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| Another device on the Wi-Fi posing as the gateway (in the middle) | make the phone pair with it | The phone pins the key it saw; the owner approves on the real computer, where the number differs unless the attacker wins a one-in-a-million chance (commitment before reveal), and a mismatch is refused. With a match by chance, the attacker still gets only an owner code for a gateway the owner did not mean, through the phone, which asks for every permission and starts no session by itself |
+| Another device on the Wi-Fi asking for an owner code | become the owner | Only if the owner types `y` for its request. The terminal shows the device name and the number, and says to approve only when the phone in hand shows the same number. Requests are limited (3 waiting, 10 a minute, 2 minutes each) |
+| Someone flooding requests | hide the owner's request | The terminal shows each request with its number; the limits keep the list short; the owner can refuse and try again |
+| An AI app | approve a request | Needs the owner token; MCP tokens are refused on `/v1/admin` |
+| A passive listener | learn the setup code | It travels inside TLS to the pinned key and is single use for 15 minutes |
+
+**Not chosen:** mDNS/UDP announcements (a new gateway dependency and a multicast lock on the phone; the /24 search finds a gateway in a few seconds); approving on the phone only (the phone cannot know whether it talks to the real computer); a number from the pin alone (a 6-digit match against a chosen key takes about a million key generations, which is cheap).
+
+**Limits:** the computer must listen on port 8788 and be on the phone's /24 (most home networks); a gateway on another port still links by QR code or by hand. Approving needs a terminal: `latch-start` in a terminal, or `latch-gateway pair` for a background gateway.
+
+**Rollback:** turn it off with `LATCH_NEARBY=0`; the QR code and typed paths (ADR-054) are unchanged, and an older gateway answers 404, which the app reports as "no computer found".
