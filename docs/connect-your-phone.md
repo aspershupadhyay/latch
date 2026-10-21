@@ -19,6 +19,8 @@ curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/insta
 
 It picks the right file for your Mac, checks it against the published checksum, installs `latch-gateway` and `latch-start` in `~/.local/bin`, and creates your two keys once in `~/.latch/latch.env` (readable only by you). If it says to add a folder to your PATH, run the line it prints.
 
+> **On Windows?** Open **PowerShell** and run `irm https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.ps1 | iex` instead, then `latch start` in a new window. Allow `latch-gateway` on private networks when Windows asks. Everything below works the same.
+
 > **"Cannot be opened… Move to Trash"?** That happens when the gateway was downloaded in a browser. macOS quarantines it because it isn't notarized by Apple, and `chmod` can't lift that. The command above avoids it. To keep a file you downloaded in a browser instead: `xattr -d com.apple.quarantine ~/Downloads/latch-gateway-macos-arm64`.
 
 ## 3. Start it

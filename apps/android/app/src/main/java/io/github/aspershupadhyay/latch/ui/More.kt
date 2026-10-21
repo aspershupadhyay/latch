@@ -686,7 +686,7 @@ fun SettingsScreen(
             text = {
                 Text(
                     "Everything stops. Disconnect keeps this connection on the phone, so reconnecting is one tap on the first screen, with no QR code or key.\n\n" +
-                        "Forget keys removes them for good: to connect again you'll need a new QR code (run latch-gateway pair on your computer), your secret key, or a join code.",
+                        "Forget keys removes them for good: to connect again you'll need a new QR code (run latch pair on your computer), your secret key, or a join code.",
                 )
             },
             confirmButton = { TextButton(onClick = { confirmForget = false; onDisconnectKeep() }) { Text("Disconnect") } },

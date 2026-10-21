@@ -71,6 +71,53 @@ jobs:
       - run: node --test servers/mcp/tests/mirror-page.test.cjs
       - run: python3 scripts/headers.py --check
 
+  windows-installer:
+    name: Windows gateway installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # Windows PowerShell 5.1, what most owners have. The script runs as `irm … | iex` would run it,
+      # against the gateway already published in the beta release.
+      - name: Install, start in the background, stop, reinstall, uninstall
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:LOCALAPPDATA 'Latch\bin'
+          $latch = Join-Path $bin 'latch.cmd'
+          Get-Content -Raw scripts/install-gateway.ps1 | Invoke-Expression
+          if (-not (Test-Path (Join-Path $bin 'latch-gateway.exe'))) { throw 'latch-gateway.exe was not installed' }
+          & $latch version; if ($LASTEXITCODE -ne 0) { throw 'latch version failed' }
+          $keys = Get-Content -Raw (Join-Path $env:USERPROFILE '.latch\latch.env')
+          if ($keys -notmatch 'LATCH_MCP_TOKEN=\S+') { throw 'no keys were made' }
+
+          & $latch autostart on
+          $up = $false
+          foreach ($i in 1..30) {
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/healthz | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $up) { Get-Content -ErrorAction SilentlyContinue (Join-Path $env:USERPROFILE '.latch\gateway.log'); throw 'the background gateway did not answer on 127.0.0.1:8787/healthz' }
+          & $latch autostart status
+          & $latch status
+
+          # Installing again is an update: the running gateway is replaced, comes back, and the keys stay.
+          Get-Content -Raw scripts/install-gateway.ps1 | Invoke-Expression
+          if ((Get-Content -Raw (Join-Path $env:USERPROFILE '.latch\latch.env')) -ne $keys) { throw 'reinstalling changed the keys' }
+          $up = $false
+          foreach ($i in 1..30) {
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/healthz | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $up) { throw 'the background gateway did not come back after reinstalling' }
+
+          & $latch autostart off
+          Start-Sleep -Seconds 2
+          if (Get-Process -Name latch-gateway -ErrorAction SilentlyContinue) { throw 'the gateway still runs after autostart off' }
+
+          & $latch uninstall --all
+          if ($LASTEXITCODE -ne 0) { throw "latch uninstall exited with $LASTEXITCODE" }
+          if (Test-Path (Join-Path $bin 'latch-gateway.exe')) { throw 'uninstall left the gateway' }
+          if (Test-Path (Join-Path $bin 'latch.cmd')) { throw 'uninstall left the latch command' }
+          if (Test-Path (Join-Path $env:USERPROFILE '.latch')) { throw 'uninstall --all left the keys' }
+
   vercel:
     name: Vercel gateway (contract, typecheck, end-to-end on Redis)
     runs-on: ubuntu-latest

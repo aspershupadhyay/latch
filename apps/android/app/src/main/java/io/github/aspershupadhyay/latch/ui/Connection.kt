@@ -79,6 +79,10 @@ private val ConnectionKind.facts: List<String> get() = when (this) {
 const val GATEWAY_INSTALL_COMMAND =
     "curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh"
 
+/** The same on Windows, in PowerShell (scripts/install-gateway.ps1). */
+const val GATEWAY_INSTALL_COMMAND_WINDOWS =
+    "irm https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.ps1 | iex"
+
 data class WifiGatewayState(
     val address: String,
     /** The setup code under the QR code; an owner key (lgt_…) is accepted too. */
@@ -91,6 +95,7 @@ data class WifiGatewayState(
 
 class WifiGatewayActions(
     val copyInstall: () -> Unit = {},
+    val copyInstallWindows: () -> Unit = {},
     val copyStart: () -> Unit = {},
     val setAddress: (String) -> Unit = {},
     val setCode: (String) -> Unit = {},
@@ -193,18 +198,15 @@ fun WifiGatewayScreen(state: WifiGatewayState, actions: WifiGatewayActions) {
             BackBar(actions.back)
             ScreenTitle("Connect over Wi-Fi", "Run the Latch gateway on your computer. The phone and the computer must be on the same Wi-Fi.")
 
-            WifiStep(1, state.installCopied, "Install the gateway", "On your Mac or Linux computer, open Terminal and run this once.") {
-                CopyRow("Install command", GATEWAY_INSTALL_COMMAND, actions.copyInstall)
-                Text(
-                    "Windows: download latch-gateway-windows-x86_64.exe from the beta release instead.",
-                    style = MaterialTheme.typography.bodySmall, color = signal.text2,
-                )
+            WifiStep(1, state.installCopied, "Install the gateway", "Run this once on your computer.") {
+                CopyRow("Mac or Linux, in Terminal", GATEWAY_INSTALL_COMMAND, actions.copyInstall)
+                CopyRow("Windows, in PowerShell", GATEWAY_INSTALL_COMMAND_WINDOWS, actions.copyInstallWindows)
             }
 
             WifiStep(2, state.startCopied, "Start it", "It shows a QR code for this phone.") {
-                CopyRow("Start command", "latch-start", actions.copyStart)
+                CopyRow("Start command", "latch start", actions.copyStart)
                 Text(
-                    "Already running, or the code expired? Run latch-gateway pair for a new QR code. To keep it running after a restart, run latch-autostart on once.",
+                    "Already running, or the code expired? Run latch pair for a new QR code. To keep it running after a restart, run latch autostart on once.",
                     style = MaterialTheme.typography.bodySmall, color = signal.text2,
                 )
             }
@@ -450,7 +452,7 @@ fun FindComputerScreen(
             BackBar(onBack)
             when (state) {
                 NearbyState.Searching -> {
-                    ScreenTitle("Looking for your computer…", "Keep latch-start running on your computer. The phone and the computer must be on the same Wi-Fi.")
+                    ScreenTitle("Looking for your computer…", "Keep latch start running on your computer. The phone and the computer must be on the same Wi-Fi.")
                     LinearProgressIndicator(Modifier.fillMaxWidth(), color = signal.accent)
                 }
                 is NearbyState.Found -> {

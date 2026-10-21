@@ -13,7 +13,7 @@ SPDX = "SPDX-License-Identifier: AGPL-3.0-only"
 COPY = "Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors"
 STYLES = {
     "//": (".rs", ".kt", ".kts", ".ts", ".mjs", ".js", ".swift"),
-    "#": (".sh", ".py", ".yml", ".yaml", ".toml"),
+    "#": (".sh", ".ps1", ".py", ".yml", ".yaml", ".toml"),
     "css": (".css",),
     "html": (".html",),
 }

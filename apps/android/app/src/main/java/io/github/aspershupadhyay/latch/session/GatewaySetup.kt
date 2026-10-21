@@ -172,7 +172,7 @@ class GatewaySetup(private val http: OkHttpClient) {
                     }
                     Paired(gatewayUrl, r.deviceId, r.name, r.token, r.ownerKey)
                 }
-                403 -> throw SetupException("That code is wrong, used, or expired. Get a new one (on the computer: latch-gateway pair).")
+                403 -> throw SetupException("That code is wrong, used, or expired. Get a new one (on the computer: latch pair).")
                 429 -> throw SetupException("Too many wrong codes. Wait a minute and try again.")
                 503 -> throw SetupException("This gateway is not set up yet: its owner key (LATCH_ADMIN_TOKEN) is missing.")
                 else -> throw SetupException("The gateway answered with HTTP $status.")
@@ -215,7 +215,7 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
         when (status) {
             ok -> Unit
             401 -> throw SetupException(
-                "The gateway did not accept the owner key. Computer on Wi-Fi: scan the QR code instead (run latch-gateway pair " +
+                "The gateway did not accept the owner key. Computer on Wi-Fi: scan the QR code instead (run latch pair " +
                     "on the computer for a new one). Hosted relay: the key must match LATCH_ADMIN_TOKEN in Vercel exactly, or the " +
                     "newest key this app rotated to; lost it? Set a new LATCH_ADMIN_TOKEN and redeploy.",
             )
