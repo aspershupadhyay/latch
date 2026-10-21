@@ -113,7 +113,9 @@ jobs:
           if (Get-Process -Name latch-gateway -ErrorAction SilentlyContinue) { throw 'the gateway still runs after autostart off' }
 
           & $latch uninstall --all
+          if ($LASTEXITCODE -ne 0) { throw "latch uninstall exited with $LASTEXITCODE" }
           if (Test-Path (Join-Path $bin 'latch-gateway.exe')) { throw 'uninstall left the gateway' }
+          if (Test-Path (Join-Path $bin 'latch.cmd')) { throw 'uninstall left the latch command' }
           if (Test-Path (Join-Path $env:USERPROFILE '.latch')) { throw 'uninstall --all left the keys' }
 
   vercel:

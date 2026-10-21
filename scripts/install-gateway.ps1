@@ -228,7 +228,8 @@ switch ($cmd) {
         Remove-Item -Force $startup -ErrorAction SilentlyContinue
         Stop-All
         Start-Sleep -Milliseconds 500
-        Remove-Item -Force (Join-Path $bin 'latch-gateway.exe'), (Join-Path $bin 'latch.cmd') -ErrorAction SilentlyContinue
+        # latch.cmd is still running this script: it deletes itself once we return (see the installer).
+        Remove-Item -Force (Join-Path $bin 'latch-gateway.exe') -ErrorAction SilentlyContinue
         if ($all) { Remove-Item -Recurse -Force $latchHome -ErrorAction SilentlyContinue; Write-Host 'Removed the gateway, its keys, and its data.' }
         else { Write-Host "Removed the gateway. Your keys and phones stay in $latchHome (the installer brings it back)." }
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -246,9 +247,14 @@ switch ($cmd) {
     $latchPs1 = $latchPs1.Replace('@BIN@', $binDir.Replace("'", "''")).Replace('@HOME@', $latchHome.Replace("'", "''")).Replace('@RELEASE@', $release.Replace("'", "''"))
     Set-Content -Encoding UTF8 (Join-Path $binDir 'latch.ps1') $latchPs1
     # latch.cmd lets `latch` run from PowerShell and the Command Prompt, whatever the script policy.
+    # After `latch uninstall` removed latch.ps1, it removes itself with the (goto) idiom, so cmd
+    # never tries to read a batch file that is gone.
     @(
         '@echo off'
         'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0latch.ps1" %*'
+        'set "code=%errorlevel%"'
+        'if not exist "%~dp0latch.ps1" (goto) 2>nul & del "%~f0"'
+        'exit /b %code%'
     ) | Set-Content -Encoding ASCII (Join-Path $binDir 'latch.cmd')
 
     # On the PATH, for new windows and for this one.
