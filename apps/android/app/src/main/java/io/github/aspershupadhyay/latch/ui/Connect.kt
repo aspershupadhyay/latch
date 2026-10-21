@@ -71,14 +71,10 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScreenTitle("Connect your AI", "Works with Claude, ChatGPT, and other AI apps that support connectors.")
+        ScreenTitle("Connect", "Give your AI app one link. Works with Claude, ChatGPT, and others.")
 
         // Sign-in requests come first: someone is waiting in a browser.
         state.requests.forEach { request -> SignInCard(request, actions) }
-
-        state.connection?.let { current ->
-            if (state.created == null) ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved, state.bothConnected, actions.setBothConnected)
-        }
 
         state.created?.let { created ->
             Card {
@@ -125,9 +121,9 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                             Icon(LatchIcons.Copy, contentDescription = "Copy AI link", tint = signal.text)
                         }
                     }
-                    HowStep(1, "In your AI app, add a connector and paste the link. In Claude: Settings \u2192 Connectors \u2192 Add custom connector.")
+                    HowStep(1, "Copy the link. In your AI app, add it as a connector (in Claude: Settings \u2192 Connectors \u2192 Add custom connector).")
                     HowStep(2, "A Latch page opens and shows a 4-letter code.")
-                    HowStep(3, "When the same code shows up here, tap Approve.")
+                    HowStep(3, "When the same code shows up here, tap Approve. That's it.")
                 }
             }
         }
@@ -186,6 +182,17 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                     }
                 }
             }
+        }
+
+        // How the AI reaches this phone (Wi-Fi or the internet): set once, so it sits below the everyday parts.
+        state.connection?.let { current ->
+            if (state.created == null) {
+                SectionCaption("Connection")
+                ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved, state.bothConnected, actions.setBothConnected)
+            }
+        }
+
+        if (state.isOwner && state.created == null) {
             if (state.otherPhones.isNotEmpty()) {
                 val format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
                 SectionCaption("Other phones on this relay")

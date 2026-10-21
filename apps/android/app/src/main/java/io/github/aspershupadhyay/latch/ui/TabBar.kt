@@ -60,8 +60,8 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
  * The tab bar: icon and word on every tab (labelled icons are recognised
  * faster than bare ones). The chosen tab sits on a soft ember capsule, as in
  * Android's own navigation bar, so a child can see where they are; [current]
- * is null while a page (Settings, AI apps) is open over the tabs.
- * [badge] counts AI apps waiting to connect, on Home, where they are answered.
+ * is null while Settings is open over the tabs.
+ * [badge] counts AI apps waiting to connect, on the Connect tab, where they are answered.
  */
 @Composable
 fun LatchTabBar(current: Tab?, onSelect: (Tab) -> Unit, badge: Int) {
@@ -82,13 +82,13 @@ fun LatchTabBar(current: Tab?, onSelect: (Tab) -> Unit, badge: Int) {
                         .weight(1f)
                         .heightIn(min = 64.dp)
                         .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(t) })
-                        .semantics { contentDescription = if (t == Tab.HOME && badge > 0) "${t.label}, $badge AI ${if (badge == 1) "app" else "apps"} waiting" else t.label },
+                        .semantics { contentDescription = if (t == Tab.CONNECT && badge > 0) "${t.label}, $badge AI ${if (badge == 1) "app" else "apps"} waiting" else t.label },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Box(Modifier.size(width = 64.dp, height = 34.dp).clip(RoundedCornerShape(17.dp)).background(wash), contentAlignment = Alignment.Center) {
                         Icon(t.icon, contentDescription = null, tint = icon, modifier = Modifier.size(22.dp))
-                        if (t == Tab.HOME && badge > 0) {
+                        if (t == Tab.CONNECT && badge > 0) {
                             Box(
                                 Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = 1.dp).size(18.dp).clip(CircleShape).background(signal.danger),
                                 contentAlignment = Alignment.Center,

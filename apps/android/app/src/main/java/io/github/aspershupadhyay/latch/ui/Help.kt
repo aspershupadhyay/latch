@@ -246,7 +246,7 @@ private val GUIDE = listOf(
     ),
     GuideStep(
         "Connect your AI app",
-        "In Settings → Your AI apps, copy the AI link and add it to your AI app (in Claude: Settings → Connectors → Add custom connector). " +
+        "In the Connect tab, copy the AI link and add it to your AI app (in Claude: Settings → Connectors → Add custom connector). " +
             "When a 4-letter code shows in both places, tap Approve in Latch.",
     ),
     GuideStep(

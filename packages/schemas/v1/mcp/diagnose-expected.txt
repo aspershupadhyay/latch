@@ -1,5 +1,5 @@
 Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
-- No phone is paired with this gateway. Fix: the owner opens the Latch app (Settings → Your AI apps) and connects the phone to this gateway.
+- No phone is paired with this gateway. Fix: the owner opens the Latch app's Connect tab and connects the phone to this gateway.
 Verdict: not ready.
 ---
 Latch diagnosis (gateway protocol 1.8). Owner-facing fixes are marked "Fix:"; pass them on to the user.
