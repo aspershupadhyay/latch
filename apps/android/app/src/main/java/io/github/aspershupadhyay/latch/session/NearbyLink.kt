@@ -45,6 +45,9 @@ object NearbyLink {
     data class Found(val url: String, val pin: String, val name: String) {
         /** The setup link a scan would have given, with [code]. */
         fun setupLink(code: String) = "$url#pin=$pin&code=$code"
+
+        /** [base] trusting only this computer's key; the shared pins stay as they are. */
+        fun client(base: OkHttpClient): OkHttpClient = GatewayPins.pinnedTo(base.newBuilder(), pin).build()
     }
 
     class NearbyException(message: String) : Exception(message)
@@ -87,16 +90,17 @@ object NearbyLink {
         }
     }
 
-    /** [host] when it completes TLS and says it is a Latch gateway; its pin is then trusted for the linking. */
+    /**
+     * [host] when it completes TLS and says it is a Latch gateway. Its pin is
+     * trusted only by this linking's own client ([Found.client]), never written to
+     * the shared pins: a device answering at a paired gateway's address must not
+     * become trusted there.
+     */
     private suspend fun probe(host: String, port: Int, client: OkHttpClient): Found? {
         val pin = pinAt(host, port) ?: return null
         val url = "https://$host:$port"
-        GatewayPins.set(url, pin)
-        val hello = runCatching { get(client.quick(), "$url/v1/nearby") }.getOrNull()
-        if (hello == null || hello["latch"]?.jsonPrimitive?.contentOrNull != "nearby") {
-            GatewayPins.set(url, null)
-            return null
-        }
+        val hello = runCatching { get(GatewayPins.pinnedTo(client.quick().newBuilder(), pin).build(), "$url/v1/nearby") }.getOrNull()
+        if (hello == null || hello["latch"]?.jsonPrimitive?.contentOrNull != "nearby") return null
         val name = hello["name"]?.jsonPrimitive?.contentOrNull?.filterNot { it.isISOControl() }?.take(40)
         return Found(url, pin, name?.ifBlank { null } ?: host)
     }
@@ -130,7 +134,8 @@ object NearbyLink {
      * then waits for the owner's answer on the computer. Returns the setup
      * code; throws [NearbyException] when refused, expired, or not a match.
      */
-    suspend fun link(found: Found, device: String, client: OkHttpClient, onNumber: (String) -> Unit): String {
+    suspend fun link(found: Found, device: String, base: OkHttpClient, onNumber: (String) -> Unit): String {
+        val client = found.client(base)
         val started = post(client, "${found.url}/v1/nearby", obj("device" to device.take(40)))
         val id = started.text("id") ?: throw NearbyException("The computer did not start linking.")
         val commit = started.text("commit")?.let(::unhex) ?: throw NearbyException("The computer sent an unexpected answer.")

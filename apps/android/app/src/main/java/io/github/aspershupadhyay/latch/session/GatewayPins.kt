@@ -66,6 +66,31 @@ object GatewayPins {
         return builder.sslSocketFactory(context.socketFactory, trust).hostnameVerifier(verifier)
     }
 
+    /**
+     * [builder] that trusts exactly one certificate key, [pin], for every host, and
+     * leaves the shared pins alone. Find my computer (ADR-060) talks to a computer
+     * it has only just met through this, so a stranger answering on the Wi-Fi can
+     * never replace the pin of a gateway this phone already trusts.
+     */
+    fun pinnedTo(builder: OkHttpClient.Builder, pin: String): OkHttpClient.Builder {
+        val trust = object : X509TrustManager {
+            override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String) {
+                val leaf = chain.firstOrNull() ?: throw CertificateException("no certificate")
+                if (pinOf(leaf) != pin) throw CertificateException("this is not the computer's certificate")
+            }
+
+            override fun checkClientTrusted(chain: Array<out X509Certificate>, authType: String) =
+                throw CertificateException("server certificates only")
+
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        val context = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
+        val verifier = HostnameVerifier { _, session ->
+            runCatching { pinOf(session.peerCertificates.first()) == pin }.getOrDefault(false)
+        }
+        return builder.sslSocketFactory(context.socketFactory, trust).hostnameVerifier(verifier)
+    }
+
     /** Checks the pin for pinned hosts; hands every other host to the platform. */
     private class PinningTrustManager(private val platform: X509TrustManager) : X509ExtendedTrustManager() {
         private val extended = platform as? X509ExtendedTrustManager

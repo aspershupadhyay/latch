@@ -719,7 +719,7 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Problem:** the QR code carries the gateway's address and certificate pin, which is what makes the phone's first connection safe. Without it the phone does not know which computer on the Wi-Fi is the owner's, nor its key, and anyone on the same Wi-Fi could pose as the gateway (or ask the gateway for an owner code).
 
 **Decision:**
-- **Finding it.** In the app, **Find my computer** tries port 8788 (the Wi-Fi listener's default) on every address of the phone's /24, as the reconnect search does (ADR-052), and keeps the hosts that complete a TLS handshake and answer `GET /v1/nearby` with `{"latch":"nearby"}` and the computer's name. The certificate's pin is recorded at that handshake, and every later request to that host is pinned to it, so the host cannot change keys during linking. No new listener or broadcast on either side.
+- **Finding it.** In the app, **Find my computer** tries port 8788 (the Wi-Fi listener's default) on every address of the phone's /24, as the reconnect search does (ADR-052), and keeps the hosts that complete a TLS handshake and answer `GET /v1/nearby` with `{"latch":"nearby"}` and the computer's name. The certificate's pin is recorded at that handshake, and every later request to that host goes through a client pinned to it alone, so the host cannot change keys during linking and the phone's other pins are untouched. No new listener or broadcast on either side.
 - **The number.** A commitment-then-reveal exchange, as in Bluetooth numeric comparison, so a device in the middle cannot pick values that make the two numbers agree:
   1. phone → `POST /v1/nearby {"device": name}`; the gateway draws a 32-byte `Ng` and answers `{"id", "commit": SHA-256("latch-nearby-commit-v1" ‖ Ng)}`.
   2. phone draws `Np` and sends it (`POST /v1/nearby/{id}/nonce`); only then does the gateway reveal `Ng`. The phone checks it against the commitment.
@@ -736,6 +736,7 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 | Someone flooding requests | hide the owner's request | The terminal shows each request with its number; the limits keep the list short; the owner can refuse and try again |
 | An AI app | approve a request | Needs the owner token; MCP tokens are refused on `/v1/admin` |
 | A passive listener | learn the setup code | It travels inside TLS to the pinned key and is single use for 15 minutes |
+| A device answering at the paired gateway's address while the phone searches (ARP spoofing) | become trusted for the phone's own gateway connection | Found 2026-10-21 (the search wrote each host's pin into the phone's shared pins, replacing the paired gateway's). Since then the search and the linking use a client pinned to the found key alone (`GatewayPins.pinnedTo`); the shared pins change only when the owner pairs. Regression test `NearbyLinkTest.findingComputersLeavesTheSharedPinsAlone` |
 
 **Not chosen:** mDNS/UDP announcements (a new gateway dependency and a multicast lock on the phone; the /24 search finds a gateway in a few seconds); approving on the phone only (the phone cannot know whether it talks to the real computer); a number from the pin alone (a 6-digit match against a chosen key takes about a million key generations, which is cheap).
 

@@ -10,6 +10,7 @@ import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
+import androidx.core.content.edit
 import io.github.aspershupadhyay.latch.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,7 @@ class Updater(
     private val currentVersion: Long,
 ) {
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    private val prefs by lazy { context.getSharedPreferences("latch_updater", Context.MODE_PRIVATE) }
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
     private var lastCheckAt = 0L
@@ -123,11 +125,15 @@ class Updater(
      * Update screen when the owner has to confirm, for the activity to open.
      */
     fun onInstallStatus(intent: Intent): Intent? {
+        // MainActivity is exported, so any app can send it this action. Only the installer
+        // holds our PendingIntent, and with it the token; anything else is ignored, or an
+        // app could have Latch start an intent of its choosing as Latch.
+        if (!InstallStatus.authentic(intent, prefs.getString(TOKEN, null))) return null
         val info = (_state.value as? UpdateState.Installing)?.info
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
-                val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)?.let(InstallStatus::confirmation)
                 if (confirm == null) _state.value = UpdateState.Failed("Android did not show its Update screen. Try again.", info)
                 return confirm
             }
@@ -202,8 +208,12 @@ class Updater(
                     apk.inputStream().use { it.copyTo(out) }
                     session.fsync(out)
                 }
+                // A new secret per install, kept on disk so an answer after Latch restarts still counts.
+                val token = InstallStatus.newToken()
+                prefs.edit { putString(TOKEN, token) }
                 val status = Intent(context, MainActivity::class.java)
                     .setAction(ACTION_INSTALL_STATUS)
+                    .putExtra(InstallStatus.EXTRA_TOKEN, token)
                     .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 // Mutable so the installer can add its status; explicit, so only MainActivity receives it.
                 val pending = PendingIntent.getActivity(context, id, status, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
@@ -243,9 +253,34 @@ class Updater(
 
     companion object {
         const val ACTION_INSTALL_STATUS = "io.github.aspershupadhyay.latch.INSTALL_STATUS"
+        private const val TOKEN = "install_token"
         private const val CHECK_EVERY_MS = 30 * 60 * 1000L
         const val KEY_CHANGED =
             "This build is signed with a different key than the Latch on this phone, so Android will not install it over it. " +
                 "Uninstall Latch once and install the new build from GitHub; after that, updates work from here."
+    }
+}
+
+/** Checks on the installer's answer, which reaches Latch through its exported MainActivity. */
+internal object InstallStatus {
+    const val EXTRA_TOKEN = "io.github.aspershupadhyay.latch.INSTALL_TOKEN"
+
+    fun newToken(): String = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        .joinToString("") { "%02x".format(it) }
+
+    /** True only for an answer carrying [expected], the secret Latch put in its own PendingIntent. */
+    fun authentic(intent: Intent, expected: String?): Boolean {
+        val given = intent.getStringExtra(EXTRA_TOKEN) ?: return false
+        if (expected.isNullOrEmpty()) return false
+        return MessageDigest.isEqual(given.toByteArray(), expected.toByteArray())
+    }
+
+    /** Android's confirmation screen, with no URI grants: Latch passes it on and nothing more. */
+    fun confirmation(intent: Intent): Intent = Intent(intent).apply {
+        removeFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+        )
+        clipData = null
     }
 }
