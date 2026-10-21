@@ -305,7 +305,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
             } catch (e: io.github.aspershupadhyay.latch.session.NearbyLink.NearbyException) {
                 nearby = NearbyState.Failed(e.message ?: "Linking stopped.")
             } catch (e: java.io.IOException) {
-                nearby = NearbyState.Failed("Lost the computer on the Wi-Fi. Keep latch-start running and try again.")
+                nearby = NearbyState.Failed("Lost the computer on the Wi-Fi. Keep latch start running and try again.")
             }
         }
     }
@@ -323,7 +323,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
             val found = io.github.aspershupadhyay.latch.session.NearbyLink.discover(phone, Pairing.client())
             nearby = when {
                 found.isEmpty() -> NearbyState.Failed(
-                    "No computer found. On your computer, run latch-start (it must show “Connect your phone”), and check both are on the same Wi-Fi.",
+                    "No computer found. On your computer, run latch start (it must show “Connect your phone”), and check both are on the same Wi-Fi.",
                 )
                 found.size == 1 -> NearbyState.Found(found).also { linkNearby(found.first()) }
                 else -> NearbyState.Found(found)
@@ -376,7 +376,8 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
             WifiGatewayState(address, secret, busy, error, installCopied, startCopied),
             WifiGatewayActions(
                 copyInstall = { copyToClipboard(context, "Install command", GATEWAY_INSTALL_COMMAND, sensitive = false); installCopied = true },
-                copyStart = { copyToClipboard(context, "Start command", "latch-start", sensitive = false); startCopied = true },
+                copyInstallWindows = { copyToClipboard(context, "Install command", GATEWAY_INSTALL_COMMAND_WINDOWS, sensitive = false); installCopied = true },
+                copyStart = { copyToClipboard(context, "Start command", "latch start", sensitive = false); startCopied = true },
                 setAddress = { address = it; error = null },
                 setCode = { secret = it; error = null },
                 scan = {

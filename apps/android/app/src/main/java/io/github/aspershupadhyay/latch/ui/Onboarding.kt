@@ -123,7 +123,7 @@ fun WelcomeScreen(
             if (onScan != null) {
                 IconButtonLarge("Scan the code on my computer", LatchIcons.Camera, onScan, Modifier.fillMaxWidth(), container = signal.ink, content = signal.onInk, tall = true)
                 Text(
-                    "On your computer, run latch-start. It shows the code.",
+                    "On your computer, run latch start. It shows the code.",
                     style = MaterialTheme.typography.bodySmall,
                     color = signal.text2,
                     textAlign = TextAlign.Center,
@@ -266,7 +266,7 @@ fun JoinGatewayScreen(state: JoinState, actions: JoinActions) {
                 if (state.mode == JoinMode.OWNER_KEY) {
                     LabeledField(
                         label = "Secret key",
-                        hint = "The owner key: the one you pasted into Vercel (it starts with lok_), or the one latch-start prints for a relay on your computer (lgt_…).",
+                        hint = "The owner key: the one you pasted into Vercel (it starts with lok_), or the one latch start prints for a relay on your computer (lgt_…).",
                         value = state.secret,
                         onValueChange = actions.setSecret,
                         topic = HelpTopic.SECRET_KEY,

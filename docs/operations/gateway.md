@@ -12,6 +12,14 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh
 ```
 
+**Windows, one line** in PowerShell (checks the checksum, installs `latch-gateway.exe` and the `latch` command in `%LOCALAPPDATA%\Latch\bin` and on your PATH, and makes your keys once in `%USERPROFILE%\.latch\latch.env`, readable only by you; no administrator rights):
+
+```powershell
+irm https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.ps1 | iex
+```
+
+Then run `latch start` in a new window. The first time, Windows asks whether to let `latch-gateway` through its firewall: allow it on **private networks**, so the phone can reach it. The `latch` commands below are the same on Windows; `latch autostart on` starts the gateway hidden at log-in from your own Startup folder, and `latch logs` follows `%USERPROFILE%\.latch\gateway.log`. Running the line again updates the gateway and keeps keys and phones.
+
 Then `latch-start` runs it for phones on this Wi-Fi and prints the owner key, the AI key, and the address for the phone. Step by step with the phone: [docs/connect-your-phone.md](../connect-your-phone.md).
 
 **The `latch` command** (installed with it) does everything else:
