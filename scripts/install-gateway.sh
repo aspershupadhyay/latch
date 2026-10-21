@@ -216,6 +216,7 @@ latch — the Latch gateway on this computer
   latch start            Start it here and show the QR code for your phone
   latch pair [--open]    A new QR code (--open: big, in the browser); also approves
                          phones that use Find my computer
+  latch usb [--watch]    Phone on a USB cable: the lowest mirror delay (needs adb, USB debugging)
   latch status           Running? Version, phones, Wi-Fi address
   latch autostart on|off Keep it running in the background, also after a restart
   latch stop             Stop it (background and terminal)
@@ -232,6 +233,7 @@ cmd="${1:-help}"
 case "$cmd" in
   start) exec "$bin/latch-start" "$@" ;;
   pair) load; exec "$bin/latch-gateway" pair "$@" ;;
+  usb) load; exec "$bin/latch-gateway" usb "$@" ;;
   status) load; exec "$bin/latch-gateway" status ;;
   autostart) exec "$bin/latch-autostart" "$@" ;;
   stop) stop_all; echo "Stopped." ;;

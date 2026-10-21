@@ -117,9 +117,11 @@ class MirrorLink(
 
     private fun offerUdp(webSocket: WebSocket, port: Int) {
         closeUdp()
+        // R57: over the USB cable there is no loss to recover from, and adb forwards TCP only.
+        if (io.github.aspershupadhyay.latch.session.UsbGateway.isUsb(url)) return
+        val host = url.toHttpUrlOrNull()?.host ?: return
         val (id, key) = MirrorUdp.newSession()
         if (!webSocket.send(MirrorUdp.offer(id, key))) return
-        val host = url.toHttpUrlOrNull()?.host ?: return
         // Off the socket's thread: a host name may need a lookup. Hellos repeat until the
         // gateway has the offer and answers.
         runCatching {

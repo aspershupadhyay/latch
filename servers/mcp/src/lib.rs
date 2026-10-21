@@ -30,6 +30,7 @@ pub mod signing;
 pub mod store;
 pub mod terminal;
 pub mod transfers;
+pub mod usb;
 pub mod wifi;
 
 use std::sync::{Arc, Mutex, MutexGuard};

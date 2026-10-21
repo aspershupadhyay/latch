@@ -10,6 +10,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **Optional USB cable for the lowest delay** (R57): `latch usb` on the computer (with USB debugging on the phone), and the app moves to the cable by itself within seconds; unplug and it goes back to the Wi-Fi. Wireless stays the default.
 - **No more freeze-then-jump on Wi-Fi** (R56): the mirror's video and sound now go over encrypted UDP when the gateway runs on your computer. A lost Wi-Fi packet is asked for again within milliseconds and delays only its own frame, where before it held every later frame for 200 ms or more. If UDP is blocked, the mirror stays on its WebSocket by itself. Alt+D shows which one is in use.
 - **A much smaller download** (R55): each release also comes as one APK per chip type, and the in-app updater fetches the one for your phone: about 21 MB instead of 56 MB on almost every phone. `latch-android.apk` still installs everywhere.
 - **Lower mirror delay on a busy Wi-Fi** (R54): the mirror and AI traffic ask the router for its video queue (WMM), ahead of other devices' downloads. **120 fps** on phones with a 120 Hz screen (back to 60 before the picture gets smaller on a slow network), and an instant touch dot on the page under your pointer while you press or drag.

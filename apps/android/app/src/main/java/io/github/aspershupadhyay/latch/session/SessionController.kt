@@ -45,6 +45,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -177,6 +178,12 @@ class SessionController(
 
     init {
         approvals.onRequested = ::offerApproval
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(UsbGateway.CHECK_MS)
+                runCatching { checkUsb() }
+            }
+        }
         scope.launch {
             combine(settings.preferences, bridge.service) { _, _ -> Unit }.collect {
                 // Turning full ADB off ends its background jobs, as Stop does (ADR-049).
@@ -589,20 +596,43 @@ class SessionController(
         scope.launch {
             try {
                 val found = WifiRediscovery.find(pairing.gatewayUrl, pin, phone) ?: return@launch
-                GatewayPins.set(found, pin)
-                if (settings.pairing.value?.deviceId == pairing.deviceId) {
-                    settings.moveGateway(found)
-                    link?.moveTo(found)
-                } else {
-                    val kind = settings.saved.value.entries.firstOrNull { it.value.deviceId == pairing.deviceId }?.key ?: return@launch
-                    settings.moveKept(kind, found)
-                    if (secondKind == kind) second?.moveTo(found)
-                }
-                onGatewayMoved?.invoke(pairing.deviceId, found)
-                log.add(ActivityKind.CONNECTION, "Found your computer at its new address on the Wi-Fi")
+                movedTo(pairing, pin, found, "Found your computer at its new address on the Wi-Fi")
             } finally {
                 rediscovering = false
             }
+        }
+    }
+
+    /** The gateway of [pairing] is at [found] now (it serves [pin] there): save it and move every link. */
+    private fun movedTo(pairing: io.github.aspershupadhyay.latch.data.Pairing, pin: String, found: String, note: String) {
+        GatewayPins.set(found, pin)
+        if (settings.pairing.value?.deviceId == pairing.deviceId) {
+            settings.moveGateway(found)
+            link?.moveTo(found)
+        } else {
+            val kind = settings.saved.value.entries.firstOrNull { it.value.deviceId == pairing.deviceId }?.key ?: return
+            settings.moveKept(kind, found)
+            if (secondKind == kind) second?.moveTo(found)
+        }
+        onGatewayMoved?.invoke(pairing.deviceId, found)
+        log.add(ActivityKind.CONNECTION, note)
+    }
+
+    /**
+     * R57: a USB cable to the computer, after `latch usb` there (`adb reverse`), puts the
+     * gateway on this phone's own 127.0.0.1 at the Wi-Fi port: the lowest delay there is.
+     * Every few seconds, a Wi-Fi gateway's pin is looked for there; the pin proves it is the
+     * same computer (no other app on the phone can show that key). When the cable comes out
+     * the link drops and the usual Wi-Fi search ([findAgain]) brings it back to the Wi-Fi.
+     */
+    private suspend fun checkUsb() {
+        val pairings = listOfNotNull(settings.pairing.value) + settings.saved.value.values
+        for (pairing in pairings.distinctBy { it.deviceId }) {
+            val pin = pairing.pin ?: continue
+            val url = pairing.gatewayUrl.toHttpUrlOrNull() ?: continue
+            if (url.host == UsbGateway.HOST) continue
+            if (!WifiRediscovery.servesPin(UsbGateway.HOST, url.port, pin)) continue
+            movedTo(pairing, pin, UsbGateway.url(url.port), "Connected to your computer over the USB cable")
         }
     }
 
@@ -900,3 +930,14 @@ private const val SWITCHED = "You switched how your AI reaches this phone"
 
 /** The reason the owner's own Stop gives; it ends live mirroring too. */
 const val OWNER_STOP = "You stopped the session"
+
+/** R57: the gateway reached over a USB cable (`adb reverse` on the computer). */
+object UsbGateway {
+    const val HOST = "127.0.0.1"
+    const val CHECK_MS = 4_000L
+
+    fun url(port: Int) = "https://$HOST:$port"
+
+    /** Whether [url] is the gateway over the cable: its pinned https listener on the loopback. */
+    fun isUsb(url: String): Boolean = url.toHttpUrlOrNull()?.let { it.isHttps && it.host == HOST } == true
+}

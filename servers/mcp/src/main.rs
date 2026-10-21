@@ -20,6 +20,8 @@ USAGE:
                               (the gateway must be running; uses LATCH_ADMIN_TOKEN)
     latch-gateway status      Is the gateway running? Its version, phones, Wi-Fi address, and data folder
                               (uses LATCH_ADMIN_TOKEN for the phones; exit code 1 when not running)
+    latch-gateway usb         Connect phones on a USB cable for the lowest mirror delay (needs adb and
+                              USB debugging; --watch: keep connecting phones as they are plugged in)
     latch-gateway gen-token   Print a new random token for LATCH_ADMIN_TOKEN or LATCH_MCP_TOKEN
     latch-gateway check-phone [--url URL] [--device ID] [--quick] [--no-prompts] [--report FILE]
                               Check a connected phone end to end over this gateway's MCP
@@ -40,7 +42,7 @@ ENVIRONMENT:
     LATCH_NAME              this computer's name in the app's Find my computer list
 
 Installed with install-gateway.sh, the `latch` command wraps these:
-    latch start | pair | status | update | uninstall | autostart on|off | stop | restart | logs
+    latch start | pair | status | usb | update | uninstall | autostart on|off | stop | restart | logs
     RUST_LOG                log filter (default info)
 ";
 
@@ -103,6 +105,7 @@ async fn run(mode: String) -> ExitCode {
         }
         "check-phone" => return check_phone().await,
         "pair" => return pair().await,
+        "usb" => return usb().await,
         "status" => return status().await,
         "serve" | "stdio" => {}
         other => {
@@ -267,6 +270,79 @@ fn phone_setup(state: &AppState, address: String) -> Option<PhoneSetup> {
         },
         Err(_) => None,
     }
+}
+
+/// `latch-gateway usb` (R57): puts this gateway's Wi-Fi port on each cabled
+/// phone's own 127.0.0.1 (`adb reverse`); the app finds its pinned key there
+/// and moves its links to the cable. `--watch` keeps doing it as phones come and go.
+async fn usb() -> ExitCode {
+    let style = Style::detect();
+    let port = std::env::var("LATCH_WIFI_BIND")
+        .ok()
+        .and_then(|b| b.parse::<std::net::SocketAddr>().ok())
+        .map_or(wifi::DEFAULT_BIND.port(), |a| a.port());
+    let Some(adb) = latch_gateway::usb::adb() else {
+        eprintln!(
+            "latch-gateway usb: adb was not found. Install Android's platform tools (https://developer.android.com/tools/releases/platform-tools), or set ADB to its path."
+        );
+        return ExitCode::FAILURE;
+    };
+    if tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .is_err()
+    {
+        eprintln!(
+            "latch-gateway usb: nothing answers on port {port} here. Start the gateway with its Wi-Fi listener first (latch start)."
+        );
+        return ExitCode::FAILURE;
+    }
+    let watch = std::env::args().skip(2).any(|a| a == "--watch");
+    let mut done: Vec<String> = Vec::new();
+    let mut told_unauthorized = false;
+    let mut told_none = false;
+    loop {
+        match latch_gateway::usb::connect(&adb, port, &done) {
+            Ok(round) => {
+                for serial in &round.connected {
+                    eprintln!(
+                        "  {} {serial}: the app moves to the cable within a few seconds.",
+                        style.accent("Connected over USB:")
+                    );
+                }
+                for (serial, why) in &round.failed {
+                    eprintln!("  Could not connect {serial}: {why}");
+                }
+                if !round.unauthorized.is_empty() && !told_unauthorized {
+                    told_unauthorized = true;
+                    eprintln!(
+                        "  Unlock the phone and allow USB debugging for this computer, then run this again."
+                    );
+                }
+                done.extend(round.connected);
+            }
+            Err(e) => {
+                eprintln!("latch-gateway usb: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+        if !watch {
+            break;
+        }
+        if done.is_empty() && !told_none {
+            told_none = true;
+            eprintln!(
+                "  Waiting for a phone on a USB cable (with USB debugging on). Ctrl+C to stop."
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    }
+    if done.is_empty() {
+        eprintln!(
+            "  No phone on a USB cable. Plug it in, turn on USB debugging (Developer options), and allow this computer."
+        );
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
 }
 
 /// `latch-gateway pair`: a new setup code from the gateway running here.
