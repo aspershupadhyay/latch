@@ -56,7 +56,7 @@ pub fn render_diagnosis(input: &DiagnosisInput) -> String {
     );
     if input.phones.is_empty() {
         out.push_str(
-            "- No phone is paired with this gateway. Fix: the owner opens the Latch app (Settings → Your AI apps) and connects the phone to this gateway.\n\
+            "- No phone is paired with this gateway. Fix: the owner opens the Latch app's Connect tab and connects the phone to this gateway.\n\
              Verdict: not ready.\n",
         );
         return out;
