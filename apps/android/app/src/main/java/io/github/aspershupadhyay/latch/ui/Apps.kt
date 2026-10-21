@@ -103,7 +103,7 @@ fun AppsScreen(
                 ListRow(
                     LatchIcons.ShieldCheck,
                     "On means no questions in that app",
-                    "Everything it does is listed in Activity. " +
+                    "Everything it does is listed in History. " +
                         if (trustCritical) "Payments, installs, and permissions don't ask either." else "Payments, installs, permissions, and deleting an account still ask you.",
                     tint = signal.accent,
                 )

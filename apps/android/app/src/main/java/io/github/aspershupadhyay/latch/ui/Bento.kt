@@ -42,8 +42,8 @@ import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val TileShape = RoundedCornerShape(16.dp)
-val ButtonShape = RoundedCornerShape(14.dp)
+val TileShape = RoundedCornerShape(22.dp)
+val ButtonShape = RoundedCornerShape(18.dp)
 val Gap = 12.dp
 
 /** A row of bento tiles that share the tallest tile's height. */
@@ -127,7 +127,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             contentColor = contentColor ?: if (color == null) signal.onInk else signal.onAccent,
         ),
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
-        modifier = modifier.heightIn(min = 52.dp),
+        modifier = modifier.heightIn(min = 56.dp),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
 
@@ -148,7 +148,7 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
             disabledContentColor = signal.disabled,
         ),
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
-        modifier = modifier.heightIn(min = 52.dp),
+        modifier = modifier.heightIn(min = 56.dp),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
 

@@ -41,7 +41,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
 import io.github.aspershupadhyay.latch.data.ConnectionKind
 import io.github.aspershupadhyay.latch.data.FolderGrant
+import io.github.aspershupadhyay.latch.data.AutoMode
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -156,13 +158,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Three tabs, the most a child holds in mind; AI apps and Settings open from the gear on Home. */
 enum class Tab(val label: String, val icon: ImageVector) {
     HOME("Home", LatchIcons.Home),
     CAPABILITIES("Access", LatchIcons.ShieldCheck),
-    CONNECT("AI apps", LatchIcons.Plug),
-    ACTIVITY("Activity", LatchIcons.Pulse),
-    SETTINGS("Settings", LatchIcons.Sliders),
+    ACTIVITY("History", LatchIcons.Pulse),
 }
+
+/** A page over the tabs, reached from Home's gear: Settings, and AI apps inside it. */
+enum class Page { SETTINGS, CONNECT }
 
 private enum class Onboarding { WELCOME, CHOOSE, CREATE, WIFI, JOIN, GUIDE, NEARBY }
 
@@ -207,7 +211,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val saved by app.settings.saved.collectAsStateWithLifecycle()
-    // From the Connect tab's switch: open straight at the chosen way of connecting.
+    // From the AI apps page's switch: open straight at the chosen way of connecting.
     var step by rememberSaveable {
         mutableStateOf(
             when (setUp) {
@@ -412,6 +416,15 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
 @Composable
 private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
+    // Settings, or AI apps over it; back closes the top one.
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var connectOpen by rememberSaveable { mutableStateOf(false) }
+    val page = if (connectOpen) Page.CONNECT else if (settingsOpen) Page.SETTINGS else null
+    fun go(to: Tab) {
+        tab = to
+        settingsOpen = false
+        connectOpen = false
+    }
     // When a session started and ended, for the summary card on Home. Watched here, not on Home, so a
     // session that ends while another tab is open still gets its card.
     val session by app.session.state.collectAsStateWithLifecycle()
@@ -445,7 +458,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
     val ownerKeyVersion by app.settings.ownerKeyVersion.collectAsStateWithLifecycle()
     // R49: every 3 s on Connect, where AI apps are added, and every 12 s elsewhere; a
     // waiting request keeps it quick. Switching tabs asks at once.
-    val onConnect = tab == Tab.CONNECT
+    val onConnect = connectOpen
     val requestsFlow = remember(pairing, isOwner, ownerKeyVersion, requestsTick, onConnect) {
         val owner = pairing?.let { p -> app.settings.ownerKey()?.let { OwnerClient(app.http, p.gatewayUrl, it) } }
         if (owner == null) {
@@ -478,13 +491,24 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
         return
     }
 
+    BackHandler(enabled = page != null) { if (connectOpen) connectOpen = false else settingsOpen = false }
+    val pending by app.approvals.pending.collectAsStateWithLifecycle()
+
     Scaffold(
         containerColor = signal.canvas,
-        bottomBar = { LatchTabBar(tab, { tab = it }, signInRequests.size) },
+        bottomBar = {
+            Column {
+                // While a session runs, Stop is one tap away on every screen, not only on Home.
+                if (tab != Tab.HOME || page != null) {
+                    SessionBar(session, pending != null, reducedMotion, stop = app.session::stop, open = { go(Tab.HOME) })
+                }
+                LatchTabBar(if (page == null) tab else null, ::go, signInRequests.size)
+            }
+        },
     ) { padding ->
         Box(Modifier.padding(padding)) {
             AnimatedContent(
-                targetState = tab,
+                targetState = page to tab,
                 transitionSpec = {
                     if (reducedMotion) {
                         EnterTransition.None togetherWith ExitTransition.None
@@ -493,42 +517,54 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                     }
                 },
                 label = "tabs",
-            ) { current ->
-                when (current) {
-                    Tab.HOME -> HomeRoute(
-                        app, reducedMotion, signInRequests, summary,
-                        dismissSummary = { sessionStartMs = null; sessionEndMs = null },
-                        go = { tab = it },
-                        openSetup = { setupOpen = true },
-                    )
-                    Tab.CAPABILITIES -> CapabilitiesRoute(app) { setupOpen = true }
-                    Tab.CONNECT -> ConnectRoute(app, signInRequests) { requestsTick++ }
-                    Tab.ACTIVITY -> {
-                        val entries by app.log.entries.collectAsStateWithLifecycle(app.log.snapshot())
-                        val context = LocalContext.current
-                        val scope = rememberCoroutineScope()
-                        ActivityScreen(entries, app.log::clear) { period ->
-                            scope.launch {
-                                val saved = runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        val d = deviceDescriptor()
-                                        val report = ActivityReport.build(
-                                            app.log.snapshot(), period, System.currentTimeMillis(),
-                                            "${d.model} · Android ${d.osVersion} · Latch ${d.appVersion}",
-                                        )
-                                        ReportSaver.save(context, report)
+            ) { (currentPage, current) ->
+                when (currentPage) {
+                    Page.CONNECT -> Column {
+                        BackBar({ connectOpen = false }, if (settingsOpen) "Settings" else "Back")
+                        Box(Modifier.weight(1f)) { ConnectRoute(app, signInRequests) { requestsTick++ } }
+                    }
+                    Page.SETTINGS -> Column {
+                        BackBar({ settingsOpen = false }, "Home")
+                        Box(Modifier.weight(1f)) {
+                            SettingsRoute(app, reducedMotion, signInRequests.size, openConnect = { connectOpen = true }, openGuide = { guideOpen = true }) { setupOpen = true }
+                        }
+                    }
+                    null -> when (current) {
+                        Tab.HOME -> HomeRoute(
+                            app, reducedMotion, signInRequests, summary,
+                            dismissSummary = { sessionStartMs = null; sessionEndMs = null },
+                            go = ::go,
+                            openSetup = { setupOpen = true },
+                            openSettings = { settingsOpen = true },
+                            openConnect = { connectOpen = true },
+                        )
+                        Tab.CAPABILITIES -> CapabilitiesRoute(app) { setupOpen = true }
+                        Tab.ACTIVITY -> {
+                            val entries by app.log.entries.collectAsStateWithLifecycle(app.log.snapshot())
+                            val context = LocalContext.current
+                            val scope = rememberCoroutineScope()
+                            ActivityScreen(entries, app.log::clear) { period ->
+                                scope.launch {
+                                    val saved = runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            val d = deviceDescriptor()
+                                            val report = ActivityReport.build(
+                                                app.log.snapshot(), period, System.currentTimeMillis(),
+                                                "${d.model} · Android ${d.osVersion} · Latch ${d.appVersion}",
+                                            )
+                                            ReportSaver.save(context, report)
+                                        }
                                     }
-                                }
-                                saved.onSuccess {
-                                    Toast.makeText(context, "Saved to Downloads/${ReportSaver.FOLDER}/${it.name}", Toast.LENGTH_LONG).show()
-                                    context.startActivity(ReportSaver.shareIntent(it))
-                                }.onFailure {
-                                    Toast.makeText(context, "Could not save the report: ${it.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                                    saved.onSuccess {
+                                        Toast.makeText(context, "Saved to Downloads/${ReportSaver.FOLDER}/${it.name}", Toast.LENGTH_LONG).show()
+                                        context.startActivity(ReportSaver.shareIntent(it))
+                                    }.onFailure {
+                                        Toast.makeText(context, "Could not save the report: ${it.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                                    }
                                 }
                             }
                         }
                     }
-                    Tab.SETTINGS -> SettingsRoute(app, reducedMotion, openGuide = { guideOpen = true }) { setupOpen = true }
                 }
             }
         }
@@ -615,6 +651,8 @@ private fun HomeRoute(
     dismissSummary: () -> Unit,
     go: (Tab) -> Unit,
     openSetup: () -> Unit,
+    openSettings: () -> Unit,
+    openConnect: () -> Unit,
 ) {
     val context = LocalContext.current
     val state by app.session.state.collectAsStateWithLifecycle()
@@ -625,6 +663,7 @@ private fun HomeRoute(
     // R49: Home shows the newest line and a count; it does not hold the whole log.
     val lastActivity by app.log.latest.collectAsStateWithLifecycle()
     val activityCount by app.log.count.collectAsStateWithLifecycle()
+    val autonomy by app.autonomy.state.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     val outdatedGateway by app.session.outdatedGateway.collectAsStateWithLifecycle()
     val update by app.updater.state.collectAsStateWithLifecycle()
@@ -690,6 +729,8 @@ private fun HomeRoute(
             pending = pending,
             lastActivity = lastActivity,
             activityCount = activityCount,
+            appsOn = autonomy.allowed.size,
+            autoAll = autonomy.auto != AutoMode.OFF,
             isOwner = isOwner,
             reducedMotion = reducedMotion,
             signInRequests = signInRequests,
@@ -724,10 +765,11 @@ private fun HomeRoute(
             openAccessibilitySettings = { openAccessibilityFor(context) },
             openAppInfo = { context.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) },
             goCapabilities = { go(Tab.CAPABILITIES) },
-            goConnect = { go(Tab.CONNECT) },
+            goConnect = openConnect,
             goActivity = { go(Tab.ACTIVITY) },
             openSetup = openSetup,
-            reviewSignIns = { go(Tab.CONNECT) },
+            openSettings = openSettings,
+            reviewSignIns = openConnect,
             openGatewayUpdateHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, GATEWAY_UPDATE_HELP.toUri())) },
             openRelaySpeedHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, RELAY_SPEED_HELP.toUri())) },
             installUpdate = { info -> installUpdate(app, context, info) },
@@ -969,7 +1011,7 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
 }
 
 @Composable
-private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -> Unit, openSetup: () -> Unit) {
+private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, aiWaiting: Int, openConnect: () -> Unit, openGuide: () -> Unit, openSetup: () -> Unit) {
     val context = LocalContext.current
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
@@ -1002,6 +1044,9 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         onDisconnectKeep = { app.session.keepAndSetUpAnother() },
         onOpenAccessibility = { openAccessibilityFor(context) },
         onOpenSetup = openSetup,
+        onOpenConnect = openConnect,
+        aiWaiting = aiWaiting,
+        connection = p.kind,
         update = update,
         checkUpdates = prefs.checkUpdates,
         onCheckUpdates = { v -> app.settings.update { it.copy(checkUpdates = v) } },

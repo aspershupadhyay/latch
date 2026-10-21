@@ -297,7 +297,7 @@ fun SavedConnectionsCard(saved: Map<ConnectionKind, String>, onUse: (ConnectionK
 }
 
 /**
- * Connect tab: how the AI reaches this phone now, and the switch to the other
+ * AI apps page: how the AI reaches this phone now, and the switch to the other
  * way. A kept connection switches in one tap; otherwise the owner sets it up
  * once and this one is kept.
  */

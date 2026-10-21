@@ -12,6 +12,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
+import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -234,6 +241,42 @@ private fun dayLabel(atMs: Long, nowMs: Long): String {
  * Everything the AI did, asked, and was refused, newest first, filterable by
  * kind. Kept on this phone for a week; never screen or typed text.
  */
+/** One step on the History timeline: a round glyph joined to the next step by a line, the words, and the time. */
+@Composable
+private fun TimelineRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    title: String,
+    titleColor: Color,
+    time: String,
+    detail: String,
+    by: ActivityActor,
+    last: Boolean,
+) {
+    val signal = LocalSignal.current
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(horizontal = 4.dp)) {
+        Column(Modifier.width(40.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(tint.copy(alpha = if (signal.dark) 0.14f else 0.10f)),
+                contentAlignment = Alignment.Center,
+            ) { Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp)) }
+            if (!last) Box(Modifier.padding(top = 4.dp).width(2.dp).weight(1f).background(signal.border))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f).padding(top = 2.dp, bottom = if (last) 0.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                Text(time, style = MaterialTheme.typography.bodySmall, fontFamily = GeistMono, color = signal.text3, maxLines = 1)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = signal.text2, modifier = Modifier.weight(1f))
+                ActorTag(by)
+            }
+        }
+    }
+}
+
 @Composable
 fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: (ReportPeriod) -> Unit = {}) {
     val signal = LocalSignal.current
@@ -251,29 +294,24 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ScreenTitle("Activity", "What the AI did, what you did, and what Latch did.")
-                // The privacy promise gets its own line, where it is seen.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(LatchIcons.Lock, contentDescription = null, tint = signal.success, modifier = Modifier.size(16.dp))
-                    Text("Kept on this phone for 7 days. Never screen text or typed text.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
-                }
-            }
-        }
-        if (entries.isNotEmpty()) {
-            item {
-                Card {
-                    ListRow(
-                        LatchIcons.Share,
-                        "Export a PDF report",
-                        "Every step the AI took, what it asked, and what you answered, for a task or a period. Saved to Downloads.",
-                        tint = signal.accent,
-                        onClick = { choosePeriod = true },
-                        onClickLabel = "Choose what the report covers",
-                    )
+            Row(verticalAlignment = Alignment.Top) {
+                Box(Modifier.weight(1f)) { ScreenTitle("History", "Everything your AI did, in plain words.") }
+                if (entries.isNotEmpty()) {
+                    // The PDF report: every step, what the AI asked, and what you answered.
+                    Row(
+                        Modifier.padding(top = 10.dp).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp))
+                            .background(signal.surface).border(1.dp, signal.border, RoundedCornerShape(14.dp))
+                            .clickable(onClickLabel = "Save a PDF report", role = Role.Button) { choosePeriod = true }
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(LatchIcons.Share, contentDescription = null, tint = signal.text2, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Save PDF", style = MaterialTheme.typography.labelLarge, color = signal.text)
+                    }
                 }
             }
         }
@@ -313,33 +351,38 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
                 }
             }
         }
+        val listed = shown.take(SHOWN_ENTRIES)
         var lastDay: String? = null
-        shown.take(SHOWN_ENTRIES).forEachIndexed { i, e ->
+        listed.forEachIndexed { i, e ->
             val day = dayLabel(e.atMs, now)
             if (day != lastDay) {
                 lastDay = day
                 item(key = "day-$day-$i") { SectionCaption(day) }
             }
+            // The line to the next step stops at the end of the day.
+            val last = i == listed.lastIndex || dayLabel(listed[i + 1].atMs, now) != day
             item(key = "e-${e.atMs}-$i") {
                 val tint = when (e.kind) {
                     ActivityKind.REFUSAL -> signal.danger
                     ActivityKind.APPROVAL, ActivityKind.APP -> signal.warning
-                    ActivityKind.ACTION, ActivityKind.TASK -> signal.accent
+                    ActivityKind.ACTION, ActivityKind.TASK -> signal.live
                     ActivityKind.FILE, ActivityKind.FOLDER -> signal.live
                     else -> signal.text2
                 }
-                // One plain list per day, with hairlines between lines: it scans faster than a box per line.
-                Column {
-                    ListRow(
-                        iconFor(e.kind),
-                        e.summary,
-                        listOfNotNull(format.format(Date(e.atMs)), e.kind.label, e.app).joinToString(" · "),
-                        tint = tint,
-                        titleColor = if (e.kind == ActivityKind.REFUSAL) signal.danger else signal.text,
-                        trailing = { ActorTag(e.by) },
-                    )
-                    RowDivider()
-                }
+                TimelineRow(
+                    iconFor(e.kind), tint, e.summary,
+                    if (e.kind == ActivityKind.REFUSAL) signal.danger else signal.text,
+                    format.format(Date(e.atMs)),
+                    listOfNotNull(e.kind.label, e.app).joinToString(" \u00b7 "),
+                    e.by, last,
+                )
+            }
+        }
+        item {
+            // The privacy promise, where the list ends.
+            Row(Modifier.padding(top = 12.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(LatchIcons.Lock, contentDescription = null, tint = signal.success, modifier = Modifier.size(16.dp))
+                Text("Kept on this phone for 7 days. Never screen text or typed text.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
             }
         }
         if (entries.isNotEmpty()) {
@@ -464,6 +507,10 @@ fun SettingsScreen(
     /** Disconnects but keeps the keys, so reconnecting is one tap with no QR code or key. */
     onDisconnectKeep: () -> Unit = {},
     onOpenSetup: () -> Unit = {},
+    /** AI apps: connect one, answer its sign-in, switch between Wi-Fi and the internet. */
+    onOpenConnect: () -> Unit = {},
+    aiWaiting: Int = 0,
+    connection: io.github.aspershupadhyay.latch.data.ConnectionKind = io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED,
     update: UpdateState = UpdateState.Idle,
     checkUpdates: Boolean = true,
     onCheckUpdates: (Boolean) -> Unit = {},
@@ -484,6 +531,20 @@ fun SettingsScreen(
     var confirmRotate by remember { mutableStateOf(false) }
     ScreenColumn {
         ScreenTitle("Settings")
+        Card(color = if (aiWaiting > 0) signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.08f) else null) {
+            ListRow(
+                LatchIcons.Plug,
+                "Your AI apps",
+                if (aiWaiting > 0) {
+                    "$aiWaiting waiting for your OK. Tap to answer."
+                } else {
+                    "Connect Claude or another AI \u00b7 ${connection.title}"
+                },
+                tint = signal.accent,
+                onClick = onOpenConnect,
+                onClickLabel = "Open your AI apps",
+            )
+        }
         Card {
             ListRow(
                 LatchIcons.Cloud,

@@ -3,6 +3,22 @@
 package io.github.aspershupadhyay.latch.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.text.style.TextOverflow
+import io.github.aspershupadhyay.latch.session.SessionState
+import io.github.aspershupadhyay.latch.ui.theme.OnStop
+import io.github.aspershupadhyay.latch.ui.theme.StopRed
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -43,16 +59,17 @@ import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 /**
  * The tab bar: icon and word on every tab (labelled icons are recognised
  * faster than bare ones). The chosen tab sits on a soft ember capsule, as in
- * Android's own navigation bar, so a child can see where they are.
- * [badge] counts AI apps waiting on the AI apps tab.
+ * Android's own navigation bar, so a child can see where they are; [current]
+ * is null while a page (Settings, AI apps) is open over the tabs.
+ * [badge] counts AI apps waiting to connect, on Home, where they are answered.
  */
 @Composable
-fun LatchTabBar(current: Tab, onSelect: (Tab) -> Unit, badge: Int) {
+fun LatchTabBar(current: Tab?, onSelect: (Tab) -> Unit, badge: Int) {
     val signal = LocalSignal.current
     Column(Modifier.fillMaxWidth().background(signal.surface)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(signal.border))
         Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 4.dp, vertical = 6.dp).selectableGroup(),
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp).selectableGroup(),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             Tab.entries.forEach { t ->
@@ -65,13 +82,13 @@ fun LatchTabBar(current: Tab, onSelect: (Tab) -> Unit, badge: Int) {
                         .weight(1f)
                         .heightIn(min = 64.dp)
                         .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(t) })
-                        .semantics { contentDescription = if (t == Tab.CONNECT && badge > 0) "${t.label}, $badge waiting" else t.label },
+                        .semantics { contentDescription = if (t == Tab.HOME && badge > 0) "${t.label}, $badge AI ${if (badge == 1) "app" else "apps"} waiting" else t.label },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Box(Modifier.size(width = 56.dp, height = 32.dp).clip(RoundedCornerShape(16.dp)).background(wash), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(width = 64.dp, height = 34.dp).clip(RoundedCornerShape(17.dp)).background(wash), contentAlignment = Alignment.Center) {
                         Icon(t.icon, contentDescription = null, tint = icon, modifier = Modifier.size(22.dp))
-                        if (t == Tab.CONNECT && badge > 0) {
+                        if (t == Tab.HOME && badge > 0) {
                             Box(
                                 Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = 1.dp).size(18.dp).clip(CircleShape).background(signal.danger),
                                 contentAlignment = Alignment.Center,
@@ -86,6 +103,57 @@ fun LatchTabBar(current: Tab, onSelect: (Tab) -> Unit, badge: Int) {
                         maxLines = 1,
                         modifier = Modifier.clearAndSetSemantics { },
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * While a session runs, a slim bar above the tabs on every screen but Home:
+ * what the AI may do now, in words, and Stop. The app stays usable underneath,
+ * and stopping never needs a trip back to Home. Tapping the words opens Home.
+ */
+@Composable
+fun SessionBar(session: SessionState, waiting: Boolean, reducedMotion: Boolean, stop: () -> Unit, open: () -> Unit) {
+    val live = session is SessionState.Active || session is SessionState.Reconnecting || session is SessionState.Connecting
+    AnimatedVisibility(
+        visible = live,
+        enter = if (reducedMotion) EnterTransition.None else fadeIn() + expandVertically(),
+        exit = if (reducedMotion) ExitTransition.None else fadeOut() + shrinkVertically(),
+    ) {
+        val signal = LocalSignal.current
+        val (tint, words) = when {
+            waiting -> signal.warning to "Your answer is needed"
+            session is SessionState.Active && session.paused -> signal.text2 to "Paused"
+            session is SessionState.Active -> signal.live to "Your AI can work now"
+            session is SessionState.Reconnecting -> signal.warning to "Reconnecting"
+            else -> signal.text2 to "Connecting…"
+        }
+        Column(Modifier.fillMaxWidth().background(signal.surface)) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(signal.border))
+            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp))
+                        .clickable(onClickLabel = "Open Home", role = Role.Button, onClick = open)
+                        .padding(horizontal = 10.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(tint))
+                    Spacer(Modifier.width(10.dp))
+                    Text(words, style = MaterialTheme.typography.titleSmall, color = signal.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Button(
+                    onClick = stop,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = StopRed, contentColor = OnStop),
+                    elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Stop everything" },
+                ) {
+                    Icon(LatchIcons.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Stop", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }

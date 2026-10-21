@@ -33,7 +33,7 @@ const CORE: readonly (readonly [string, string])[] = [
 export function renderDiagnosis(input: DiagnosisInput): string {
   let out = `Latch diagnosis (gateway protocol ${cut(input.gateway_protocol, 16)}). Owner-facing fixes are marked "Fix:"; pass them on to the user.\n`;
   if (input.phones.length === 0) {
-    return out + "- No phone is paired with this gateway. Fix: the owner opens the Latch app's Connect tab and connects the phone to this gateway.\n"
+    return out + "- No phone is paired with this gateway. Fix: the owner opens the Latch app (Settings → Your AI apps) and connects the phone to this gateway.\n"
       + "Verdict: not ready.\n";
   }
   const gatewayMinor = minorVersion(input.gateway_protocol) ?? 0;
@@ -71,7 +71,7 @@ export function renderDiagnosis(input: DiagnosisInput): string {
       out += `  - Off: ${off.map(([id]) => id).join(", ")}, so the AI cannot ${cannot}. Fix: the owner switches ${off.length === 1 ? "it" : "them"} on in the Latch app's Access tab.\n`;
     }
     if ((minorVersion(live.protocol) ?? 0) < gatewayMinor) {
-      out += "  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings tab → Check for updates).\n";
+      out += "  - The app is older than the gateway, so newer tools fail on this phone. Fix: update Latch on the phone (Settings → Check for updates).\n";
     }
     if (live.battery_restricted === true) {
       out += "  - Android's battery optimisation is on for Latch, so Android may stop it in the background and the phone drops off mid-task. Fix: Android Settings → Apps → Latch → Battery → Unrestricted.\n";

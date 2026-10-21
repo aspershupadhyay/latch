@@ -136,7 +136,7 @@ fun SetupScreen(state: SetupState, actions: SetupActions) {
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Set up your phone", style = MaterialTheme.typography.headlineSmall, color = signal.text, modifier = Modifier.semantics { heading() })
-                    Text("Nothing turns on without you.", style = MaterialTheme.typography.bodyMedium, color = signal.text2)
+                    Text("Android asks once. Nothing turns on without you.", style = MaterialTheme.typography.bodyMedium, color = signal.text2)
                 }
             }
             Text(

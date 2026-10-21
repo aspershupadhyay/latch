@@ -8,6 +8,6 @@
         <item name="android:windowBackground">@android:color/black</item>
     </style>
     <!-- The app follows the phone's light or dark setting; values-night holds the dark canvas. -->
-    <color name="canvas">#F4F4F6</color>
+    <color name="canvas">#F6F3EE</color>
     <color name="accent">#C2532D</color>
 </resources>

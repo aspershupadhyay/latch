@@ -20,17 +20,17 @@ import androidx.compose.ui.unit.sp
 import io.github.aspershupadhyay.latch.R
 
 /**
- * Latch tokens (2026-10 design pass, after the UI/UX audit). Two themes that
- * follow the phone: Night (near-black, the website's look) and Day (dark ink
- * on white, which reads better outdoors and for older eyes). One family, Geist,
- * for every word; Geist Mono only for codes, keys, addresses, and numbers.
+ * Latch tokens: "Midnight Ember" (owner 2026-10-21, after the redesign preview).
+ * Two themes that follow the phone: Night (warm near-black) and Day (warm white,
+ * which reads better outdoors and for older eyes). One family, Geist, for every
+ * word; Geist Mono only for codes, keys, addresses, and numbers.
  * Every colour has one meaning:
  * - [ink] is the primary button (cream at night, near-black by day): calm, not a warning.
  * - [accent] (ember) is the brand and "selected": the tab, a switch, a link.
- * - [live] (cyan) means a session is running: the AI can act now.
+ * - [live] (teal) means a session is running: the AI can act now.
  * - [success] done, [warning] needs you, and [danger] is Stop and nothing else.
  * Ember and red never share a job, so "running" and "stopped" differ by hue
- * (cyan against red) as well as by icon and words.
+ * (teal against red) as well as by icon and words.
  */
 @Immutable
 data class Signal(
@@ -60,47 +60,33 @@ data class Signal(
     val text3: Color,
 )
 
-/**
- * Hero card backgrounds (start to end). The hero is a dark "instrument panel"
- * in both themes, so its white text stays above 4.5:1. Each state has its own
- * hue: neutral when ready, cyan while the AI can act, amber while it waits for
- * the owner, red once stopped.
- */
-val HeroIdle = Color(0xFF1A1A20) to Color(0xFF101014)
-val HeroActive = Color(0xFF0B2A33) to Color(0xFF0A1418)
-val HeroAttention = Color(0xFF33260A) to Color(0xFF16110A)
-val HeroStopped = Color(0xFF3A1214) to Color(0xFF170A0B)
-
-/** The edge of the hero card in each state, so the state reads at a glance even without colour vision. */
-val HeroLiveEdge = Color(0xFF7DD3E8)
-val HeroAttentionEdge = Color(0xFFF5B544)
-val HeroStoppedEdge = Color(0xFFFF5A5A)
-
 /** The brand ember, as on the website (launcher icon, intro, the logo). */
-val Ember = Color(0xFFFF6A3D)
-/** Light ink on dark: the mark, and the filled button on the hero card. */
-val Cream = Color(0xFFF2F2F4)
-/** Stop, everywhere: the in-app button, the floating pill, the notification action. */
-val StopRed = Color(0xFFFF5A5A)
+val Ember = Color(0xFFFF7A45)
+/** Light ink on dark: the mark, and the main button at night. */
+val Cream = Color(0xFFF6F2EC)
+/** Stop, everywhere: the in-app button, the floating pill, the notification action. White on it is above 4.5:1. */
+val StopRed = Color(0xFFD93A3F)
+/** Text and glyphs on [StopRed]. */
+val OnStop = Color(0xFFFFFFFF)
 
 private val Night = Signal(
     dark = true,
-    canvas = Color(0xFF0B0B0E), surface = Color(0xFF16161B), surface2 = Color(0xFF1F1F26),
-    border = Color(0xFF2A2A33), border2 = Color(0xFF3A3A45),
-    text = Color(0xFFF2F2F4), text2 = Color(0xFFA1A1AC), text3 = Color(0xFF7A7A86),
-    accent = Ember, live = Color(0xFF7DD3E8), mint = Color(0xFFA3D98B),
-    success = Color(0xFF4ADE80), warning = Color(0xFFF5B544), danger = StopRed,
-    disabled = Color(0xFF45454F), ink = Cream, onInk = Color(0xFF0B0B0E), onAccent = Color(0xFF0B0B0E),
+    canvas = Color(0xFF0C0B0A), surface = Color(0xFF171513), surface2 = Color(0xFF221F1B),
+    border = Color(0xFF2B2723), border2 = Color(0xFF3A342E),
+    text = Cream, text2 = Color(0xFFB4ABA0), text3 = Color(0xFF8C8378),
+    accent = Ember, live = Color(0xFF7FD6C8), mint = Color(0xFFA3D98B),
+    success = Color(0xFF6FD39A), warning = Color(0xFFE8B04B), danger = Color(0xFFFF6B6B),
+    disabled = Color(0xFF4A433C), ink = Cream, onInk = Color(0xFF14110F), onAccent = Color(0xFF14110F),
 )
 
 private val Day = Signal(
     dark = false,
-    canvas = Color(0xFFF4F4F6), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFECECF0),
-    border = Color(0xFFE2E2E8), border2 = Color(0xFFC9C9D2),
-    text = Color(0xFF111114), text2 = Color(0xFF585863), text3 = Color(0xFF7E7E8A),
-    accent = Color(0xFFC2410C), live = Color(0xFF0E7490), mint = Color(0xFF3F7F2A),
+    canvas = Color(0xFFF6F3EE), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFEFEAE3),
+    border = Color(0xFFE6E0D8), border2 = Color(0xFFD2CAC0),
+    text = Color(0xFF17140F), text2 = Color(0xFF5E554B), text3 = Color(0xFF7A7065),
+    accent = Color(0xFFC2410C), live = Color(0xFF0F766E), mint = Color(0xFF3F7F2A),
     success = Color(0xFF15803D), warning = Color(0xFFB45309), danger = Color(0xFFC62828),
-    disabled = Color(0xFFB4B4BE), ink = Color(0xFF111114), onInk = Color(0xFFFFFFFF), onAccent = Color(0xFFFFFFFF),
+    disabled = Color(0xFFB9B0A6), ink = Color(0xFF17140F), onInk = Color(0xFFFFFFFF), onAccent = Color(0xFFFFFFFF),
 )
 
 val LocalSignal = staticCompositionLocalOf { Night }

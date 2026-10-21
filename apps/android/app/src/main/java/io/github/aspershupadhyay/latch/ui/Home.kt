@@ -41,10 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import io.github.aspershupadhyay.latch.ui.theme.StopRed
-import io.github.aspershupadhyay.latch.ui.theme.HeroStoppedEdge
-import io.github.aspershupadhyay.latch.ui.theme.HeroAttentionEdge
-import io.github.aspershupadhyay.latch.ui.theme.HeroLiveEdge
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.setValue
@@ -54,11 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -69,12 +61,9 @@ import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.session.ApprovalChoice
 import io.github.aspershupadhyay.latch.session.ApprovalKind
-import io.github.aspershupadhyay.latch.ui.theme.Cream
-import io.github.aspershupadhyay.latch.ui.theme.HeroActive
-import io.github.aspershupadhyay.latch.ui.theme.HeroAttention
-import io.github.aspershupadhyay.latch.ui.theme.HeroIdle
-import io.github.aspershupadhyay.latch.ui.theme.HeroStopped
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
+import io.github.aspershupadhyay.latch.ui.theme.OnStop
+import io.github.aspershupadhyay.latch.ui.theme.StopRed
 import java.text.DateFormat
 import java.util.Date
 
@@ -99,19 +88,18 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
-            LatchLogo(40.dp)
-            Spacer(Modifier.width(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
             Column(Modifier.weight(1f)) {
-                Text(greeting(), style = MaterialTheme.typography.headlineSmall, color = signal.text)
-                Text(state.phoneName, style = MaterialTheme.typography.bodySmall, color = signal.text2)
+                Text(greeting(), style = MaterialTheme.typography.bodyMedium, color = signal.text2)
+                Text(state.phoneName, style = MaterialTheme.typography.headlineSmall, color = signal.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            // It says what is checked: the link to the relay is encrypted. Who runs the relay is in Settings.
-            Pill(
-                if (state.encrypted) "Encrypted" else "Not encrypted",
-                if (state.encrypted) signal.success else signal.warning,
-                if (state.encrypted) LatchIcons.Lock else LatchIcons.Warning,
-            )
+            // Settings and AI apps live behind one gear, so the tabs stay three.
+            androidx.compose.material3.IconButton(
+                onClick = actions.openSettings,
+                modifier = Modifier.size(48.dp).clip(GearShape).background(signal.surface).border(1.dp, signal.border, GearShape),
+            ) {
+                Icon(LatchIcons.Sliders, contentDescription = "Settings", tint = signal.text)
+            }
         }
 
         HeroCard(state, actions)
@@ -143,46 +131,69 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             }
         }
 
+        // While a session runs: the newest step, in words, under the card that can stop it.
+        if ((state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED) && state.lastActivity != null) {
+            state.lastActivity.let { last ->
+                Card(color = signal.live.copy(alpha = if (signal.dark) 0.06f else 0.05f)) {
+                    ListRow(
+                        icon = LatchIcons.Pulse,
+                        title = last.summary,
+                        subtitle = "Latest step \u00b7 " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(last.atMs)) + (last.app?.let { " \u00b7 $it" } ?: ""),
+                        tint = signal.live,
+                        onClick = actions.goActivity,
+                        onClickLabel = "See every step",
+                    )
+                }
+            }
+        }
+
         BentoRow {
             Tile(
                 Modifier.weight(1f),
                 onClick = actions.goCapabilities,
-                onClickLabel = "Change what the AI can do",
-                minHeight = 150.dp,
+                onClickLabel = "Choose the apps the AI can use",
+                minHeight = 136.dp,
             ) {
-                TileHead(LatchIcons.ShieldCheck, "Allowed", signal.accent)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    if (state.enabled.isEmpty()) "Nothing yet" else allowedSentence(state.enabled),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = signal.text,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                IconBadge(LatchIcons.Apps, signal.accent, size = 40.dp)
                 Push()
-                TileNote(if (state.enabled.isEmpty()) "Tap to choose" else "Tap to change", maxLines = 1)
+                Text(
+                    when {
+                        state.autoAll -> "All apps"
+                        state.appsOn == 1 -> "1 app"
+                        else -> "${state.appsOn} apps"
+                    },
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = signal.text,
+                    maxLines = 1,
+                )
+                TileNote(if (state.appsOn == 0 && !state.autoAll) "Tap to choose" else "it can use", maxLines = 1)
             }
             Tile(
                 Modifier.weight(1f),
                 onClick = actions.goActivity,
-                onClickLabel = "Open activity",
-                minHeight = 150.dp,
+                onClickLabel = "Open history",
+                minHeight = 136.dp,
             ) {
-                TileHead(LatchIcons.Pulse, "Last action", signal.live)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    state.lastActivity?.summary ?: "Nothing yet",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = signal.text,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                IconBadge(LatchIcons.Clock, signal.live, size = 40.dp)
                 Push()
-                TileNote(
-                    state.lastActivity?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it.atMs)) } ?: "See everything it did",
+                Text(
+                    if (state.activityCount == 1) "1 thing" else "${state.activityCount} things",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = signal.text,
                     maxLines = 1,
                 )
+                TileNote("in your history", maxLines = 1)
             }
+        }
+        Card {
+            ListRow(
+                icon = LatchIcons.Tap,
+                title = AccessPreset.matching(state.enabled.toSet())?.title ?: if (state.enabled.isEmpty()) "Nothing allowed yet" else "Your own mix",
+                subtitle = if (state.enabled.isEmpty()) "Tap to choose what the AI may do" else allowedSentence(state.enabled),
+                tint = signal.text2,
+                onClick = actions.goCapabilities,
+                onClickLabel = "Change what the AI can do",
+            )
         }
         Card {
             ListRow(
@@ -325,16 +336,6 @@ private fun verbOf(c: Capability) = when (c) {
     Capability.ADB_SHELL -> "use full ADB"
 }
 
-/** A glyph chip in the tile's hue and a small label at the top of a tile. */
-@Composable
-private fun TileHead(icon: ImageVector, label: String, tint: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconBadge(icon, tint, size = 34.dp)
-        Spacer(Modifier.width(10.dp))
-        TileLabel(label)
-    }
-}
-
 private fun greeting(): String = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
     in 5..11 -> "Good morning"
     in 12..16 -> "Good afternoon"
@@ -342,30 +343,28 @@ private fun greeting(): String = when (java.util.Calendar.getInstance().get(java
     else -> "Up late"
 }
 
-/** Text on the hero card, which is dark in both themes. */
-private val OnHero = Color.White
-private val HeroInk = Color(0xFF0B0B0E)
+private val GearShape = RoundedCornerShape(15.dp)
 
+/**
+ * The state of the phone at a glance: one orb, one word, one sentence, and the
+ * one thing to do. The card wears the state's colour (ember ready, teal while
+ * the AI can act, amber while it waits for you, red once stopped), and the
+ * orb, words, and button say the same, so colour is never alone.
+ */
 @Composable
 private fun HeroCard(state: HomeState, actions: HomeActions) {
+    val signal = LocalSignal.current
     val motion = !state.reducedMotion
-    val (start, end) = when {
-        state.pending != null -> HeroAttention
-        state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED -> HeroActive
-        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> HeroStopped
-        else -> HeroIdle
-    }
-    // The edge says the state too: cyan live, amber waiting, red stopped, quiet when ready.
-    val edgeTarget = when {
-        state.pending != null -> HeroAttentionEdge.copy(alpha = 0.55f)
-        state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED -> HeroLiveEdge.copy(alpha = 0.45f)
-        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> HeroStoppedEdge.copy(alpha = 0.5f)
-        else -> Color.White.copy(alpha = 0.1f)
+    val tintTarget = when {
+        state.pending != null -> signal.warning
+        state.phase == Phase.ACTIVE -> signal.live
+        state.phase == Phase.PAUSED -> signal.text2
+        state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING -> signal.warning
+        state.phase == Phase.REVOKED || state.phase == Phase.FAILED -> signal.danger
+        else -> signal.accent
     }
     val spec = tween<Color>(if (motion) 600 else 0)
-    val from by animateColorAsState(start, spec, label = "heroStart")
-    val to by animateColorAsState(end, spec, label = "heroEnd")
-    val edge by animateColorAsState(edgeTarget, spec, label = "heroEdge")
+    val tint by animateColorAsState(tintTarget, spec, label = "heroTint")
     val orb = when (state.phase) {
         Phase.IDLE -> OrbState.IDLE
         Phase.CONNECTING, Phase.RECONNECTING -> OrbState.CONNECTING
@@ -374,36 +373,46 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
         Phase.REVOKED, Phase.FAILED -> OrbState.STOPPED
     }
     val live = state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED || state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING
+    val quiet = state.phase == Phase.IDLE && state.pending == null
 
     Column(
-        Modifier.fillMaxWidth().clip(HeroShape).background(Brush.linearGradient(listOf(from, to)))
-            .drawBehind { heroDecoration() }
-            .border(1.5.dp, edge, HeroShape)
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        Modifier.fillMaxWidth().clip(HeroShape).background(signal.surface)
+            .background(tint.copy(alpha = if (quiet) 0f else if (signal.dark) 0.08f else 0.06f))
+            .border(1.dp, if (quiet) signal.border else tint.copy(alpha = 0.4f), HeroShape)
+            .padding(horizontal = 20.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusOrb(orb, state.headline, state.reducedMotion, size = 68.dp)
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                AnimatedContent(
-                    targetState = state.headline,
-                    transitionSpec = { if (motion) fadeIn(tween(250)) togetherWith fadeOut(tween(150)) else EnterTransition.None togetherWith ExitTransition.None },
-                    label = "headline",
-                ) { Text(it, style = MaterialTheme.typography.headlineSmall, color = OnHero) }
-                Text(state.detail, style = MaterialTheme.typography.bodyMedium, color = OnHero.copy(alpha = 0.85f))
-            }
+        StatusOrb(orb, state.headline, state.reducedMotion, size = 112.dp, tint = tint)
+        Column(
+            Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            AnimatedContent(
+                targetState = state.headline,
+                transitionSpec = { if (motion) fadeIn(tween(250)) togetherWith fadeOut(tween(150)) else EnterTransition.None togetherWith ExitTransition.None },
+                label = "headline",
+            ) { Text(it, style = MaterialTheme.typography.displaySmall, color = signal.text, textAlign = TextAlign.Center) }
+            Text(state.detail, style = MaterialTheme.typography.bodyMedium, color = signal.text2, textAlign = TextAlign.Center)
         }
-        state.minutesLeft?.let { left ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(LatchIcons.Clock, contentDescription = null, tint = OnHero.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("${if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"} left · stops by itself", style = MaterialTheme.typography.bodyMedium, color = OnHero.copy(alpha = 0.85f))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // It says what is checked: the link to the relay is encrypted. Who runs the relay is in Settings.
+            Pill(
+                if (state.encrypted) "Encrypted" else "Not encrypted",
+                if (state.encrypted) signal.success else signal.warning,
+                if (state.encrypted) LatchIcons.Lock else LatchIcons.Warning,
+            )
+            state.minutesLeft?.let { left ->
+                Pill("${if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"} left", signal.text2, LatchIcons.Clock)
             }
         }
         if (live) {
             // Stop is the biggest thing on the card and the only red on it.
-            IconButtonLarge("Stop everything", LatchIcons.Stop, actions.stop, Modifier.fillMaxWidth(), container = StopRed, content = HeroInk, tall = true)
+            IconButtonLarge(
+                "Stop everything", LatchIcons.Stop, actions.stop, Modifier.fillMaxWidth().heightIn(min = 64.dp),
+                container = StopRed, content = OnStop, tall = true,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 if (state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED) {
                     val paused = state.phase == Phase.PAUSED
@@ -412,9 +421,9 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                         if (paused) LatchIcons.Play else LatchIcons.Pause,
                         { actions.setPaused(!paused) },
                         Modifier.weight(1f),
-                        container = Color.White.copy(alpha = 0.08f),
-                        content = OnHero,
-                        outline = Color.White.copy(alpha = 0.22f),
+                        container = signal.surface2,
+                        content = signal.text,
+                        outline = signal.border2,
                     )
                 }
                 // The session still ends by itself; Extend adds the chosen length once more.
@@ -423,41 +432,47 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                     LatchIcons.Clock,
                     actions.extend,
                     Modifier.weight(1f).semantics { contentDescription = "Extend the session by ${spokenLength(state.sessionMinutes)}" },
-                    container = Color.White.copy(alpha = 0.08f),
-                    content = OnHero,
-                    outline = Color.White.copy(alpha = 0.22f),
+                    container = signal.surface2,
+                    content = signal.text,
+                    outline = signal.border2,
                 )
             }
+            Text(
+                "You can keep using Latch. Stop is on every screen.",
+                style = MaterialTheme.typography.bodySmall,
+                color = signal.text3,
+                textAlign = TextAlign.Center,
+            )
         } else {
             IconButtonLarge(
                 if (state.accessibilityOn) "Start · ${spokenLength(state.sessionMinutes)}" else "Finish setup to start",
                 if (state.accessibilityOn) LatchIcons.Play else LatchIcons.ShieldCheck,
                 if (state.accessibilityOn) actions.start else actions.openSetup,
-                Modifier.fillMaxWidth(),
-                container = Cream,
-                content = HeroInk,
+                Modifier.fillMaxWidth().heightIn(min = 60.dp),
+                container = signal.ink,
+                content = signal.onInk,
                 tall = true,
             )
             if (state.accessibilityOn) {
-                Text("Stops by itself after", style = MaterialTheme.typography.labelMedium, color = OnHero.copy(alpha = 0.7f))
-                // A segmented control: equal widths, so no label ever wraps; 48 dp tall for a thumb.
+                Text("Stops by itself after", style = MaterialTheme.typography.labelMedium, color = signal.text2)
+                // A segmented control: equal widths, so no label ever wraps; 44 dp tall for a thumb.
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.35f))
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp)).padding(3.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(signal.canvas)
+                        .border(1.dp, signal.border, RoundedCornerShape(16.dp)).padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     SESSION_LENGTHS.forEach { (m, label) ->
                         val selected = state.sessionMinutes == m
                         Box(
-                            Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(11.dp))
-                                .background(if (selected) Color.White.copy(alpha = 0.92f) else Color.Transparent)
+                            Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(13.dp))
+                                .background(if (selected) signal.ink else Color.Transparent)
                                 .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length ${spokenLength(m)}") { actions.setMinutes(m) },
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 label,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) HeroInk else OnHero.copy(alpha = 0.8f),
+                                color = if (selected) signal.onInk else signal.text2,
                                 maxLines = 1,
                             )
                         }
@@ -468,7 +483,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
     }
 }
 
-private val HeroShape = RoundedCornerShape(22.dp)
+private val HeroShape = RoundedCornerShape(28.dp)
 
 /** Session lengths the owner can pick, shortest first; short labels so six fit one row. */
 private val SESSION_LENGTHS = listOf(15 to "15m", 30 to "30m", 60 to "1h", 120 to "2h", 240 to "4h", 480 to "8h")
@@ -478,22 +493,6 @@ private fun spokenLength(minutes: Int): String = when {
     minutes < 60 -> "$minutes minutes"
     minutes == 60 -> "1 hour"
     else -> "${minutes / 60} hours"
-}
-
-/** A faint grid that fades down the card: the hero's texture, as on the website. */
-private fun DrawScope.heroDecoration() {
-    val step = 22.dp.toPx()
-    val line = 1.dp.toPx()
-    var x = step
-    while (x < size.width) {
-        drawLine(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.04f), Color.Transparent), endY = size.height * 0.7f), Offset(x, 0f), Offset(x, size.height), line)
-        x += step
-    }
-    var y = step
-    while (y < size.height * 0.7f) {
-        drawLine(Color.White.copy(alpha = 0.04f * (1f - y / (size.height * 0.7f))), Offset(0f, y), Offset(size.width, y), line)
-        y += step
-    }
 }
 
 /** A big button with an icon in front of its label; [tall] for the one main action on a screen. */

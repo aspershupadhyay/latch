@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-val CardShape = RoundedCornerShape(16.dp)
+val CardShape = RoundedCornerShape(22.dp)
 
 /**
  * A line symbol in a small square chip of its own colour: the visual anchor of
@@ -219,47 +219,74 @@ fun ProgressBar(progress: Float, reducedMotion: Boolean, color: Color = LocalSig
 enum class OrbState { IDLE, CONNECTING, ACTIVE, PAUSED, ATTENTION, STOPPED }
 
 /**
- * The session state as an icon inside soft rings. While a session is live the
- * rings breathe outward, so "something can act on this phone" is visible at a
- * glance. Motion stops when the system asks for reduced motion.
+ * The session state as a small "signal field": two quiet rings around a
+ * glowing core. The core is a dot when ready or live, a square once stopped,
+ * and a glyph when paused or waiting for you. While a session is live an arc
+ * turns on the outer ring, so "something can act on this phone" is visible at
+ * a glance. Motion stops when the system asks for reduced motion.
  */
 @Composable
 fun StatusOrb(state: OrbState, description: String, reducedMotion: Boolean, size: Dp = 76.dp, tint: Color = Color.White) {
-    val animate = !reducedMotion && (state == OrbState.ACTIVE || state == OrbState.CONNECTING || state == OrbState.ATTENTION)
+    val animate = !reducedMotion && (state == OrbState.ACTIVE || state == OrbState.CONNECTING)
     val transition = rememberInfiniteTransition(label = "orb")
-    val wave by transition.animateFloat(
+    val turn by transition.animateFloat(
         initialValue = 0f,
-        targetValue = 1f,
+        targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            tween(if (state == OrbState.CONNECTING) 1_200 else 2_400, easing = LinearEasing),
+            tween(if (state == OrbState.CONNECTING) 1_400 else 3_200, easing = LinearEasing),
             RepeatMode.Restart,
         ),
-        label = "wave",
+        label = "turn",
     )
-    val icon = when (state) {
-        OrbState.IDLE -> LatchIcons.Mark
-        OrbState.CONNECTING -> LatchIcons.Cloud
-        OrbState.ACTIVE -> LatchIcons.Mark
+    val satellite = LocalSignal.current.text
+    val glyph = when (state) {
         OrbState.PAUSED -> LatchIcons.Pause
         OrbState.ATTENTION -> LatchIcons.Warning
-        OrbState.STOPPED -> LatchIcons.Stop
+        else -> null
     }
     Box(Modifier.size(size).semantics { contentDescription = description }, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val c = Offset(this.size.width / 2, this.size.height / 2)
-            val base = this.size.minDimension * 0.3f
             val max = this.size.minDimension / 2
+            val hair = 1.dp.toPx()
+            // Glow first, so the rings and core sit on it.
+            drawCircle(
+                androidx.compose.ui.graphics.Brush.radialGradient(listOf(tint.copy(alpha = 0.30f), Color.Transparent), center = c, radius = max * 0.78f),
+                radius = max * 0.78f,
+                center = c,
+            )
+            drawCircle(tint.copy(alpha = 0.20f), radius = max - hair, center = c, style = Stroke(hair))
+            drawCircle(tint.copy(alpha = 0.32f), radius = max * 0.72f, center = c, style = Stroke(hair))
+            drawCircle(tint.copy(alpha = 0.16f), radius = max * 0.44f, center = c)
             if (animate) {
-                for (i in 0 until 2) {
-                    val t = (wave + i * 0.5f) % 1f
-                    drawCircle(tint.copy(alpha = 0.35f * (1f - t)), radius = base + (max - base) * t, center = c, style = Stroke(width = 2.dp.toPx()))
-                }
-            } else {
-                drawCircle(tint.copy(alpha = 0.22f), radius = max * 0.92f, center = c, style = Stroke(width = 2.dp.toPx()))
+                drawArc(
+                    tint, startAngle = turn, sweepAngle = 80f, useCenter = false,
+                    topLeft = Offset(c.x - max + hair, c.y - max + hair),
+                    size = androidx.compose.ui.geometry.Size((max - hair) * 2, (max - hair) * 2),
+                    style = Stroke(2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                )
             }
-            drawCircle(tint.copy(alpha = 0.18f), radius = base, center = c)
+            when (state) {
+                OrbState.STOPPED -> {
+                    val half = max * 0.15f
+                    drawRoundRect(
+                        tint, topLeft = Offset(c.x - half, c.y - half), size = androidx.compose.ui.geometry.Size(half * 2, half * 2),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(half * 0.5f),
+                    )
+                }
+                OrbState.IDLE, OrbState.ACTIVE, OrbState.CONNECTING -> {
+                    drawCircle(tint, radius = max * 0.12f, center = c)
+                    // A small light on the outer ring: the phone, in the field.
+                    val angle = Math.toRadians(-55.0)
+                    drawCircle(
+                        satellite, radius = max * 0.045f,
+                        center = Offset(c.x + (max * 0.86f) * kotlin.math.cos(angle).toFloat(), c.y + (max * 0.86f) * kotlin.math.sin(angle).toFloat()),
+                    )
+                }
+                else -> Unit
+            }
         }
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.36f))
+        glyph?.let { Icon(it, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.26f)) }
     }
 }
 

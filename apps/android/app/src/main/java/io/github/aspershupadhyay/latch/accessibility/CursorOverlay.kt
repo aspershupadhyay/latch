@@ -128,7 +128,7 @@ class CursorOverlay(private val context: Context) {
         /** The arrow is drawn in a 24-unit grid; one unit is this many pixels. */
         private val unit = 1.25f * density
         /** Latch ember (the brand colour, as on the website), bright enough on dark and light screens. */
-        private val accent = Color.rgb(255, 106, 61)
+        private val accent = Color.rgb(255, 122, 69)
 
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
         private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -151,7 +151,7 @@ class CursorOverlay(private val context: Context) {
             strokeCap = Paint.Cap.ROUND
             color = accent
         }
-        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(17, 17, 20) }
+        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(23, 21, 19) }
         private val pillEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 1 * density
@@ -164,9 +164,9 @@ class CursorOverlay(private val context: Context) {
             // Geist Mono, as in the app; the system bold face if the font cannot load.
             typeface = runCatching { resources.getFont(R.font.geist_mono_semibold) }.getOrElse { Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
         }
-        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
+        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 122, 69) }
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) }
-        private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 106, 61) }
+        private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 122, 69) }
         // Reused on every frame: drawing allocates nothing while the pointer moves.
         private val loc = IntArray(2)
         private val oval = RectF()
