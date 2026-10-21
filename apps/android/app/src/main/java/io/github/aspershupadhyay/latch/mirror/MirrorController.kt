@@ -12,8 +12,11 @@ import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Process
 import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.Display
@@ -82,6 +85,8 @@ class MirrorController(
     private var service: Service? = null
     private var projection: MediaProjection? = null
     private var thread: HandlerThread? = null
+    /** Wi-Fi out of power save while a computer watches (see [holdWifi]). */
+    private var wifiLocks: List<WifiManager.WifiLock> = emptyList()
     private var handler: Handler? = null
     private var capture: MirrorCapture? = null
     @Volatile private var link: MirrorLink? = null
@@ -193,7 +198,9 @@ class MirrorController(
             return
         }
         this.projection = projection
-        val thread = HandlerThread("latch-mirror").also { it.start() }
+        // Display priority: this thread drains the encoder and hands frames to the socket, and
+        // a game or video on the phone must not make it wait behind their own threads.
+        val thread = HandlerThread("latch-mirror", Process.THREAD_PRIORITY_DISPLAY).also { it.start() }
         val handler = Handler(thread.looper)
         this.thread = thread
         this.handler = handler
@@ -274,6 +281,7 @@ class MirrorController(
 
     private fun stopParts() {
         watching = false
+        holdWifi(false)
         statsJob?.cancel()
         statsJob = null
         ownerControl = false
@@ -409,6 +417,7 @@ class MirrorController(
             lastScreen = s
             link?.sendText(MirrorMessages.screen(s.width, s.height, s.rotation))
             h.post { capture?.start(codec) }
+            holdWifi(true)
             startAi()
             keysFailed = 0
             startStatus()
@@ -417,6 +426,7 @@ class MirrorController(
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WATCHING)
         } else {
             h.post { capture?.stop() }
+            holdWifi(false)
             aiJob?.cancel()
             statusJob?.cancel()
             // The helper stops with the viewer, and its clipboard watch with it.
@@ -425,6 +435,38 @@ class MirrorController(
             _status.value = _status.value.copy(phase = MirrorStatus.Phase.WAITING)
         }
         updateNotification()
+    }
+
+    /**
+     * In power save, the phone's Wi-Fi sleeps between beacons and the router holds
+     * packets for it until it wakes, every 100 ms or more: clicks and keys from the
+     * computer arrive late and in bursts, and the video's acknowledgements stall.
+     * While a computer watches, Latch asks Android for low-latency Wi-Fi (power save
+     * off; Android grants it to an app with a foreground service, as the mirror
+     * has), and on Android 13 and older also for high-performance Wi-Fi, its older
+     * form. Released the moment no one watches, so the battery is spared.
+     */
+    private fun holdWifi(on: Boolean) {
+        if (!on) {
+            wifiLocks.forEach { runCatching { if (it.isHeld) it.release() } }
+            wifiLocks = emptyList()
+            return
+        }
+        if (wifiLocks.isNotEmpty()) return
+        val wifi = context.applicationContext.getSystemService(WifiManager::class.java) ?: return
+        val modes = buildList {
+            add(WifiManager.WIFI_MODE_FULL_LOW_LATENCY)
+            @Suppress("DEPRECATION")
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) add(WifiManager.WIFI_MODE_FULL_HIGH_PERF)
+        }
+        wifiLocks = modes.mapNotNull { mode ->
+            runCatching {
+                wifi.createWifiLock(mode, "latch:mirror").apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }.getOrNull()
+        }
     }
 
     private fun notice(text: String) {

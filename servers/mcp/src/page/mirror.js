@@ -1045,6 +1045,7 @@ if (typeof document !== 'undefined') {
   const WHEEL_CLICK_GUARD_MS = 150;
   let lastMoveAt = 0;
   let pendingMove = null;
+  let pendingMoveTimer = 0;
   let lastPoint = null;
 
   /** The picture's rect on the page: object-fit: contain may add bars, e.g. in full screen. */
@@ -1080,12 +1081,23 @@ if (typeof document !== 'undefined') {
     if (event.pointerId !== pointerId || !p) return;
     const now = performance.now();
     // With real touch events the phone keeps up with every pointer move up to 120 a second.
-    if (now - lastMoveAt >= (inputMode === 'keys' ? 8 : 12)) {
+    const gap = inputMode === 'keys' ? 8 : 12;
+    if (now - lastMoveAt >= gap) {
       lastMoveAt = now;
       pendingMove = null;
       send({ t: 'touch', phase: 'move', ...p });
     } else {
       pendingMove = p;
+      // A drag that pauses right after a skipped move still reaches where the pointer stopped.
+      if (!pendingMoveTimer) {
+        pendingMoveTimer = setTimeout(() => {
+          pendingMoveTimer = 0;
+          if (!pendingMove || pointerId === null) return;
+          lastMoveAt = performance.now();
+          send({ t: 'touch', phase: 'move', ...pendingMove });
+          pendingMove = null;
+        }, Math.max(1, gap - (now - lastMoveAt)));
+      }
     }
   });
 
@@ -1094,6 +1106,8 @@ if (typeof document !== 'undefined') {
     const p = point(event) || lastPoint;
     if (pendingMove) send({ t: 'touch', phase: 'move', ...pendingMove });
     pendingMove = null;
+    clearTimeout(pendingMoveTimer);
+    pendingMoveTimer = 0;
     if (p) send({ t: 'touch', phase, ...p });
     pointerId = null;
   }

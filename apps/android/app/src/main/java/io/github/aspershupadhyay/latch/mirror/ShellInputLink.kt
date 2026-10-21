@@ -150,7 +150,13 @@ class ShellInputLink(
     private var job: Job? = null
     @Volatile private var socket: Socket? = null
     @Volatile private var writer: BufferedWriter? = null
-    private val out = Executors.newSingleThreadExecutor { r -> Thread(r, "latch-shell-input").apply { isDaemon = true } }
+    // Display priority: a click or key from the computer must not queue behind a busy app's threads.
+    private val out = Executors.newSingleThreadExecutor { r ->
+        Thread({
+            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
+            r.run()
+        }, "latch-shell-input").apply { isDaemon = true }
+    }
     @Volatile private var clip: CompletableDeferred<String?>? = null
     private val pings = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<Unit>>()
     private val seq = AtomicInteger()
