@@ -195,16 +195,6 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 onClickLabel = "Change what the AI can do",
             )
         }
-        Card {
-            ListRow(
-                icon = LatchIcons.Plug,
-                title = "Connect your AI",
-                subtitle = if (state.isOwner) "Claude, ChatGPT, or another AI app" else "Ask the relay's owner to connect your AI",
-                tint = signal.accent,
-                onClick = actions.goConnect,
-                onClickLabel = "Connect an AI app",
-            )
-        }
         MirrorCard(state.mirror, actions, state.mirrorRemembered)
         Text(
             "Relay: ${state.gatewayHost}" + if (state.isOwner) " (yours)" else "",

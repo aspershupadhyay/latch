@@ -33,7 +33,7 @@ const CORE: readonly (readonly [string, string])[] = [
 export function renderDiagnosis(input: DiagnosisInput): string {
   let out = `Latch diagnosis (gateway protocol ${cut(input.gateway_protocol, 16)}). Owner-facing fixes are marked "Fix:"; pass them on to the user.\n`;
   if (input.phones.length === 0) {
-    return out + "- No phone is paired with this gateway. Fix: the owner opens the Latch app (Settings → Your AI apps) and connects the phone to this gateway.\n"
+    return out + "- No phone is paired with this gateway. Fix: the owner opens the Latch app's Connect tab and connects the phone to this gateway.\n"
       + "Verdict: not ready.\n";
   }
   const gatewayMinor = minorVersion(input.gateway_protocol) ?? 0;

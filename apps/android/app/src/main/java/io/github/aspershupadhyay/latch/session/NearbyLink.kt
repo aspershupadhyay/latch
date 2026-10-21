@@ -157,7 +157,7 @@ object NearbyLink {
             }
         }
         cancel(found, id, client)
-        throw NearbyException("No answer from the computer. Look for the number in the latch-start window, or run latch-gateway pair.")
+        throw NearbyException("No answer from the computer. Look for the number in the latch start window, or run latch pair.")
     }
 
     private fun cancel(found: Found, id: String, client: OkHttpClient) {
