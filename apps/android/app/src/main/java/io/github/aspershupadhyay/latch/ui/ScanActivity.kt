@@ -13,8 +13,18 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
 import android.view.HapticFeedbackConstants
-import android.view.Surface
+import android.util.Size as CameraSize
 import androidx.activity.ComponentActivity
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -93,25 +103,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.client.android.Intents
-import com.journeyapps.barcodescanner.BarcodeCallback
-import com.journeyapps.barcodescanner.BarcodeView
-import com.journeyapps.barcodescanner.CameraPreview
-import com.journeyapps.barcodescanner.DefaultDecoderFactory
-import com.journeyapps.barcodescanner.camera.CameraSettings
-import com.journeyapps.barcodescanner.camera.CenterCropStrategy
 import io.github.aspershupadhyay.latch.BuildConfig
 import io.github.aspershupadhyay.latch.session.Pairing
 import io.github.aspershupadhyay.latch.ui.theme.LatchTheme
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import zxingcpp.BarcodeReader
 
 /** Opens the scanner; answers the Latch setup link it read, or null when the owner backed out. */
 class ScanSetupQr : ActivityResultContract<Unit, String?>() {
@@ -123,12 +126,17 @@ class ScanSetupQr : ActivityResultContract<Unit, String?>() {
 
 /**
  * The QR scanner for Wi-Fi setup (ADR-054): the camera full screen with a
- * framed window, like a payment app's. It reads codes anywhere in the frame,
- * dark on light or light on dark (terminals draw either), and only accepts a
- * Latch setup link; anything else is named on screen while it keeps scanning.
- * Zoom (pinch or slider), tap to focus, a flashlight, a focus mode for phones
- * whose camera hunts, brightness for bright monitors, and reading a photo
- * instead. Nothing it sees is stored or logged.
+ * framed window, like a payment app's. It reads codes anywhere in the picture,
+ * dark on light or light on dark (terminals draw either), zooms in by itself on
+ * a code too small to read, and only accepts a Latch setup link; anything else
+ * is named on screen while it keeps scanning. Zoom (pinch, slider, double tap),
+ * tap to focus, a flashlight, brightness for bright monitors, and reading a
+ * photo instead. Nothing it sees is stored or logged.
+ *
+ * CameraX gives full-resolution frames with continuous focus; zxing-cpp reads
+ * them (it keeps reading the small, noisy code a terminal shows where ZXing's
+ * Java reader, used before, gave up). Where the native reader does not load,
+ * the Java reader takes over.
  */
 class ScanActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -159,27 +167,84 @@ class ScanActivity : ComponentActivity() {
     }
 }
 
-/** How the camera focuses. Some phones hunt in the default mode and never lock on a screen. */
-enum class ScanFocus(val label: String, val detail: String) {
-    AUTO("Auto", "Keeps focusing as you move"),
-    STEADY("Refocus", "Focuses again every two seconds; try it if the picture stays blurry"),
-    NEAR("Close-up", "For a code held very close to the camera"),
-    ;
+private const val PREFS = "latch_scanner"
 
-    fun settings(): CameraSettings = CameraSettings().apply {
-        isAutoFocusEnabled = true
-        isMeteringEnabled = true
-        isExposureEnabled = false
-        isBarcodeSceneModeEnabled = false
-        when (this@ScanFocus) {
-            AUTO -> { isContinuousFocusEnabled = true; focusMode = CameraSettings.FocusMode.CONTINUOUS }
-            STEADY -> { isContinuousFocusEnabled = false; focusMode = CameraSettings.FocusMode.AUTO }
-            NEAR -> { isContinuousFocusEnabled = false; focusMode = CameraSettings.FocusMode.MACRO }
-        }
-    }
+/** What the reader saw in one frame: a code's text, or a code it found but could not read yet. */
+private sealed interface Seen {
+    data class Text(val text: String) : Seen
+
+    /** A code [side] pixels across in a frame whose short edge is [edge] pixels. */
+    data class Unread(val side: Float, val edge: Int) : Seen
 }
 
-private const val PREFS = "latch_scanner"
+/**
+ * Reads QR codes in camera frames on the analysis thread and hands what it saw
+ * to [onSeen]. CameraX drops frames while one is being read, so the reader
+ * always works on the newest picture.
+ */
+private class QrAnalyzer(private val onSeen: (Seen) -> Unit) : ImageAnalysis.Analyzer {
+    private var native: BarcodeReader? = runCatching {
+        BarcodeReader(
+            BarcodeReader.Options(
+                formats = setOf(BarcodeReader.Format.QR_CODE),
+                tryHarder = true,
+                tryRotate = false,
+                tryInvert = true,
+                tryDownscale = true,
+                returnErrors = true,
+                maxNumberOfSymbols = 3,
+            ),
+        )
+    }.getOrNull()
+    private var plane = ByteArray(0)
+
+    override fun analyze(image: ImageProxy) {
+        try {
+            val reader = native
+            if (reader != null) {
+                try {
+                    readNative(reader, image)
+                    return
+                } catch (e: UnsatisfiedLinkError) {
+                    native = null
+                }
+            }
+            readJava(image)
+        } finally {
+            image.close()
+        }
+    }
+
+    private fun readNative(reader: BarcodeReader, image: ImageProxy) {
+        val results = reader.read(image)
+        results.firstOrNull { it.error == null && it.text != null }?.let { onSeen(Seen.Text(it.text!!)); return }
+        // Found but not read (too small or blurred): its size drives the auto-zoom.
+        val unread = results.firstOrNull() ?: return
+        val p = unread.position
+        val side = maxOf(
+            distance(p.topLeft, p.topRight),
+            distance(p.topLeft, p.bottomLeft),
+            distance(p.bottomRight, p.topRight),
+            distance(p.bottomRight, p.bottomLeft),
+        )
+        onSeen(Seen.Unread(side, minOf(image.cropRect.width(), image.cropRect.height())))
+    }
+
+    private fun readJava(image: ImageProxy) {
+        val y = image.planes[0]
+        val crop = image.cropRect
+        val stride = y.rowStride
+        val buffer = y.buffer
+        val size = stride * (crop.height() - 1) + crop.width()
+        if (plane.size < size) plane = ByteArray(size)
+        buffer.position(crop.top * stride + crop.left)
+        buffer.get(plane, 0, minOf(size, buffer.remaining()))
+        QrDecode.fromLuminance(plane, crop.width(), crop.height(), stride)?.let { onSeen(Seen.Text(it)) }
+    }
+
+    private fun distance(a: android.graphics.Point, b: android.graphics.Point): Float =
+        kotlin.math.hypot((a.x - b.x).toFloat(), (a.y - b.y).toFloat())
+}
 
 @Composable
 private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
@@ -187,13 +252,14 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
     val view = LocalView.current
     val signal = LocalSignal.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
 
     var cameraAllowed by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     var askedOnce by remember { mutableStateOf(false) }
-    var focus by remember { mutableStateOf(ScanFocus.entries.firstOrNull { it.name == prefs.getString("focus", null) } ?: ScanFocus.AUTO) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
     var zoom by remember { mutableFloatStateOf(0f) }
     var exposure by remember { mutableFloatStateOf(prefs.getFloat("exposure", 0f)) }
     var torch by remember { mutableStateOf(false) }
@@ -202,12 +268,15 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
     var done by remember { mutableStateOf(false) }
     var focusAt by remember { mutableStateOf<Offset?>(null) }
     var readingPhoto by remember { mutableStateOf(false) }
+    // The owner's own zoom wins: auto-zoom waits a few seconds after they touch it.
+    var ownerZoomAt by remember { mutableStateOf(0L) }
+    var autoZoomAt by remember { mutableStateOf(0L) }
 
     fun accept(text: String): Boolean {
         if (done) return true
         if (!ScanActivity.isSetupLink(text)) {
+            if (message == null || !message!!.startsWith("That QR code")) view.performHapticFeedback(HapticFeedbackConstants.REJECT)
             message = "That QR code isn't from Latch. Point at the one your computer's terminal shows."
-            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
             return false
         }
         done = true
@@ -219,6 +288,29 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
             onResult(text)
         }
         return true
+    }
+
+    fun setZoom(value: Float, byOwner: Boolean) {
+        zoom = value.coerceIn(0f, 1f)
+        if (byOwner) ownerZoomAt = System.currentTimeMillis()
+        camera?.cameraControl?.setLinearZoom(zoom)
+    }
+
+    fun onSeen(seen: Seen) {
+        when (seen) {
+            is Seen.Text -> accept(seen.text)
+            is Seen.Unread -> {
+                val now = System.currentTimeMillis()
+                val cam = camera ?: return
+                if (done || now - ownerZoomAt < 4000 || now - autoZoomAt < 1200) return
+                val state = cam.cameraInfo.zoomState.value ?: return
+                val ratio = QrDecode.zoomFor(seen.side, seen.edge, state.zoomRatio, state.maxZoomRatio) ?: return
+                autoZoomAt = now
+                cam.cameraControl.setZoomRatio(ratio).addListener({
+                    cam.cameraInfo.zoomState.value?.let { zoom = it.linearZoom }
+                }, ContextCompat.getMainExecutor(context))
+            }
+        }
     }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -242,68 +334,79 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
         }
     }
 
-    val barcode = remember {
-        BarcodeView(context).apply {
-            // Center-crop fills the screen; the decode window is set to the frame below.
-            previewScalingStrategy = CenterCropStrategy()
-            cameraSettings = focus.settings()
-            decoderFactory = DefaultDecoderFactory(listOf(BarcodeFormat.QR_CODE), QrDecode.hints, null, Intents.Scan.MIXED_SCAN)
+    val preview = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            // A TextureView: composes cleanly under the Compose overlay.
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
     }
-    // Zoom and brightness are camera parameters: set again whenever the preview (re)starts.
-    fun applyParameters() {
-        if (barcode.isCameraClosed) return
-        tune(barcode, zoom, exposure)
-    }
-    DisposableEffect(barcode) {
-        val listener = object : CameraPreview.StateListener {
-            override fun previewSized() = Unit
-            override fun previewStarted() = applyParameters()
-            override fun previewStopped() = Unit
-            override fun cameraError(error: Exception?) {
+
+    // CameraX follows the screen's lifecycle by itself; this binds once the camera is allowed.
+    DisposableEffect(cameraAllowed, lifecycleOwner) {
+        if (!cameraAllowed) return@DisposableEffect onDispose { }
+        val main = ContextCompat.getMainExecutor(context)
+        val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "latch-qr").apply { priority = Thread.NORM_PRIORITY - 1 } }
+        val future = ProcessCameraProvider.getInstance(context)
+        var provider: ProcessCameraProvider? = null
+        var disposed = false
+        future.addListener({
+            if (disposed) return@addListener
+            val p = runCatching { future.get() }.getOrNull()
+            if (p == null) {
+                message = "The camera could not start. Close other camera apps, or pick a photo of the code instead."
+                return@addListener
+            }
+            provider = p
+            val usePreview = Preview.Builder().build().also { it.setSurfaceProvider(preview.surfaceProvider) }
+            // Full HD frames: a terminal's code is small, and every pixel counts for reading it.
+            val analysis = ImageAnalysis.Builder()
+                .setResolutionSelector(
+                    ResolutionSelector.Builder()
+                        .setResolutionStrategy(ResolutionStrategy(CameraSize(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                        .build(),
+                )
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+            analysis.setAnalyzer(worker, QrAnalyzer { seen -> main.execute { if (!disposed) onSeen(seen) } })
+            try {
+                p.unbindAll()
+                camera = p.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, usePreview, analysis)
+                camera?.cameraControl?.setLinearZoom(zoom)
+            } catch (e: Exception) {
                 message = "The camera could not start. Close other camera apps, or pick a photo of the code instead."
             }
-            override fun cameraClosed() = Unit
-        }
-        barcode.addStateListener(listener)
-        onDispose { }
-    }
-    LaunchedEffect(zoom, exposure) { applyParameters() }
-    LaunchedEffect(torch) { if (!barcode.isCameraClosed) barcode.setTorch(torch) }
-
-    // Pause the camera with the screen, as Android expects.
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, cameraAllowed) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> if (cameraAllowed && !done) {
-                    barcode.resume()
-                    barcode.decodeContinuous(BarcodeCallback { result -> result.text?.let { if (accept(it)) barcode.stopDecoding() } })
-                }
-                Lifecycle.Event.ON_PAUSE -> barcode.pause()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        if (cameraAllowed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            barcode.resume()
-            barcode.decodeContinuous(BarcodeCallback { result -> result.text?.let { if (accept(it)) barcode.stopDecoding() } })
-        }
+        }, main)
         onDispose {
-            lifecycle.removeObserver(observer)
-            barcode.pause()
+            disposed = true
+            camera = null
+            provider?.unbindAll()
+            // A frame being read finishes on its own; its answer is ignored after this.
+            worker.shutdown()
         }
     }
+    // Brightness: the camera's own exposure compensation, -1…1 of its range.
+    LaunchedEffect(camera, exposure) {
+        val cam = camera ?: return@LaunchedEffect
+        val state = cam.cameraInfo.exposureState
+        if (!state.isExposureCompensationSupported) return@LaunchedEffect
+        val range = state.exposureCompensationRange
+        val index = if (exposure < 0) (range.lower * -exposure).toInt() else (range.upper * exposure).toInt()
+        cam.cameraControl.setExposureCompensationIndex(index.coerceIn(range.lower, range.upper))
+    }
+    LaunchedEffect(camera, torch) {
+        val cam = camera ?: return@LaunchedEffect
+        if (cam.cameraInfo.hasFlashUnit()) cam.cameraControl.enableTorch(torch)
+    }
+    LaunchedEffect(done) { if (done) camera?.cameraControl?.enableTorch(false) }
 
-    fun setFocus(next: ScanFocus) {
-        focus = next
-        prefs.edit { putString("focus", next.name) }
-        // A new focus mode needs the camera opened again with it.
-        barcode.pause()
-        barcode.cameraSettings = next.settings()
-        if (cameraAllowed) barcode.resume()
-        torch = false
-        message = "Focus: ${next.label}. ${next.detail}."
+    fun focusAtPoint(at: Offset) {
+        val cam = camera ?: return
+        val point = preview.meteringPointFactory.createPoint(at.x, at.y)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+            .build()
+        cam.cameraControl.startFocusAndMetering(action)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
@@ -315,15 +418,7 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
         val frame = androidx.compose.ui.geometry.Rect(Offset((widthPx - side) / 2f, frameTop), Size(side, side))
 
         if (cameraAllowed) {
-            AndroidView(
-                factory = { barcode },
-                modifier = Modifier.fillMaxSize(),
-                update = { v ->
-                    // Decode a little more than the frame shows: a code half outside it still reads.
-                    val decode = (side * 1.2f).toInt().coerceAtMost(minOf(widthPx, heightPx).toInt())
-                    if (v.framingRectSize?.width != decode) v.framingRectSize = com.journeyapps.barcodescanner.Size(decode, decode)
-                },
-            )
+            AndroidView(factory = { preview }, modifier = Modifier.fillMaxSize())
         }
 
         // The dimmed surround, the frame's corners, and a moving scan line.
@@ -336,15 +431,15 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .pointerInput(cameraAllowed) {
                     detectTransformGestures { _, _, gestureZoom, _ ->
-                        if (gestureZoom != 1f) zoom = (zoom + (gestureZoom - 1f) * 0.6f).coerceIn(0f, 1f)
+                        if (gestureZoom != 1f) setZoom(zoom + (gestureZoom - 1f) * 0.6f, byOwner = true)
                     }
                 }
                 .pointerInput(cameraAllowed) {
                     detectTapGestures(
-                        onDoubleTap = { zoom = if (zoom < 0.3f) 0.5f else 0f },
+                        onDoubleTap = { setZoom(if (zoom < 0.3f) 0.5f else 0f, byOwner = true) },
                         onTap = { at ->
                             focusAt = at
-                            tapFocus(barcode, at, size.width, size.height, context)
+                            focusAtPoint(at)
                         },
                     )
                 }
@@ -460,7 +555,7 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (cameraAllowed) {
-                LabeledSlider("Zoom", zoom, { zoom = it }, "${(zoom * 100).toInt()} %")
+                LabeledSlider("Zoom", zoom, { setZoom(it, byOwner = true) }, "${(zoom * 100).toInt()} %")
                 if (showLight) {
                     LabeledSlider("Brightness", (exposure + 1f) / 2f, { v ->
                         exposure = v * 2f - 1f
@@ -470,8 +565,8 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
             }
             Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
                 if (cameraAllowed) {
-                    ToolButton(LatchIcons.Focus, "Focus", focus.label, "Focus mode: ${focus.label}. Tap to change.") {
-                        setFocus(ScanFocus.entries[(focus.ordinal + 1) % ScanFocus.entries.size])
+                    ToolButton(LatchIcons.Focus, "Focus", "on the code", "Focus on the middle of the frame. You can also tap the picture where the code is.") {
+                        frame.center.let { focusAt = it; focusAtPoint(it) }
                     }
                     ToolButton(LatchIcons.Sun, "Light", if (showLight) "hide" else "adjust", "Brightness. A bright monitor scans better a little darker.", selected = showLight) {
                         showLight = !showLight
@@ -569,41 +664,6 @@ private fun LabeledSlider(label: String, value: Float, onChange: (Float) -> Unit
     }
 }
 
-/** Zoom 0…1 of the camera's range; exposure -1…1 of its compensation range. */
-@Suppress("DEPRECATION")
-private fun tune(view: BarcodeView, zoom: Float, exposure: Float) {
-    view.changeCameraParameters { p: android.hardware.Camera.Parameters ->
-        if (p.isZoomSupported) p.zoom = (p.maxZoom * zoom).toInt().coerceIn(0, p.maxZoom)
-        val step = if (exposure < 0) p.minExposureCompensation else p.maxExposureCompensation
-        if (step != 0) p.exposureCompensation = (kotlin.math.abs(step) * exposure).toInt()
-        p
-    }
-}
-
-/** Points focus and metering at a tap, where the camera supports areas. Best effort. */
-@Suppress("DEPRECATION")
-private fun tapFocus(view: BarcodeView, at: Offset, width: Int, height: Int, context: Context) {
-    if (view.isCameraClosed) return
-    val sensor = runCatching {
-        val info = android.hardware.Camera.CameraInfo()
-        android.hardware.Camera.getCameraInfo(view.cameraSettings.requestedCameraId.coerceAtLeast(0), info)
-        val turned = when (context.display.rotation) {
-            Surface.ROTATION_90 -> 90
-            Surface.ROTATION_180 -> 180
-            Surface.ROTATION_270 -> 270
-            else -> 0
-        }
-        (info.orientation - turned + 360) % 360
-    }.getOrDefault(90)
-    val a = QrDecode.focusArea(at.x, at.y, width, height, sensor)
-    val area = android.hardware.Camera.Area(android.graphics.Rect(a[0], a[1], a[2], a[3]), 1000)
-    view.changeCameraParameters { p: android.hardware.Camera.Parameters ->
-        if (p.maxNumFocusAreas > 0) p.focusAreas = listOf(area)
-        if (p.maxNumMeteringAreas > 0) p.meteringAreas = listOf(area)
-        p
-    }
-}
-
 /** The QR code in a picture the owner picked, or null. Scaled so huge photos stay quick. */
 private fun readPhoto(context: Context, uri: Uri): String? = runCatching {
     val source = ImageDecoder.createSource(context.contentResolver, uri)
@@ -615,9 +675,17 @@ private fun readPhoto(context: Context, uri: Uri): String? = runCatching {
             decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
         }
     }.let { if (it.config == Bitmap.Config.ARGB_8888) it else it.copy(Bitmap.Config.ARGB_8888, false) }
-    val pixels = IntArray(bitmap.width * bitmap.height)
-    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-    QrDecode.fromPixels(pixels, bitmap.width, bitmap.height)
+    // zxing-cpp first (it reads small and noisy codes), then ZXing's Java reader.
+    val native = runCatching {
+        BarcodeReader(BarcodeReader.Options(formats = setOf(BarcodeReader.Format.QR_CODE), tryHarder = true, tryInvert = true, tryDownscale = true))
+            .read(bitmap, android.graphics.Rect(0, 0, bitmap.width, bitmap.height), 0)
+            .firstOrNull { it.error == null }?.text
+    }.getOrNull()
+    native ?: run {
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        QrDecode.fromPixels(pixels, bitmap.width, bitmap.height)
+    }
 }.getOrNull()
 
 private const val MAX_PHOTO_EDGE = 2000

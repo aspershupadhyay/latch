@@ -199,9 +199,24 @@ pub fn open_in_browser(path: &Path) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// The NO_COLOR convention (no-color.org): set and not empty.
+/// The NO_COLOR convention (no-color.org): set and not empty. Also true on a
+/// Windows console that would print colour codes as text.
 fn no_color() -> bool {
-    std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())
+    std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) || !console_reads_ansi()
+}
+
+/// Whether the console turns ANSI codes into colours. Windows Terminal does;
+/// the classic Windows console does only once asked, and prints them as text
+/// otherwise, which breaks the QR code apart. When it refuses, the summary is
+/// plain and the code is drawn without colour.
+fn console_reads_ansi() -> bool {
+    #[cfg(windows)]
+    {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| nu_ansi_term::enable_ansi_support().is_ok())
+    }
+    #[cfg(not(windows))]
+    true
 }
 
 /// Styling for the summary: bold and dim on a terminal, plain otherwise.

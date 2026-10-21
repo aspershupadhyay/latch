@@ -5,10 +5,8 @@ package io.github.aspershupadhyay.latch.ui
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QrDecodeTest {
@@ -56,12 +54,33 @@ class QrDecodeTest {
     }
 
     @Test
-    fun aTapBecomesAFocusAreaOnTheTurnedSensor() {
-        // Portrait phone, sensor turned 90°: a tap at the top centre is the sensor's left middle.
-        assertArrayEquals(intArrayOf(-1000, -100, -800, 100), QrDecode.focusArea(500f, 0f, 1000, 2000, 90))
-        // Not turned: the centre stays the centre.
-        assertArrayEquals(intArrayOf(-100, -100, 100, 100), QrDecode.focusArea(500f, 1000f, 1000, 2000, 0))
-        // Always on the sensor.
-        QrDecode.focusArea(-50f, 99999f, 1000, 2000, 270).forEach { assertTrue(it in -1000..1000) }
+    fun readsACameraFrameFromItsLuminancePlane() {
+        val (px, w, h) = drawn(scale = 4, canvas = 400)
+        // A camera plane: one byte a pixel, rows padded to a wider stride.
+        val stride = w + 64
+        val y = ByteArray(stride * h)
+        for (row in 0 until h) for (x in 0 until w) y[row * stride + x] = (px[row * w + x] and 0xFF).toByte()
+        assertEquals(link, QrDecode.fromLuminance(y, w, h, stride))
+        // Light on dark reads as well.
+        for (i in y.indices) y[i] = (255 - (y[i].toInt() and 0xFF)).toByte()
+        assertEquals(link, QrDecode.fromLuminance(y, w, h, stride))
+        // A plane shorter than it claims is refused, not read past its end.
+        assertNull(QrDecode.fromLuminance(ByteArray(10), w, h, stride))
+    }
+
+    @Test
+    fun aSmallCodeIsZoomedInOnAndABigOneIsLeftAlone() {
+        // 10 % of the frame at 1x: zoom until it fills about 45 %, capped by the auto-zoom limit.
+        assertEquals(QrDecode.MAX_AUTO_ZOOM, QrDecode.zoomFor(108f, 1080, 1f, 8f)!!, 0.001f)
+        // 15 % at 1x: 3x would be the cap too; with a 2x camera, 2x.
+        assertEquals(2f, QrDecode.zoomFor(162f, 1080, 1f, 2f)!!, 0.001f)
+        // 20 % at 1x: 2.25x.
+        assertEquals(2.25f, QrDecode.zoomFor(216f, 1080, 1f, 8f)!!, 0.001f)
+        // Big enough already, or already at the limit: no change.
+        assertNull(QrDecode.zoomFor(400f, 1080, 1f, 8f))
+        assertNull(QrDecode.zoomFor(150f, 1080, 3f, 8f))
+        // Nonsense in, nothing out.
+        assertNull(QrDecode.zoomFor(0f, 1080, 1f, 8f))
+        assertNull(QrDecode.zoomFor(100f, 0, 1f, 8f))
     }
 }

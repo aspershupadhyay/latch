@@ -47,6 +47,8 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Fixed
 
+- **The QR scanner did not read the terminal's code** (owner report 2026-10-21, after R51): the code the gateway prints was correct (its exact bytes decode), but the app read camera frames with ZXing's Java reader through the old Camera1 API. On simulated camera frames of a terminal code (small modules, sensor noise, a little blur), that reader read 4 of 40 frames at 4 pixels a module and 2 of 20 at ordinary sensor noise, where zxing-cpp read 38 of 40 and 20 of 20. The scanner now uses CameraX (full HD frames, continuous focus, tap to focus where you tap) and zxing-cpp, and **zooms in by itself** on a code it sees but cannot read yet. ZXing's Java reader stays as the fallback. The focus-mode switch is gone; **Focus** now focuses on the frame.
+- **Windows' classic console printed the QR code as escape codes**: the gateway now asks the console to read ANSI colours, and draws the plain code when it refuses.
 - **Dependency audit:** MCP TypeScript SDK 1.32.1 in the Vercel gateway and the interop test (GHSA-22jm-h49p-29qw, GHSA-6prh-2h8m-c8cw, GHSA-46jr-4wx8-v453, GHSA-rvq5-wwqv-78pq), and `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382, certificate verification could accept distrusted intermediates; the gateway's own Wi-Fi certificate is pinned, but outbound TLS uses it too).
 
 - **Mirror stutter while sound plays**: the phone's sound shared the gateway's three-frame video queue, so a few sound frames filled it and video frames were dropped and forced key frames. Sound now has its own queue.

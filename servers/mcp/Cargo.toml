@@ -38,6 +38,11 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+# Windows' classic console shows ANSI codes as text unless asked to read them;
+# already in the tree through tracing-subscriber.
+[target.'cfg(windows)'.dependencies]
+nu-ansi-term = "0.50"
+
 [dev-dependencies]
 latch-fake-device.workspace = true
 tokio-tungstenite.workspace = true
