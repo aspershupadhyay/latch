@@ -38,7 +38,7 @@ fun MirrorCard(status: MirrorStatus, actions: HomeActions, remembered: Boolean =
                 subtitle = if (remembered) {
                     "Your computer's mirror page reconnects by itself as soon as you start. No code needed."
                 } else {
-                    "See this screen live in your computer's browser, follow the AI, and take over with mouse and keyboard."
+                    "See and use this phone from your computer's browser."
                 },
                 tint = signal.live,
                 onClick = actions.startMirror,

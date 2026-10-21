@@ -537,7 +537,7 @@ class CommandExecutor(
         // A link works in the app it opens, not in the one in front.
         val inApp = (command as? Command.OpenLink)?.packageName ?: bridge.service.value?.currentPackage()
         val trustCritical = autonomy?.state?.value?.trustsCritical == true
-        val appOn = inApp != null && !exempt(inApp) && autonomy?.decide(inApp) == AppDecision.ALLOWED
+        val appOn = inApp != null && !exempt(inApp) && autonomy?.decide(inApp, sensitive(inApp)) == AppDecision.ALLOWED
         val systemDialog = inApp != null && consequences.isCriticalPackage(inApp)
         if (!session.approveEveryAction && ((appOn && (!critical || trustCritical)) || (systemDialog && trustCritical))) {
             note(
@@ -681,6 +681,9 @@ class CommandExecutor(
     private fun waitingForOwner() = bridge.service.value?.cursorStatus("Waiting for your answer")
 
     /** The launcher is always usable; Latch and system UI are refused by the service itself. */
+    /** The app may hold money, accounts, or passwords, so "every app" (ADR-064) does not cover it. */
+    private fun sensitive(target: String): Boolean = consequences.isSensitiveApp(target, appName(target) ?: target)
+
     private fun exempt(target: String): Boolean {
         val service = bridge.service.value ?: return true
         // Permission and install dialogs belong to the app that opened them; their buttons are critical anyway.
@@ -688,7 +691,7 @@ class CommandExecutor(
     }
 
     private fun appUsable(target: String): Boolean =
-        autonomy == null || exempt(target) || autonomy.decide(target) == AppDecision.ALLOWED
+        autonomy == null || exempt(target) || autonomy.decide(target, sensitive(target)) == AppDecision.ALLOWED
 
     /** The app a command works in: the one it opens, or the one in front. */
     private fun appTarget(command: Command): String? = when (command) {
@@ -718,9 +721,10 @@ class CommandExecutor(
      */
     private suspend fun requireApp(target: String, envelope: CommandEnvelope) {
         val access = autonomy ?: return
-        if (exempt(target) || access.decide(target) == AppDecision.ALLOWED) return
+        if (exempt(target)) return
         val name = appName(target) ?: target
         val sensitive = consequences.isSensitiveApp(target, name)
+        if (access.decide(target, sensitive) == AppDecision.ALLOWED) return
         note(ActivityKind.APP, "Asked you: let the AI use $name")
         val timeout = approvalTimeout(envelope.deadlineMs)
         waitingForOwner()

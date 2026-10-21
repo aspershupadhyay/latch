@@ -16,7 +16,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,26 +54,34 @@ import androidx.compose.ui.unit.dp
 import io.github.aspershupadhyay.latch.protocol.Capability
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 
-/** Starting points for what an AI may do. The owner can fine-tune each switch later. */
+/**
+ * How much the AI may do, in one tap (ADR-064). The owner can fine-tune each
+ * switch later. Full ADB (ADR-046) is never part of a preset: it stays off until
+ * the owner turns it on by itself and pairs wireless debugging.
+ */
 enum class AccessPreset(val title: String, val note: String, val icon: ImageVector, val capabilities: Set<Capability>) {
-    LOOK("Just look", "Read the screen. Nothing else.", LatchIcons.Eye, setOf(Capability.UI_OBSERVE)),
+    LOOK("Only look", "It can see the screen. It can't touch.", LatchIcons.Eye, setOf(Capability.UI_OBSERVE)),
     LOOK_AND_TAP(
         "Look and tap",
-        "Read, tap, scroll, go back, open apps.",
+        "It can open apps, tap, and scroll. Each new app asks you once.",
         LatchIcons.Tap,
         setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE, Capability.NAV_GLOBAL, Capability.APP_LAUNCH),
     ),
     EVERYTHING(
         "Everything",
-        "Also screenshots and typing. Risky actions still ask you.",
+        "Every app, typing, sending, and files, without asking. Bank and password apps ask once; payments and installs always ask.",
         LatchIcons.Sparkle,
-        Capability.entries.toSet() - Capability.DEVICE_INFO,
+        Capability.entries.toSet() - Capability.DEVICE_INFO - Capability.ADB_SHELL,
     ),
     ;
 
+    /** "Everything" also covers every ordinary app, so the AI never stops to ask app by app. */
+    val allApps: Boolean get() = this == EVERYTHING
+
     companion object {
-        /** The preset that matches exactly what is switched on, if any. */
-        fun matching(enabled: Set<Capability>): AccessPreset? = entries.firstOrNull { it.capabilities == enabled - Capability.DEVICE_INFO }
+        /** The preset that matches exactly what is switched on, if any. Device info and full ADB don't count. */
+        fun matching(enabled: Set<Capability>): AccessPreset? =
+            entries.firstOrNull { it.capabilities == enabled - Capability.DEVICE_INFO - Capability.ADB_SHELL }
     }
 }
 
@@ -300,24 +308,40 @@ private fun Hint(title: String, text: String) {
     }
 }
 
+/** One of the three choices: a big card with a glyph, the words, and a round mark when chosen. */
 @Composable
-private fun PresetOption(preset: AccessPreset, selected: Boolean, onClick: () -> Unit) {
+internal fun PresetOption(preset: AccessPreset, selected: Boolean, onClick: () -> Unit) {
     val signal = LocalSignal.current
     val ring by animateColorAsState(if (selected) signal.accent else signal.border, label = "presetBorder")
+    val shape = RoundedCornerShape(22.dp)
+    val hue = when (preset) {
+        AccessPreset.LOOK -> signal.live
+        AccessPreset.LOOK_AND_TAP -> signal.accent
+        AccessPreset.EVERYTHING -> signal.warning
+    }
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .border(if (selected) 1.5.dp else 1.dp, ring, RoundedCornerShape(10.dp))
-            .background(if (selected) signal.accent.copy(alpha = 0.08f) else Color.Transparent)
-            .clickable(role = Role.RadioButton, onClickLabel = preset.title, onClick = onClick)
-            .padding(12.dp),
+        Modifier.fillMaxWidth().clip(shape)
+            .background(signal.surface)
+            .background(if (selected) signal.accent.copy(alpha = if (signal.dark) 0.08f else 0.06f) else Color.Transparent)
+            .border(if (selected) 1.5.dp else 1.dp, ring, shape)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconBadge(preset.icon, if (selected) signal.accent else signal.text2, size = 36.dp)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(preset.title, style = MaterialTheme.typography.titleMedium, color = signal.text)
+        IconBadge(preset.icon, hue, size = 48.dp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(preset.title, style = MaterialTheme.typography.titleLarge, color = signal.text)
             Text(preset.note, style = MaterialTheme.typography.bodySmall, color = signal.text2)
         }
-        if (selected) Icon(LatchIcons.Check, contentDescription = "Selected", tint = signal.accent, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier.size(24.dp).clip(CircleShape)
+                .background(if (selected) signal.accent else Color.Transparent)
+                .border(2.dp, if (selected) signal.accent else signal.border2, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) Icon(LatchIcons.Check, contentDescription = null, tint = signal.onAccent, modifier = Modifier.size(15.dp))
+        }
     }
 }

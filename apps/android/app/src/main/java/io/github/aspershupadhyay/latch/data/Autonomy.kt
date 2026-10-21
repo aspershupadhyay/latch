@@ -27,6 +27,12 @@ data class AutonomyState(
     val trustCritical: Boolean = false,
     /** Auto mode: every app, every action, no questions (the owner's explicit consent, ADR-024). */
     val auto: AutoMode = AutoMode.OFF,
+    /**
+     * "Everything" (ADR-064): every app counts as switched on, except apps that may
+     * hold money, accounts, or passwords, which still ask once. Payments, installs,
+     * permissions, and account deletion still ask unless [trustCritical] is on.
+     */
+    val allApps: Boolean = false,
 ) {
     val autoOn: Boolean get() = auto != AutoMode.OFF
 
@@ -56,6 +62,8 @@ class Autonomy(private val store: Store) {
         /** Only "always" is kept; "this session" never outlives the process. */
         fun loadAutoAlways(): Boolean = false
         fun saveAutoAlways(value: Boolean) = Unit
+        fun loadAllApps(): Boolean = false
+        fun saveAllApps(value: Boolean) = Unit
     }
 
     private val _state = MutableStateFlow(
@@ -63,13 +71,24 @@ class Autonomy(private val store: Store) {
             allowed = store.load(),
             trustCritical = store.loadTrustCritical(),
             auto = if (store.loadAutoAlways()) AutoMode.ALWAYS else AutoMode.OFF,
+            allApps = store.loadAllApps(),
         ),
     )
     val state: StateFlow<AutonomyState> = _state.asStateFlow()
 
-    fun decide(packageName: String): AppDecision {
+    /** [sensitive]: the app may hold money, accounts, or passwords, so "every app" does not cover it. */
+    fun decide(packageName: String, sensitive: Boolean = false): AppDecision {
         val s = _state.value
-        return if (s.autoOn || packageName in s.allowed || packageName in s.sessionApps) AppDecision.ALLOWED else AppDecision.ASK
+        val on = s.autoOn || packageName in s.allowed || packageName in s.sessionApps || (s.allApps && !sensitive)
+        return if (on) AppDecision.ALLOWED else AppDecision.ASK
+    }
+
+    /** "Everything": every ordinary app without asking app by app. The screens call this only on the owner's choice. */
+    @Synchronized
+    fun setAllApps(value: Boolean) {
+        if (_state.value.allApps == value) return
+        store.saveAllApps(value)
+        _state.value = _state.value.copy(allApps = value)
     }
 
     @Synchronized
@@ -113,6 +132,7 @@ class Autonomy(private val store: Store) {
         store.save(emptySet())
         store.saveTrustCritical(false)
         store.saveAutoAlways(false)
+        store.saveAllApps(false)
         _state.value = AutonomyState()
     }
 
@@ -147,5 +167,11 @@ class PrefsAutonomyStore(context: Context) : Autonomy.Store {
 
     override fun saveAutoAlways(value: Boolean) {
         prefs.edit { putBoolean("auto_always", value) }
+    }
+
+    override fun loadAllApps(): Boolean = prefs.getBoolean("all_apps", false)
+
+    override fun saveAllApps(value: Boolean) {
+        prefs.edit { putBoolean("all_apps", value) }
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -184,6 +185,9 @@ fun CapabilitiesScreen(
     /** The open group page, hoisted so it survives a trip to the Apps list. */
     openGroup: AccessGroup? = null,
     onOpenGroup: ((AccessGroup?) -> Unit)? = null,
+    /** ADR-064: every ordinary app is on, and the one-tap choice that sets it. */
+    allApps: Boolean = false,
+    onPreset: (AccessPreset) -> Unit = {},
 ) {
     var localGroup by rememberSaveable { mutableStateOf<AccessGroup?>(null) }
     val group = if (onOpenGroup != null) openGroup else localGroup
@@ -200,15 +204,15 @@ fun CapabilitiesScreen(
     ) { current ->
         if (current == null) {
             AccessOverview(
-                enabled, accessibilityOn, auto, onAuto, appsOn, approveEveryAction, showCursor, keepAwake,
-                onOpenSetup, open = setGroup,
+                enabled, accessibilityOn, auto, appsOn, allApps, approveEveryAction, showCursor, keepAwake,
+                onOpenSetup, onPreset, onOpenApps, open = setGroup,
             )
         } else {
             ScreenColumn {
                 GroupHeader(current, enabled, onBack = { setGroup(null) }, onToggleGroup = { toggleGroup(current, it) })
                 when (current) {
                     AccessGroup.AI -> AiAccessBody(
-                        auto, appsOn, onOpenApps, approveEveryAction, onApproveEveryAction, remoteApprovals, onRemoteApprovals,
+                        auto, onAuto, appsOn, allApps, onOpenApps, approveEveryAction, onApproveEveryAction, remoteApprovals, onRemoteApprovals,
                         saved, onRemoveSaved, onRemoveAllSaved,
                     )
                     AccessGroup.SCREEN -> CapabilityList(current, enabled, onToggle, includeDeviceInfo = true)
@@ -239,24 +243,27 @@ private fun AccessOverview(
     enabled: Set<Capability>,
     accessibilityOn: Boolean,
     auto: AutoMode,
-    onAuto: (AutoMode) -> Unit,
     appsOn: Int,
+    allApps: Boolean,
     approveEveryAction: Boolean,
     showCursor: Boolean,
     keepAwake: Boolean,
     onOpenSetup: () -> Unit,
+    onPreset: (AccessPreset) -> Unit,
+    onOpenApps: () -> Unit,
     open: (AccessGroup) -> Unit,
 ) {
     val signal = LocalSignal.current
+    val chosen = AccessPreset.matching(enabled)
     ScreenColumn {
-        ScreenTitle("Access", "Choose what your AI may do. Changes work right away.")
+        ScreenTitle("Access", "How much may your AI do? One tap. Change it any time.")
 
         if (!accessibilityOn) {
             Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
                 ListRow(
                     LatchIcons.Warning,
                     "Screen access is off",
-                    "None of these work until you turn it on.",
+                    "None of this works until you turn it on.",
                     tint = signal.warning,
                     onClick = onOpenSetup,
                     onClickLabel = "Turn on screen access",
@@ -264,44 +271,59 @@ private fun AccessOverview(
             }
         }
 
-        AutoModeCard(auto, onAuto)
-
-        // Tiles only open their page: one tap, one result. Each group's switch is at the top of its page.
-        BentoRow {
-            GroupTile(
-                AccessGroup.AI,
-                status = when {
-                    auto != AutoMode.OFF -> "Auto mode: every app"
-                    appsOn == 0 -> "No apps yet"
-                    else -> "$appsOn app${if (appsOn == 1) "" else "s"} on"
-                } + if (approveEveryAction) " · asks every time" else "",
-                on = auto != AutoMode.OFF || appsOn > 0,
-            ) { open(AccessGroup.AI) }
-            GroupTile(AccessGroup.SCREEN, statusOf(AccessGroup.SCREEN, enabled), AccessGroup.SCREEN.capabilities.any { it in enabled }) { open(AccessGroup.SCREEN) }
+        // The one choice most people need. Each card sets every switch below at once.
+        Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            AccessPreset.entries.forEach { preset ->
+                PresetOption(preset, selected = chosen == preset && (preset != AccessPreset.EVERYTHING || allApps || auto != AutoMode.OFF)) { onPreset(preset) }
+            }
         }
-        BentoRow {
-            GroupTile(AccessGroup.FILES, statusOf(AccessGroup.FILES, enabled), AccessGroup.FILES.capabilities.any { it in enabled }) { open(AccessGroup.FILES) }
-            GroupTile(AccessGroup.SHARING, statusOf(AccessGroup.SHARING, enabled), AccessGroup.SHARING.capabilities.any { it in enabled }) { open(AccessGroup.SHARING) }
+        if (chosen == null && enabled.any { it != Capability.DEVICE_INFO && it != Capability.ADB_SHELL }) {
+            Text(
+                "You fine-tuned the switches yourself. Tap a card to start over from it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = signal.text2,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
 
         Card {
             ListRow(
-                AccessGroup.CONTROLS.icon,
-                AccessGroup.CONTROLS.title,
-                statusOf(AccessGroup.CONTROLS, enabled),
-                tint = signal.hueOf(AccessGroup.CONTROLS),
-                onClick = { open(AccessGroup.CONTROLS) },
-                onClickLabel = "Open ${AccessGroup.CONTROLS.title}",
+                LatchIcons.Apps,
+                "Your apps",
+                when {
+                    auto != AutoMode.OFF -> "Auto mode: every app, no questions"
+                    allApps -> "Every app \u00b7 bank and password apps ask once"
+                    appsOn == 0 -> "Each app asks you the first time"
+                    else -> "$appsOn on \u00b7 others ask you the first time"
+                },
+                tint = signal.accent,
+                onClick = onOpenApps,
+                onClickLabel = "Choose apps the AI can use",
             )
-            RowDivider()
-            ListRow(
-                AccessGroup.WORKING.icon,
-                AccessGroup.WORKING.title,
-                listOf(if (showCursor) "Cursor shown" else "Cursor hidden", if (keepAwake) "screen stays on" else "screen may lock").joinToString(" · "),
-                tint = signal.hueOf(AccessGroup.WORKING),
-                onClick = { open(AccessGroup.WORKING) },
-                onClickLabel = "Open ${AccessGroup.WORKING.title}",
-            )
+        }
+
+        // Every detail is still here, folded away so the page stays calm.
+        SectionCaption("Fine-tune")
+        Card {
+            listOf(AccessGroup.AI, AccessGroup.SCREEN, AccessGroup.FILES, AccessGroup.SHARING, AccessGroup.CONTROLS, AccessGroup.WORKING)
+                .forEachIndexed { i, group ->
+                    if (i > 0) RowDivider()
+                    ListRow(
+                        group.icon,
+                        group.title,
+                        when (group) {
+                            AccessGroup.AI -> listOfNotNull(
+                                if (auto != AutoMode.OFF) "Auto mode on" else null,
+                                if (approveEveryAction) "asks before every action" else "asks only for payments and installs",
+                            ).joinToString(" \u00b7 ")
+                            AccessGroup.WORKING -> listOf(if (showCursor) "Cursor shown" else "Cursor hidden", if (keepAwake) "screen stays on" else "screen may lock").joinToString(" \u00b7 ")
+                            else -> statusOf(group, enabled)
+                        },
+                        tint = signal.hueOf(group),
+                        onClick = { open(group) },
+                        onClickLabel = "Open ${group.title}",
+                    )
+                }
         }
 
         // The largest grant in the app gets its own place, so it never reads as one more ordinary switch.
@@ -325,29 +347,6 @@ private fun statusOf(group: AccessGroup, enabled: Set<Capability>): String {
         0 -> "Off"
         group.capabilities.size -> "All on"
         else -> "$on of ${group.capabilities.size} on"
-    }
-}
-
-/** A card for one group: its glyph, name, and state. Tapping opens the group's page. */
-@Composable
-private fun RowScope.GroupTile(group: AccessGroup, status: String, on: Boolean, onOpen: () -> Unit) {
-    val signal = LocalSignal.current
-    Tile(
-        modifier = Modifier.weight(1f),
-        onClick = onOpen,
-        onClickLabel = "Open ${group.title}",
-        minHeight = 150.dp,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconBadge(group.icon, signal.hueOf(group), size = 40.dp)
-            Spacer(Modifier.weight(1f))
-            Chevron()
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(group.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = signal.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Push()
-        // On or off in words and in a dot, so it never rests on colour alone.
-        StatusDot(if (on) signal.success else signal.text3, status)
     }
 }
 
@@ -690,7 +689,9 @@ private fun AdbPairing(
 @Composable
 private fun AiAccessBody(
     auto: AutoMode,
+    onAuto: (AutoMode) -> Unit,
     appsOn: Int,
+    allApps: Boolean,
     onOpenApps: () -> Unit,
     approveEveryAction: Boolean,
     onApproveEveryAction: (Boolean) -> Unit,
@@ -701,6 +702,7 @@ private fun AiAccessBody(
     onRemoveAllSaved: () -> Unit,
 ) {
     val signal = LocalSignal.current
+    AutoModeCard(auto, onAuto)
     SectionCaption("How the AI works")
     Card {
         ListRow(
@@ -708,6 +710,7 @@ private fun AiAccessBody(
             "Apps the AI can use",
             when {
                 auto != AutoMode.OFF -> "Auto mode is on: every app, no questions."
+                allApps -> "Every app. Bank and password apps ask you once."
                 appsOn == 0 -> "None yet. Latch asks you the first time the AI needs an app."
                 else -> "$appsOn on. Others ask you the first time."
             },

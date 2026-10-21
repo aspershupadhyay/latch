@@ -122,6 +122,8 @@ class ConnectActions(
     val revoke: (String) -> Unit = {},
     val dismissCreated: () -> Unit = {},
     val copy: (label: String, value: String, sensitive: Boolean) -> Unit = { _, _, _ -> },
+    /** Hands the AI link to another app through Android's share sheet. */
+    val share: (String) -> Unit = {},
     val refresh: () -> Unit = {},
     val answer: (id: String, approve: Boolean) -> Unit = { _, _ -> },
     /** R18: limit an AI app to some phone apps (package names), or null for any app switched on. */

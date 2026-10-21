@@ -812,3 +812,20 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** visual and navigation only; revert the commit. Settings, pairing, and protocol are untouched.
 
+## ADR-064 — "Everything" in one tap: every ordinary app, no app-by-app questions
+**Status:** accepted (2026-10-21, owner on the R59 beta: "do something so user won't have to provide the access for each and everything … remove the send permission … it will be user only asking ai to do") · **Amends:** ADR-021 (app switches), the Access tab (ADR-062, ADR-063) · **Protocol:** unchanged
+
+**Problem:** sending, posting, and deleting already run without asking in an app the owner switched on (ADR-021). But each app had to be switched on one by one, by a question the first time the AI needed it, and the Access tab offered six groups and a dozen switches before the AI could do much. Owners met a "send?"-style question for every new app and called the setup tiring. The "Everything" preset also included full ADB, which ADR-046 keeps off until the owner turns it on by itself.
+
+**Decision:**
+- **One choice, three answers:** Access opens with three big cards, **Only look**, **Look and tap**, and **Everything**, each setting every switch at once. The groups (AI access, Screen & control, Files, Share, Phone controls, While the AI works) fold under **Fine-tune**; Full ADB keeps its own **Most access** place. The same cards are the setup step.
+- **Everything** switches on every capability except device info and full ADB, and turns on **every app** (`allApps`, kept on the phone): the AI opens and works in any ordinary app with no first-time question, and sends, posts, and deletes there without asking, as in a switched-on app.
+- **What still asks:** apps that may hold money, accounts, or passwords (the existing sensitive-app check) ask once, as before. Payments, installs, Android permission prompts, and account deletion still ask every time unless the owner separately opts in (ADR-022) or turns on Auto mode (ADR-024, now under Fine-tune → AI access). "Ask me before every action" still overrides all of it. Full ADB is never part of a preset; picking a card keeps whatever the owner chose for it.
+- **Only look** and **Look and tap** turn every-app off, so each app asks once again; "Switch all off" on the Apps page clears it too.
+
+**Threat review:** the widest new grant is an explicit owner tap on a card that says what it does ("Every app, typing, sending, and files, without asking. Bank and password apps ask once; payments and installs always ask."). It is not a default: a new install still starts with nothing switched on, and the cards are equal choices. Screen text and remote instructions still cannot choose a card or answer a question. Irreversible money and install actions keep their confirmation (AGENTS.md: payments and installs ask by default). Stop, the session time limit, and the History log are unchanged, so every send is still visible and stoppable.
+
+**Checks:** `AutonomyTest.everyAppCoversOrdinaryAppsButNotMoneyAppsOrPayments`; `SetupStateTest` (presets never include full ADB). The app builds with warnings as errors; unit tests and lint pass. *Needs phone:* WhatsApp send with Everything on (no question), a banking app (asks once), a Play Store install (asks).
+
+**Rollback:** pick Look and tap (every-app off), or revert the commit; the stored `all_apps` flag is then ignored.
+

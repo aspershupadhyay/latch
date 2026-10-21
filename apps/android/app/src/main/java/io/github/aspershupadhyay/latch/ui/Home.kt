@@ -47,9 +47,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -151,22 +153,27 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             Tile(
                 Modifier.weight(1f),
                 onClick = actions.goCapabilities,
-                onClickLabel = "Choose the apps the AI can use",
+                onClickLabel = "Change what the AI may do",
                 minHeight = 136.dp,
             ) {
-                IconBadge(LatchIcons.Apps, signal.accent, size = 40.dp)
+                IconBadge(LatchIcons.ShieldCheck, signal.accent, size = 40.dp)
                 Push()
                 Text(
-                    when {
-                        state.autoAll -> "All apps"
-                        state.appsOn == 1 -> "1 app"
-                        else -> "${state.appsOn} apps"
-                    },
+                    AccessPreset.matching(state.enabled.toSet())?.title ?: if (state.enabled.isEmpty()) "Nothing yet" else "Your mix",
                     style = MaterialTheme.typography.headlineSmall,
                     color = signal.text,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                TileNote(if (state.appsOn == 0 && !state.autoAll) "Tap to choose" else "it can use", maxLines = 1)
+                TileNote(
+                    when {
+                        state.autoAll -> "every app"
+                        state.appsOn == 1 -> "1 app on"
+                        state.appsOn > 1 -> "${state.appsOn} apps on"
+                        else -> "tap to choose"
+                    },
+                    maxLines = 1,
+                )
             }
             Tile(
                 Modifier.weight(1f),
@@ -185,24 +192,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 TileNote("in your history", maxLines = 1)
             }
         }
-        Card {
-            ListRow(
-                icon = LatchIcons.Tap,
-                title = AccessPreset.matching(state.enabled.toSet())?.title ?: if (state.enabled.isEmpty()) "Nothing allowed yet" else "Your own mix",
-                subtitle = if (state.enabled.isEmpty()) "Tap to choose what the AI may do" else allowedSentence(state.enabled),
-                tint = signal.text2,
-                onClick = actions.goCapabilities,
-                onClickLabel = "Change what the AI can do",
-            )
-        }
         MirrorCard(state.mirror, actions, state.mirrorRemembered)
-        Text(
-            "Relay: ${state.gatewayHost}" + if (state.isOwner) " (yours)" else "",
-            style = MaterialTheme.typography.bodySmall,
-            color = signal.text3,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-        )
     }
 }
 
@@ -296,34 +286,6 @@ private fun NoticeCard(notice: Notice, state: HomeState, actions: HomeActions) {
             )
         }
     }
-}
-
-/** What the AI may do, in words: "Can read the screen, tap, and type." */
-private fun allowedSentence(enabled: List<Capability>): String {
-    val words = enabled.map { verbOf(it) }.distinct()
-    // At most two things by name, so the sentence always fits the tile.
-    return "Can " + when (words.size) {
-        1 -> words[0]
-        2 -> "${words[0]} and ${words[1]}"
-        else -> "${words[0]} and ${words.size - 1} more things"
-    }
-}
-
-private fun verbOf(c: Capability) = when (c) {
-    Capability.DEVICE_INFO -> "see phone info"
-    Capability.UI_OBSERVE -> "read the screen"
-    Capability.SCREEN_CAPTURE -> "take screenshots"
-    Capability.INPUT_GESTURE -> "tap and swipe"
-    Capability.INPUT_TEXT -> "type"
-    Capability.NAV_GLOBAL -> "go back and home"
-    Capability.APP_LAUNCH -> "open apps"
-    Capability.FILE_READ -> "see files"
-    Capability.FILE_WRITE -> "save files"
-    Capability.APP_SHARE -> "share"
-    Capability.CLIPBOARD_WRITE -> "copy text"
-    Capability.ACTIVITY_READ -> "read the log"
-    Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS -> "change phone controls"
-    Capability.ADB_SHELL -> "use full ADB"
 }
 
 private fun greeting(): String = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
@@ -444,26 +406,26 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                 tall = true,
             )
             if (state.accessibilityOn) {
-                Text("Stops by itself after", style = MaterialTheme.typography.labelMedium, color = signal.text2)
-                // A segmented control: equal widths, so no label ever wraps; 44 dp tall for a thumb.
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(signal.canvas)
-                        .border(1.dp, signal.border, RoundedCornerShape(16.dp)).padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    SESSION_LENGTHS.forEach { (m, label) ->
-                        val selected = state.sessionMinutes == m
-                        Box(
-                            Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(13.dp))
-                                .background(if (selected) signal.ink else Color.Transparent)
-                                .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "Session length ${spokenLength(m)}") { actions.setMinutes(m) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) signal.onInk else signal.text2,
-                                maxLines = 1,
+                // One quiet choice instead of a row of six: the length rarely changes.
+                var lengths by remember { mutableStateOf(false) }
+                Box {
+                    Row(
+                        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp))
+                            .clickable(onClickLabel = "Change how long a session lasts", role = androidx.compose.ui.semantics.Role.Button) { lengths = true }
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(LatchIcons.Clock, contentDescription = null, tint = signal.text2, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Stops by itself after ${spokenLength(state.sessionMinutes)}", style = MaterialTheme.typography.labelLarge, color = signal.text2)
+                        Spacer(Modifier.width(4.dp))
+                        Icon(LatchIcons.ChevronRight, contentDescription = null, tint = signal.text3, modifier = Modifier.size(16.dp).rotate(90f))
+                    }
+                    androidx.compose.material3.DropdownMenu(expanded = lengths, onDismissRequest = { lengths = false }) {
+                        SESSION_LENGTHS.forEach { (m, _) ->
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(spokenLength(m), color = if (m == state.sessionMinutes) signal.accent else signal.text) },
+                                onClick = { actions.setMinutes(m); lengths = false },
                             )
                         }
                     }
