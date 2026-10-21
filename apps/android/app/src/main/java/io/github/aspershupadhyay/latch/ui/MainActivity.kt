@@ -190,6 +190,15 @@ fun openAccessibilityFor(context: Context) {
     if (!opened) context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
 }
 
+/**
+ * One tap sets how much the AI may do (ADR-064): the capabilities, and for
+ * Everything, every ordinary app too. Full ADB keeps whatever the owner chose.
+ */
+internal fun applyPreset(app: LatchApp, preset: AccessPreset) {
+    app.settings.update { p -> p.copy(enabled = preset.capabilities + (p.enabled intersect setOf(Capability.ADB_SHELL))) }
+    app.autonomy.setAllApps(preset.allApps)
+}
+
 private fun Paired.save(app: LatchApp, pin: String?) = app.settings.savePairing(SavedPairing(gatewayUrl, deviceId, name, pin), deviceToken)
 
 @Composable
@@ -625,7 +634,7 @@ private fun SetupRoute(app: LatchApp, reducedMotion: Boolean, onFinish: () -> Un
             skipBattery = { batterySkipped = true },
             choosePreset = { chosen ->
                 preset = chosen
-                app.settings.update { it.copy(enabled = chosen.capabilities) }
+                applyPreset(app, chosen)
             },
             setApproveEveryAction = { v -> app.settings.update { it.copy(approveEveryAction = v) } },
             finish = onFinish,
@@ -927,6 +936,8 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         onRemoveAllSaved = app.grants::clearAll,
         openGroup = group,
         onOpenGroup = { group = it },
+        allApps = autonomy.allApps,
+        onPreset = { applyPreset(app, it) },
     )
 }
 
@@ -987,6 +998,10 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
             revoke = { id -> run { it.revokeClient(id); clients = it.clients() } },
             dismissCreated = { created = null },
             copy = { label, value, sensitive -> copyToClipboard(context, label, value, sensitive) },
+            share = { link ->
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link)
+                runCatching { context.startActivity(Intent.createChooser(send, "Send the AI link")) }
+            },
             refresh = { run { reload(it) } },
             limit = { id, apps -> run { it.limitClient(id, apps); clients = it.clients() } },
             removePhone = { id -> run { it.removePhone(id); reload(it) } },

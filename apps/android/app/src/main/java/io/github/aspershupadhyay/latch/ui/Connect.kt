@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
@@ -71,7 +72,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScreenTitle("Connect", "Give your AI app one link. Works with Claude, ChatGPT, and others.")
+        ScreenTitle("Connect your AI", "Give this link to your AI app. That's it.")
 
         // Sign-in requests come first: someone is waiting in a browser.
         state.requests.forEach { request -> SignInCard(request, actions) }
@@ -95,35 +96,60 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
         }
 
         if (state.created == null) {
-            Card {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Your AI link", style = MaterialTheme.typography.titleMedium, color = signal.text)
-                            Text("Give this link to your AI app so it can reach this phone.", style = MaterialTheme.typography.bodySmall, color = signal.text2)
-                        }
-                        InfoButton(HelpTopic.AI_LINK)
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(signal.canvas)
-                            .border(1.dp, signal.border2, RoundedCornerShape(8.dp)).padding(start = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            state.mcpUrl,
-                            fontFamily = GeistMono,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = signal.text,
-                            maxLines = 2,
-                            modifier = Modifier.weight(1f).padding(vertical = 14.dp),
-                        )
-                        IconButton(onClick = { actions.copy("AI link", state.mcpUrl, false) }) {
-                            Icon(LatchIcons.Copy, contentDescription = "Copy AI link", tint = signal.text)
-                        }
-                    }
-                    HowStep(1, "Copy the link. In your AI app, add it as a connector (in Claude: Settings \u2192 Connectors \u2192 Add custom connector).")
-                    HowStep(2, "A Latch page opens and shows a 4-letter code.")
-                    HowStep(3, "When the same code shows up here, tap Approve. That's it.")
+            // The one thing people come here for: the link, two big buttons, three steps.
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(signal.surface)
+                    .border(1.dp, signal.border, RoundedCornerShape(24.dp)).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Your link", style = MaterialTheme.typography.labelLarge, color = signal.text2, modifier = Modifier.weight(1f))
+                    InfoButton(HelpTopic.AI_LINK)
+                }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(signal.canvas)
+                        .border(1.dp, signal.border, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(LatchIcons.Plug, contentDescription = null, tint = signal.text3, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        state.mcpUrl,
+                        fontFamily = GeistMono,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = signal.text,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    IconButtonLarge(
+                        "Copy", LatchIcons.Copy, { actions.copy("AI link", state.mcpUrl, false) }, Modifier.weight(1f),
+                        container = signal.ink, content = signal.onInk,
+                    )
+                    IconButtonLarge(
+                        "Share", LatchIcons.Share, { actions.share(state.mcpUrl) }, Modifier.weight(1f),
+                        container = signal.surface2, content = signal.text, outline = signal.border2,
+                    )
+                }
+            }
+            Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                HowStep(1, "Copy the link.")
+                HowStep(2, "Paste it in your AI app as a connector. In Claude: Settings \u2192 Connectors \u2192 Add custom connector.")
+                HowStep(3, "A 4-letter code shows there and here. If they match, tap Approve.")
+            }
+            if (state.isOwner && state.clients.isEmpty() && state.requests.isEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(signal.live.copy(alpha = if (signal.dark) 0.10f else 0.08f))
+                        .border(1.dp, signal.live.copy(alpha = 0.35f), RoundedCornerShape(20.dp)).padding(16.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(signal.live))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Waiting for your AI\u2026", style = MaterialTheme.typography.titleMedium, color = signal.text)
                 }
             }
         }
@@ -375,11 +401,11 @@ private fun SignInCard(request: SignInRequest, actions: ConnectActions) {
 @Composable
 private fun HowStep(n: Int, text: String) {
     val signal = LocalSignal.current
-    Row(verticalAlignment = Alignment.Top) {
-        Box(Modifier.size(24.dp).clip(RoundedCornerShape(5.dp)).background(signal.surface2).border(1.dp, signal.border2, RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
-            Text("$n", style = MaterialTheme.typography.labelMedium, color = signal.text)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(30.dp).clip(CircleShape).background(signal.surface2), contentAlignment = Alignment.Center) {
+            Text("$n", style = MaterialTheme.typography.labelLarge, color = signal.text)
         }
-        Spacer(Modifier.width(12.dp))
-        Text(text, style = MaterialTheme.typography.bodyMedium, color = signal.text2, modifier = Modifier.padding(top = 2.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(text, style = MaterialTheme.typography.bodyLarge, color = signal.text)
     }
 }

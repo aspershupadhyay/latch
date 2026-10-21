@@ -3,6 +3,7 @@
 package io.github.aspershupadhyay.latch.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,6 +21,29 @@ class AutonomyTest {
         override fun saveAutoAlways(value: Boolean) {
             auto = value
         }
+        var allApps = false
+        override fun loadAllApps() = allApps
+        override fun saveAllApps(value: Boolean) {
+            allApps = value
+        }
+    }
+
+    @Test
+    fun everyAppCoversOrdinaryAppsButNotMoneyAppsOrPayments() {
+        val store = MemoryStore()
+        val autonomy = Autonomy(store)
+        autonomy.setAllApps(true)
+        assertEquals(AppDecision.ALLOWED, autonomy.decide("com.whatsapp"))
+        // Apps that may hold money, accounts, or passwords still ask once.
+        assertEquals(AppDecision.ASK, autonomy.decide("com.example.bank", sensitive = true))
+        // Payments and installs still ask: "every app" is not Auto mode.
+        assertFalse(autonomy.state.value.trustsCritical)
+        // Kept across a restart, and cleared by "switch all off".
+        assertTrue(store.allApps)
+        assertEquals(AppDecision.ALLOWED, Autonomy(store).decide("com.whatsapp"))
+        autonomy.clearAll()
+        assertEquals(AppDecision.ASK, autonomy.decide("com.whatsapp"))
+        assertFalse(store.allApps)
     }
 
     @Test

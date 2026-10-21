@@ -183,6 +183,12 @@ class ScreenSnapshotTest {
     @Test fun welcome_scan_night() = snap(dark = true) { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
     @Test fun welcome_scan() = snap { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
     @Test fun home_idle_night() = snap(dark = true) { HomeScreen(home(Phase.IDLE), HomeActions()) }
+    @Test fun connect_empty_night() = snap(dark = true) {
+        ConnectScreen(
+            ConnectState("https://latch-gateway-ada.vercel.app/mcp", isOwner = true, clients = emptyList(), loading = false, error = null, created = null),
+            ConnectActions(),
+        )
+    }
     @Test fun sessionBar_night() = snap(dark = true) {
         androidx.compose.foundation.layout.Column {
             SessionBar(io.github.aspershupadhyay.latch.session.SessionState.Active(now + 60_000, paused = false), waiting = false, reducedMotion = true, stop = {}, open = {})
