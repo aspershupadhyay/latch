@@ -300,11 +300,11 @@ private fun NoticeCard(notice: Notice, state: HomeState, actions: HomeActions) {
 /** What the AI may do, in words: "Can read the screen, tap, and type." */
 private fun allowedSentence(enabled: List<Capability>): String {
     val words = enabled.map { verbOf(it) }.distinct()
+    // At most two things by name, so the sentence always fits the tile.
     return "Can " + when (words.size) {
         1 -> words[0]
         2 -> "${words[0]} and ${words[1]}"
-        3 -> "${words[0]}, ${words[1]}, and ${words[2]}"
-        else -> "${words[0]}, ${words[1]}, and ${words.size - 2} more"
+        else -> "${words[0]} and ${words.size - 1} more things"
     }
 }
 
