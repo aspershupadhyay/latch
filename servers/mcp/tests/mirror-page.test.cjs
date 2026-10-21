@@ -189,6 +189,8 @@ test('stream stats: clocks line up by the fastest ping, and the overlay reads pl
   assert.match(lines[1], /encode 6\.1 ms/);
   assert.match(lines[2], /dropped 2/);
   assert.match(lines[5], /glass-to-glass ≈ 4\.0 ms/);
+  const udp = m.statsLines({ codec: 'h264', w: 1, h: 1, frames: 1, gateway_drops: 0, transport: 'udp' }, { synced: false, frames: 0, skipped: 0 });
+  assert.match(udp[2], /over UDP/, 'R56: the overlay says which way frames come');
   const unsynced = m.statsLines(null, { synced: false, rtt: null, frames: 0, skipped: 0, transit: null, decode: null, draw: null, total: null });
   assert.match(unsynced.join('\n'), /syncing clocks/);
   assert.equal(m.shortcut({ altKey: true, code: 'KeyD' }), 'stats');

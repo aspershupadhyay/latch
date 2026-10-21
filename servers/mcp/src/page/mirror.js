@@ -287,7 +287,8 @@ function statsLines(phone, page) {
     const target = Number.isFinite(phone.target_kbps) ? ` (aim ${(phone.target_kbps / 1000).toFixed(1)})` : '';
     lines.push(`Stream   ${phone.codec || '?'} ${phone.w}×${phone.h}  ${phone.frames} fps  ${rate}${target}`);
     lines.push(`Phone    encode ${ms(phone.encode_ms)} (max ${ms(phone.encode_max_ms)})  key frames ${phone.key_frames}  dropped ${phone.drops}`);
-    lines.push(`Gateway  dropped ${Number.isFinite(phone.gateway_drops) ? phone.gateway_drops : '–'}`);
+    const via = phone.transport === 'udp' ? '  over UDP (R56)' : phone.transport ? '  over WebSocket' : '';
+    lines.push(`Gateway  dropped ${Number.isFinite(phone.gateway_drops) ? phone.gateway_drops : '–'}${via}`);
   } else {
     lines.push('Stream   waiting for the phone\'s numbers…');
   }

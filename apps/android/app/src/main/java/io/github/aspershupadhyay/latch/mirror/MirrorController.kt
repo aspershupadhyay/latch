@@ -388,6 +388,11 @@ class MirrorController(
             }
         }
 
+        override fun network(report: MirrorUdp.Report) {
+            // R56: losses the gateway saw over UDP back the bitrate off, as dropped frames do.
+            if (report.lossy) handler?.post { capture?.networkLossy() }
+        }
+
         override fun message(message: MirrorIn) {
             when (message) {
                 is MirrorIn.Viewer -> scope.launch { viewer(message.on, message.codec) }
@@ -554,7 +559,7 @@ class MirrorController(
                 val c = capture ?: continue
                 if (!watching) continue
                 val (w, h) = c.encodedSize
-                link?.sendText(MirrorMessages.stats(c.stats.take(), c.targetBps / 1000, w, h, c.codecName))
+                link?.sendText(MirrorMessages.stats(c.stats.take(), c.targetBps / 1000, w, h, c.codecName, if (link?.onUdp == true) "udp" else "websocket"))
             }
         }
     }

@@ -3628,6 +3628,128 @@ async fn a_browser_that_decodes_h265_gets_it_when_the_phone_sends_it() {
     );
 }
 
+/// R56 (ADR-061): the phone offers UDP on its authenticated socket, says hello
+/// over UDP, and its frames arrive put together in order; a lost piece is asked
+/// for again and the frame reaches the browser byte for byte.
+#[tokio::test]
+async fn mirror_frames_over_udp_survive_a_lost_piece() {
+    use latch_gateway::mirror_udp::{
+        DIR_GATEWAY, DIR_PHONE, Keys, T_FRAGMENT, T_HELLO, T_HELLO_ACK, T_NACK,
+    };
+    let gw = start_gateway().await;
+    let udp = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("udp");
+    gw.state.udp.start(udp);
+    let phone = connect_phone(&gw, &[]).await;
+    let (mut ph, _ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    // The gateway says it takes UDP, and on which port.
+    let port = next_of(&mut ph, "udp").await["port"]
+        .as_u64()
+        .expect("port") as u16;
+    let (mut viewer, joined) = join(&gw, json!({"key": VIEWER_KEY})).await;
+    assert!(
+        matches!(joined, Got::Text(ref v) if v["t"] == "joined"),
+        "{joined:?}"
+    );
+    next_of(&mut ph, "viewer").await;
+
+    // A malformed offer is ignored; a good one opens the session.
+    send_json(&mut ph, json!({"t": "udp", "id": "zz", "key": "00"})).await;
+    let id = [5u8; 8];
+    let key = [6u8; 32];
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    send_json(
+        &mut ph,
+        json!({"t": "udp", "id": hex(&id), "key": hex(&key)}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let keys = Keys::new(id, &key);
+    let sock = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("phone udp");
+    sock.connect(("127.0.0.1", port)).await.expect("connect");
+    let mut counter = 0u64;
+    let mut send = |plain: Vec<u8>| {
+        counter += 1;
+        keys.seal(DIR_PHONE, counter, &plain)
+    };
+    let mut buf = vec![0u8; 2048];
+    async fn recv_plain(
+        sock: &tokio::net::UdpSocket,
+        keys: &Keys,
+        buf: &mut [u8],
+        want: u8,
+    ) -> Vec<u8> {
+        loop {
+            let n = tokio::time::timeout(Duration::from_secs(5), sock.recv(buf))
+                .await
+                .expect("a packet in time")
+                .expect("recv");
+            let (_, plain) = keys
+                .open(DIR_GATEWAY, &buf[..n])
+                .expect("sealed for the phone");
+            if plain[0] == want {
+                return plain;
+            }
+        }
+    }
+    sock.send(&send(vec![T_HELLO])).await.expect("hello");
+    assert_eq!(
+        recv_plain(&sock, &keys, &mut buf, T_HELLO_ACK).await,
+        vec![T_HELLO_ACK]
+    );
+
+    // A key frame in two pieces, then a small frame; the first piece is "lost".
+    let key_frame = frame(
+        true,
+        1,
+        &[0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f, 0, 0, 1, 0x65, 9, 9, 9],
+    );
+    let piece = |seq: u32, i: u16, count: u16, data: &[u8]| {
+        let mut p = vec![T_FRAGMENT];
+        p.extend_from_slice(&seq.to_be_bytes());
+        p.extend_from_slice(&i.to_be_bytes());
+        p.extend_from_slice(&count.to_be_bytes());
+        p.extend_from_slice(data);
+        p
+    };
+    let (a, b) = key_frame.split_at(8);
+    sock.send(&send(piece(0, 1, 2, b))).await.expect("piece 1");
+    let delta = frame(false, 2, &[0, 0, 1, 0x41, 7]);
+    sock.send(&send(piece(1, 0, 1, &delta)))
+        .await
+        .expect("next frame");
+    let nack = recv_plain(&sock, &keys, &mut buf, T_NACK).await;
+    assert_eq!(
+        nack,
+        vec![T_NACK, 0, 0, 0, 0, 0, 1, 0, 0],
+        "frame 0, piece 0"
+    );
+    sock.send(&send(piece(0, 0, 2, a)))
+        .await
+        .expect("piece 0 again");
+    assert_eq!(next(&mut viewer).await, Got::Frame(key_frame));
+    assert_eq!(next(&mut viewer).await, Got::Frame(delta));
+
+    // The mirror's end forgets the session: its packets are no longer answered.
+    drop(ph);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    // Reports and requests sent before the end may still wait in this socket.
+    while tokio::time::timeout(Duration::from_millis(50), sock.recv(&mut buf))
+        .await
+        .is_ok()
+    {}
+    sock.send(&send(vec![T_HELLO])).await.expect("hello");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), sock.recv(&mut buf))
+            .await
+            .is_err()
+    );
+}
+
 #[tokio::test]
 async fn the_mirror_shows_the_phone_in_the_owners_browser_and_takes_input_back() {
     let gw = start_gateway().await;

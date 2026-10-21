@@ -148,6 +148,66 @@ struct FramePath {
     phone: Mutex<Option<mpsc::Sender<ToPhone>>>,
 }
 
+/// R56: where frames that came over UDP ([`crate::mirror_udp`]) go: the same
+/// path as the phone's WebSocket frames, for the connection that offered UDP.
+#[derive(Clone)]
+pub struct FrameSink {
+    frame: Arc<dyn Fn(Bytes) + Send + Sync>,
+    lost: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl FrameSink {
+    pub fn frame(&self, frame: Bytes) {
+        (self.frame)(frame)
+    }
+
+    /// A video frame was given up on: show nothing damaged until a key frame, and ask for one.
+    pub fn lost(&self) {
+        (self.lost)()
+    }
+
+    fn for_path(path: Arc<FramePath>, generation: u64) -> Self {
+        let frames = path.clone();
+        Self {
+            frame: Arc::new(move |frame| Mirrors::frame(&frames, generation, frame)),
+            lost: Arc::new(move || {
+                if path.generation.load(Ordering::Acquire) != generation {
+                    return;
+                }
+                let now = now_ms();
+                let mut guard = path.viewer();
+                let Some(viewer) = guard.as_mut() else {
+                    return;
+                };
+                viewer.waiting_key = true;
+                if now.saturating_sub(viewer.last_sync_ms) < SYNC_REQUEST_GAP_MS {
+                    return;
+                }
+                viewer.last_sync_ms = now;
+                drop(guard);
+                if let Some(phone) = &*path.phone() {
+                    let _ = phone.try_send(ToPhone::Text(text(&json!({"t": "sync"}))));
+                }
+            }),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn for_test(
+        delivered: Arc<std::sync::atomic::AtomicUsize>,
+        lost: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> Self {
+        Self {
+            frame: Arc::new(move |_| {
+                delivered.fetch_add(1, Ordering::SeqCst);
+            }),
+            lost: Arc::new(move || {
+                lost.fetch_add(1, Ordering::SeqCst);
+            }),
+        }
+    }
+}
+
 impl FramePath {
     fn viewer(&self) -> MutexGuard<'_, Option<Viewer>> {
         self.viewer.lock().unwrap_or_else(|e| e.into_inner())
@@ -943,7 +1003,36 @@ const PHONE_TEXT_KINDS: &[&str] = &[
     "input",
     "stats",
     "quality",
+    "udp",
 ];
+
+/// R56: the phone's offer of UDP for its frames: a session id and a fresh key.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UdpOffer {
+    #[serde(rename = "t")]
+    _t: String,
+    id: String,
+    key: String,
+}
+
+fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
+    if text.len() != 2 * N {
+        return None;
+    }
+    let mut out = [0u8; N];
+    for (i, b) in out.iter_mut().enumerate() {
+        *b = u8::from_str_radix(text.get(2 * i..2 * i + 2)?, 16).ok()?;
+    }
+    Some(out)
+}
+
+impl UdpOffer {
+    fn parse(raw: &str) -> Option<([u8; 8], [u8; 32])> {
+        let offer: UdpOffer = serde_json::from_str(raw).ok()?;
+        Some((unhex::<8>(&offer.id)?, unhex::<32>(&offer.key)?))
+    }
+}
 
 fn phone_kind(raw: &str) -> Option<String> {
     if raw.len() > MAX_PHONE_TEXT_BYTES {
@@ -1098,6 +1187,7 @@ async fn serve_phone(
         }
     };
     let (tx, mut rx) = mpsc::channel::<ToPhone>(PHONE_QUEUE);
+    let mut udp_session: Option<[u8; 8]> = None;
     let (generation, code, codec, path) = state
         .mirrors
         .attach_phone(&device_id, &start.key, &base, tx);
@@ -1114,6 +1204,13 @@ async fn serve_phone(
     if let Some(codec) = codec {
         let resume = json!({"t": "viewer", "on": true, "codec": codec});
         let _ = sink.send(Message::Text(text(&resume).into())).await;
+    }
+    // R56: this gateway takes the mirror's frames over UDP. A separate message, so an
+    // older app (which ignores kinds it does not know) is unaffected; the phone offers
+    // its key only after this, so an older gateway never sees an offer it would refuse.
+    if let Some(port) = state.udp.port() {
+        let advert = json!({"t": "udp", "port": port});
+        let _ = sink.send(Message::Text(text(&advert).into())).await;
     }
     tracing::info!(device_id, "mirror started");
 
@@ -1171,6 +1268,18 @@ async fn serve_phone(
                     ended = true;
                     break;
                 }
+                if kind == "udp" {
+                    // R56: the phone's answer to the advert: never remembered or passed on (it holds a key).
+                    if let Some((id, key)) = UdpOffer::parse(&raw) {
+                        if let Some(old) = udp_session.replace(id) {
+                            state.udp.unregister(&old);
+                        }
+                        state
+                            .udp
+                            .register(id, &key, FrameSink::for_path(path.clone(), generation));
+                    }
+                    continue;
+                }
                 state.mirrors.remember(&device_id, generation, &kind, &raw);
             }
             Message::Close(_) => break,
@@ -1178,6 +1287,9 @@ async fn serve_phone(
         }
     }
     writer.abort();
+    if let Some(id) = udp_session {
+        state.udp.unregister(&id);
+    }
     // A revoked phone's mirror ends with it.
     let revoked = state.store().get(&device_id).is_none();
     state

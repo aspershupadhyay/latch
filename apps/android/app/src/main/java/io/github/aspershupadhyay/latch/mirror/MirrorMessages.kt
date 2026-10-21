@@ -54,6 +54,8 @@ sealed interface MirrorIn {
     data class Pinch(val phase: PinchPhase, val x: Int, val y: Int, val scale: Double, val angle: Double) : MirrorIn
     /** From the gateway: a file the owner dropped on the page, to fetch into Downloads (ADR-057). */
     data class File(val url: String, val keyHex: String, val ivHex: String, val sha256: String, val name: String, val size: Long) : MirrorIn
+    /** R56: the gateway takes the mirror's frames over UDP on [port] (null: it does not). */
+    data class Udp(val port: Int?) : MirrorIn
 }
 
 /** How the picture is sent; H265 (R40) only where the phone has a hardware encoder and the browser a decoder. */
@@ -94,6 +96,7 @@ object MirrorMessages {
         "viewer" to setOf("on", "codec"),
         "code" to setOf("code"),
         "sync" to emptySet(),
+        "udp" to setOf("port"),
         "touch" to setOf("phase", "x", "y"),
         "wheel" to setOf("x", "y", "dx", "dy"),
         "text" to setOf("text"),
@@ -135,6 +138,13 @@ object MirrorMessages {
             )
             "code" -> MirrorIn.Code((o.nullableString("code") ?: return null).value)
             "sync" -> MirrorIn.Sync
+            "udp" -> MirrorIn.Udp(
+                when (val p = o["port"]) {
+                    null, is kotlinx.serialization.json.JsonNull -> null
+                    is JsonPrimitive -> p.takeIf { !it.isString }?.content?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+                    else -> return null
+                },
+            )
             "touch" -> MirrorIn.Touch(o.enum("phase", Phase.entries) { it.wire } ?: return null, coord("x") ?: return null, coord("y") ?: return null)
             "wheel" -> MirrorIn.Wheel(coord("x") ?: return null, coord("y") ?: return null, delta("dx") ?: return null, delta("dy") ?: return null)
             "text" -> o.string("text")?.takeIf { validText(it) }?.let { MirrorIn.Text(it) }
@@ -253,9 +263,11 @@ object MirrorMessages {
     }.toString()
 
     /** R35: the encoder's last second, for the page's stats overlay. */
-    fun stats(s: StreamStats.Snapshot, bitrateKbps: Int, width: Int, height: Int, codec: String): String = buildJsonObject {
+    fun stats(s: StreamStats.Snapshot, bitrateKbps: Int, width: Int, height: Int, codec: String, transport: String? = null): String = buildJsonObject {
         put("t", "stats")
         put("codec", codec)
+        // R56: "udp" while video and sound go over UDP, else "websocket".
+        transport?.let { put("transport", it) }
         put("frames", s.frames)
         put("key_frames", s.keyFrames)
         put("drops", s.drops)

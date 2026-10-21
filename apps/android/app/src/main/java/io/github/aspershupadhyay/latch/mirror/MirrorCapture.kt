@@ -304,6 +304,18 @@ class MirrorCapture(
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
     }
 
+    /**
+     * R56: the gateway lost packets or skipped frames over UDP. Over UDP the phone's
+     * own send never backs up, so this is the slow-network signal: the bitrate backs
+     * off (and the picture gets smaller) as for dropped frames on the WebSocket.
+     */
+    fun networkLossy() {
+        if (encoder == null) return
+        val now = SystemClock.uptimeMillis()
+        governor.dropped(now)?.let(::setBitrate)
+        if (ladder.dropped(now, governor.atFloor) != null) changeLevel()
+    }
+
     /** R38: start the encoder again at the ladder's new size and frame rate, and tell the page. */
     private fun changeLevel() {
         handler.post {

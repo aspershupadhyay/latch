@@ -755,6 +755,7 @@ dependencies = [
  "p256",
  "qrcode",
  "rcgen",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

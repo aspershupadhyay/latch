@@ -233,6 +233,11 @@ async fn start_wifi(
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let port = listener.local_addr()?.port();
     let address = wifi::lan_ip().map(|ip| wifi::phone_address(ip, port, &tls.pin));
+    // R56: the mirror's frames over UDP on the same port; without it they stay on the WebSocket.
+    match tokio::net::UdpSocket::bind(std::net::SocketAddr::new(addr.ip(), port)).await {
+        Ok(udp) => state.udp.start(udp),
+        Err(e) => tracing::warn!(error = %e, "no UDP for the mirror; it uses its WebSocket"),
+    }
     tracing::debug!(%addr, "serving phones on the Wi-Fi");
     Ok((
         tokio::spawn(wifi::serve(listener, tls.config, app)),

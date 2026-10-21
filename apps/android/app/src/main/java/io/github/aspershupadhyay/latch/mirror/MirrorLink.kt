@@ -4,6 +4,7 @@ package io.github.aspershupadhyay.latch.mirror
 
 import io.github.aspershupadhyay.latch.protocol.MessageSigner
 import io.github.aspershupadhyay.latch.protocol.Signing
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -38,6 +39,8 @@ class MirrorLink(
         fun reconnecting()
         /** The gateway refused for good (credential, mirror missing on this gateway, bad start). */
         fun refused(reason: String)
+        /** R56: how the gateway's last quarter second over UDP went. */
+        fun network(report: MirrorUdp.Report) {}
     }
 
     private val client = http.newBuilder()
@@ -48,6 +51,8 @@ class MirrorLink(
     @Volatile private var url = gatewayUrl.trimEnd('/') + "/v1/mirror/phone"
     private val timer = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "latch-mirror-link").apply { isDaemon = true } }
     @Volatile private var socket: WebSocket? = null
+    /** R56: video and sound over UDP once the gateway answered; null on the WebSocket. */
+    @Volatile private var udp: UdpMediaLink? = null
     @Volatile private var wanted = false
     @Volatile private var started = false
     private var attempt = 0
@@ -75,6 +80,7 @@ class MirrorLink(
     /** Ends the mirror: tells the gateway (so the viewer hears it at once) and closes. */
     fun stop() {
         wanted = false
+        closeUdp()
         retry?.cancel(false)
         socket?.let { s ->
             s.send(MirrorMessages.end())
@@ -97,8 +103,38 @@ class MirrorLink(
         val s = socket ?: return false
         // A delta frame waits behind little; a key frame (it restarts the picture) may wait a bit more.
         val key = frame.size > 1 && frame[1].toInt() and 1 != 0
-        if (!started || s.queueSize() > queueLimit(key, bitrateBps)) return false
+        if (!started) return false
+        val u = udp
+        if (u != null && u.ready && frame.size > 0 && frame[0] in MirrorUdp.KINDS) {
+            return u.send(frame.toByteArray(), queueLimit(key, bitrateBps))
+        }
+        if (s.queueSize() > queueLimit(key, bitrateBps)) return false
         return s.send(frame)
+    }
+
+    /** True while video and sound go over UDP (R56). */
+    val onUdp: Boolean get() = udp?.ready == true
+
+    private fun offerUdp(webSocket: WebSocket, port: Int) {
+        closeUdp()
+        val (id, key) = MirrorUdp.newSession()
+        if (!webSocket.send(MirrorUdp.offer(id, key))) return
+        val host = url.toHttpUrlOrNull()?.host ?: return
+        // Off the socket's thread: a host name may need a lookup. Hellos repeat until the
+        // gateway has the offer and answers.
+        runCatching {
+            timer.execute {
+                if (!started || socket !== webSocket) return@execute
+                udp = runCatching {
+                    UdpMediaLink(host, port, id, key, onReport = { events.network(it) }, onDown = { udp = null }).also { it.start() }
+                }.getOrNull()
+            }
+        }
+    }
+
+    private fun closeUdp() {
+        udp?.close()
+        udp = null
     }
 
     /** The video bitrate the encoder aims for now; the queue limits follow it (see [queueLimit]). */
@@ -136,6 +172,9 @@ class MirrorLink(
                     attempt = 0
                     events.ready(m.code, m.urls)
                 }
+                // R56: the gateway takes frames over UDP: offer a key (only now, so an older
+                // gateway, which closes on messages it does not know, never sees one).
+                is MirrorIn.Udp -> if (started) m.port?.let { offerUdp(webSocket, it) }
                 null -> Unit
                 else -> if (started) events.message(m)
             }
@@ -166,6 +205,7 @@ class MirrorLink(
 
     private fun giveUp(webSocket: WebSocket, reason: String) {
         if (webSocket !== socket) return
+        closeUdp()
         wanted = false
         socket = null
         events.refused(reason)
@@ -173,6 +213,7 @@ class MirrorLink(
 
     private fun lost(webSocket: WebSocket) {
         if (webSocket !== socket || !wanted) return
+        closeUdp()
         socket = null
         started = false
         events.reconnecting()

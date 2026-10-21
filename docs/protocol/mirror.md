@@ -25,6 +25,8 @@ phone                                         gateway
   ◀── {"t":"viewer","on":true,"codec":"h264"|"jpeg"} / {"t":"viewer","on":false}
   ◀── {"t":"code","code":null}                   (the code was used or burned)
   ◀── {"t":"sync"}                               (send a key frame now)
+  ◀── {"t":"udp","port":8788}                    (R56: this gateway takes video and sound over UDP; sent once after ready)
+  ── {"t":"udp","id":"<16 hex>","key":"<64 hex>"} ──▶   (R56: only after the line above; a new random id and AES-256 key per connection; never stored or relayed)
   ◀── viewer input, as below
   ── binary frames ──▶
   ── {"t":"screen","w":1080,"h":2400,"rotation":0} ──▶
@@ -75,6 +77,27 @@ browser                                       gateway
 Coordinates are phone screen pixels (0–16384). The gateway drops anything else, rebuilds what passes from its fields, and limits a viewer to 1000 messages a second. `screen_light` and `notifications` never reach the phone's mirror link: the gateway runs them as Full ADB commands and answers with a `notice`. A viewer message is at most 16 KiB; a phone message at most 64 KiB (clipboard text). A code joins only when nobody watches; the key takes over from another window (that one is closed with 4409).
 
 **Close codes:** `4401` refused (wrong or expired code, malformed key, bad start), `4404` no mirror for this key right now (the phone keeps its key across mirrors, so the page waits and joins again when the owner starts mirroring, ADR-058), `4409` watching elsewhere now, `4410` mirroring ended.
+
+## Media over UDP (R56, ADR-061)
+
+On a gateway with a Wi-Fi listener, video and sound frames (kinds 1, 3, 5, 6) can go over UDP to the Wi-Fi port, so a lost packet no longer holds later frames (TCP waits 200 ms or more to resend a lost packet at the end of a burst). Every packet:
+
+```text
+version 1 (1) ‖ session id (8) ‖ counter (8, big-endian) ‖ AES-256-GCM ciphertext ‖ tag (16)
+associated data: the first 17 bytes · nonce: direction (1: phone→gateway, 2: gateway→phone) ‖ 00 00 00 ‖ counter
+```
+
+Counters start at 0 for each direction and never repeat under one key; each side drops a counter it has seen or one 64 or more behind its newest. Plaintexts, by their first byte:
+
+| Type | From | Body |
+|---|---|---|
+| `1` hello | phone | none; every 250 ms until acknowledged, then every second |
+| `2` hello ack | gateway | none; the phone then sends frames over UDP |
+| `3` fragment | phone | frame number (u32), index (u16), count (u16), at most 1200 bytes of the frame as the WebSocket would carry it |
+| `4` request again | gateway | frame number (u32), n (u16), n indices (u16); n = 0 asks for the whole frame |
+| `5` report | gateway | packets received (u32), lost (u32), frames skipped (u32) in the last 250 ms |
+
+The gateway hands complete frames on in order. A missing piece is asked for again once a later frame shows it missing (every 8 ms, up to 4 times); a frame still missing 50 ms after a later one is complete is skipped, the viewer waits for a key frame, and the phone is asked for one (`sync`). The phone keeps its last 240 frames (6 MiB) to send again, backs the bitrate off when a report shows 2 % loss or a skipped frame, and goes back to the WebSocket when the gateway is silent for 3 s. The gateway answers only the address of the latest packet that opened. Test vectors: `packages/schemas/v1/mirror/udp.json` (made with an independent AES-GCM; both implementations must match it byte for byte).
 
 ## Flow control
 

@@ -1,0 +1,42 @@
+{
+  "description": "R56 (ADR-061): mirror media over UDP. Every implementation must seal each plaintext to exactly this packet and open it back. Generated with an independent AES-GCM (Python cryptography).",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "id": "0102030405060708",
+  "packets": [
+    {
+      "what": "phone says hello",
+      "direction": 1,
+      "counter": 0,
+      "plaintext": "01",
+      "packet": "0101020304050607080000000000000000e328356fef4304dc83af9e02fe874ca470"
+    },
+    {
+      "what": "one fragment: a whole small H.264 key frame (frame 7, piece 0 of 1)",
+      "direction": 1,
+      "counter": 1,
+      "plaintext": "0300000007000000010101000000000001e240000000016588",
+      "packet": "010102030405060708000000000000000104d56e340d7ab4915ac5b436cadf6641a135f36311e221878ab6bb2779f4c990d6943f39e4cab1ed2d"
+    },
+    {
+      "what": "gateway acknowledges hello",
+      "direction": 2,
+      "counter": 0,
+      "plaintext": "02",
+      "packet": "0101020304050607080000000000000000e4b0348acaca71f1618ec5661bb97327ab"
+    },
+    {
+      "what": "gateway asks again for pieces 1 and 3 of frame 7",
+      "direction": 2,
+      "counter": 1,
+      "plaintext": "0400000007000200010003",
+      "packet": "0101020304050607080000000000000001d5e481ec683835938b7a05e995c415d9eda7940559d1f055db4af8"
+    },
+    {
+      "what": "gateway report: 240 received, 2 lost, 0 frames skipped",
+      "direction": 2,
+      "counter": 2,
+      "plaintext": "05000000f00000000200000000",
+      "packet": "01010203040506070800000000000000023708701796f45e8dc560366593e4575db5b7e579aed4266b0453806d52"
+    }
+  ]
+}
