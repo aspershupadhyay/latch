@@ -41,6 +41,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
 import io.github.aspershupadhyay.latch.data.ConnectionKind
 import io.github.aspershupadhyay.latch.data.FolderGrant
+import io.github.aspershupadhyay.latch.data.AutoMode
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -662,6 +663,7 @@ private fun HomeRoute(
     // R49: Home shows the newest line and a count; it does not hold the whole log.
     val lastActivity by app.log.latest.collectAsStateWithLifecycle()
     val activityCount by app.log.count.collectAsStateWithLifecycle()
+    val autonomy by app.autonomy.state.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
     val outdatedGateway by app.session.outdatedGateway.collectAsStateWithLifecycle()
     val update by app.updater.state.collectAsStateWithLifecycle()
@@ -727,6 +729,8 @@ private fun HomeRoute(
             pending = pending,
             lastActivity = lastActivity,
             activityCount = activityCount,
+            appsOn = autonomy.allowed.size,
+            autoAll = autonomy.auto != AutoMode.OFF,
             isOwner = isOwner,
             reducedMotion = reducedMotion,
             signInRequests = signInRequests,

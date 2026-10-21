@@ -67,6 +67,7 @@ class ScreenSnapshotTest {
         pending = pending,
         lastActivity = ActivityEntry(now, ActivityKind.ACTION, "Tap an element"),
         activityCount = 12,
+        appsOn = 5,
         isOwner = true,
         reducedMotion = true,
     )

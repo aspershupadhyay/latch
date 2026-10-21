@@ -48,6 +48,9 @@ data class HomeState(
     val pending: PendingApproval?,
     val lastActivity: ActivityEntry?,
     val activityCount: Int,
+    /** Apps switched on for the AI, and whether Auto mode opens every app. */
+    val appsOn: Int = 0,
+    val autoAll: Boolean = false,
     val isOwner: Boolean,
     val reducedMotion: Boolean,
     /** AI apps waiting for the owner's approval. */

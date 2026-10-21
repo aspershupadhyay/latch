@@ -131,46 +131,69 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
             }
         }
 
+        // While a session runs: the newest step, in words, under the card that can stop it.
+        if ((state.phase == Phase.ACTIVE || state.phase == Phase.PAUSED) && state.lastActivity != null) {
+            state.lastActivity.let { last ->
+                Card(color = signal.live.copy(alpha = if (signal.dark) 0.06f else 0.05f)) {
+                    ListRow(
+                        icon = LatchIcons.Pulse,
+                        title = last.summary,
+                        subtitle = "Latest step \u00b7 " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(last.atMs)) + (last.app?.let { " \u00b7 $it" } ?: ""),
+                        tint = signal.live,
+                        onClick = actions.goActivity,
+                        onClickLabel = "See every step",
+                    )
+                }
+            }
+        }
+
         BentoRow {
             Tile(
                 Modifier.weight(1f),
                 onClick = actions.goCapabilities,
-                onClickLabel = "Change what the AI can do",
-                minHeight = 150.dp,
+                onClickLabel = "Choose the apps the AI can use",
+                minHeight = 136.dp,
             ) {
-                TileHead(LatchIcons.ShieldCheck, "Can do", signal.accent)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    if (state.enabled.isEmpty()) "Nothing yet" else allowedSentence(state.enabled),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = signal.text,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                IconBadge(LatchIcons.Apps, signal.accent, size = 40.dp)
                 Push()
-                TileNote(if (state.enabled.isEmpty()) "Tap to choose" else "Tap to change", maxLines = 1)
+                Text(
+                    when {
+                        state.autoAll -> "All apps"
+                        state.appsOn == 1 -> "1 app"
+                        else -> "${state.appsOn} apps"
+                    },
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = signal.text,
+                    maxLines = 1,
+                )
+                TileNote(if (state.appsOn == 0 && !state.autoAll) "Tap to choose" else "it can use", maxLines = 1)
             }
             Tile(
                 Modifier.weight(1f),
                 onClick = actions.goActivity,
                 onClickLabel = "Open history",
-                minHeight = 150.dp,
+                minHeight = 136.dp,
             ) {
-                TileHead(LatchIcons.Pulse, "History", signal.live)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    state.lastActivity?.summary ?: "Nothing yet",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = signal.text,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                IconBadge(LatchIcons.Clock, signal.live, size = 40.dp)
                 Push()
-                TileNote(
-                    state.lastActivity?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it.atMs)) } ?: "See everything it did",
+                Text(
+                    if (state.activityCount == 1) "1 thing" else "${state.activityCount} things",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = signal.text,
                     maxLines = 1,
                 )
+                TileNote("in your history", maxLines = 1)
             }
+        }
+        Card {
+            ListRow(
+                icon = LatchIcons.Tap,
+                title = AccessPreset.matching(state.enabled.toSet())?.title ?: if (state.enabled.isEmpty()) "Nothing allowed yet" else "Your own mix",
+                subtitle = if (state.enabled.isEmpty()) "Tap to choose what the AI may do" else allowedSentence(state.enabled),
+                tint = signal.text2,
+                onClick = actions.goCapabilities,
+                onClickLabel = "Change what the AI can do",
+            )
         }
         Card {
             ListRow(
@@ -311,16 +334,6 @@ private fun verbOf(c: Capability) = when (c) {
     Capability.ACTIVITY_READ -> "read the log"
     Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS -> "change phone controls"
     Capability.ADB_SHELL -> "use full ADB"
-}
-
-/** A glyph chip in the tile's hue and a small label at the top of a tile. */
-@Composable
-private fun TileHead(icon: ImageVector, label: String, tint: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconBadge(icon, tint, size = 34.dp)
-        Spacer(Modifier.width(10.dp))
-        TileLabel(label)
-    }
 }
 
 private fun greeting(): String = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
