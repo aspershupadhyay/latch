@@ -242,7 +242,7 @@ private val GUIDE = listOf(
     ),
     GuideStep(
         "Choose apps",
-        "In the Access tab, open “Apps the AI can use” and switch on only the apps you want the AI to help with.",
+        "In the Access tab, open “Your apps” and switch on only the apps you want the AI to help with, or pick Everything.",
     ),
     GuideStep(
         "Connect your AI app",
