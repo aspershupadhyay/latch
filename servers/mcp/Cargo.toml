@@ -14,6 +14,10 @@ name = "latch-gateway"
 path = "src/main.rs"
 
 [dependencies]
+# Marks Wi-Fi connections for the router's video queue (WMM); already in the tree through tokio.
+socket2 = "0.6"
+# R56: AES-256-GCM for the mirror's UDP packets; already in the tree as rustls's crypto.
+ring = "0.17"
 latch-protocol.workspace = true
 latch-policy.workspace = true
 aes.workspace = true

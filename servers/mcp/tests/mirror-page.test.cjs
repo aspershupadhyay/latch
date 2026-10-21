@@ -189,6 +189,8 @@ test('stream stats: clocks line up by the fastest ping, and the overlay reads pl
   assert.match(lines[1], /encode 6\.1 ms/);
   assert.match(lines[2], /dropped 2/);
   assert.match(lines[5], /glass-to-glass ≈ 4\.0 ms/);
+  const udp = m.statsLines({ codec: 'h264', w: 1, h: 1, frames: 1, gateway_drops: 0, transport: 'udp' }, { synced: false, frames: 0, skipped: 0 });
+  assert.match(udp[2], /over UDP/, 'R56: the overlay says which way frames come');
   const unsynced = m.statsLines(null, { synced: false, rtt: null, frames: 0, skipped: 0, transit: null, decode: null, draw: null, total: null });
   assert.match(unsynced.join('\n'), /syncing clocks/);
   assert.equal(m.shortcut({ altKey: true, code: 'KeyD' }), 'stats');
@@ -256,4 +258,10 @@ test('a trackpad pinch becomes two fingers on the phone (R42)', () => {
   assert.ok(m.pinchScale(1, -50) > 1, 'pinching out spreads the fingers');
   assert.ok(m.pinchScale(1, 50) < 1);
   assert.equal(m.pinchScale(0.06, 10000), 0.05);
+});
+
+test('the instant touch dot sits under the pointer inside its frame (R54)', () => {
+  const frame = { left: 100.4, top: 50, width: 400, height: 800 };
+  assert.equal(m.dotTransform(300, 450, frame), 'translate(200px, 400px)');
+  assert.equal(m.dotTransform(100.4, 50, frame), 'translate(0px, 0px)');
 });

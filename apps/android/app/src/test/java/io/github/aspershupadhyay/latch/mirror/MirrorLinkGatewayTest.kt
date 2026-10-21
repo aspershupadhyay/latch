@@ -70,7 +70,7 @@ class MirrorLinkGatewayTest(private val implementation: String) {
         process?.destroyForcibly()
     }
 
-    private fun startGateway() {
+    private fun startGateway(wifiPort: Int? = null) {
         val port = ServerSocket(0).use { it.localPort }
         base = "http://127.0.0.1:$port"
         val builder = when (implementation) {
@@ -80,6 +80,8 @@ class MirrorLinkGatewayTest(private val implementation: String) {
                 ProcessBuilder(bin.path, "serve").apply {
                     environment()["LATCH_BIND"] = "127.0.0.1:$port"
                     environment()["LATCH_DATA_DIR"] = Files.createTempDirectory("latch").toString()
+                    // R56: the Wi-Fi listener on the loopback brings the mirror's UDP socket with it.
+                    wifiPort?.let { environment()["LATCH_WIFI_BIND"] = "127.0.0.1:$it" }
                 }
             }
             else -> {
@@ -229,6 +231,38 @@ class MirrorLinkGatewayTest(private val implementation: String) {
         assertTrue(browser.text("pong").contains("12.5"))
 
         // Stopping on the phone ends it in the browser at once.
+        link.stop()
+        assertEquals(4410, browser.closed.poll(5, TimeUnit.SECONDS))
+    }
+
+    /** R56: with the gateway's UDP socket up, video goes over UDP, in pieces, and arrives whole. */
+    @Test
+    fun framesGoOverUdpWhenTheGatewayHasIt() {
+        assumeTrue("UDP is the self-hosted gateway's", implementation == "rust")
+        startGateway(wifiPort = ServerSocket(0).use { it.localPort })
+        val token = pair()
+        val key = signer()
+        registerKey(token, key)
+        val heard = Heard()
+        val link = MirrorLink(http, base, token, KEY, key, heard)
+        link.start()
+        val (code, _) = heard.ready.poll(5, TimeUnit.SECONDS) ?: error("not ready")
+        val browser = Browser()
+        val ws = http.newWebSocket(Request.Builder().url("$base/v1/mirror/view").build(), browser)
+        ws.send("""{"t":"join","code":"$code","codecs":["h264","jpeg"]}""")
+        browser.text("joined")
+        repeat(100) { if (!link.onUdp) Thread.sleep(50) }
+        assertTrue("the gateway answered the phone's UDP hello", link.onUdp)
+
+        // A frame of several pieces reaches the browser byte for byte; sound too.
+        val payload = ByteArray(5000) { (it % 251).toByte() }
+        payload[0] = 0; payload[1] = 0; payload[2] = 0; payload[3] = 1; payload[4] = 0x65
+        val frame = MirrorMessages.frame(MirrorMessages.KIND_H264, true, 42, ByteBuffer.wrap(payload))
+        assertTrue(link.sendFrame(frame))
+        assertArrayEquals(frame, browser.frames.poll(5, TimeUnit.SECONDS))
+        val delta = MirrorMessages.frame(MirrorMessages.KIND_H264, false, 43, ByteBuffer.wrap(byteArrayOf(0, 0, 1, 0x41, 9)))
+        assertTrue(link.sendFrame(delta))
+        assertArrayEquals(delta, browser.frames.poll(5, TimeUnit.SECONDS))
         link.stop()
         assertEquals(4410, browser.closed.poll(5, TimeUnit.SECONDS))
     }

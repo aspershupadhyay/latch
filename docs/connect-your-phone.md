@@ -50,6 +50,16 @@ The address and its `#pin=` stay the same across restarts. If your router gives 
 
 **Connect → How your AI reaches this phone** has **Hosted** and **Wi-Fi**. Tap the other one: if you set it up before, Latch switches at once and asks for no key (it keeps both, sealed in the phone's keystore); if not, it keeps this one and walks you through the other once. A running session stops when you switch. **Settings → Disconnect** forgets only the one in use; **Forget** in Connect removes a kept one.
 
+### Optional: a USB cable for the lowest mirror delay
+
+Wireless is the default and needs no cable. At a desk, a cable takes the Wi-Fi out of the mirror's path:
+
+1. On the phone, turn on **Developer options → USB debugging** (once).
+2. Plug the phone into the Mac and allow this computer when the phone asks.
+3. Run `latch usb` (or `latch usb --watch` to keep connecting phones as they are plugged in). It needs Android's [platform tools](https://developer.android.com/tools/releases/platform-tools) (`brew install android-platform-tools`).
+
+Within a few seconds the app moves to the cable by itself; it checks the gateway's own key there, so nothing else on the phone can stand in for it. Unplug, and it goes back to the Wi-Fi.
+
 ## 5. Connect your AI
 
 Claude Code, using the command `latch-start` printed (same Mac):

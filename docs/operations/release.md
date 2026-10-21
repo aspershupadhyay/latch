@@ -21,7 +21,8 @@ The tag run publishes:
 | File | What it is |
 |---|---|
 | `latch-android-vX.Y.Z.apk` | The app, signed with the release key |
-| `latch-update.json` | What the app's updater reads: version, URL, SHA-256, size |
+| `latch-android-vX.Y.Z-<abi>.apk` | The same app for one chip type (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`): about a third of the size; the updater picks it (R55) |
+| `latch-update.json` | What the app's updater reads: version, URL, SHA-256, size, and each chip type's APK |
 | `latch-gateway-linux-x86_64`, `latch-fake-device-linux-x86_64` | Gateway and fake phone binaries |
 | `ghcr.io/aspershupadhyay/latch-gateway:vX.Y.Z` (and `:latest`) | Container image |
 | `latch-sbom.spdx.json` | SPDX software bill of materials for the repository |

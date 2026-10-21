@@ -18,6 +18,9 @@ No problem. Your real key is saved in Vercel:
 **"The app won't install" / "I can't turn on the accessibility switch" / "It's slow" / "The session keeps dropping."**
 See [Phone and Vercel settings](#phone-and-vercel-settings) right below.
 
+**"The mirror stutters on Wi-Fi" / Alt+D says "over WebSocket" on my own computer's gateway.**
+The mirror sends video over UDP on the gateway's Wi-Fi port (8788) when it can, and falls back to its WebSocket by itself. A firewall that allows TCP 8788 but not UDP keeps it on the WebSocket: allow UDP too (Linux with ufw: `sudo ufw allow 8788/udp`; macOS and Windows ask once per app, which covers both). Also: the laptop on a cable to the router, 5 GHz Wi-Fi rather than 2.4 GHz, and the phone near the router each cut the delay.
+
 **"I think my key leaked."**
 Change `LATCH_ADMIN_TOKEN` in Vercel to a new key → **Redeploy** → in the app, **Settings → Forget this gateway** → connect again with the new key. To kill just one AI app's key, revoke it in the **Connect** tab.
 

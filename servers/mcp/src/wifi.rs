@@ -126,6 +126,20 @@ pub fn phone_address(ip: Ipv4Addr, port: u16, pin: &str) -> String {
     format!("https://{ip}:{port}#pin={pin}")
 }
 
+/// DSCP AF41 (video), as the IP TOS byte. RFC 8325 maps it to Wi-Fi user
+/// priority 4, the WMM video queue, which a router serves ahead of ordinary
+/// traffic. What this listener carries is interactive: mirror frames, taps and
+/// keys, AI actions and their answers.
+pub const INTERACTIVE_TOS: u32 = 0x88;
+
+/// Asks the router to queue `tcp`'s packets as video (best effort: an OS or
+/// network that ignores the mark changes nothing).
+pub fn mark_interactive(tcp: &tokio::net::TcpStream) {
+    if tcp.local_addr().is_ok_and(|a| a.is_ipv4()) {
+        let _ = socket2::SockRef::from(tcp).set_tos_v4(INTERACTIVE_TOS);
+    }
+}
+
 /// Serves `app` over TLS on `listener` until the process ends. Each request
 /// carries the [`WifiOrigin`] its connection used.
 pub async fn serve(listener: TcpListener, tls: Arc<rustls::ServerConfig>, app: Router) {
@@ -141,6 +155,7 @@ pub async fn serve(listener: TcpListener, tls: Arc<rustls::ServerConfig>, app: R
         };
         // Mirror frames and taps are small and frequent: send each at once.
         let _ = tcp.set_nodelay(true);
+        mark_interactive(&tcp);
         let origin = tcp
             .local_addr()
             .ok()
@@ -168,6 +183,21 @@ pub async fn serve(listener: TcpListener, tls: Arc<rustls::ServerConfig>, app: R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn wifi_connections_are_marked_for_the_video_queue() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (_client, accepted) =
+            tokio::join!(tokio::net::TcpStream::connect(addr), listener.accept());
+        let (tcp, _) = accepted.expect("accept");
+        mark_interactive(&tcp);
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            socket2::SockRef::from(&tcp).tos_v4().expect("tos"),
+            INTERACTIVE_TOS
+        );
+    }
 
     #[test]
     fn the_certificate_is_made_once_and_its_pin_stays() {

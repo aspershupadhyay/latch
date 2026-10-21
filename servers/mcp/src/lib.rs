@@ -20,6 +20,7 @@ mod http;
 pub mod links;
 pub mod mcp;
 pub mod mirror;
+pub mod mirror_udp;
 pub mod nearby;
 pub mod oauth;
 pub mod pairing;
@@ -29,6 +30,7 @@ pub mod signing;
 pub mod store;
 pub mod terminal;
 pub mod transfers;
+pub mod usb;
 pub mod wifi;
 
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -61,6 +63,8 @@ pub struct AppState {
     calls: Mutex<std::collections::HashMap<String, (u64, u32)>>,
     /// Phones linking with no QR code (ADR-060).
     pub nearby: nearby::Nearby,
+    /// R56: the mirror's frames over UDP on the Wi-Fi.
+    pub udp: Arc<mirror_udp::UdpMedia>,
     /// This computer's name, shown to phones that find it (ADR-060).
     pub computer_name: String,
 }
@@ -85,6 +89,7 @@ impl AppState {
             calls: Mutex::new(std::collections::HashMap::new()),
             mirrors: Arc::new(mirror::Mirrors::default()),
             nearby: nearby::Nearby::default(),
+            udp: Arc::new(mirror_udp::UdpMedia::default()),
             computer_name: nearby::computer_name(),
         }
     }

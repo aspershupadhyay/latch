@@ -77,11 +77,26 @@ jobs:
           LATCH_KEYSTORE_PASSWORD: ${{ secrets.LATCH_KEYSTORE_PASSWORD }}
           LATCH_KEY_ALIAS: ${{ secrets.LATCH_KEY_ALIAS }}
           LATCH_KEY_PASSWORD: ${{ secrets.LATCH_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+        run: ./gradlew --no-daemon testDebugUnitTest assembleRelease -Platch.abiSplits=true
       - run: |
           mkdir dist
+          # The universal APK keeps the plain name; each chip type's APK gets its ABI in the name.
           for f in apps/android/app/build/outputs/apk/release/*.apk; do
-            cp "$f" "dist/latch-android-${TAG}$( [[ $f == *unsigned* ]] && echo -unsigned ).apk"
+            base=$(basename "$f" .apk)
+            abi=${base#app-}; abi=${abi%-release*}
+            [[ $abi == universal ]] && abi="" || abi="-$abi"
+            cp "$f" "dist/latch-android-${TAG}${abi}$( [[ $f == *unsigned* ]] && echo -unsigned ).apk"
+          done
+          apks='[]'
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            f="dist/latch-android-${TAG}-$abi.apk"
+            [ -f "$f" ] || continue
+            apks=$(jq -c \
+              --arg abi "$abi" \
+              --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/latch-android-$TAG-$abi.apk" \
+              --arg sha "$(sha256sum "$f" | cut -d' ' -f1)" \
+              --argjson size "$(stat -c %s "$f")" \
+              '. + [{abi: $abi, url: $url, sha256: $sha, size: $size}]' <<< "$apks")
           done
           # What the app's updater reads from the newest published release; only a signed APK can update.
           apk="dist/latch-android-${TAG}.apk"
@@ -93,7 +108,8 @@ jobs:
               --arg sha "$(sha256sum "$apk" | cut -d' ' -f1)" \
               --argjson size "$(stat -c %s "$apk")" \
               --arg commit "${GITHUB_SHA::7}" \
-              '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit}' > dist/latch-update.json
+              --argjson apks "$apks" \
+              '{version_code: $code, version_name: $name, apk_url: $url, sha256: $sha, size: $size, commit: $commit, apks: $apks}' > dist/latch-update.json
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with: { name: android, path: dist/* }

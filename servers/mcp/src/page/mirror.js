@@ -122,6 +122,11 @@ function containedRect(rect, pictureW, pictureH) {
  * A point on the drawn picture as phone pixels; null outside it. With
  * `turned`, the picture is shown a quarter turn clockwise.
  */
+// R54: where the instant touch dot goes inside its frame (whose box is `frame`), as a CSS transform.
+function dotTransform(clientX, clientY, frame) {
+  return `translate(${Math.round(clientX - frame.left)}px, ${Math.round(clientY - frame.top)}px)`;
+}
+
 function mapPoint(clientX, clientY, rect, screen, turned = false) {
   if (!screen || rect.width <= 0 || rect.height <= 0) return null;
   let fx = (clientX - rect.left) / rect.width;
@@ -282,7 +287,8 @@ function statsLines(phone, page) {
     const target = Number.isFinite(phone.target_kbps) ? ` (aim ${(phone.target_kbps / 1000).toFixed(1)})` : '';
     lines.push(`Stream   ${phone.codec || '?'} ${phone.w}×${phone.h}  ${phone.frames} fps  ${rate}${target}`);
     lines.push(`Phone    encode ${ms(phone.encode_ms)} (max ${ms(phone.encode_max_ms)})  key frames ${phone.key_frames}  dropped ${phone.drops}`);
-    lines.push(`Gateway  dropped ${Number.isFinite(phone.gateway_drops) ? phone.gateway_drops : '–'}`);
+    const via = phone.transport === 'udp' ? '  over UDP (R56)' : phone.transport ? '  over WebSocket' : '';
+    lines.push(`Gateway  dropped ${Number.isFinite(phone.gateway_drops) ? phone.gateway_drops : '–'}${via}`);
   } else {
     lines.push('Stream   waiting for the phone\'s numbers…');
   }
@@ -315,7 +321,7 @@ function keyFromHash(hash) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, wheelPixels, keyMessage, shortcut,
+    parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, dotTransform, wheelPixels, keyMessage, shortcut,
     clipboardAction, pasteMessage, stamp, statusText, latencyClass, normalizeCode, keyFromHash,
     clockOffset, summarize, statsLines, findHevcSps, hevcCodecFromSps, pinchMessage, pinchScale,
   };
@@ -1057,6 +1063,20 @@ if (typeof document !== 'undefined') {
     return mapPoint(event.clientX, event.clientY, pictureRect(), screen, turned);
   }
 
+  // R54: an instant touch dot. The phone's own picture of a press or drag comes back a
+  // round trip later; the dot shows where the finger is at once, as Android's "Show taps".
+  const dot = document.createElement('div');
+  dot.className = 'touch-dot';
+  dot.setAttribute('aria-hidden', 'true');
+  canvas.parentElement.append(dot);
+  function showDot(event) {
+    dot.style.transform = dotTransform(event.clientX, event.clientY, canvas.parentElement.getBoundingClientRect());
+    dot.classList.add('on');
+  }
+  function hideDot() {
+    dot.classList.remove('on');
+  }
+
   canvas.addEventListener('pointerdown', (event) => {
     wakeAudio();
     if (pointerId !== null || event.button !== 0) return;
@@ -1072,6 +1092,7 @@ if (typeof document !== 'undefined') {
     canvas.focus();
     lastPoint = p;
     send({ t: 'touch', phase: 'down', ...p });
+    showDot(event);
     event.preventDefault();
   });
 
@@ -1079,6 +1100,7 @@ if (typeof document !== 'undefined') {
     const p = point(event);
     if (p) lastPoint = p;
     if (event.pointerId !== pointerId || !p) return;
+    showDot(event);
     const now = performance.now();
     // With real touch events the phone keeps up with every pointer move up to 120 a second.
     const gap = inputMode === 'keys' ? 8 : 12;
@@ -1103,6 +1125,7 @@ if (typeof document !== 'undefined') {
 
   function lift(event, phase) {
     if (event.pointerId !== pointerId) return;
+    hideDot();
     const p = point(event) || lastPoint;
     if (pendingMove) send({ t: 'touch', phase: 'move', ...pendingMove });
     pendingMove = null;

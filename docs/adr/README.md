@@ -743,3 +743,27 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Limits:** the computer must listen on port 8788 and be on the phone's /24 (most home networks); a gateway on another port still links by QR code or by hand. Approving needs a terminal: `latch-start` in a terminal, or `latch-gateway pair` for a background gateway.
 
 **Rollback:** turn it off with `LATCH_NEARBY=0`; the QR code and typed paths (ADR-054) are unchanged, and an older gateway answers 404, which the app reports as "no computer found".
+
+## ADR-061 — The mirror's video and sound over encrypted UDP on the Wi-Fi
+**Status:** accepted (2026-10-21, owner: "yes go ahead with WebTransport" and, on the proposal, "go ahead with all of it for mirror improvement build all of them") · **Builds on:** ADR-051 (live mirror), ADR-042 (gateway on the owner's computer), R41 · **Protocol:** mirror channel additive (`udp` text messages, UDP packets on the Wi-Fi port); device protocol unchanged
+
+**Problem:** the mirror's WebSocket runs on TCP, which delivers in order. On Wi-Fi one lost packet holds every later frame until TCP sends it again; a loss at the end of a burst waits for TCP's retransmission timer, 200 ms or more on Linux and Android. That is the freeze-then-jump the owner sees on a good network. R41 proposed WebTransport. Android has no QUIC of its own, and Cronet (the only practical client) checks certificates with the platform's trust anchors, so it would not accept the Wi-Fi gateway's self-made, pinned certificate (ADR-042) without weakening that pin. Gateway to browser runs on the same computer and loses nothing, so WebTransport there would gain nothing.
+
+**Decision:** what game-streaming tools (Moonlight, Parsec) do: UDP with the gateway asking for lost pieces again, no new dependency on either side.
+- **Setup:** after `ready`, a gateway with a UDP socket (one beside the Wi-Fi listener, same port) sends `{"t":"udp","port":n}`. Only then does the phone send `{"t":"udp","id":"<16 hex>","key":"<64 hex>"}` on its authenticated, signed, pinned WebSocket: a random session id and a random AES-256 key, new for every mirror connection. The phone says hello over UDP (every 250 ms) until the gateway acknowledges, then sends video (H.264, H.265) and sound (PCM, Opus) frames over UDP. Stills and screenshots stay on the WebSocket. No word from the gateway for 3 s (a firewall, a restart) sends everything back to the WebSocket at once.
+- **Packets:** `version ‖ session id ‖ counter ‖ AES-256-GCM(plaintext) ‖ tag`, the first 17 bytes authenticated as associated data, nonce `direction ‖ 000 ‖ counter`; counters never repeat under one key in one direction, and a 64-packet replay window drops repeats. A frame is cut into pieces of at most 1200 bytes (`T_FRAGMENT`: frame number, index, count).
+- **Loss:** the gateway puts frames together and hands them to the same path as WebSocket frames, in order. A missing piece is asked for (`T_NACK`) as soon as a later frame shows it is missing, every 8 ms up to 4 times; the phone keeps the last 240 frames (at most 6 MiB) to send again. A frame that has not come 50 ms after a later one is complete is skipped, the viewer waits for a key frame, and the phone is asked for one. Every 250 ms the gateway reports packets received, lost, and frames skipped (`T_REPORT`); 2 % loss or a skipped frame backs the bitrate off as dropped frames do on the WebSocket.
+- Both sides mark the socket DSCP AF41 (R54).
+
+**Threat review:**
+| Who | Can they… | Why not, or what limits it |
+|---|---|---|
+| Another device on the Wi-Fi | watch the mirror | Every packet is AES-256-GCM sealed under a key that travels only inside the phone's TLS connection to the pinned gateway |
+| Another device on the Wi-Fi | inject frames or requests | A packet that does not open under the session's key is dropped before anything is read; replays are dropped by the counter window |
+| Another device on the Wi-Fi | make the gateway send traffic elsewhere (reflection) | The gateway answers only the address of the session's latest packet that opened; unauthenticated packets get no answer; answers are smaller than what triggers them |
+| A phone (or its key holder) | exhaust the gateway's memory | At most 256 frames and 24 MiB are being put together per session, 64 sessions; a frame far ahead resets the session's state; fragment counts and sizes are checked |
+| Anyone | learn the key from logs | The offer is neither remembered nor passed to the viewer, and nothing about UDP is logged with keys or contents |
+
+**Limits:** needs the gateway's Wi-Fi listener (UDP is bound beside it); a firewall that lets TCP 8788 in but not UDP leaves the mirror on the WebSocket (`ufw allow 8788/udp`). Input from the computer still goes over the WebSocket (small messages, rarely the ones lost). The hosted relay has no mirror.
+
+**Rollback:** both directions mix safely. An older app ignores the gateway's `udp` message (unknown kinds are dropped) and stays on the WebSocket; a newer app offers its key only after that message, so an older gateway, which closes on phone messages it does not know, never receives one. To turn UDP off, block the UDP port: the phone falls back within 3 s.

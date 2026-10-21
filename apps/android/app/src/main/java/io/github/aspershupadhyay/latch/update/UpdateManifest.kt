@@ -27,6 +27,27 @@ data class UpdateInfo(
     val size: Long,
     /** Short commit the build came from, shown to the owner. */
     val commit: String? = null,
+    /**
+     * The same build for one chip type each (no native code for the others), when
+     * published. A phone takes the first that matches its own chip types and falls
+     * back to [apkUrl], the universal APK, which every device can install.
+     */
+    val apks: List<AbiApk> = emptyList(),
+) {
+    /** This build as the APK for the first of [abis] (the phone's own, preferred first) that has one. */
+    fun forAbis(abis: List<String>): UpdateInfo {
+        val pick = abis.firstNotNullOfOrNull { abi -> apks.firstOrNull { it.abi == abi } } ?: return this
+        return copy(apkUrl = pick.url, sha256 = pick.sha256, size = pick.size)
+    }
+}
+
+/** One chip type's APK of a build. */
+@Serializable
+data class AbiApk(
+    val abi: String,
+    val url: String,
+    val sha256: String,
+    val size: Long,
 )
 
 /** A plain-language reason the update cannot go ahead. */
@@ -37,6 +58,8 @@ object UpdateManifest {
     const val MAX_APK_BYTES = 200L * 1024 * 1024
     private const val MAX_MANIFEST_CHARS = 16_384
     private val HEX64 = Regex("^[0-9a-f]{64}$")
+    /** The chip types Latch publishes an APK for. */
+    val ABIS = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
@@ -58,6 +81,13 @@ object UpdateManifest {
         if (info.size <= 0 || info.size > MAX_APK_BYTES) throw UpdateException("The update has an impossible size.")
         if (info.commit != null && info.commit.length > 40) throw UpdateException("The update description is not readable.")
         if (!isAllowedUrl(info.apkUrl, downloadPrefix)) throw UpdateException("The update points somewhere other than Latch's GitHub releases.")
+        if (info.apks.size > ABIS.size || info.apks.map { it.abi }.toSet().size != info.apks.size) throw UpdateException("The update description is not readable.")
+        for (apk in info.apks) {
+            if (apk.abi !in ABIS) throw UpdateException("The update description is not readable.")
+            if (!HEX64.matches(apk.sha256)) throw UpdateException("The update has no valid fingerprint.")
+            if (apk.size <= 0 || apk.size > MAX_APK_BYTES) throw UpdateException("The update has an impossible size.")
+            if (!isAllowedUrl(apk.url, downloadPrefix)) throw UpdateException("The update points somewhere other than Latch's GitHub releases.")
+        }
         return info
     }
 
