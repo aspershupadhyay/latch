@@ -3,6 +3,9 @@
 package io.github.aspershupadhyay.latch.accessibility
 
 import io.github.aspershupadhyay.latch.protocol.Rect
+import io.github.aspershupadhyay.latch.protocol.ScreenInfo
+import io.github.aspershupadhyay.latch.protocol.UiNode
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -76,6 +79,101 @@ object TreeReading {
         if (!(max > min) || current.isNaN()) return null
         return ((current - min) / (max - min) * 100f).roundToInt().coerceIn(0, 100)
     }
+
+    /** A card or row is at most this share of the screen; a bigger container is the page itself. */
+    private const val CARD_SHARE = 0.4
+    private const val MAX_CARD_HOPS = 6
+    private const val MAX_CARD_CHARS = 60
+
+    /**
+     * Names for tappable controls without words (Turbo fix 1, R68): each takes
+     * the words of the card or row it sits in, after its own guessed name or
+     * what it is: "+ · Mother Dairy Cow Milk 500 ml". The card is the nearest
+     * container no bigger than [CARD_SHARE] of the screen that shows words
+     * other than the control's own; its name is its longest such text. In a
+     * quantity stepper (two unnamed controls on one row around a number) the
+     * left one is "−" and the right one "+". Sensitive elements are never
+     * named or used as names. Returns id → label for the controls named.
+     */
+    fun cardNames(nodes: Collection<UiNode>, screen: ScreenInfo): Map<String, String> {
+        val byId = nodes.associateBy { it.id }
+        val children = HashMap<String, MutableList<UiNode>>()
+        for (n in nodes) n.parent?.let { children.getOrPut(it) { ArrayList() }.add(n) }
+        val unnamed = nodes.filter(::unnamedControl)
+        if (unnamed.isEmpty()) return emptyMap()
+        val maxCard = screen.width.toLong() * screen.height * CARD_SHARE
+        val out = HashMap<String, String>()
+        for (control in unnamed) {
+            var card: UiNode? = null
+            var cardWords: String? = null
+            var parent = control.parent?.let(byId::get)
+            var hops = 0
+            while (parent != null && hops++ < MAX_CARD_HOPS && area(parent.bounds) <= maxCard) {
+                val words = wordsUnder(parent, control.id, children)
+                if (words != null) {
+                    card = parent
+                    cardWords = words
+                    break
+                }
+                parent = parent.parent?.let(byId::get)
+            }
+            if (card == null || cardWords == null) continue
+            val head = stepperSide(control, card, children) ?: control.label ?: if (control.role.contains("Image")) "icon" else "button"
+            out[control.id] = "$head · $cardWords"
+        }
+        return out
+    }
+
+    private fun unnamedControl(n: UiNode) =
+        (n.clickable || n.longClickable) && !n.sensitive && !n.editable && n.text.isNullOrBlank() && n.description.isNullOrBlank()
+
+    private fun words(n: UiNode): String? = if (n.sensitive || n.ocr == true) null else (n.text ?: n.description)?.takeIf { it.isNotBlank() }
+
+    /** The longest words shown inside [container], outside [skip]'s own subtree; null when there are none. */
+    private fun wordsUnder(container: UiNode, skip: String, children: Map<String, List<UiNode>>): String? {
+        var best: String? = null
+        var bestLetters = 0
+        val queue = ArrayDeque(listOf(container))
+        var seen = 0
+        while (queue.isNotEmpty() && seen++ < 200) {
+            val n = queue.removeFirst()
+            if (n.id == skip) continue
+            words(n)?.let { w ->
+                val letters = w.count { it.isLetter() }
+                if (letters >= 3 && letters > bestLetters) {
+                    best = w
+                    bestLetters = letters
+                }
+            }
+            children[n.id]?.let(queue::addAll)
+        }
+        return best?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }?.joinToString(" ")?.take(MAX_CARD_CHARS)
+    }
+
+    /** "−" or "+" when [control] is one end of a quantity stepper in [card]: two unnamed controls on one row around a number. */
+    private fun stepperSide(control: UiNode, card: UiNode, children: Map<String, List<UiNode>>): String? {
+        val inCard = ArrayList<UiNode>()
+        val queue = ArrayDeque(listOf(card))
+        while (queue.isNotEmpty() && inCard.size < 200) {
+            val n = queue.removeFirst()
+            inCard += n
+            children[n.id]?.let(queue::addAll)
+        }
+        val row = control.bounds.centerY
+        val half = (control.bounds.bottom - control.bounds.top) / 2
+        fun sameRow(n: UiNode) = abs(n.bounds.centerY - row) <= maxOf(half, 1)
+        val ends = inCard.filter { unnamedControl(it) && sameRow(it) }
+        if (ends.size != 2 || control !in ends) return null
+        val (left, right) = ends.sortedBy { it.bounds.centerX }
+        val number = inCard.any { n ->
+            sameRow(n) && n.text?.trim()?.matches(Regex("\\d{1,3}")) == true &&
+                n.bounds.centerX > left.bounds.centerX && n.bounds.centerX < right.bounds.centerX
+        }
+        if (!number) return null
+        return if (control == left) "−" else "+"
+    }
+
+    private fun area(r: Rect) = if (r.isEmpty) 0L else (r.right - r.left).toLong() * (r.bottom - r.top)
 
     /** Whether an element is under one of the windows drawn above its own: its centre lies inside one. */
     fun covered(element: Rect, windowsAbove: List<Rect>): Boolean {

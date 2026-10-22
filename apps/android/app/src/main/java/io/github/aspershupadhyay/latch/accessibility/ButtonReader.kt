@@ -81,7 +81,7 @@ class ButtonReader(
                             text.textBlocks.flatMap { it.lines }.mapNotNull { line ->
                                 val box = line.boundingBox ?: return@mapNotNull null
                                 val words = line.text.trim().take(MAX_LINE_CHARS)
-                                if (words.isEmpty()) null else TextLine(words, Rect(box.left, box.top, box.right, box.bottom))
+                                if (words.isEmpty()) null else TextLine(words, Rect(box.left, box.top, box.right, box.bottom), line.confidence)
                             },
                         )
                     }
