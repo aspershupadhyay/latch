@@ -969,3 +969,66 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Checks:** shared find cases (`packages/schemas/v1/skills/cases.json`) for both gateways; gateway e2e on both for tap by words, near, and repeat; JVM tests for card names, the stepper, OCR filtering, and the rupee rewrite. On the phone: the cart benchmark under 60 s (the phase 1 gate).
 
 **Rollback:** each fix is local. Reverting removes the label words and the new `tap` arguments; older phones and gateways keep working, since no message changed.
+
+## ADR-072 — `run_program`: one call per goal, run by the gateway step by step
+**Status:** accepted (2026-10-22, owner: "go ahead and do it all") · **Amends:** ADR-033 (`run_steps`), ADR-071 phase 2 · **Protocol:** unchanged
+
+**Problem:** the model pays 5–10 s per round trip. `run_steps` saved round trips only for steps it could expand ahead of time: no branches, no values read from the screen, no recovery, and it picked the first look-alike instead of saying it could not tell.
+
+**Decision:**
+- **A program language, validated before anything runs:** `open`, `go`, `tap`, `type`, `find`, `toggle`, `scroll`, `back`, `home`, `wait`, `expect`, `read`, `if`, `for_each`, `call`, `ask_owner`; at most 50 top-level and 120 steps in all, blocks 3 deep, 30 items per loop, 50 taps per `repeat`, 80 phone actions and 240 s per call. Values: `{name}` and `{item.field}` from `read` and `for_each`.
+- **Selectors, ranked:** `text` (exact, starts-with, contains, then letters-only: "lays indias" = "Lay's India's"; "ADD || +" alternatives; the phone's guessed label, where "+" also means add), `desc`, `id`, `role` (button, input, row, card, switch, tab, video, image, or an icon class), `near` (in the near words' card first, then distance), `inside` (the element the words name or a container around it smaller than the page), `index` (reading order), `state`. A button and its own label count once. **When the two best fits tie on card and score (and, with `near`, are within 10 % of each other's distance), the step fails and lists both.**
+- **Local recovery when nothing fits:** read the screen again → tap a known pop-up's dismiss button (Not now, No thanks, Maybe later, Later, Skip, Dismiss, Close, Got it, Remind me later; never Cancel or OK) → `scroll_to` the words (both ways, R68) → one more look. Keyboard hiding is not tried: the observation does not say whether a keyboard covers the target, and Back could leave the page.
+- **A tap that shows no visible change is noted, not retried:** retrying could add a second item to a cart.
+- **Stops are JSON:** status, step path ("4", or "3.2.1" inside a loop), command, selector, reason (`ambiguous`, `not_found`, `expect_failed`, `state_unchanged`, `not_submitted`, `route_unavailable`, `bad_value`, or the protocol error code), candidates, recovery tried, and `resume {from_step, vars}`. Steps before `from_step` never run again; an `if` on the resume path is decided again on the screen as it is.
+- **Routes (`call`, R71):** media, volume, flashlight, brightness, ringer, do_not_disturb, panel, link, clipboard, all through the existing phone controls; `go "settings > wifi"` opens a settings panel. App maps (`go "app > screen"`) arrive with R73.
+- **The gateway runs the program, one ordinary tool per step.** The spec places the runner on the phone. Here it runs in the gateway, because every step then passes the gateway's own checks (allowed apps, refused fields, rate limits, audit) exactly as a single tool call does, on both gateways, with no protocol change and no phone update. Each step costs one gateway–phone hop (tens of milliseconds on the Wi-Fi gateway) instead of a model round trip (seconds), which is the large part of the saving. A phone-side runner would save those hops too, and stays open for when R69 measures them as the bottleneck.
+
+**Threat review:**
+- **No new reach:** every phone action is an existing tool call with its policy check, approval, freshness check, and audit line; a program cannot do anything a sequence of single calls could not.
+- **No guessing:** ties fail instead of picking one, so a program cannot tap the wrong one of two "Pay" or "Delete" buttons on its own.
+- **Pop-ups:** only buttons whose whole label is one of the dismiss words, and only when the target is missing; the tap goes through `tap` and its rules.
+- **Approvals:** a step that waits for the owner stops the program (Vercel: `waiting_for_owner` with the step to resume after `answer_approval`); nothing runs past it.
+- **Values** read from the screen are untrusted text: they fill selectors and typed text, never tool names or routes, which validation fixes before the run.
+
+**Checks:** shared cases (`packages/schemas/v1/program`: validation, selector resolution, conditions, templates) on both gateways; e2e on both gateways: a settings task with toggle, expect, and read; ambiguity then resume without re-running finished steps; loops with `repeat` from item fields; a missing product with the recovery tried; `if`/`var`, an optional step, a route; Send still asks the owner; the Vercel approval pause.
+
+**Rollback:** remove the tool; nothing else depends on it.
+
+## ADR-073 — Timers and alarms through Android's clock API (protocol 1.21)
+**Status:** accepted (2026-10-22, owner: "go ahead and do it all") · **Amends:** ADR-035 (phone controls) · **Protocol:** 1.21, additive
+
+**Problem:** "Set a 10 min timer" is one of the spec's fastest routes (a system API, under 50 ms of phone work), but Latch could only do it by opening the clock app and tapping through it: several model round trips for something Android does in one call.
+
+**Decision:**
+- `device.control` gains `timer {seconds}` (1 s–24 h) and `alarm {hour, minute}`; the phone sends `AlarmClock.ACTION_SET_TIMER` or `ACTION_SET_ALARM` with `EXTRA_SKIP_UI` to whichever clock app it has, so nothing opens on the screen. The `SET_ALARM` permission is a normal one, granted at install.
+- **No new switch** (ADR-066 asked for fewer): both sit behind the settings-pages switch, whose description now says "and set timers and alarms" in Access, on both gateways, and in the protocol crate.
+- MCP: `phone_control` with `control: timer, duration_s` or `control: alarm, hour, minute`; `run_program` routes `timer {minutes?, seconds?}` and `alarm {hour, minute}`.
+- Phones before 1.21 are refused by the gateway's version check; a phone without a clock app that takes timers answers `unsupported_capability`.
+
+**Threat review:** a timer or alarm is visible in the clock app, harmless, and undone by the owner in one tap; it reads nothing. The only new Android permission (`SET_ALARM`) cannot read or delete existing alarms. Intent visibility is limited to the two clock actions (`<queries>`).
+
+**Checks:** shared fixtures (valid timer and alarm, timer 0 and hour 24 refused) on the protocol crate and the Android parser; gateway e2e on both gateways (program routes reach the phone as `Timer {600}` and `Alarm {6, 30}`; bad values refused).
+
+**Rollback:** remove the two kinds; older gateways never send them.
+
+## ADR-074 — Turbo tier: system animations off while the AI works, always put back
+**Status:** accepted (2026-10-22, owner: "go ahead and do it all") · **Amends:** ADR-071 (Turbo tier) · **Protocol:** 1.21, additive (`DeviceStatus.speed`, `DeviceStatus.thermal`)
+
+**Problem:** every screen change waits for Android's window, transition, and animator animations (300–500 ms each), and Latch's settle detection waits for them to finish.
+
+**Decision:**
+- **One switch, off by default:** Access → More choices → Speed → **Turbo**. While it is on and a session runs, Latch sets `Settings.Global` window, transition, and animator scales to 0; Stop, the session's end, or its timer running out (even while Full ADB keeps the link up) puts the owner's values back. Changing the switch takes effect at the next session.
+- **The values are saved before anything changes** (written to disk synchronously), so a crash between the two is undone the next time Latch starts. A refused write puts back what was written and leaves the session at the standard tier.
+- **The permission:** `WRITE_SECURE_SETTINGS`, which Android grants only over ADB. With Full ADB paired, **Allow with Full ADB** runs `pm grant <latch> android.permission.WRITE_SECURE_SETTINGS` through Latch's own wireless ADB, once, at the owner's tap; otherwise the card shows that command to run from a computer.
+- **Visible:** while animations are off, the session notification says so; the activity log records each change and each restore; `device_status` reports `speed: turbo` or `standard`, and the phone's temperature (`thermal`, from `PowerManager`), so an AI can ease off when Android starts throttling.
+- **Not in this tier yet:** peak refresh rate, default-app clean-up, and stay-awake while plugged in (ADR-071's other Turbo items), and the Fast tier's Latch keyboard and notification replies, which each need their own threat review.
+
+**Threat review:**
+- **What the permission allows:** `WRITE_SECURE_SETTINGS` lets Latch write any secure or global setting, which is why it is used for these three keys only, behind an owner switch, and granted only when the owner taps it. Latch never writes another setting with it.
+- **Restore guarantee:** saved before the change; restored on Stop, end, expiry, and the next start after a crash. If the owner takes the permission back mid-session (`pm revoke`), the restore cannot write either; the scales stay at 0 until the owner sets them in Developer options, which is documented.
+- **Safety model unchanged:** Turbo changes how fast the screen moves, not what the AI may do; approvals, refused fields, and app rules are untouched.
+
+**Checks:** `TurboTest` (5 JVM cases: engage/restore, double engage, crash recovery, refused write, missing values); `device_status` on both gateways shows speed and temperature; shared fixture `d2g-result-device-info-status` carries both fields; Android lint passes with the permission declared.
+
+**Rollback:** turn the switch off (the next session leaves animations alone); a pending snapshot is still restored on the next start.

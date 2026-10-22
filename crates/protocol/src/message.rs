@@ -292,6 +292,32 @@ pub struct DeviceStatus {
     pub locked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub do_not_disturb: Option<bool>,
+    /// Since 1.21 (R72): the speed tier in use; `turbo` while animations are off for the AI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<SpeedTier>,
+    /// Since 1.21 (R72): how hot the phone runs; past `moderate` Android slows it down.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thermal: Option<Thermal>,
+}
+
+/// Since 1.21 (R72, ADR-074): the speed tier a phone runs the AI's steps at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeedTier {
+    Standard,
+    /// System animations are off while the AI works (`WRITE_SECURE_SETTINGS`).
+    Turbo,
+}
+
+/// Since 1.21 (R72): Android's thermal status, coarsened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Thermal {
+    None,
+    Light,
+    Moderate,
+    Severe,
+    Critical,
 }
 
 /// Since 1.15: how the phone reaches the internet right now.

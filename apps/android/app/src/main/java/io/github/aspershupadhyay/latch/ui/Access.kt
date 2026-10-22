@@ -100,7 +100,7 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
     CONTROLS(
         "Phone controls", LatchIcons.Sliders,
         listOf(Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS),
-        "With this on, the AI can set volumes, the ringer, and Do Not Disturb, play or pause media, change the brightness, rotation, and screen timeout, use the flashlight, and open settings panels and pages. Each group is its own switch, off until you turn it on.",
+        "With this on, the AI can set volumes, the ringer, and Do Not Disturb, play or pause media, change the brightness, rotation, and screen timeout, use the flashlight, open settings panels and pages, and set timers and alarms. Each group is its own switch, off until you turn it on.",
     ),
     ADB(
         "Full ADB access", LatchIcons.Key, listOf(Capability.ADB_SHELL),
@@ -182,6 +182,12 @@ fun CapabilitiesScreen(
     /** ADR-022: payments, installs, and permissions without asking, in switched-on apps. */
     trustCritical: Boolean = false,
     onTrustCritical: (Boolean) -> Unit = {},
+    /** R72 (ADR-074): Turbo, whether Android lets Latch use it, and the one-time grant through Full ADB. */
+    turbo: Boolean = false,
+    turboReady: () -> Boolean = { false },
+    onTurbo: (Boolean) -> Unit = {},
+    onGrantTurbo: suspend () -> String = { "" },
+    turboGrantCommand: String = "",
 ) {
     val signal = LocalSignal.current
     var localGroup by rememberSaveable { mutableStateOf<AccessGroup?>(null) }
@@ -235,6 +241,7 @@ fun CapabilitiesScreen(
                         // Android's own switches some phone controls need; each shows only while it is missing.
                         BrightnessPermission(Capability.CONTROL_BRIGHTNESS in enabled)
                         DoNotDisturbPermission(Capability.CONTROL_SOUND in enabled)
+                        TurboCard(turbo, turboReady, onTurbo, onGrantTurbo, adbEndpoint != null, turboGrantCommand)
                         // The largest grant in the app gets its own place, so it never reads as one more ordinary switch.
                         SectionCaption("Most access")
                         Card {
@@ -511,6 +518,80 @@ private fun FastTransfers(on: Boolean, onChange: (Boolean) -> Unit) {
                 )
             },
         )
+    }
+}
+
+/**
+ * R72 (ADR-074): Turbo turns the system animations off while a session runs
+ * and puts them back after. Android lets an app do that only after a one-time
+ * grant over ADB, which Latch can make itself once Full ADB is paired.
+ */
+@Composable
+private fun TurboCard(
+    on: Boolean,
+    ready: () -> Boolean,
+    onChange: (Boolean) -> Unit,
+    onGrant: suspend () -> String,
+    adbPaired: Boolean,
+    grantCommand: String,
+) {
+    val signal = LocalSignal.current
+    var granted by remember { mutableStateOf(ready()) }
+    var status by rememberSaveable { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    SectionCaption("Speed")
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ListRow(
+                LatchIcons.Flash,
+                "Turbo",
+                when {
+                    !granted -> "Needs a one-time Android permission"
+                    on -> "On: animations go off while the AI works and come back when the session ends"
+                    else -> "Off: screens change at the phone's normal pace"
+                },
+                tint = if (on && granted) signal.accent else signal.text2,
+                trailing = {
+                    LatchSwitch(
+                        checked = on && granted,
+                        enabled = granted,
+                        onCheckedChange = onChange,
+                        modifier = Modifier.semantics { contentDescription = "Turbo: animations off while the AI works" },
+                    )
+                },
+            )
+            if (!granted) {
+                Text(
+                    if (adbPaired) {
+                        "Latch can give itself this permission through your paired Full ADB. It only lets Latch change " +
+                            "animation speeds; Latch saves yours first and puts them back after every session."
+                    } else {
+                        "Pair Full ADB first, or run this once from a computer: adb shell $grantCommand"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = signal.text2,
+                )
+                if (adbPaired) {
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            busy = true
+                            status = "Asking Android…"
+                            scope.launch {
+                                status = try {
+                                    onGrant()
+                                } finally {
+                                    busy = false
+                                    granted = ready()
+                                }
+                            }
+                        },
+                    ) { Text("Allow with Full ADB") }
+                }
+            }
+            status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = signal.text2) }
+        }
     }
 }
 

@@ -4,7 +4,7 @@
 // is the Rust crate `crates/protocol`; this port must accept and reject the
 // shared fixtures in packages/schemas/v1/fixtures exactly like it does.
 
-export const PROTOCOL_VERSION = "1.20";
+export const PROTOCOL_VERSION = "1.21";
 
 export function isCompatible(version: string): boolean {
   const parts = version.split(".");
@@ -72,7 +72,7 @@ export const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
   "control.sound": "set volumes, the ringer, and Do Not Disturb, and play or pause media",
   "control.brightness": "set the screen brightness, rotation, and timeout",
   "control.flashlight": "turn the flashlight on or off",
-  "control.panels": "open settings panels and pages",
+  "control.panels": "open settings panels and pages, and set timers and alarms",
   "adb.shell": "run arbitrary ADB shell commands (owner-enabled full-access mode)",
 };
 
@@ -211,7 +211,11 @@ export type PhoneControl =
   | { kind: "rotation"; mode: (typeof ROTATION_MODES)[number] }
   | { kind: "screen_timeout"; seconds: number }
   | { kind: "ringer"; mode: (typeof RINGER_MODES)[number] }
-  | { kind: "do_not_disturb"; on: boolean };
+  | { kind: "do_not_disturb"; on: boolean }
+  // Since 1.21 (R71).
+  | { kind: "timer"; seconds: number }
+  | { kind: "alarm"; hour: number; minute: number };
+export const MAX_TIMER_S = 86_400;
 
 /** The owner switch for a group of controls. */
 export function controlCapability(c: PhoneControl): Capability {
@@ -219,7 +223,7 @@ export function controlCapability(c: PhoneControl): Capability {
     case "volume": case "media": case "ringer": case "do_not_disturb": return "control.sound";
     case "brightness": case "rotation": case "screen_timeout": return "control.brightness";
     case "flashlight": return "control.flashlight";
-    case "panel": return "control.panels";
+    case "panel": case "timer": case "alarm": return "control.panels";
   }
 }
 
@@ -236,6 +240,16 @@ export function describeControl(c: PhoneControl): string {
     case "screen_timeout": return c.seconds % 60 === 0 ? `Set the screen timeout to ${c.seconds / 60} min` : `Set the screen timeout to ${c.seconds} s`;
     case "ringer": return { normal: "Set the ringer to ring", vibrate: "Set the ringer to vibrate", silent: "Silence the ringer" }[c.mode];
     case "do_not_disturb": return `Turn Do Not Disturb ${c.on ? "on" : "off"}`;
+    case "timer": {
+      const h = Math.floor(c.seconds / 3600);
+      const m = Math.floor((c.seconds % 3600) / 60);
+      const sec = c.seconds % 60;
+      if (h === 0 && m === 0) return `Start a ${sec} s timer`;
+      if (h === 0 && sec === 0) return `Start a ${m} min timer`;
+      if (h === 0) return `Start a ${m} min ${sec} s timer`;
+      return `Start a ${h} h ${m} min ${sec} s timer`;
+    }
+    case "alarm": return `Set an alarm for ${String(c.hour).padStart(2, "0")}:${String(c.minute).padStart(2, "0")}`;
   }
 }
 
@@ -244,6 +258,7 @@ function controlMinor(c: PhoneControl): number {
   switch (c.kind) {
     case "volume": case "media": case "brightness": case "flashlight": return 11;
     case "panel": return (FIRST_PANELS as readonly string[]).includes(c.panel) ? 11 : 15;
+    case "timer": case "alarm": return 21;
     default: return 15;
   }
 }
@@ -269,6 +284,8 @@ export const GLOBAL_ACTION_TEXT: Record<GlobalAction, string> = {
 export interface DeviceStatus {
   battery_percent?: number; charging?: boolean; network?: "wifi" | "cellular" | "ethernet" | "none";
   free_storage_mb?: number; orientation?: "portrait" | "landscape"; locked?: boolean; do_not_disturb?: boolean;
+  /** Since 1.21 (R72). */
+  speed?: "standard" | "turbo"; thermal?: "none" | "light" | "moderate" | "severe" | "critical";
 }
 export interface DeviceInfo {
   device: { platform: string; os_version: string; model: string; app_version: string };
@@ -713,6 +730,8 @@ export function validateCommand(c: Command): void {
     case "device.control": {
       const k = c.params.control;
       if ((k.kind === "volume" || k.kind === "brightness") && (!isInt(k.percent) || k.percent < 0 || k.percent > 100)) throw invalid("percent must be 0-100");
+      if (k.kind === "timer" && (k.seconds < 1 || k.seconds > MAX_TIMER_S)) throw invalid(`timer seconds must be between 1 and ${MAX_TIMER_S}`);
+      if (k.kind === "alarm" && (k.hour < 0 || k.hour > 23 || k.minute < 0 || k.minute > 59)) throw invalid("alarm hour must be 0-23 and minute 0-59");
       if (k.kind === "screen_timeout" && (!isInt(k.seconds) || k.seconds < MIN_SCREEN_TIMEOUT_S || k.seconds > MAX_SCREEN_TIMEOUT_S)) {
         throw invalid(`seconds must be between ${MIN_SCREEN_TIMEOUT_S} and ${MAX_SCREEN_TIMEOUT_S}`);
       }
@@ -783,6 +802,10 @@ export function parseControl(raw: unknown): PhoneControl {
     case "ringer": return { kind: "ringer", mode: oneOf("mode", RINGER_MODES) };
     case "screen_timeout": if (!isInt(c.seconds)) throw invalid("seconds must be an integer"); return { kind: "screen_timeout", seconds: c.seconds };
     case "do_not_disturb": if (typeof c.on !== "boolean") throw invalid("on must be a boolean"); return { kind: "do_not_disturb", on: c.on };
+    case "timer": if (!isInt(c.seconds)) throw invalid("seconds must be an integer"); return { kind: "timer", seconds: c.seconds };
+    case "alarm":
+      if (!isInt(c.hour) || !isInt(c.minute)) throw invalid("hour and minute must be integers");
+      return { kind: "alarm", hour: c.hour, minute: c.minute };
     default: throw invalid("unknown control");
   }
 }

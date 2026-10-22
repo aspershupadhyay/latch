@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
-// Roadmap R10: the fake-phone task suite (tests/evals/README.md, F1–F6).
+// Roadmap R10: the fake-phone task suite (tests/evals/README.md, F1–F7), and the
+// Latch Turbo benchmark's fake-phone tasks (R69: B1, T1–T6).
 // Each task runs scripted reference steps through the official MCP SDK client,
 // the Vercel gateway, and the Rust fake phone over long-poll, and must finish
 // within its call budget with its safety outcome intact. No model, no API key.
@@ -59,13 +60,19 @@ interface Call { text: string; isError: boolean }
 /** Counts every tool call a task makes, like an agent's transcript would. */
 class Run {
   calls = 0;
+  /** Characters of every answer, a stand-in for what the model must read (R69). */
+  bytes = 0;
   async call(name: string, args: Record<string, unknown> = {}): Promise<Call> {
     this.calls += 1;
     const r = await client.callTool({ name, arguments: args });
     const text = (r.content as { type: string; text?: string }[]).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+    this.bytes += text.length;
     return { text, isError: r.isError === true };
   }
 }
+
+/** run_program's JSON report (its answer's second line). */
+const programReport = (t: string) => JSON.parse(t.split("\n")[1]!) as { status: string; vars?: Record<string, string>; routes?: string[]; actions: number };
 
 const obsId = (t: string) => [...t.matchAll(/observation_id: (\S+)/g)].at(-1)![1]!;
 /** The id of the last element whose text or description is `label`. */
@@ -157,6 +164,85 @@ const TASKS: Task[] = [
       assert.ok(events.some((e: { command: string; decision: string }) => e.command === "input.tap" && e.decision === "confirm"), JSON.stringify(events));
     },
   },
+  // Latch Turbo (R69, ADR-072): fake-phone versions of the benchmark tasks; each is one round trip.
+  {
+    id: "B1 fill a 3-item cart step by step (baseline)", budget: 12, run: async (r) => {
+      let s = await r.call("launch_app", { package: "org.latch.demo.shop" });
+      for (const [name, qty] of [["White bread", 1], ["Paneer", 3], ["Tomato", 2]] as const) {
+        s = await r.call("type_text", { observation_id: obsId(s.text), element_id: element(s.text, "Search products"), text: name, submit: true });
+        s = await r.call("tap", { observation_id: obsId(s.text), element_id: element(s.text, "ADD") });
+        for (let i = 1; i < qty; i++) s = await r.call("tap", { observation_id: obsId(s.text), element_id: element(s.text, "+") });
+      }
+      assert.match(s.text, /"Cart \(\d+\)"/, s.text);
+    },
+  },
+  {
+    id: "T1 fill a 3-item cart in one program", budget: 1, run: async (r) => {
+      const s = await r.call("run_program", { steps: [
+        { do: "open", app: "Shop" },
+        { do: "for_each", items: [{ name: "White bread", qty: 1 }, { name: "Paneer", qty: 3 }, { name: "Tomato", qty: 2 }], steps: [
+          { do: "type", sel: "Search products", text: "{item.name}", submit: true },
+          { do: "tap", sel: { text: "ADD || +", near: "{item.name}" }, repeat: "{item.qty}" },
+        ] },
+        { do: "read", sel: { text: "Cart" }, as: "cart" },
+      ] });
+      const rep = programReport(s.text);
+      assert.equal(rep.status, "done", s.text);
+      assert.match(rep.vars!.cart!, /^Cart \(\d+\)$/);
+    },
+  },
+  {
+    id: "T2 toggle a setting in one program", budget: 1, run: async (r) => {
+      const s = await r.call("run_program", { steps: [
+        { do: "open", app: "Settings" },
+        { do: "tap", sel: "Network & internet" },
+        { do: "toggle", sel: "Wi-Fi", on: true },
+        { do: "expect", cond: { state: { sel: { role: "switch" }, checked: true } } },
+      ] });
+      assert.equal(programReport(s.text).status, "done", s.text);
+    },
+  },
+  {
+    id: "T3 send a chat message in one program (owner still asked)", budget: 1, run: async (r) => {
+      const since = Date.now();
+      const s = await r.call("run_program", { steps: [
+        { do: "open", app: "Chat" },
+        { do: "type", sel: { role: "input" }, text: "On my way" },
+        { do: "tap", sel: { text: "Send", role: "button" } },
+        { do: "expect", cond: { text: "On my way" } },
+      ] });
+      assert.equal(programReport(s.text).status, "done", s.text);
+      const events = (await admin("/v1/admin/audit")).events.filter((e: { at_ms: number }) => e.at_ms >= since);
+      assert.ok(events.some((e: { command: string; decision: string }) => e.command === "input.tap" && e.decision === "confirm"), JSON.stringify(events));
+    },
+  },
+  {
+    id: "T4 find a setting below the screen in one program", budget: 1, run: async (r) => {
+      const s = await r.call("run_program", { steps: [{ do: "open", app: "Settings" }, { do: "find", sel: "About phone" }] });
+      assert.equal(programReport(s.text).status, "done", s.text);
+    },
+  },
+  {
+    id: "T5 a system route instead of the screen", budget: 1, run: async (r) => {
+      const s = await r.call("run_program", { steps: [{ do: "call", route: "flashlight", args: { on: true } }] });
+      const rep = programReport(s.text);
+      assert.equal(rep.status, "done", s.text);
+      assert.deepEqual(rep.routes, ["flashlight"]);
+      assert.equal(rep.actions, 1, "no screen read for a route");
+    },
+  },
+  {
+    id: "T6 password stays the owner's inside a program (safety)", budget: 1, run: async (r) => {
+      const s = await r.call("run_program", { steps: [
+        { do: "open", app: "Bank login" },
+        { do: "type", sel: { role: "input", index: 2 }, text: "hunter2" },
+      ] });
+      const rep = programReport(s.text) as { status: string; reason?: string };
+      assert.equal(rep.status, "failed", s.text);
+      assert.ok(rep.reason === "not_found" || rep.reason === "sensitive_target", s.text);
+      assert.ok(!s.text.includes("hunter2\""), "never typed");
+    },
+  },
 ];
 
 const report: string[] = [];
@@ -168,12 +254,12 @@ for (const task of TASKS) {
     const started = performance.now();
     await task.run(run);
     const ms = Math.round(performance.now() - started);
-    report.push(`| ${task.id} | ${run.calls} / ${task.budget} | ${ms} ms |`);
+    report.push(`| ${task.id} | ${run.calls} / ${task.budget} | ${run.bytes} | ${ms} ms |`);
     assert.ok(run.calls <= task.budget, `${task.id} took ${run.calls} calls; budget ${task.budget}`);
   });
 }
 
 test("report", () => {
-  console.log(["| Task | Calls / budget | Time (fake phone) |", "|---|---|---|", ...report].join("\n"));
+  console.log(["| Task | Calls / budget | Answer characters | Time (fake phone) |", "|---|---|---|---|", ...report].join("\n"));
   assert.equal(report.length, TASKS.length);
 });

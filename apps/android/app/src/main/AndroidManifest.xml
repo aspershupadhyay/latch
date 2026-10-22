@@ -15,6 +15,13 @@
         tools:ignore="ProtectedPermissions" />
     <!-- Roadmap R25: the ringer and Do Not Disturb, only after the owner allows Do Not Disturb access for Latch. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Roadmap R72 (ADR-074): Turbo turns system animations off while the AI works and puts them
+         back after. Android grants it only over ADB (pm grant), once, when the owner asks. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Roadmap R71: timers and alarms in the phone's clock app (a normal permission, granted at install). -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Roadmap R25: device_status says whether the phone is on Wi-Fi or mobile data (never which network). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Live mirror: holds Wi-Fi out of power save only while a computer watches (low-latency Wi-Fi lock). -->
@@ -52,6 +59,13 @@
         <intent>
             <action android:name="android.intent.action.SEND_MULTIPLE" />
             <data android:mimeType="*/*" />
+        </intent>
+        <!-- Roadmap R71: the clock app that takes timers and alarms. -->
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
         </intent>
         <!-- Finds the launcher, which agents may always use (data/Autonomy.kt). -->
         <intent>

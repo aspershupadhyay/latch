@@ -2,7 +2,7 @@
 
 What an AI app can call once it is connected. The currently shipped ordinary tools below require their capability switches, app consent, and risk-based approvals.
 
-Gateways at protocol 1.20 offer **38 tools**. The first line of `list_devices` says how many yours has.
+Gateways at protocol 1.21 offer **39 tools**. The first line of `list_devices` says how many yours has.
 
 | Tool | What it does |
 |---|---|
@@ -27,6 +27,7 @@ Gateways at protocol 1.20 offer **38 tools**. The first line of `list_devices` s
 | `diagnose` | Checks whether each phone is ready (connected, session running, app up to date, switches on) and says what you need to fix on the phone |
 | `write_file`, `create_folder`, `rename_file`, `delete_file` | Save and organise files; replacing and deleting ask you unless Auto mode is on |
 | `share_to_app` | Opens any app's Share screen with files, ready to post or send |
+| `run_program` | A whole task in one call: open, go, tap, type, find, toggle, scroll, wait, expect, read, if, for_each, call (the phone's own controls), ask_owner. Elements are named by selectors (words, role, `near` a row, `inside` a dialog, `index`, state); two equal fits stop the step and list both instead of guessing. A step that finds nothing reads the screen again, closes a known pop-up, and scrolls to it. A stop answers with JSON (step, reason, candidates, what was tried, `resume`); finished steps never run again. Every phone action follows the same rules as the single tools |
 | `run_steps` | Several predictable steps (open an app, search, tap a result) in one call; every step is checked by the same rules |
 | `list_skills`, `run_skill`, `save_skill`, `delete_skill` | Saved multi-step tasks on your gateway, run in one call with this time's inputs (a different cart, another contact) |
 | `answer_approval` | Passes on your answer, typed in the AI app, to a question the phone is waiting on (only when you allow answering there) |

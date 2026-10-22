@@ -106,7 +106,7 @@ Also keep **Accessibility → Latch** on. Some phones switch it off after a batt
    - **Claude Code / Codex / other apps:** restart them.
 
    Use your normal address (`https://<your-address>/mcp`), not a one-off Vercel deployment link with random letters in it: those never update.
-6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.20, 38 tools.` If the AI still can't see `get_activity`, `finish_task`, `adb`, or `gesture` after that, its app is still holding the old tool list: repeat step 5.
+6. **Check from the AI:** ask it to run `list_devices`. The first line must say `Latch gateway, protocol 1.21, 39 tools.` If the AI still can't see `get_activity`, `finish_task`, `adb`, or `gesture` after that, its app is still holding the old tool list: repeat step 5.
 
 ### Fix: AI actions are slow
 

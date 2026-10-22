@@ -375,6 +375,7 @@ async fn mcp_handshake_and_discovery() {
             "run_skill",
             "run_steps",
             "delete_skill",
+            "run_program",
             "answer_approval"
         ]
     );
@@ -1481,7 +1482,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.20, 38 tools.",
+        lines[0], "Latch gateway, protocol 1.21, 39 tools.",
         "{devices}"
     );
     // One "- " line per phone; a connected phone's file places follow on an indented line.
@@ -2500,6 +2501,203 @@ async fn tap_by_words_with_near_and_repeat_is_one_call() {
     );
 }
 
+/// The JSON report a run_program answer carries on its second line.
+fn program_report(text: &str) -> Value {
+    serde_json::from_str(text.lines().nth(1).unwrap_or_default()).expect("report json")
+}
+
+/// R70 (ADR-072): a whole task in one call; a stop says exactly why and resumes
+/// without re-running finished steps.
+#[tokio::test]
+async fn run_program_does_a_task_in_one_call_and_resumes_after_a_stop() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+
+    // Settings: open by name, go in, turn Wi-Fi off, check it, read it.
+    let (is_error, text, _) = call(&gw, "run_program", json!({ "steps": [
+        { "do": "open", "app": "Settings" },
+        { "do": "tap", "sel": "Network & internet" },
+        { "do": "toggle", "sel": "Wi-Fi", "on": false },
+        { "do": "expect", "cond": { "state": { "sel": { "role": "switch" }, "checked": false } } },
+        { "do": "toggle", "sel": "Wi-Fi", "on": false },
+        { "do": "read", "sel": { "role": "switch" }, "as": "wifi" }
+    ]})).await;
+    assert!(
+        !is_error && text.starts_with("Ran the program: every step done."),
+        "{text}"
+    );
+    let report = program_report(&text);
+    assert_eq!(report["status"], "done", "{text}");
+    assert_eq!(report["vars"]["wifi"], "Wi-Fi", "{text}");
+    assert!(text.contains("3. ✓ turn \"Wi-Fi\" off"), "{text}");
+    assert!(text.contains("(already off)"), "{text}");
+    assert!(!phone.state.lock().expect("lock").phone.wifi_on);
+
+    // The shop: two look-alike ADD buttons are ambiguous without near.
+    let shop = json!([
+        { "do": "open", "app": "org.latch.demo.shop" },
+        { "do": "type", "sel": "Search products", "text": "bread", "submit": true },
+        { "do": "tap", "sel": "ADD" },
+        { "do": "read", "sel": { "text": "Cart" }, "as": "cart" }
+    ]);
+    let (is_error, text, _) = call(&gw, "run_program", json!({ "steps": shop })).await;
+    assert!(!is_error, "{text}");
+    let report = program_report(&text);
+    assert_eq!(report["status"], "failed", "{text}");
+    assert_eq!(report["step"], "3");
+    assert_eq!(report["reason"], "ambiguous");
+    assert_eq!(
+        report["candidates"].as_array().map(Vec::len),
+        Some(2),
+        "{text}"
+    );
+    assert_eq!(report["resume"]["from_step"], "3");
+    assert!(text.contains("1. ✓ open org.latch.demo.shop"), "{text}");
+
+    // The AI fixes only step 3 and resumes: steps 1 and 2 do not run again.
+    let before = phone.state.lock().expect("lock").executed.len();
+    let mut fixed = shop.clone();
+    fixed[2] =
+        json!({ "do": "tap", "sel": { "text": "ADD || +", "near": "White bread" }, "repeat": 2 });
+    let (is_error, text, _) = call(
+        &gw,
+        "run_program",
+        json!({ "steps": fixed, "from_step": "3" }),
+    )
+    .await;
+    let report = program_report(&text);
+    assert!(!is_error && report["status"] == "done", "{text}");
+    assert_eq!(report["vars"]["cart"], "Cart (2)", "{text}");
+    {
+        let state = phone.state.lock().expect("lock");
+        assert_eq!(state.phone.cart[..2], [0, 2]);
+        let since: Vec<&String> = state.executed[before..].iter().collect();
+        assert!(
+            !since
+                .iter()
+                .any(|c| c.as_str() == "app.launch" || c.as_str() == "input.type"),
+            "{since:?}"
+        );
+    }
+
+    // Loops, values, and branches on the phone; a missing product stops with the screen.
+    let (is_error, text, _) = call(&gw, "run_program", json!({ "steps": [
+        { "do": "for_each", "items": [{ "name": "Paneer", "qty": 2 }, { "name": "Mango", "qty": 1 }], "steps": [
+            { "do": "type", "sel": "Search products", "text": "{item.name}", "submit": true },
+            { "do": "tap", "sel": { "text": "ADD || +", "near": "{item.name}" }, "repeat": "{item.qty}" }
+        ]},
+        { "do": "back" }
+    ]})).await;
+    let report = program_report(&text);
+    assert!(!is_error && report["status"] == "failed", "{text}");
+    assert_eq!(report["step"], "1.2.2", "{text}");
+    assert_eq!(report["reason"], "not_found");
+    assert_eq!(
+        report["recovery_tried"],
+        json!(["settle", "scroll", "retry"]),
+        "{text}"
+    );
+    assert!(
+        text.contains("observation_id"),
+        "the screen comes back: {text}"
+    );
+    assert_eq!(phone.state.lock().expect("lock").phone.cart[2], 2);
+
+    // if / var, an optional step, and a route that needs no screen.
+    let (is_error, text, _) = call(
+        &gw,
+        "run_program",
+        json!({ "steps": [
+            { "do": "read", "sel": { "text": "Cart" }, "as": "cart" },
+            { "do": "if", "cond": { "var": { "name": "cart", "contains": "4" } },
+              "then": [{ "do": "call", "route": "flashlight", "args": { "on": true } }],
+              "else": [{ "do": "home" }] },
+            { "do": "tap", "sel": "Not now", "optional": true }
+        ]}),
+    )
+    .await;
+    let report = program_report(&text);
+    assert!(!is_error && report["status"] == "done", "{text}");
+    assert_eq!(report["routes"], json!(["flashlight"]), "{text}");
+    assert!(text.contains("3. – skipped, not on screen"), "{text}");
+
+    // R71: a timer and an alarm through the phone's clock, no screen.
+    let (is_error, text, _) = call(
+        &gw,
+        "run_program",
+        json!({ "steps": [
+            { "do": "call", "route": "timer", "args": { "minutes": 10 } },
+            { "do": "call", "route": "alarm", "args": { "hour": 6, "minute": 30 } }
+        ]}),
+    )
+    .await;
+    assert!(
+        !is_error && program_report(&text)["status"] == "done",
+        "{text}"
+    );
+    {
+        let state = phone.state.lock().expect("lock");
+        let n = state.controls.len();
+        assert_eq!(
+            state.controls[n - 2..],
+            [
+                latch_protocol::PhoneControl::Timer { seconds: 600 },
+                latch_protocol::PhoneControl::Alarm {
+                    hour: 6,
+                    minute: 30
+                }
+            ]
+        );
+    }
+    for bad in [
+        json!({ "control": "timer", "duration_s": 0 }),
+        json!({ "control": "alarm", "hour": 24, "minute": 0 }),
+    ] {
+        let (is_error, text, _) = call(&gw, "phone_control", bad).await;
+        assert!(is_error && text.contains("invalid_request"), "{text}");
+    }
+
+    // Approvals still apply inside a program: Send in the chat asks the owner.
+    let (is_error, text, _) = call(
+        &gw,
+        "run_program",
+        json!({ "steps": [
+            { "do": "open", "app": "Chat" },
+            { "do": "type", "sel": { "role": "input" }, "text": "On my way" },
+            { "do": "tap", "sel": { "text": "Send", "role": "button" } }
+        ]}),
+    )
+    .await;
+    assert!(
+        !is_error && program_report(&text)["status"] == "done",
+        "{text}"
+    );
+    {
+        let state = phone.state.lock().expect("lock");
+        assert_eq!(
+            state.phone.sent_messages.last().map(String::as_str),
+            Some("On my way")
+        );
+        assert!(
+            state.approval_requests.iter().any(|t| t.contains("Send")),
+            "{:?}",
+            state.approval_requests
+        );
+    }
+
+    // Refused before anything runs.
+    for bad in [
+        json!([{ "do": "fly" }]),
+        json!([{ "do": "tap" }]),
+        json!([{ "do": "tap", "sel": { "role": "rocket" } }]),
+        json!([{ "do": "go", "link": "https://example.com" }]),
+        json!([{ "do": "call", "route": "teleport" }]),
+    ] {
+        let (is_error, text, _) = call(&gw, "run_program", json!({ "steps": bad })).await;
+        assert!(is_error && text.contains("invalid_request"), "{text}");
+    }
+}
+
 /// Roadmap R8: starter skills are listed with their recipes but nothing is
 /// saved (or can run) until an AI saves one.
 #[tokio::test]
@@ -3166,6 +3364,8 @@ async fn more_buttons_links_status_and_controls() {
         "- orientation: portrait",
         "- lock screen: showing (only the owner can unlock; use ask_owner)",
         "- do not disturb: off",
+        "- speed: standard",
+        "- temperature: normal",
         "- screen: 1080x2400 px",
     ] {
         assert!(text.contains(line), "{line} in {text}");
@@ -3456,7 +3656,7 @@ async fn the_phone_check_passes_on_the_fake_phone_and_its_report_keeps_nothing_p
     assert!(report.passed());
     let markdown = report.markdown(phone_check::now_s());
     assert!(
-        markdown.contains("Phone: Latch fake phone, app protocol 1.20"),
+        markdown.contains("Phone: Latch fake phone, app protocol 1.21"),
         "{markdown}"
     );
     assert!(!markdown.contains("Sparsh"), "no phone name: {markdown}");

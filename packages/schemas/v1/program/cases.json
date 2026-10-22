@@ -1,0 +1,4694 @@
+{
+  "validate": [
+    [
+      {
+        "do": "tap",
+        "sel": "Wi-Fi"
+      }
+    ],
+    [
+      {
+        "do": "open",
+        "app": "YouTube"
+      },
+      {
+        "do": "type",
+        "text": "lofi",
+        "submit": true
+      },
+      {
+        "do": "tap",
+        "sel": {
+          "role": "video",
+          "index": 1
+        }
+      }
+    ],
+    [
+      {
+        "do": "for_each",
+        "items": [
+          {
+            "name": "Milk",
+            "qty": 2
+          }
+        ],
+        "steps": [
+          {
+            "do": "tap",
+            "sel": {
+              "text": "+",
+              "near": "{item.name}"
+            },
+            "repeat": "{item.qty}"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "do": "if",
+        "cond": {
+          "not": {
+            "gone": "Accept"
+          }
+        },
+        "then": [
+          {
+            "do": "back"
+          }
+        ],
+        "else": [
+          {
+            "do": "home"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "do": "call",
+        "route": "media",
+        "args": {
+          "action": "play_pause"
+        }
+      }
+    ],
+    [
+      {
+        "do": "go",
+        "link": "settings > hotspot"
+      }
+    ],
+    [
+      {
+        "do": "go",
+        "link": "https://www.youtube.com/watch?v=x",
+        "app": "com.google.android.youtube"
+      }
+    ],
+    [
+      {
+        "do": "go",
+        "link": "https://example.com"
+      }
+    ],
+    [
+      {
+        "do": "tap"
+      }
+    ],
+    [
+      {
+        "do": "tap",
+        "sel": {
+          "role": "rocket"
+        }
+      }
+    ],
+    [
+      {
+        "do": "tap",
+        "sel": {
+          "near": "Milk"
+        }
+      }
+    ],
+    [
+      {
+        "do": "tap",
+        "sel": {
+          "text": "+",
+          "near": {
+            "text": "a",
+            "near": "b"
+          }
+        }
+      }
+    ],
+    [
+      {
+        "do": "read",
+        "sel": "Price",
+        "as": "Price"
+      }
+    ],
+    [
+      {
+        "do": "tap",
+        "sel": "x",
+        "colour": "red"
+      }
+    ],
+    [
+      {
+        "do": "if",
+        "cond": {
+          "text": "a",
+          "gone": "b"
+        },
+        "then": [
+          {
+            "do": "back"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "do": "if",
+        "cond": {
+          "text": "a"
+        },
+        "then": [
+          {
+            "do": "if",
+            "cond": {
+              "text": "b"
+            },
+            "then": [
+              {
+                "do": "if",
+                "cond": {
+                  "text": "c"
+                },
+                "then": [
+                  {
+                    "do": "back"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "do": "call",
+        "route": "teleport"
+      }
+    ],
+    [
+      {
+        "do": "wait",
+        "timeout_ms": 50
+      }
+    ],
+    []
+  ],
+  "resolve": [
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 400,
+            "right": 1080,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 580,
+            "right": 840,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 580,
+            "right": 900,
+            "bottom": 660
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "1"
+        },
+        {
+          "id": "n5",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 580,
+            "right": 980,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n10",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 720,
+            "right": 1080,
+            "bottom": 1020
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n11",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 740,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n12",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 900,
+            "right": 840,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 900,
+            "right": 900,
+            "bottom": 980
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "1"
+        },
+        {
+          "id": "n14",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 900,
+            "right": 980,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "sel": {
+        "text": "+",
+        "near": "Cow Milk 500 ml"
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 400,
+            "right": 1080,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 580,
+            "right": 840,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 580,
+            "right": 900,
+            "bottom": 660
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "1"
+        },
+        {
+          "id": "n5",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 580,
+            "right": 980,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n10",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 720,
+            "right": 1080,
+            "bottom": 1020
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n11",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 740,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n12",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 900,
+            "right": 840,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 900,
+            "right": 900,
+            "bottom": 980
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "1"
+        },
+        {
+          "id": "n14",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 900,
+            "right": 980,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "sel": {
+        "role": "plus",
+        "near": "Cow Milk 1 L"
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 400,
+            "right": 1080,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 580,
+            "right": 840,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 580,
+            "right": 900,
+            "bottom": 660
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "1"
+        },
+        {
+          "id": "n5",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 580,
+            "right": 980,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n10",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 720,
+            "right": 1080,
+            "bottom": 1020
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n11",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 740,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n12",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 900,
+            "right": 840,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 900,
+            "right": 900,
+            "bottom": 980
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "1"
+        },
+        {
+          "id": "n14",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 900,
+            "right": 980,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "sel": "+",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 400,
+            "right": 1080,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 580,
+            "right": 840,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 580,
+            "right": 900,
+            "bottom": 660
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "1"
+        },
+        {
+          "id": "n5",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 580,
+            "right": 980,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n10",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 720,
+            "right": 1080,
+            "bottom": 1020
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n11",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 740,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n12",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 900,
+            "right": 840,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 900,
+            "right": 900,
+            "bottom": 980
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "1"
+        },
+        {
+          "id": "n14",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 900,
+            "right": 980,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "sel": {
+        "text": "+",
+        "index": 2
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 400,
+            "right": 1080,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 580,
+            "right": 840,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 580,
+            "right": 900,
+            "bottom": 660
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "text": "1"
+        },
+        {
+          "id": "n5",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 580,
+            "right": 980,
+            "bottom": 660
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n10",
+          "role": "ViewGroup",
+          "bounds": {
+            "left": 0,
+            "top": 720,
+            "right": 1080,
+            "bottom": 1020
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n11",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 740,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n12",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 900,
+            "right": 840,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n13",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 900,
+            "right": 900,
+            "bottom": 980
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "text": "1"
+        },
+        {
+          "id": "n14",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 900,
+            "right": 980,
+            "bottom": 980
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n10",
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "sel": {
+        "role": "minus",
+        "near": {
+          "text": "500 ml"
+        }
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "EditText",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Search products"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Brown bread"
+        },
+        {
+          "id": "n3",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "White bread"
+        },
+        {
+          "id": "n5",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 900,
+            "right": 700,
+            "bottom": 960
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Lay's India's Magic Masala"
+        }
+      ],
+      "sel": "ADD",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "EditText",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Search products"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Brown bread"
+        },
+        {
+          "id": "n3",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "White bread"
+        },
+        {
+          "id": "n5",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 900,
+            "right": 700,
+            "bottom": 960
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Lay's India's Magic Masala"
+        }
+      ],
+      "sel": {
+        "text": "ADD",
+        "near": "White bread"
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "EditText",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Search products"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Brown bread"
+        },
+        {
+          "id": "n3",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "White bread"
+        },
+        {
+          "id": "n5",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 900,
+            "right": 700,
+            "bottom": 960
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Lay's India's Magic Masala"
+        }
+      ],
+      "sel": "lays indias magic masala",
+      "want": "any"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "EditText",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Search products"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Brown bread"
+        },
+        {
+          "id": "n3",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "White bread"
+        },
+        {
+          "id": "n5",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 900,
+            "right": 700,
+            "bottom": 960
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Lay's India's Magic Masala"
+        }
+      ],
+      "sel": "Search products",
+      "want": "type"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "EditText",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Search products"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Brown bread"
+        },
+        {
+          "id": "n3",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "White bread"
+        },
+        {
+          "id": "n5",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 900,
+            "right": 700,
+            "bottom": 960
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Lay's India's Magic Masala"
+        }
+      ],
+      "sel": "Brown bread",
+      "want": "type"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "EditText",
+          "bounds": {
+            "left": 40,
+            "top": 160,
+            "right": 1040,
+            "bottom": 300
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": true,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Search products"
+        },
+        {
+          "id": "n2",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 440,
+            "right": 700,
+            "bottom": 600
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Brown bread"
+        },
+        {
+          "id": "n3",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 440,
+            "right": 1040,
+            "bottom": 600
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n4",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "White bread"
+        },
+        {
+          "id": "n5",
+          "role": "Button",
+          "bounds": {
+            "left": 860,
+            "top": 640,
+            "right": 1040,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "ADD"
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 900,
+            "right": 700,
+            "bottom": 960
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "text": "Lay's India's Magic Masala"
+        }
+      ],
+      "sel": "Mango",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "role": "switch"
+      },
+      "want": "any"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "role": "switch",
+        "state": {
+          "checked": false
+        }
+      },
+      "want": "any"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "text": "Wi-Fi"
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "text": "Not now",
+        "inside": {
+          "text": "Rate this app"
+        }
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "role": "back"
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "role": "search"
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "id": "search_action"
+      },
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n0",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false
+        },
+        {
+          "id": "n1",
+          "role": "RecyclerView",
+          "bounds": {
+            "left": 0,
+            "top": 200,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": true,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n2",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 240,
+            "right": 1040,
+            "bottom": 400
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 0
+          }
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 260,
+            "right": 600,
+            "bottom": 380
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "text": "Wi-Fi"
+        },
+        {
+          "id": "n4",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 280,
+            "right": 1020,
+            "bottom": 360
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n2",
+          "checked": true
+        },
+        {
+          "id": "n5",
+          "role": "LinearLayout",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 1040,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n1",
+          "position": {
+            "index": 1
+          }
+        },
+        {
+          "id": "n6",
+          "role": "View",
+          "bounds": {
+            "left": 60,
+            "top": 440,
+            "right": 600,
+            "bottom": 560
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "text": "Bluetooth"
+        },
+        {
+          "id": "n7",
+          "role": "Switch",
+          "bounds": {
+            "left": 900,
+            "top": 460,
+            "right": 1020,
+            "bottom": 540
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n5",
+          "checked": false
+        },
+        {
+          "id": "n8",
+          "role": "FrameLayout",
+          "bounds": {
+            "left": 0,
+            "top": 1800,
+            "right": 1080,
+            "bottom": 2400
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0"
+        },
+        {
+          "id": "n9",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 1850,
+            "right": 1040,
+            "bottom": 1950
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate this app"
+        },
+        {
+          "id": "n10",
+          "role": "Button",
+          "bounds": {
+            "left": 40,
+            "top": 2100,
+            "right": 500,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Not now"
+        },
+        {
+          "id": "n11",
+          "role": "Button",
+          "bounds": {
+            "left": 560,
+            "top": 2100,
+            "right": 1040,
+            "bottom": 2200
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n8",
+          "text": "Rate"
+        },
+        {
+          "id": "n12",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 40,
+            "top": 40,
+            "right": 160,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "description": "Navigate up"
+        },
+        {
+          "id": "n13",
+          "role": "ImageButton",
+          "bounds": {
+            "left": 900,
+            "top": 40,
+            "right": 1040,
+            "bottom": 160
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "parent": "n0",
+          "resource_id": "com.android.settings:id/search_action"
+        }
+      ],
+      "sel": {
+        "role": "row",
+        "index": 2
+      },
+      "want": "any"
+    }
+  ],
+  "observation": {
+    "observation_id": "o_1",
+    "captured_at_ms": 1,
+    "package": "com.android.settings",
+    "screen": {
+      "width": 1080,
+      "height": 2400
+    },
+    "nodes": [
+      {
+        "id": "n0",
+        "role": "FrameLayout",
+        "bounds": {
+          "left": 0,
+          "top": 0,
+          "right": 1080,
+          "bottom": 2400
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false
+      },
+      {
+        "id": "n1",
+        "role": "RecyclerView",
+        "bounds": {
+          "left": 0,
+          "top": 200,
+          "right": 1080,
+          "bottom": 2400
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": true,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n0"
+      },
+      {
+        "id": "n2",
+        "role": "LinearLayout",
+        "bounds": {
+          "left": 40,
+          "top": 240,
+          "right": 1040,
+          "bottom": 400
+        },
+        "clickable": true,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n1",
+        "position": {
+          "index": 0
+        }
+      },
+      {
+        "id": "n3",
+        "role": "View",
+        "bounds": {
+          "left": 60,
+          "top": 260,
+          "right": 600,
+          "bottom": 380
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n2",
+        "text": "Wi-Fi"
+      },
+      {
+        "id": "n4",
+        "role": "Switch",
+        "bounds": {
+          "left": 900,
+          "top": 280,
+          "right": 1020,
+          "bottom": 360
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n2",
+        "checked": true
+      },
+      {
+        "id": "n5",
+        "role": "LinearLayout",
+        "bounds": {
+          "left": 40,
+          "top": 420,
+          "right": 1040,
+          "bottom": 580
+        },
+        "clickable": true,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n1",
+        "position": {
+          "index": 1
+        }
+      },
+      {
+        "id": "n6",
+        "role": "View",
+        "bounds": {
+          "left": 60,
+          "top": 440,
+          "right": 600,
+          "bottom": 560
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n5",
+        "text": "Bluetooth"
+      },
+      {
+        "id": "n7",
+        "role": "Switch",
+        "bounds": {
+          "left": 900,
+          "top": 460,
+          "right": 1020,
+          "bottom": 540
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n5",
+        "checked": false
+      },
+      {
+        "id": "n8",
+        "role": "FrameLayout",
+        "bounds": {
+          "left": 0,
+          "top": 1800,
+          "right": 1080,
+          "bottom": 2400
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n0"
+      },
+      {
+        "id": "n9",
+        "role": "View",
+        "bounds": {
+          "left": 40,
+          "top": 1850,
+          "right": 1040,
+          "bottom": 1950
+        },
+        "clickable": false,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n8",
+        "text": "Rate this app"
+      },
+      {
+        "id": "n10",
+        "role": "Button",
+        "bounds": {
+          "left": 40,
+          "top": 2100,
+          "right": 500,
+          "bottom": 2200
+        },
+        "clickable": true,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n8",
+        "text": "Not now"
+      },
+      {
+        "id": "n11",
+        "role": "Button",
+        "bounds": {
+          "left": 560,
+          "top": 2100,
+          "right": 1040,
+          "bottom": 2200
+        },
+        "clickable": true,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n8",
+        "text": "Rate"
+      },
+      {
+        "id": "n12",
+        "role": "ImageButton",
+        "bounds": {
+          "left": 40,
+          "top": 40,
+          "right": 160,
+          "bottom": 160
+        },
+        "clickable": true,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n0",
+        "description": "Navigate up"
+      },
+      {
+        "id": "n13",
+        "role": "ImageButton",
+        "bounds": {
+          "left": 900,
+          "top": 40,
+          "right": 1040,
+          "bottom": 160
+        },
+        "clickable": true,
+        "long_clickable": false,
+        "editable": false,
+        "scrollable": false,
+        "enabled": true,
+        "focused": false,
+        "sensitive": false,
+        "parent": "n0",
+        "resource_id": "com.android.settings:id/search_action"
+      }
+    ],
+    "redacted_count": 0,
+    "truncated": false
+  },
+  "vars": {
+    "price": "₹36"
+  },
+  "holds": [
+    {
+      "cond": {
+        "text": "Bluetooth"
+      }
+    },
+    {
+      "cond": {
+        "gone": "Bluetooth"
+      }
+    },
+    {
+      "cond": {
+        "gone": "Airplane mode"
+      }
+    },
+    {
+      "cond": {
+        "state": {
+          "sel": {
+            "role": "switch",
+            "near": "Wi-Fi"
+          },
+          "checked": true
+        }
+      }
+    },
+    {
+      "cond": {
+        "app": "com.android.settings"
+      }
+    },
+    {
+      "cond": {
+        "app": "org.latch.demo.chat"
+      }
+    },
+    {
+      "cond": {
+        "count": {
+          "sel": {
+            "role": "switch"
+          },
+          "min": 2,
+          "max": 2
+        }
+      }
+    },
+    {
+      "cond": {
+        "count": {
+          "sel": {
+            "role": "switch"
+          },
+          "min": 3
+        }
+      }
+    },
+    {
+      "cond": {
+        "playing": true
+      }
+    },
+    {
+      "cond": {
+        "playing": false
+      }
+    },
+    {
+      "cond": {
+        "var": {
+          "name": "price",
+          "contains": "36"
+        }
+      }
+    },
+    {
+      "cond": {
+        "var": {
+          "name": "price",
+          "equals": "₹49"
+        }
+      }
+    },
+    {
+      "cond": {
+        "not": {
+          "text": "Rate this app"
+        }
+      }
+    }
+  ],
+  "fill": [
+    {
+      "template": "{item.name} x{item.qty}",
+      "vars": {
+        "item": {
+          "name": "Milk",
+          "qty": 2
+        }
+      }
+    },
+    {
+      "template": "price is {price}",
+      "vars": {
+        "price": "₹36"
+      }
+    },
+    {
+      "template": "{missing}",
+      "vars": {}
+    },
+    {
+      "template": "json {\"a\": 1} and {Not_a_var}",
+      "vars": {}
+    }
+  ]
+}

@@ -26,6 +26,7 @@ import io.github.aspershupadhyay.latch.session.Pairing
 import io.github.aspershupadhyay.latch.session.GatewayPins
 import io.github.aspershupadhyay.latch.session.GatewaySetup
 import io.github.aspershupadhyay.latch.session.SessionController
+import io.github.aspershupadhyay.latch.session.Turbo
 import io.github.aspershupadhyay.latch.session.SessionState
 import io.github.aspershupadhyay.latch.ui.MainActivity
 import io.github.aspershupadhyay.latch.update.Updater
@@ -102,6 +103,8 @@ class LatchApp : Application() {
         // A failure that closed Latch last time is shown in Activity, without content.
         Crashes.takeLastFatal()?.let { (what, _) -> log.add(ActivityKind.REFUSAL, "Latch closed unexpectedly last time: $what") }
         settings = Settings(this)
+        // R72 (ADR-074): animations Latch turned off for a session that never ended (a crash) come back now.
+        if (Turbo.of(this).restore()) log.add(ActivityKind.SESSION, "Latch put the system animations back after it closed unexpectedly")
         // R24: the paired gateway's own certificate, when it is on the owner's Wi-Fi.
         settings.pairing.value?.let { GatewayPins.set(it.gatewayUrl, it.pin) }
         grants = ApprovalGrants(PrefsGrantStore(this))
@@ -127,6 +130,8 @@ class LatchApp : Application() {
                 runCatching { !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) }.getOrNull()
             },
             adbKey = { adbKey.value },
+            turbo = Turbo.of(this),
+            turboReady = { Turbo.ready(this) },
             adbWireless = adbWireless,
             recentCommands = io.github.aspershupadhyay.latch.session.RecentCommands(java.io.File(filesDir, "session/recent-commands.txt")),
             adbJobDir = java.io.File(cacheDir, "adb-jobs"),
@@ -279,7 +284,12 @@ class LatchApp : Application() {
             this, 1, Intent(this, StopReceiver::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
         val text = when (state) {
-            is SessionState.Active -> if (state.paused) getString(R.string.notification_paused) else getString(R.string.notification_active)
+            is SessionState.Active -> when {
+                state.paused -> getString(R.string.notification_paused)
+                // R72: the owner always sees when a system setting is changed for the AI.
+                Turbo.of(this).active -> getString(R.string.notification_active_turbo)
+                else -> getString(R.string.notification_active)
+            }
             else -> getString(R.string.notification_connecting)
         }
         val notification = NotificationCompat.Builder(this, CHANNEL_SESSION)

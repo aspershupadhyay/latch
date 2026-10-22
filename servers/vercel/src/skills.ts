@@ -375,12 +375,12 @@ export function label(step: Obj): string {
 
 // ---- Matching words on the live screen ----
 
-const norm = (s: string) => s.trim().split(/\s+/u).filter(Boolean).join(" ").toLowerCase();
+export const norm = (s: string) => s.trim().split(/\s+/u).filter(Boolean).join(" ").toLowerCase();
 
-const matchLevel = (c: string, t: string) => (c === t ? 3 : c.startsWith(t) ? 2 : c.includes(t) ? 1 : 0);
+export const matchLevel = (c: string, t: string) => (c === t ? 3 : c.startsWith(t) ? 2 : c.includes(t) ? 1 : 0);
 
 /** A guessed label's own name and the card it sits in: "+ · Cow Milk" → ["+", "Cow Milk"]. */
-function labelParts(label: string): [string, string] {
+export function labelParts(label: string): [string, string] {
   const at = label.indexOf(" · ");
   return at < 0 ? [label, ""] : [label.slice(0, at), label.slice(at + 3)];
 }
@@ -398,7 +398,7 @@ const ICON_CLASSES: Record<string, string> = {
   heart: "heart", like: "heart", favourite: "heart", favorite: "heart",
 };
 /** Words that name the same icon: a plus button is "+", "add", or "plus". */
-const iconClass = (word: string): string | undefined => (Object.hasOwn(ICON_CLASSES, word) ? ICON_CLASSES[word] : undefined);
+export const iconClass = (word: string): string | undefined => (Object.hasOwn(ICON_CLASSES, word) ? ICON_CLASSES[word] : undefined);
 
 function scoreOne(node: UiNode, target: string): number {
   const t = norm(target);
@@ -426,7 +426,7 @@ function inCard(node: UiNode, near: string): boolean {
 const score = (node: UiNode, target: string) => Math.max(0, ...target.split("||").map((t) => scoreOne(node, t)));
 const isBlank = (target: string) => target.split("||").every((t) => norm(t) === "");
 const isEmptyRect = (n: UiNode) => n.bounds.right <= n.bounds.left || n.bounds.bottom <= n.bounds.top;
-const usable = (n: UiNode) => !n.sensitive && n.enabled && !isEmptyRect(n);
+export const usable = (n: UiNode) => !n.sensitive && n.enabled && !isEmptyRect(n);
 const center = (n: UiNode): [number, number] => [
   n.bounds.left + Math.trunc((n.bounds.right - n.bounds.left) / 2),
   n.bounds.top + Math.trunc((n.bounds.bottom - n.bounds.top) / 2),

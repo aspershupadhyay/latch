@@ -480,6 +480,15 @@ pub fn command(command: &Command) -> Result<(), ProtocolError> {
                 crate::MAX_SCREEN_TIMEOUT_S
             )))
         }
+        Command::DeviceControl {
+            control: PhoneControl::Timer { seconds },
+        } if !(1..=crate::MAX_TIMER_S).contains(seconds) => Err(invalid(format!(
+            "timer seconds must be between 1 and {}",
+            crate::MAX_TIMER_S
+        ))),
+        Command::DeviceControl {
+            control: PhoneControl::Alarm { hour, minute },
+        } if *hour > 23 || *minute > 59 => Err(invalid("alarm hour must be 0-23 and minute 0-59")),
         Command::DeviceControl { .. } => Ok(()),
         Command::Gesture {
             observation_id,

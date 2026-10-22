@@ -1,0 +1,241 @@
+{
+  "fill": [
+    {
+      "ok": "Milk x2"
+    },
+    {
+      "ok": "price is ₹36"
+    },
+    {
+      "error": "{missing}: no value named missing yet"
+    },
+    {
+      "ok": "json {\"a\": 1} and {Not_a_var}"
+    }
+  ],
+  "holds": [
+    true,
+    false,
+    true,
+    true,
+    true,
+    false,
+    true,
+    false,
+    false,
+    true,
+    true,
+    false,
+    false
+  ],
+  "resolve": [
+    {
+      "found": "n14"
+    },
+    {
+      "found": "n5"
+    },
+    {
+      "ambiguous": [
+        "n5: + · Mother Dairy Cow Milk 1 L",
+        "n14: + · Mother Dairy Cow Milk 500 ml"
+      ]
+    },
+    {
+      "found": "n14"
+    },
+    {
+      "found": "n12"
+    },
+    {
+      "ambiguous": [
+        "n3: ADD",
+        "n5: ADD"
+      ]
+    },
+    {
+      "found": "n5"
+    },
+    {
+      "found": "n6"
+    },
+    {
+      "found": "n1"
+    },
+    "not_found",
+    "not_found",
+    {
+      "ambiguous": [
+        "n4: Switch",
+        "n7: Switch"
+      ]
+    },
+    {
+      "found": "n7"
+    },
+    {
+      "found": "n3"
+    },
+    {
+      "found": "n10"
+    },
+    {
+      "found": "n12"
+    },
+    {
+      "found": "n13"
+    },
+    {
+      "found": "n13"
+    },
+    {
+      "found": "n5"
+    }
+  ],
+  "validate": [
+    {
+      "ok": [
+        {
+          "do": "tap",
+          "sel": {
+            "text": "Wi-Fi"
+          }
+        }
+      ]
+    },
+    {
+      "ok": [
+        {
+          "app": "YouTube",
+          "do": "open"
+        },
+        {
+          "do": "type",
+          "submit": true,
+          "text": "lofi"
+        },
+        {
+          "do": "tap",
+          "sel": {
+            "index": 1,
+            "role": "video"
+          }
+        }
+      ]
+    },
+    {
+      "ok": [
+        {
+          "as": "item",
+          "do": "for_each",
+          "items": [
+            {
+              "name": "Milk",
+              "qty": 2
+            }
+          ],
+          "steps": [
+            {
+              "do": "tap",
+              "repeat": "{item.qty}",
+              "sel": {
+                "near": {
+                  "text": "{item.name}"
+                },
+                "text": "+"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ok": [
+        {
+          "cond": {
+            "not": {
+              "gone": {
+                "text": "Accept"
+              }
+            }
+          },
+          "do": "if",
+          "else": [
+            {
+              "do": "home"
+            }
+          ],
+          "then": [
+            {
+              "do": "back"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ok": [
+        {
+          "args": {
+            "action": "play_pause"
+          },
+          "do": "call",
+          "route": "media"
+        }
+      ]
+    },
+    {
+      "ok": [
+        {
+          "do": "go",
+          "link": "settings > hotspot"
+        }
+      ]
+    },
+    {
+      "ok": [
+        {
+          "app": "com.google.android.youtube",
+          "do": "go",
+          "link": "https://www.youtube.com/watch?v=x"
+        }
+      ]
+    },
+    {
+      "error": "step go: a link needs app, the package that opens it"
+    },
+    {
+      "error": "step tap: 'sel' is required"
+    },
+    {
+      "error": "step tap: selector role must be one of button, input, row, card, switch, tab, video, image, plus, minus, send, back, search, close, cart, heart, share, menu"
+    },
+    {
+      "error": "step tap: a selector needs text, desc, id, or role"
+    },
+    {
+      "error": "step tap: selector near cannot nest another near or inside"
+    },
+    {
+      "error": "step read: as is a lowercase name, e.g. price"
+    },
+    {
+      "error": "step tap: unknown field 'colour'"
+    },
+    {
+      "error": "step if: a condition is one of {text}, {gone}, {state}, {app}, {count}, {playing}, {var}, {not}"
+    },
+    {
+      "error": "step if: blocks nest at most 3 deep"
+    },
+    {
+      "error": "step call: route must be one of media, volume, flashlight, brightness, ringer, do_not_disturb, panel, link, clipboard, timer, alarm"
+    },
+    {
+      "error": "step wait: timeout_ms must be 100 to 30000"
+    },
+    {
+      "error": "1 to 50 steps"
+    }
+  ]
+}

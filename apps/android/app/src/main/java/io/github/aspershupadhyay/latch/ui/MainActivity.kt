@@ -965,6 +965,11 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         onUnpairAdb = app.session::unpairAdb,
         adbFixedPort = prefs.adbFixedPort,
         onAdbFixedPort = { on -> app.session.setAdbFixedPort(on) },
+        turbo = prefs.turbo,
+        turboReady = { io.github.aspershupadhyay.latch.session.Turbo.ready(context) },
+        onTurbo = { v -> app.settings.update { it.copy(turbo = v) } },
+        onGrantTurbo = { app.session.grantTurbo(io.github.aspershupadhyay.latch.session.Turbo.grantCommand(context)) },
+        turboGrantCommand = io.github.aspershupadhyay.latch.session.Turbo.grantCommand(context),
         onPairFromNotification = {
             if (Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED

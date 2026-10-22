@@ -9,7 +9,7 @@
       "package": "com.example.notes",
       "capabilities": [ { "capability": "device.info", "status": "enabled" } ],
       "session": { "expires_at_ms": 1800000600000, "approve_every_action": false, "paused": false },
-      "status": { "battery_percent": 64, "charging": true, "network": "wifi", "free_storage_mb": 20480, "orientation": "portrait", "locked": false, "do_not_disturb": false }
+      "status": { "battery_percent": 64, "charging": true, "network": "wifi", "free_storage_mb": 20480, "orientation": "portrait", "locked": false, "do_not_disturb": false, "speed": "turbo", "thermal": "moderate" }
     }
   }
 }

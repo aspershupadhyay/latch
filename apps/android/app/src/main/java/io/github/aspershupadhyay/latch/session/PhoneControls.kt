@@ -17,6 +17,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.os.SystemClock
+import android.provider.AlarmClock
 import android.provider.Settings
 import android.view.KeyEvent
 import io.github.aspershupadhyay.latch.protocol.Capability
@@ -49,9 +50,29 @@ object PhoneControls {
             is PhoneControl.ScreenTimeout -> systemSetting(context, Settings.System.SCREEN_OFF_TIMEOUT, control.seconds * 1000)
             is PhoneControl.Ringer -> ringer(context, control.mode)
             is PhoneControl.DoNotDisturb -> doNotDisturb(context, control.on)
+            is PhoneControl.Timer -> clock(
+                context,
+                Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, control.seconds),
+            )
+            is PhoneControl.Alarm -> clock(
+                context,
+                Intent(AlarmClock.ACTION_SET_ALARM)
+                    .putExtra(AlarmClock.EXTRA_HOUR, control.hour)
+                    .putExtra(AlarmClock.EXTRA_MINUTES, control.minute),
+            )
             is PhoneControl.Panel -> error("panels open as a screen action")
         }
         return null
+    }
+
+    /**
+     * R71: a timer or alarm through Android's clock API, in whichever clock app
+     * the phone has, without showing it ([AlarmClock.EXTRA_SKIP_UI]).
+     */
+    private fun clock(context: Context, intent: Intent) {
+        intent.putExtra(AlarmClock.EXTRA_SKIP_UI, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (intent.resolveActivity(context.packageManager) == null) unsupported("this phone has no clock app that takes timers and alarms")
+        context.startActivity(intent)
     }
 
     /** Refuses a panel this phone cannot show, e.g. NFC on a phone without NFC. */
@@ -276,6 +297,23 @@ object PhoneControls {
             locked = context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked,
             doNotDisturb = filter?.takeIf { it != NotificationManager.INTERRUPTION_FILTER_UNKNOWN }
                 ?.let { it != NotificationManager.INTERRUPTION_FILTER_ALL },
+            speed = if (Turbo.of(context).active) "turbo" else "standard",
+            thermal = thermal(context),
         )
+    }
+
+    /** R72: Android's thermal status in five steps; null when the phone does not say. */
+    private fun thermal(context: Context): String? {
+        val power = context.getSystemService(android.os.PowerManager::class.java) ?: return null
+        return when (power.currentThermalStatus) {
+            android.os.PowerManager.THERMAL_STATUS_NONE -> "none"
+            android.os.PowerManager.THERMAL_STATUS_LIGHT -> "light"
+            android.os.PowerManager.THERMAL_STATUS_MODERATE -> "moderate"
+            android.os.PowerManager.THERMAL_STATUS_SEVERE -> "severe"
+            android.os.PowerManager.THERMAL_STATUS_CRITICAL,
+            android.os.PowerManager.THERMAL_STATUS_EMERGENCY,
+            android.os.PowerManager.THERMAL_STATUS_SHUTDOWN -> "critical"
+            else -> null
+        }
     }
 }

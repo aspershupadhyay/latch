@@ -76,6 +76,8 @@ data class Preferences(
     val readButtons: Boolean = true,
     /** ADR-041: whole files move straight between the AI's computer and the phone on the same Wi-Fi. */
     val localTransfers: Boolean = false,
+    /** R72 (ADR-074): system animations off while a session runs; needs a one-time permission. */
+    val turbo: Boolean = false,
     /**
      * ADR-046 (R27): the device's own `adbd` endpoint as `host:port`, set once
      * the owner completes Android wireless-debugging pairing. Null until then,
@@ -258,6 +260,7 @@ class Settings(private val context: Context) {
             // ADR-066: Android's own photo permission is the one switch for photos.
             photosOn = true,
             localTransfers = prefs.getBoolean("local_transfers", false),
+            turbo = prefs.getBoolean("turbo", false),
             adbEndpoint = prefs.getString("adb_endpoint", null),
             adbFixedPort = prefs.getBoolean("adb_fixed_port", false),
             // ADR-067: both kept connections are always used, so a session survives losing one.
@@ -371,6 +374,7 @@ class Settings(private val context: Context) {
             remove("files_folder_name")
             putBoolean("photos_on", next.photosOn)
             putBoolean("local_transfers", next.localTransfers)
+            putBoolean("turbo", next.turbo)
             if (next.adbEndpoint != null) putString("adb_endpoint", next.adbEndpoint) else remove("adb_endpoint")
             putBoolean("adb_fixed_port", next.adbFixedPort)
             putBoolean("both_connected", next.bothConnected)

@@ -19,6 +19,7 @@ use crate::devices::{self, Output};
 
 pub mod diagnose;
 pub mod files;
+pub mod program;
 pub mod replay;
 pub mod skills;
 
@@ -71,9 +72,14 @@ in one call with this time's inputs (a different cart, another contact, a new me
 finishing a task the user will repeat, offer to save it with `save_skill`, generalized: what \
 changes becomes params, things that vary in number become a list with for_each, elements are \
 named by their words, and near picks the right row. If a run stops because the screen \
-differs, do that step yourself and continue with from_step. When you can predict the next few \
-steps (open an app, search, tap a result), send them together with `run_steps` instead of one \
-call each: it saves a round trip per step.";
+differs, do that step yourself and continue with from_step.
+Speed: think once per goal. When you know how a task goes (open an app, search, add three items, \
+toggle a setting), send the whole task as one `run_program`: it finds elements by their words, \
+role, and row, scrolls and closes pop-ups by itself, loops and branches on the phone, and calls \
+back only when a step fails, with the reason, the candidates, and where to resume. Prefer its \
+call routes (media, volume, flashlight, panels, links) over driving the screen. For a single \
+element, `tap` takes its words with near and repeat. Observe first only when you cannot \
+predict the screen.";
 
 /// Shown under the untrusted-content banner for apps `latch_policy::is_sensitive_app` flags.
 pub const SENSITIVE_APP_NOTE: &str = "Caution: this app may hold money, accounts, or passwords. \
@@ -583,7 +589,9 @@ pub fn tool_definitions() -> Vec<Value> {
              landscape), screen_timeout (15-1800 seconds). Flashlight: on or off. Panels: panel \
              opens a settings panel or page over the current app (wifi, internet, bluetooth, \
              volume, nfc, airplane_mode, location, display, battery, sound, notifications, \
-             storage, date_time) and returns the screen, where you continue with tap. Ringer \
+             storage, date_time) and returns the screen, where you continue with tap. Clock (same \
+             switch as panels, Latch 1.21): timer starts a countdown of duration_s seconds and \
+             alarm sets one for hour:minute, in the phone's clock app without opening it. Ringer \
              and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. \
              screen_light (on false) turns only the screen's light off while the phone, the \
              live mirror, and your actions keep working; on true lights it again (the power \
@@ -598,7 +606,7 @@ pub fn tool_definitions() -> Vec<Value> {
             false,
             json!({
                 "device_id": device_id_schema(),
-                "control": { "type": "string", "enum": ["volume", "media", "ringer", "do_not_disturb", "brightness", "rotation", "screen_timeout", "flashlight", "panel", "screen_light", "mirror_volume", "mirror_notifications"] },
+                "control": { "type": "string", "enum": ["volume", "media", "ringer", "do_not_disturb", "brightness", "rotation", "screen_timeout", "flashlight", "panel", "timer", "alarm", "screen_light", "mirror_volume", "mirror_notifications"] },
                 "stream": { "type": "string", "enum": ["media", "ring", "notification", "alarm"], "default": "media", "description": "For volume." },
                 "percent": { "type": "integer", "minimum": 0, "maximum": 100, "description": "For volume, brightness, and mirror_volume." },
                 "action": { "type": "string", "enum": ["play_pause", "next", "previous"], "description": "For media." },
@@ -606,6 +614,9 @@ pub fn tool_definitions() -> Vec<Value> {
                 "seconds": { "type": "integer", "minimum": latch_protocol::MIN_SCREEN_TIMEOUT_S, "maximum": latch_protocol::MAX_SCREEN_TIMEOUT_S, "description": "For screen_timeout." },
                 "on": { "type": "boolean", "description": "For flashlight, do_not_disturb, screen_light, and mirror_notifications." },
                 "panel": { "type": "string", "enum": latch_protocol::SettingsPanel::ALL.map(|p| p.as_str()), "description": "For panel." },
+                "duration_s": { "type": "integer", "minimum": 1, "maximum": latch_protocol::MAX_TIMER_S, "description": "For timer: how long, in seconds." },
+                "hour": { "type": "integer", "minimum": 0, "maximum": 23, "description": "For alarm, 24-hour clock." },
+                "minute": { "type": "integer", "minimum": 0, "maximum": 59, "description": "For alarm." },
                 "screenshot_after": screenshot_after_schema(),
             }),
             &["control"],
@@ -648,6 +659,7 @@ pub fn tool_definitions() -> Vec<Value> {
     .into_iter()
     .chain(files::definitions())
     .chain(skills::definitions())
+    .chain(std::iter::once(program::definition()))
     .chain([{
             let mut answer = tool(
                 "answer_approval",
@@ -1211,10 +1223,31 @@ fn phone_control(args: &Value) -> Result<latch_protocol::PhoneControl, ProtocolE
                     ))
                 })?,
         },
+        "timer" => PhoneControl::Timer {
+            seconds: arg_int(args, "duration_s")
+                .map_err(bad)?
+                .and_then(|s| u32::try_from(s).ok())
+                .filter(|s| (1..=latch_protocol::MAX_TIMER_S).contains(s))
+                .ok_or_else(|| invalid("duration_s must be between 1 and 86400 for timer"))?,
+        },
+        "alarm" => {
+            let hour = arg_int(args, "hour")
+                .map_err(bad)?
+                .and_then(|h| u8::try_from(h).ok())
+                .filter(|h| *h <= 23);
+            let minute = arg_int(args, "minute")
+                .map_err(bad)?
+                .and_then(|m| u8::try_from(m).ok())
+                .filter(|m| *m <= 59);
+            match (hour, minute) {
+                (Some(hour), Some(minute)) => PhoneControl::Alarm { hour, minute },
+                _ => return Err(invalid("alarm needs hour (0-23) and minute (0-59)")),
+            }
+        }
         _ => {
             return Err(invalid(
                 "control must be volume, media, ringer, do_not_disturb, brightness, rotation, \
-                 screen_timeout, flashlight, or panel",
+                 screen_timeout, flashlight, panel, timer, or alarm",
             ));
         }
     })
@@ -1394,6 +1427,9 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
     }
     if name == "run_steps" {
         return skills::run_steps(state, args, &device_id).await;
+    }
+    if name == program::NAME {
+        return program::run(state, args, &device_id).await;
     }
     if name == "tap"
         && let Some(text) = arg_str(args, "text").map_err(bad)?
@@ -2542,6 +2578,32 @@ pub fn render_status(device_id: &str, info: &latch_protocol::DeviceInfo) -> Stri
             "- do not disturb: {}",
             if dnd { "on" } else { "off" }
         ));
+    }
+    if let Some(speed) = status.speed {
+        lines.push(
+            match speed {
+                latch_protocol::SpeedTier::Standard => "- speed: standard",
+                latch_protocol::SpeedTier::Turbo => {
+                    "- speed: turbo (system animations off while you work)"
+                }
+            }
+            .into(),
+        );
+    }
+    if let Some(thermal) = status.thermal {
+        use latch_protocol::Thermal;
+        lines.push(
+            match thermal {
+                Thermal::None | Thermal::Light => "- temperature: normal",
+                Thermal::Moderate => {
+                    "- temperature: warm (Android may slow the phone; avoid long busy loops)"
+                }
+                Thermal::Severe | Thermal::Critical => {
+                    "- temperature: hot (Android is slowing the phone; pause heavy work)"
+                }
+            }
+            .into(),
+        );
     }
     if let Some(package) = &info.package {
         let package: String = package.chars().take(200).collect();

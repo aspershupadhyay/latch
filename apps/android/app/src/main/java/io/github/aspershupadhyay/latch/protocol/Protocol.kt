@@ -26,7 +26,7 @@ import kotlinx.serialization.json.put
  * accept and reject exactly the shared fixtures in `packages/schemas/v1/fixtures`.
  */
 object Protocol {
-    const val VERSION = "1.20"
+    const val VERSION = "1.21"
 
     val json = Json {
         ignoreUnknownKeys = true // minor versions may add fields
@@ -238,6 +238,10 @@ data class DeviceStatus(
     val orientation: String? = null,
     val locked: Boolean? = null,
     @SerialName("do_not_disturb") val doNotDisturb: Boolean? = null,
+    /** Since 1.21 (R72): `standard`, or `turbo` while animations are off for the AI. */
+    val speed: String? = null,
+    /** Since 1.21 (R72): `none`, `light`, `moderate`, `severe`, or `critical`. */
+    val thermal: String? = null,
 )
 
 /** Error details inside a successful result, e.g. why the phone could not observe after an action. */
@@ -862,7 +866,30 @@ sealed interface PhoneControl {
         override val description get() = "Turn Do Not Disturb ${if (on) "on" else "off"}"
     }
 
+    /** Since 1.21 (R71): a countdown in the clock app, started without opening it (panels switch). */
+    data class Timer(val seconds: Int) : PhoneControl {
+        override val capability = Capability.CONTROL_PANELS
+        override val description get(): String {
+            val h = seconds / 3600
+            val m = seconds % 3600 / 60
+            val s = seconds % 60
+            return when {
+                h == 0 && m == 0 -> "Start a $s s timer"
+                h == 0 && s == 0 -> "Start a $m min timer"
+                h == 0 -> "Start a $m min $s s timer"
+                else -> "Start a $h h $m min $s s timer"
+            }
+        }
+    }
+
+    /** Since 1.21 (R71): an alarm at hour:minute in the clock app, set without opening it (panels switch). */
+    data class Alarm(val hour: Int, val minute: Int) : PhoneControl {
+        override val capability = Capability.CONTROL_PANELS
+        override val description get() = "Set an alarm for %02d:%02d".format(hour, minute)
+    }
+
     companion object {
+        const val MAX_TIMER_S = 86_400
         val STREAMS = setOf("media", "ring", "notification", "alarm")
         val MEDIA_ACTIONS = setOf("play_pause", "next", "previous")
         val ROTATION_MODES = setOf("auto", "portrait", "landscape")
@@ -957,6 +984,8 @@ object GatewayParser {
             "screen_timeout" -> PhoneControl.ScreenTimeout(c.int("seconds"))
             "ringer" -> PhoneControl.Ringer(oneOf("mode", PhoneControl.RINGER_MODES))
             "do_not_disturb" -> PhoneControl.DoNotDisturb(c["on"].let { (it as? JsonPrimitive)?.takeIf { p -> !p.isString }?.booleanOrNull } ?: invalid("on must be a boolean"))
+            "timer" -> PhoneControl.Timer(c.int("seconds"))
+            "alarm" -> PhoneControl.Alarm(c.int("hour"), c.int("minute"))
             else -> invalid("unknown control")
         }
     }
@@ -1454,6 +1483,10 @@ object Validation {
             is Command.DeviceControl -> when (val c = command.control) {
                 is PhoneControl.Volume -> if (c.percent !in 0..100) invalid("percent must be 0-100")
                 is PhoneControl.Brightness -> if (c.percent !in 0..100) invalid("percent must be 0-100")
+                is PhoneControl.Timer -> if (c.seconds !in 1..PhoneControl.MAX_TIMER_S) {
+                    invalid("timer seconds must be between 1 and ${PhoneControl.MAX_TIMER_S}")
+                }
+                is PhoneControl.Alarm -> if (c.hour !in 0..23 || c.minute !in 0..59) invalid("alarm hour must be 0-23 and minute 0-59")
                 is PhoneControl.ScreenTimeout -> if (c.seconds !in PhoneControl.MIN_SCREEN_TIMEOUT_S..PhoneControl.MAX_SCREEN_TIMEOUT_S) {
                     invalid("seconds must be between ${PhoneControl.MIN_SCREEN_TIMEOUT_S} and ${PhoneControl.MAX_SCREEN_TIMEOUT_S}")
                 }

@@ -4,11 +4,12 @@
 // texts, and errors as servers/mcp/src/mcp.rs; the shared contract tests in
 // test/ hold both to packages/schemas/v1/mcp.
 
+import { PROGRAM_TOOL, type ProgramContext, runProgram } from "./program.js";
 import { SERVER } from "./generated/contract.js";
 import { renderLatestTaskLimited } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ADB_PLATFORM_MAX_MS, ApprovalDeferred, COMMAND_DEADLINE_MS, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
-import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type AdbShellParams, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MAX_TIMER_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type AdbShellParams, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
@@ -277,6 +278,19 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       store: ctx.skills,
       deviceId,
       act: async (tool, toolArgs) => (await runToolLogged(ctx, tool, toolArgs)) as Awaited<ReturnType<RunContext["act"]>>,
+      latest: () => ctx.devices.latestObservation(deviceId),
+      deferred: async (e, tool, toolArgs) => {
+        await ctx.devices.saveDeferred(e.request.command_id, {
+          tool, args: toolArgs, device: e.deviceId, conn: e.conn, nonce: e.request.nonce, choices: e.request.choices, title: e.request.title,
+        });
+        return waitingResult(e.request);
+      },
+    }, args);
+  }
+  if (name === PROGRAM_TOOL) {
+    return runProgram({
+      deviceId,
+      act: async (tool, toolArgs) => (await runToolLogged(ctx, tool, toolArgs)) as Awaited<ReturnType<ProgramContext["act"]>>,
       latest: () => ctx.devices.latestObservation(deviceId),
       deferred: async (e, tool, toolArgs) => {
         await ctx.devices.saveDeferred(e.request.command_id, {
@@ -927,8 +941,19 @@ function phoneControl(args: Record<string, unknown>): PhoneControl {
       return { kind: "screen_timeout", seconds };
     }
     case "panel": return { kind: "panel", panel: pick("panel", SETTINGS_PANELS, `panel must be one of ${SETTINGS_PANELS.join(", ")}`) };
+    case "timer": {
+      const seconds = argInt(args, "duration_s");
+      if (seconds === undefined || seconds < 1 || seconds > MAX_TIMER_S) throw bad("duration_s must be between 1 and 86400 for timer");
+      return { kind: "timer", seconds };
+    }
+    case "alarm": {
+      const hour = argInt(args, "hour");
+      const minute = argInt(args, "minute");
+      if (hour === undefined || minute === undefined || hour < 0 || hour > 23 || minute < 0 || minute > 59) throw bad("alarm needs hour (0-23) and minute (0-59)");
+      return { kind: "alarm", hour, minute };
+    }
     default:
-      throw bad("control must be volume, media, ringer, do_not_disturb, brightness, rotation, screen_timeout, flashlight, or panel");
+      throw bad("control must be volume, media, ringer, do_not_disturb, brightness, rotation, screen_timeout, flashlight, panel, timer, or alarm");
   }
 }
 
@@ -951,6 +976,11 @@ export function renderStatus(deviceId: string, info: DeviceInfo): string {
     lines.push(s.locked ? "- lock screen: showing (only the owner can unlock; use ask_owner)" : "- lock screen: unlocked");
   }
   if (typeof s.do_not_disturb === "boolean") lines.push(`- do not disturb: ${s.do_not_disturb ? "on" : "off"}`);
+  if (s.speed === "standard") lines.push("- speed: standard");
+  else if (s.speed === "turbo") lines.push("- speed: turbo (system animations off while you work)");
+  if (s.thermal === "none" || s.thermal === "light") lines.push("- temperature: normal");
+  else if (s.thermal === "moderate") lines.push("- temperature: warm (Android may slow the phone; avoid long busy loops)");
+  else if (s.thermal === "severe" || s.thermal === "critical") lines.push("- temperature: hot (Android is slowing the phone; pause heavy work)");
   if (typeof info?.package === "string") lines.push(`- app in front: ${[...info.package].slice(0, 200).join("")}`);
   lines.push(`- screen: ${Number(info?.screen?.width)}x${Number(info?.screen?.height)} px`);
   if (info?.status === undefined) {

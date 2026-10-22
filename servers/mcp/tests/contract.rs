@@ -288,3 +288,79 @@ fn device_signatures_verify_across_implementations() {
     );
     assert!(!verify(key, conn, payload, "AAAA"), "garbage signature");
 }
+
+/// R70 (ADR-072): the program engine's pure parts, the same on both gateways.
+#[test]
+fn program_engine_matches() {
+    use latch_gateway::mcp::program::{self, Resolve, Want};
+    let path = dir().join("../program");
+    let cases: Value =
+        serde_json::from_str(&std::fs::read_to_string(path.join("cases.json")).expect("cases"))
+            .expect("json");
+    let validate: Vec<Value> = cases["validate"]
+        .as_array()
+        .expect("validate")
+        .iter()
+        .map(|p| match program::validate(p) {
+            Ok(v) => json!({ "ok": v }),
+            Err(e) => json!({ "error": e }),
+        })
+        .collect();
+    let resolve: Vec<Value> = cases["resolve"]
+        .as_array()
+        .expect("resolve")
+        .iter()
+        .map(|c| {
+            let nodes: Vec<latch_protocol::UiNode> =
+                serde_json::from_value(c["nodes"].clone()).expect("nodes");
+            let sel = program::selector(&c["sel"], 0).expect("selector");
+            let want = match c["want"].as_str() {
+                Some("type") => Want::Type,
+                Some("any") => Want::Any,
+                _ => Want::Tap,
+            };
+            match program::resolve(&nodes, &sel, want) {
+                Resolve::Found(id) => json!({ "found": id }),
+                Resolve::Ambiguous(c) => json!({ "ambiguous": c }),
+                Resolve::NotFound => json!("not_found"),
+            }
+        })
+        .collect();
+    let obs: Observation = serde_json::from_value(cases["observation"].clone()).expect("obs");
+    let vars = cases["vars"].as_object().cloned().unwrap_or_default();
+    let holds: Vec<Value> = cases["holds"]
+        .as_array()
+        .expect("holds")
+        .iter()
+        .map(|c| {
+            let cond = program::condition(&c["cond"], 0).expect("condition");
+            json!(program::holds(&obs, &vars, &cond))
+        })
+        .collect();
+    let fill: Vec<Value> = cases["fill"]
+        .as_array()
+        .expect("fill")
+        .iter()
+        .map(|c| {
+            let vars = c["vars"].as_object().cloned().unwrap_or_default();
+            match program::fill(c["template"].as_str().unwrap_or_default(), &vars) {
+                Ok(s) => json!({ "ok": s }),
+                Err(e) => json!({ "error": e }),
+            }
+        })
+        .collect();
+    let generated = serde_json::to_string_pretty(
+        &json!({ "validate": validate, "resolve": resolve, "holds": holds, "fill": fill }),
+    )
+    .expect("json")
+        + "\n";
+    let file = path.join("expected.json");
+    if std::env::var_os("LATCH_UPDATE_SCHEMAS").is_some() {
+        std::fs::write(&file, &generated).expect("write");
+        return;
+    }
+    assert!(
+        std::fs::read_to_string(&file).unwrap_or_default() == generated,
+        "program/expected.json is out of date; regenerate with LATCH_UPDATE_SCHEMAS=1"
+    );
+}

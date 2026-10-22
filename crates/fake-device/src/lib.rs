@@ -753,6 +753,8 @@ pub fn handle(
                         _ => None,
                     }) == Some(true),
                 ),
+                speed: Some(latch_protocol::SpeedTier::Standard),
+                thermal: Some(latch_protocol::Thermal::None),
             }),
         })
         .map_err(|_| err(ErrorCode::Internal, "encode")),
