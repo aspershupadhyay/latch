@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
-//! The `latch` command, built into the gateway (ADR-069): what an owner's
+//! The `latch` command, built into the gateway (ADR-070): what an owner's
 //! computer needs around `serve`. Keys are made once in `~/.latch/latch.env`,
 //! readable by the owner only, and handed to the gateway; on Windows the
 //! gateway also keeps itself running from the owner's Startup folder. So a

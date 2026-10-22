@@ -30,7 +30,7 @@ From the first numbered release, the gateway comes as a package, so you install 
 | Windows (winget) | `winget install AspershUpadhyay.Latch` | `latch stop`, `winget upgrade AspershUpadhyay.Latch`, `latch restart` |
 | Windows (Scoop) | `scoop bucket add latch https://github.com/aspershupadhyay/latch`<br>`scoop install latch` | `scoop update latch` |
 
-This repository is the Homebrew tap and the Scoop bucket ([ADR-068](adr/README.md#adr-068--packages-homebrew-and-scoop-from-tagged-releases-one-latch-command-everywhere)): no second repository and no third party. winget installs one program, on the PATH as `latch`, because the `latch` commands are built into the gateway itself ([ADR-069](adr/README.md#adr-069--the-latch-commands-live-in-the-gateway-winget-installs-it-as-latch)); Microsoft reviews each version before winget offers it. Each release's workflow builds the archives, writes the manifests with their checksums, and installs all three packages on real macOS and Windows machines before anything is published.
+This repository is the Homebrew tap and the Scoop bucket ([ADR-068](adr/README.md#adr-068--packages-homebrew-and-scoop-from-tagged-releases-one-latch-command-everywhere)): no second repository and no third party. winget installs one program, on the PATH as `latch`, because the `latch` commands are built into the gateway itself ([ADR-070](adr/README.md#adr-070--the-latch-commands-live-in-the-gateway-winget-installs-it-as-latch)); Microsoft reviews each version before winget offers it. Each release's workflow builds the archives, writes the manifests with their checksums, and installs all three packages on real macOS and Windows machines before anything is published.
 
 
 ## Use it

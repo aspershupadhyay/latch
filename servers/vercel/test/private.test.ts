@@ -9,6 +9,7 @@ import type { Server } from "node:http";
 import { Gateway, PRIVATE_HEADERS, configFromEnv } from "../src/gateway.js";
 import { MemoryStore } from "../src/store.js";
 import { PAGE_CSP, startLocal } from "../src/local.js";
+import { connectLink, qrSvg } from "../src/page.js";
 
 const ADMIN = "lok_" + "ab".repeat(32);
 let server: Server;
@@ -31,6 +32,30 @@ test("the page at / asks for nothing and runs nothing", async () => {
   assert.match(html, /<meta name="robots" content="noindex/);
   assert.equal((await fetch(`${base}/admin.js`)).status, 404, "the old console is gone");
   assert.match(await (await fetch(`${base}/robots.txt`)).text(), /Disallow: \//);
+});
+
+test("the page at / shows the relay's own address as a QR code to scan (ADR-069)", async () => {
+  const html = await (await fetch(`${base}/`)).text();
+  assert.match(html, /Connect your phone/);
+  assert.match(html, /<svg[^>]+viewBox="0 0 (\d+) \1"/);
+  assert.ok(html.includes(base.replace(/^https?:\/\//, "")), "the address is written under the code");
+  assert.equal(connectLink("https://relay.example/"), "https://relay.example/#connect");
+  // The same text drawn by the library: modules on a square grid inside a quiet zone.
+  const svg = qrSvg(connectLink("https://relay.example"));
+  const size = Number(/viewBox="0 0 (\d+) /.exec(svg)![1]);
+  assert.ok(size >= 21 + 8 && (size - 8 - 17) % 4 === 0, `a QR version's size: ${size}`);
+});
+
+test("before LATCH_ADMIN_TOKEN is set, the page says what is left instead of a code", async () => {
+  const setup = await startLocal(new Gateway(new MemoryStore(), configFromEnv({})), 0);
+  try {
+    const url = `http://127.0.0.1:${(setup.address() as { port: number }).port}/`;
+    const html = await (await fetch(url)).text();
+    assert.match(html, /One step left/);
+    assert.ok(!html.includes("<svg xmlns"), "no QR code until the relay can pair");
+  } finally {
+    setup.close();
+  }
 });
 
 test("every answer, page or API, found or not, is private", async () => {

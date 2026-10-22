@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
-// Vercel Function entry point. vercel.json rewrites /mcp, /healthz, and /v1/*
-// here; the static page at "/" is served from public/.
+// Vercel Function entry point. vercel.json rewrites "/", /mcp, /healthz, and /v1/*
+// here; only the stylesheet and robots.txt are static (public/).
 import { Gateway, configFromEnv } from "../src/gateway.js";
 import { storeFromEnv } from "../src/store.js";
 

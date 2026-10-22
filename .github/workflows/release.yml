@@ -160,7 +160,7 @@ jobs:
           if (Test-Path (Join-Path $env:USERPROFILE '.latch')) { throw 'uninstall --all left the keys' }
 
   # And with winget's own local install, as `winget install AspershUpadhyay.Latch` would:
-  # the program alone, on the PATH as `latch`, with the latch commands built in (ADR-069).
+  # the program alone, on the PATH as `latch`, with the latch commands built in (ADR-070).
   winget:
     needs: archives
     runs-on: windows-latest

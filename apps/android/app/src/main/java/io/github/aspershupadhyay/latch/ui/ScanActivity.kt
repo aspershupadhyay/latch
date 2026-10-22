@@ -105,7 +105,7 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.aspershupadhyay.latch.BuildConfig
-import io.github.aspershupadhyay.latch.session.Pairing
+import io.github.aspershupadhyay.latch.session.ScanLink
 import io.github.aspershupadhyay.latch.ui.theme.LatchTheme
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import java.util.concurrent.Executors
@@ -116,7 +116,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import zxingcpp.BarcodeReader
 
-/** Opens the scanner; answers the Latch setup link it read, or null when the owner backed out. */
+/** Opens the scanner; answers the Latch code it read (ADR-054, ADR-069), or null when the owner backed out. */
 class ScanSetupQr : ActivityResultContract<Unit, String?>() {
     override fun createIntent(context: Context, input: Unit) = Intent(context, ScanActivity::class.java)
 
@@ -125,10 +125,10 @@ class ScanSetupQr : ActivityResultContract<Unit, String?>() {
 }
 
 /**
- * The QR scanner for Wi-Fi setup (ADR-054): the camera full screen with a
+ * The QR scanner (ADR-054, ADR-069): the camera full screen with a
  * framed window, like a payment app's. It reads codes anywhere in the picture,
  * dark on light or light on dark (terminals draw either), zooms in by itself on
- * a code too small to read, and only accepts a Latch setup link; anything else
+ * a code too small to read, and only accepts a Latch code; anything else
  * is named on screen while it keeps scanning. Zoom (pinch, slider, double tap),
  * tap to focus, a flashlight, brightness for bright monitors, and reading a
  * photo instead. Nothing it sees is stored or logged.
@@ -159,11 +159,8 @@ class ScanActivity : ComponentActivity() {
     companion object {
         const val EXTRA_TEXT = "text"
 
-        /** Whether [text] is a Latch Wi-Fi setup link: an address with its pin and a setup code. */
-        fun isSetupLink(text: String): Boolean {
-            val setup = Pairing.splitSetup(text)
-            return setup.code != null && Pairing.parse(setup.address, BuildConfig.ALLOW_CLEARTEXT)?.pin != null
-        }
+        /** Whether [text] is a Latch code: the Wi-Fi gateway's, the hosted relay's, or a mirror page's (ADR-069). */
+        fun isLatchCode(text: String): Boolean = ScanLink.parse(text, BuildConfig.ALLOW_CLEARTEXT) != null
     }
 }
 
@@ -274,9 +271,9 @@ private fun ScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
 
     fun accept(text: String): Boolean {
         if (done) return true
-        if (!ScanActivity.isSetupLink(text)) {
+        if (!ScanActivity.isLatchCode(text)) {
             if (message == null || !message!!.startsWith("That QR code")) view.performHapticFeedback(HapticFeedbackConstants.REJECT)
-            message = "That QR code isn't from Latch. Point at the one your computer's terminal shows."
+            message = "That QR code isn't from Latch. Point at the code on your computer: its terminal, your relay's page, or the mirror page."
             return false
         }
         done = true

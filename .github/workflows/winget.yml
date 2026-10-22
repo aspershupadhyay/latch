@@ -7,7 +7,7 @@ name: winget
 # take it from there; `winget install AspershUpadhyay.Latch` then finds it.
 # Needs the WINGET_TOKEN secret: a GitHub token with public_repo, which
 # wingetcreate uses to fork winget-pkgs and open the pull request. Without it
-# this only says so. See docs/operations/release.md (ADR-069).
+# this only says so. See docs/operations/release.md (ADR-070).
 on:
   release:
     types: [published]

@@ -53,9 +53,11 @@ data class MirrorStatus(
     val code: String? = null,
     /** Where to open the page, best first (the gateway's own computer when it is on the Wi-Fi). */
     val urls: List<String> = emptyList(),
-    /** The page with the viewer key, for opening without the code. */
+    /** The page with the viewer key: opening it on a computer shows this phone, no code needed. */
     val link: String? = null,
     val message: String? = null,
+    /** ADR-069: files on their way to the computer, as a line for the card ("Sending 2 files · 40 %"). */
+    val sending: String? = null,
 ) {
     enum class Phase { OFF, STARTING, WAITING, WATCHING, RECONNECTING, FAILED }
 }
@@ -95,6 +97,8 @@ class MirrorController(
     private var key: String? = null
     /** The gateway this mirror runs through; dropped files are fetched from it. */
     @Volatile private var gatewayUrl: String? = null
+    /** This phone's credential at that gateway, for files sent to the computer (ADR-069). */
+    @Volatile private var mirrorToken: String? = null
     /** The pairing this mirror runs through, so a Wi-Fi gateway at a new address is followed. */
     @Volatile private var mirrorDeviceId: String? = null
     /** Reconnect attempts since the mirror last reached its gateway. */
@@ -237,11 +241,76 @@ class MirrorController(
         val viewerKey = settings.mirrorKey(pairing.deviceId)
         key = viewerKey
         gatewayUrl = pairing.gatewayUrl
+        mirrorToken = token
         mirrorDeviceId = pairing.deviceId
         lostCount = 0
         link = MirrorLink(http, pairing.gatewayUrl, token, viewerKey, KeystoreSigner.forPairing(pairing.deviceId), linkEvents).also { it.start() }
         startInput()
         log.add(ActivityKind.SESSION, "You started mirroring to your computer", by = ActivityActor.OWNER)
+    }
+
+    /**
+     * ADR-069: the owner scanned a computer's mirror page. Its key becomes this
+     * phone's mirror key, and a running mirror moves to it at once, so that page
+     * joins by itself. Returns why not, or null when it is done; the caller
+     * starts mirroring when it is not running yet.
+     */
+    fun useScannedKey(scanned: io.github.aspershupadhyay.latch.session.ScanLink.Mirror): String? {
+        val (pairing, token) = target() ?: return "Connect this phone to your computer first."
+        if (!scanned.isFor(pairing.gatewayUrl, pairing.pin)) {
+            return "That code is from another computer. Scan the mirror page of the computer this phone is connected to."
+        }
+        settings.useMirrorKey(pairing.deviceId, scanned.key)
+        val running = link ?: return null
+        if (mirrorDeviceId == pairing.deviceId && key != scanned.key) {
+            running.stop()
+            key = scanned.key
+            _status.value = _status.value.copy(phase = MirrorStatus.Phase.STARTING, link = null)
+            link = MirrorLink(http, gatewayUrl ?: pairing.gatewayUrl, token, scanned.key, KeystoreSigner.forPairing(pairing.deviceId), linkEvents).also { it.start() }
+            log.add(ActivityKind.SESSION, "You connected a computer to the mirror by its code", by = ActivityActor.OWNER)
+        }
+        return null
+    }
+
+    /** Whether a computer watches now, so files can go to it. */
+    val computerWatching: Boolean get() = watching && link != null
+
+    /**
+     * ADR-069: sends [uris] to the computer watching this mirror. Each file is
+     * streamed to the gateway once (no copy on the phone) and the mirror page
+     * saves it to the computer's downloads. Returns a line for the owner.
+     */
+    suspend fun sendToComputer(uris: List<android.net.Uri>): String {
+        val gateway = gatewayUrl
+        val token = mirrorToken
+        if (gateway == null || token == null || !computerWatching) {
+            return "Open the mirror on your computer first: Connect → Mirror on computer, then scan the code your computer shows."
+        }
+        val files = withContext(Dispatchers.IO) { uris.mapNotNull { MirrorShare.describe(context.contentResolver, it) } }
+        if (files.isEmpty()) return "Those files can't be read."
+        val total = files.sumOf { it.size.coerceAtLeast(0L) }
+        var sentBefore = 0L
+        var sent = 0
+        var failure: String? = null
+        val label = if (files.size == 1) files[0].name else "${files.size} files"
+        for (file in files) {
+            val result = withContext(Dispatchers.IO) {
+                MirrorShare.upload(http, context.contentResolver, gateway, token, file) { bytes ->
+                    val done = sentBefore + bytes
+                    val percent = if (total > 0) (done * 100 / total).toInt().coerceIn(0, 100) else null
+                    _status.value = _status.value.copy(sending = "Sending $label" + (percent?.let { " · $it %" } ?: ""))
+                }
+            }
+            sentBefore += file.size.coerceAtLeast(0L)
+            if (result == null) sent++ else { failure = result; break }
+        }
+        _status.value = _status.value.copy(sending = null)
+        if (sent > 0) log.add(ActivityKind.FILE, "You sent ${if (sent == 1) "“${files[0].name}”" else "$sent files"} to your computer", by = ActivityActor.OWNER)
+        return when {
+            failure == null -> if (sent == 1) "Sent “${files[0].name}” to your computer." else "Sent $sent files to your computer."
+            sent == 0 -> "Not sent: $failure"
+            else -> "Sent $sent of ${files.size} files; then: $failure"
+        }
     }
 
     /** The network came back: a mirror waiting to reconnect tries again at once. */
@@ -297,6 +366,7 @@ class MirrorController(
         input.close()
         link?.stop()
         link = null
+        mirrorToken = null
         displayListener?.let { context.getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) }
         displayListener = null
         val c = capture
@@ -1017,8 +1087,7 @@ class MirrorController(
         val text = when (s.phase) {
             MirrorStatus.Phase.WATCHING -> "Your computer is watching and can use this phone."
             MirrorStatus.Phase.RECONNECTING -> "Reconnecting to your relay…"
-            else -> s.code?.let { "Code ${formatCode(it)} · open ${s.urls.firstOrNull() ?: "the mirror page on your relay"}" }
-                ?: "Waiting for your computer"
+            else -> s.urls.firstOrNull()?.let { "Open $it on your computer and scan its code" } ?: "Waiting for your computer"
         }
         return NotificationCompat.Builder(context, LatchApp.CHANNEL_SESSION)
             .setSmallIcon(R.drawable.ic_stat_latch)
@@ -1067,8 +1136,5 @@ class MirrorController(
         }
         private const val STEPS = 6
         private const val STEPS_WINDOW_MS = 30 * 60_000L
-
-        /** "123456" as "123 456", easier to read across a room. */
-        fun formatCode(code: String): String = if (code.length == 6) "${code.take(3)} ${code.drop(3)}" else code
     }
 }

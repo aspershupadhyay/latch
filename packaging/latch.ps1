@@ -4,7 +4,7 @@
 # latch: the Latch gateway on this computer (Windows). Run `latch help`.
 #
 # The gateway does the work itself (latch-gateway.exe start, autostart, stop, ...;
-# ADR-069), so winget can install it alone as `latch`. This script adds what
+# ADR-070), so winget can install it alone as `latch`. This script adds what
 # only an install by script or Scoop needs: `latch update` and `latch uninstall`,
 # which replace or remove the files. Options (environment): LATCH_HOME,
 # LATCH_RELEASE (where `latch update` installs from).

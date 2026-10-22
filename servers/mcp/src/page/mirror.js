@@ -18,7 +18,7 @@ const KIND_OPUS = 5;
 const KIND_H265 = 6;
 const FLAG_KEY = 1;
 const HEADER_BYTES = 10;
-/** How long a page waits for the phone to mirror again before it asks for a code (ADR-058). */
+/** How long a page keeps asking for the phone before it waits for a click (ADR-058, ADR-069). */
 const WAIT_FOR_PHONE_MS = 30 * 60 * 1000;
 
 /** Splits a binary frame into its header fields and payload; null when malformed. */
@@ -247,10 +247,22 @@ function latencyClass(ms) {
   return ms < 80 ? 'good' : ms < 200 ? 'slow' : 'bad';
 }
 
-/** Six digits from whatever was typed or pasted; null when it is not a code. */
-function normalizeCode(text) {
-  const digits = String(text).replace(/[\s-]/g, '');
-  return /^\d{6}$/.test(digits) ? digits : null;
+/** 32 bytes as unpadded base64url: the 43-character viewer key the phone accepts. */
+function base64url(bytes) {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** A size in bytes as people read it. */
+function sizeText(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }
 
 // ---- Stream stats (R35, Alt+D) ----
@@ -322,7 +334,7 @@ function keyFromHash(hash) {
 if (typeof module !== 'undefined') {
   module.exports = {
     parseFrame, nalUnits, findSps, codecFromSps, containedRect, mapPoint, dotTransform, wheelPixels, keyMessage, shortcut,
-    clipboardAction, pasteMessage, stamp, statusText, latencyClass, normalizeCode, keyFromHash,
+    clipboardAction, pasteMessage, stamp, statusText, latencyClass, base64url, sizeText, keyFromHash,
     clockOffset, summarize, statsLines, findHevcSps, hevcCodecFromSps, pinchMessage, pinchScale,
   };
 }
@@ -465,33 +477,26 @@ if (typeof document !== 'undefined') {
       if (socket !== ws) return;
       socket = null;
       resetDecoder();
-      onClosed(event.code, event.reason, Boolean(join.code));
+      onClosed(event.code, event.reason);
     };
   }
 
-  function onClosed(code, reason, byCode) {
+  function onClosed(code, reason) {
     if (code === 4401) {
-      if (!byCode) store.clear();
+      // A key the gateway refuses: forget it and offer a fresh one in the QR code.
+      store.clear();
       key = null;
-      show('join');
-      $('join-error').textContent = reason || 'The phone did not accept this.';
-      return;
-    }
-    if ((code === 4410 || code === 4404) && key) {
+      waitingSince = 0;
       waitForPhone();
+      $('join-error').textContent = reason ? `${reason[0].toUpperCase()}${reason.slice(1)}. Scan the new code.` : '';
       return;
     }
-    if (code === 4410 || code === 4404) {
-      showOver('Mirroring ended', `${reason ? reason[0].toUpperCase() + reason.slice(1) + '. ' : ''}Start it again from Latch on the phone.`, false);
+    if (code === 4410 || code === 4404 || !key) {
+      waitForPhone();
       return;
     }
     if (code === 4409) {
       showOver('Watching in another window', 'This phone is shown in another browser window or tab now.', true);
-      return;
-    }
-    if (!key) {
-      show('join');
-      $('join-error').textContent = 'Lost the connection to the gateway.';
       return;
     }
     // Anything else is the network: come back on our own, quickly at first.
@@ -506,31 +511,64 @@ if (typeof document !== 'undefined') {
     $('over-title').textContent = title;
     $('over-text').textContent = text;
     $('over-again').hidden = !canRetry;
-    $('over-code').hidden = true;
     show('over');
   }
 
   /**
-   * The phone stopped mirroring (or has not started yet). It keeps this page's key
-   * (ADR-058), so ask again every few seconds and come back by itself the moment
-   * the owner starts mirroring on the phone. Gives up after WAIT_FOR_PHONE_MS.
+   * ADR-069: the "Connect your phone" screen. The page makes its own viewer key
+   * and shows it, with this gateway's address, as a QR code; Latch scans it and
+   * starts mirroring with that key, and the page joins by itself.
+   */
+  function showConnect() {
+    if (!key) {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      key = base64url(bytes);
+      store.set(key);
+    }
+    const src = `/v1/mirror/qr.svg?k=${encodeURIComponent(key)}`;
+    if ($('join-qr').getAttribute('src') !== src) $('join-qr').src = src;
+    show('join');
+  }
+
+  /**
+   * The phone is not mirroring to this key (yet). Show the QR code and ask
+   * again every few seconds, so the page joins the moment the owner scans it or
+   * starts mirroring (a phone that knows this computer, ADR-058). After
+   * WAIT_FOR_PHONE_MS it waits for a click instead.
    */
   function waitForPhone() {
     const now = Date.now();
     if (!waitingSince) waitingSince = now;
+    showConnect();
+    $('join-error').textContent = '';
+    clearTimeout(waitTimer);
     if (now - waitingSince > WAIT_FOR_PHONE_MS) {
       waitingSince = 0;
-      showOver('Mirroring ended', 'Start mirroring in Latch on the phone, then enter its code here.', false);
-      $('over-code').hidden = false;
+      $('join-status').className = 'join-status';
+      $('join-status-text').textContent = 'Stopped waiting';
+      $('join-retry').hidden = false;
       return;
     }
-    showOver('Waiting for the phone', 'Start mirroring in Latch on the phone (Home → Mirror on computer). This page connects by itself, no code needed.', false);
-    $('over-code').hidden = false;
+    $('join-retry').hidden = true;
+    $('join-status-text').textContent = 'Waiting for your phone';
     $('live').className = 'live bad';
     $('live-text').textContent = 'Waiting';
-    clearTimeout(waitTimer);
     const elapsed = now - waitingSince;
-    waitTimer = setTimeout(() => { if (!socket && key) connect({ key }); }, elapsed < 60000 ? 2000 : 5000);
+    waitTimer = setTimeout(() => { if (!socket && key) connect({ key }); }, elapsed < 60000 ? 1500 : 5000);
+  }
+
+  /** ADR-069: a file the owner sent from the phone; the browser saves it from the gateway, once. */
+  function takeFile(m) {
+    if (typeof m.url !== 'string' || !m.url.startsWith('/v1/mirror/outbox/')) return;
+    const name = typeof m.name === 'string' ? m.name : 'file';
+    const a = document.createElement('a');
+    a.href = m.url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    toast(`From the phone: ${name} (${sizeText(m.size)}), saved to your downloads.`);
   }
 
   function onText(raw) {
@@ -600,6 +638,9 @@ if (typeof document !== 'undefined') {
         break;
       case 'clipboard':
         if (typeof m.text === 'string') copyToComputer(m.text);
+        break;
+      case 'file_ready':
+        takeFile(m);
         break;
       case 'status':
         showStatus(m);
@@ -1596,16 +1637,11 @@ if (typeof document !== 'undefined') {
     send({ t: 'sync' });
   });
   $('over-again').addEventListener('click', () => {
-    if (key) { show('app'); connect({ key }); } else show('join');
+    if (key) { show('app'); connect({ key }); } else waitForPhone();
   });
-  // Waiting for a phone that forgot this computer: join with a fresh code instead.
-  $('over-code').addEventListener('click', () => {
-    clearTimeout(waitTimer);
+  $('join-retry').addEventListener('click', () => {
     waitingSince = 0;
-    store.clear();
-    key = null;
-    show('join');
-    $('code').focus();
+    waitForPhone();
   });
   // Back on the tab while waiting: ask at once instead of on the next tick.
   document.addEventListener('visibilitychange', () => {
@@ -1613,17 +1649,6 @@ if (typeof document !== 'undefined') {
       clearTimeout(waitTimer);
       connect({ key });
     }
-  });
-
-  $('join-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    const code = normalizeCode($('code').value);
-    if (!code) {
-      $('join-error').textContent = 'The code has 6 digits.';
-      return;
-    }
-    $('join-error').textContent = '';
-    connect({ code });
   });
 
   (async () => {
@@ -1637,8 +1662,7 @@ if (typeof document !== 'undefined') {
       cover('Connecting…');
       connect({ key });
     } else {
-      show('join');
-      $('code').focus();
+      waitForPhone();
     }
   })();
 }

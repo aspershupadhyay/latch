@@ -86,7 +86,7 @@ fn init_logging() {
 
 fn main() -> ExitCode {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "serve".into());
-    // The `latch` commands (ADR-069): keys from ~/.latch, background start, stop, logs.
+    // The `latch` commands (ADR-070): keys from ~/.latch, background start, stop, logs.
     let rest: Vec<String> = std::env::args().skip(2).collect();
     if let Some(code) = owner::run(&mode, &rest) {
         return code;

@@ -20,6 +20,7 @@ mod http;
 pub mod links;
 pub mod mcp;
 pub mod mirror;
+pub mod mirror_share;
 pub mod mirror_udp;
 pub mod nearby;
 pub mod oauth;

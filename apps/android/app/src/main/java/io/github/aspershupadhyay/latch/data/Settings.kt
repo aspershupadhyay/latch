@@ -108,6 +108,9 @@ class Settings(private val context: Context) {
     /** Present only when this phone's owner also owns the gateway. */
     private val ownerVault = TokenVault(context, "latch_owner_key")
 
+    /** ADR-069: the owner key made for a hosted relay deploy, kept until the relay's page is scanned. */
+    private val deployVault = TokenVault(context, "latch_deploy_owner_key")
+
     /** ADR-058: the live mirror's viewer key, sealed like the token. */
     private val mirrorVault = TokenVault(context, "latch_mirror_key")
     private val _mirrorRemembered = MutableStateFlow(prefs.getBoolean("mirror_remembered", false))
@@ -304,6 +307,26 @@ class Settings(private val context: Context) {
         mirrorVault.store("$deviceId\t$key\t$now")
         return key
     }
+
+    /**
+     * ADR-069: the key a computer's mirror page made and showed in its QR code.
+     * It replaces the kept key, so that page (and from then on only that page) joins.
+     */
+    fun useMirrorKey(deviceId: String, key: String, now: Long = System.currentTimeMillis()) {
+        mirrorVault.store("$deviceId\t$key\t$now")
+    }
+
+    /**
+     * ADR-069: the owner key for a hosted relay deploy. It is made once and kept
+     * (sealed) until a phone pairs with it, so scanning the relay's page after
+     * the deploy finds it even if Android closed Latch meanwhile.
+     */
+    fun deployOwnerKey(make: () -> String): String = deployVault.load() ?: make().also(deployVault::store)
+
+    /** The kept deploy key, if a deploy is waiting for its scan. */
+    fun pendingDeployKey(): String? = deployVault.load()
+
+    fun clearDeployKey() = deployVault.clear()
 
     /** Marks the kept key as used by a computer, so the Home card offers to forget it. */
     fun mirrorWatched() {

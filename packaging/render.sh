@@ -119,7 +119,7 @@ jq -n \
   }' >"$out/bucket/latch.json"
 
 # winget: the gateway program alone, on the PATH as `latch`. It has the latch
-# commands built in (ADR-069), so nothing else is needed.
+# commands built in (ADR-070), so nothing else is needed.
 id=AspershUpadhyay.Latch
 wdir="$out/winget/manifests/a/AspershUpadhyay/Latch/$version"
 mkdir -p "$wdir"
