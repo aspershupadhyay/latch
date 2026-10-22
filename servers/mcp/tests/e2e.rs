@@ -3364,6 +3364,8 @@ async fn more_buttons_links_status_and_controls() {
         "- orientation: portrait",
         "- lock screen: showing (only the owner can unlock; use ask_owner)",
         "- do not disturb: off",
+        "- speed: standard",
+        "- temperature: normal",
         "- screen: 1080x2400 px",
     ] {
         assert!(text.contains(line), "{line} in {text}");

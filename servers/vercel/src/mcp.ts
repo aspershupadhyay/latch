@@ -976,6 +976,11 @@ export function renderStatus(deviceId: string, info: DeviceInfo): string {
     lines.push(s.locked ? "- lock screen: showing (only the owner can unlock; use ask_owner)" : "- lock screen: unlocked");
   }
   if (typeof s.do_not_disturb === "boolean") lines.push(`- do not disturb: ${s.do_not_disturb ? "on" : "off"}`);
+  if (s.speed === "standard") lines.push("- speed: standard");
+  else if (s.speed === "turbo") lines.push("- speed: turbo (system animations off while you work)");
+  if (s.thermal === "none" || s.thermal === "light") lines.push("- temperature: normal");
+  else if (s.thermal === "moderate") lines.push("- temperature: warm (Android may slow the phone; avoid long busy loops)");
+  else if (s.thermal === "severe" || s.thermal === "critical") lines.push("- temperature: hot (Android is slowing the phone; pause heavy work)");
   if (typeof info?.package === "string") lines.push(`- app in front: ${[...info.package].slice(0, 200).join("")}`);
   lines.push(`- screen: ${Number(info?.screen?.width)}x${Number(info?.screen?.height)} px`);
   if (info?.status === undefined) {

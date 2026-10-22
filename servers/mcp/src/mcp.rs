@@ -2579,6 +2579,32 @@ pub fn render_status(device_id: &str, info: &latch_protocol::DeviceInfo) -> Stri
             if dnd { "on" } else { "off" }
         ));
     }
+    if let Some(speed) = status.speed {
+        lines.push(
+            match speed {
+                latch_protocol::SpeedTier::Standard => "- speed: standard",
+                latch_protocol::SpeedTier::Turbo => {
+                    "- speed: turbo (system animations off while you work)"
+                }
+            }
+            .into(),
+        );
+    }
+    if let Some(thermal) = status.thermal {
+        use latch_protocol::Thermal;
+        lines.push(
+            match thermal {
+                Thermal::None | Thermal::Light => "- temperature: normal",
+                Thermal::Moderate => {
+                    "- temperature: warm (Android may slow the phone; avoid long busy loops)"
+                }
+                Thermal::Severe | Thermal::Critical => {
+                    "- temperature: hot (Android is slowing the phone; pause heavy work)"
+                }
+            }
+            .into(),
+        );
+    }
     if let Some(package) = &info.package {
         let package: String = package.chars().take(200).collect();
         lines.push(format!("- app in front: {package}"));

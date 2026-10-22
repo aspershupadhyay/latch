@@ -9,6 +9,7 @@
     <string name="channel_session_description">Shows while an AI client can use this phone, with a Stop button.</string>
     <string name="notification_title">Latch session active</string>
     <string name="notification_active">An AI client can use what you allowed. Tap Stop to end it.</string>
+    <string name="notification_active_turbo">An AI client can use what you allowed. Turbo: animations are off until the session ends. Tap Stop to end it.</string>
     <string name="notification_paused">Paused. The AI client can do nothing until you resume.</string>
     <string name="notification_connecting">Connecting to your gateway…</string>
     <string name="action_stop">Stop</string>

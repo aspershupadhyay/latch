@@ -357,7 +357,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
     assert.ok(r.isError && text(r).includes("button must be one of back, home"), text(r));
   }
   const status = text(await client.callTool({ name: "device_status", arguments: {} }));
-  for (const line of ["- battery: 81%, not charging", "- network: Wi-Fi", "- free storage: 11.7 GB", "- lock screen: unlocked", "- screen: 1080x2400 px"]) {
+  for (const line of ["- battery: 81%, not charging", "- network: Wi-Fi", "- free storage: 11.7 GB", "- lock screen: unlocked", "- speed: standard", "- temperature: normal", "- screen: 1080x2400 px"]) {
     assert.ok(status.includes(line), `${line} in ${status}`);
   }
   const opened = await client.callTool({ name: "open_link", arguments: { url: "https://shop.example/item/42", package: "org.latch.demo.shop" } });

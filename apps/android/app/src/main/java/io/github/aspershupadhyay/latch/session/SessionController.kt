@@ -90,6 +90,9 @@ class SessionController(
     private val recentCommands: RecentCommands = RecentCommands(),
     /** Protocol 1.20 (ADR-049): where background ADB jobs write their output until it is collected. */
     private val adbJobDir: java.io.File? = null,
+    /** R72 (ADR-074): system animations off for a session, and whether Android lets Latch do it. */
+    private val turbo: Turbo? = null,
+    private val turboReady: () -> Boolean = { false },
 ) {
     private val _state = MutableStateFlow<SessionState>(if (settings.pairing.value == null) SessionState.Unpaired else SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -255,6 +258,10 @@ class SessionController(
         // Auto mode chosen "for this session" just before starting must survive the start.
         expiresAtMs = System.currentTimeMillis() + settings.preferences.value.sessionMinutes * 60_000L
         log.add(ActivityKind.SESSION, "Session started for ${settings.preferences.value.sessionMinutes} minutes", by = ActivityActor.OWNER)
+        // R72 (ADR-074): Turbo turns system animations off for the session; they come back at the end.
+        if (settings.preferences.value.turbo && turbo != null && turboReady() && turbo.engage()) {
+            log.add(ActivityKind.SESSION, "Turbo: system animations are off until the session ends")
+        }
         // The owner's own taps while the session runs are logged as theirs.
         bridge.touches.onOwnerTap = { pkg -> log.add(ActivityKind.ACTION, "You tapped the screen", appName(pkg) ?: pkg, ActivityActor.OWNER) }
         startExpiryTimer()
@@ -331,6 +338,29 @@ class SessionController(
     fun fullAdbOn(): Boolean = adbActive()
 
     /**
+     * R72 (ADR-074): grants Turbo's one-time Android permission through this
+     * phone's own paired wireless ADB, as the owner asked from Settings.
+     * Returns a message for the owner.
+     */
+    suspend fun grantTurbo(command: String): String {
+        if (turboReady()) return "Turbo is ready."
+        val bridge = adbBridge ?: return "Full ADB is not available on this build."
+        if (settings.preferences.value.adbEndpoint == null) return "Pair Full ADB first (Access, More choices, Full ADB), then try again."
+        val result = try {
+            bridge.run(Command.AdbShell(commandLine = command, stdin = null, timeoutMs = 15_000, continueFrom = null))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return "Could not reach ADB: ${e.message ?: "no answer"}. Check that Wireless debugging is on."
+        }
+        if (turboReady()) {
+            log.add(ActivityKind.SESSION, "You gave Latch the permission Turbo needs", by = ActivityActor.OWNER)
+            return "Turbo is ready."
+        }
+        return "Android did not grant it (exit ${result.exitCode}): ${result.stderr.trim().take(200)}"
+    }
+
+    /**
      * ADR-057: runs one shell line for the owner's live mirror through Full
      * ADB and returns when it ends (cancelling ends it); null while Full ADB
      * is off. Its output is never logged.
@@ -382,6 +412,8 @@ class SessionController(
         files?.reset()
         // Stop ends full-access ADB, background jobs included (ADR-046, ADR-049).
         adbBridge?.stopJobs()
+        // R72: every setting Turbo changed goes back as it was.
+        if (turbo?.restore() == true) log.add(ActivityKind.SESSION, "Turbo: system animations are back as they were")
         val closing = link
         link = null
         stopSecond()

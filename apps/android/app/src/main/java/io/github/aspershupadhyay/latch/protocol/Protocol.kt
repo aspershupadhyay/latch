@@ -238,6 +238,10 @@ data class DeviceStatus(
     val orientation: String? = null,
     val locked: Boolean? = null,
     @SerialName("do_not_disturb") val doNotDisturb: Boolean? = null,
+    /** Since 1.21 (R72): `standard`, or `turbo` while animations are off for the AI. */
+    val speed: String? = null,
+    /** Since 1.21 (R72): `none`, `light`, `moderate`, `severe`, or `critical`. */
+    val thermal: String? = null,
 )
 
 /** Error details inside a successful result, e.g. why the phone could not observe after an action. */

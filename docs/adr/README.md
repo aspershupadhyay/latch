@@ -1011,3 +1011,24 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Checks:** shared fixtures (valid timer and alarm, timer 0 and hour 24 refused) on the protocol crate and the Android parser; gateway e2e on both gateways (program routes reach the phone as `Timer {600}` and `Alarm {6, 30}`; bad values refused).
 
 **Rollback:** remove the two kinds; older gateways never send them.
+
+## ADR-074 — Turbo tier: system animations off while the AI works, always put back
+**Status:** accepted (2026-10-22, owner: "go ahead and do it all") · **Amends:** ADR-071 (Turbo tier) · **Protocol:** 1.21, additive (`DeviceStatus.speed`, `DeviceStatus.thermal`)
+
+**Problem:** every screen change waits for Android's window, transition, and animator animations (300–500 ms each), and Latch's settle detection waits for them to finish.
+
+**Decision:**
+- **One switch, off by default:** Access → More choices → Speed → **Turbo**. While it is on and a session runs, Latch sets `Settings.Global` window, transition, and animator scales to 0; Stop, the session's end, or its expiry puts the owner's values back.
+- **The values are saved before anything changes** (written to disk synchronously), so a crash between the two is undone the next time Latch starts. A refused write puts back what was written and leaves the session at the standard tier.
+- **The permission:** `WRITE_SECURE_SETTINGS`, which Android grants only over ADB. With Full ADB paired, **Allow with Full ADB** runs `pm grant <latch> android.permission.WRITE_SECURE_SETTINGS` through Latch's own wireless ADB, once, at the owner's tap; otherwise the card shows that command to run from a computer.
+- **Visible:** while animations are off, the session notification says so; the activity log records each change and each restore; `device_status` reports `speed: turbo` or `standard`, and the phone's temperature (`thermal`, from `PowerManager`), so an AI can ease off when Android starts throttling.
+- **Not in this tier yet:** peak refresh rate, default-app clean-up, and stay-awake while plugged in (ADR-071's other Turbo items), and the Fast tier's Latch keyboard and notification replies, which each need their own threat review.
+
+**Threat review:**
+- **What the permission allows:** `WRITE_SECURE_SETTINGS` lets Latch write any secure or global setting, which is why it is used for these three keys only, behind an owner switch, and granted only when the owner taps it. Latch never writes another setting with it.
+- **Restore guarantee:** saved before the change; restored on Stop, end, expiry, and the next start after a crash. If the owner takes the permission back mid-session (`pm revoke`), the restore cannot write either; the scales stay at 0 until the owner sets them in Developer options, which is documented.
+- **Safety model unchanged:** Turbo changes how fast the screen moves, not what the AI may do; approvals, refused fields, and app rules are untouched.
+
+**Checks:** `TurboTest` (5 JVM cases: engage/restore, double engage, crash recovery, refused write, missing values); `device_status` on both gateways shows speed and temperature; shared fixture `d2g-result-device-info-status` carries both fields; Android lint passes with the permission declared.
+
+**Rollback:** turn the switch off (the next session leaves animations alone); a pending snapshot is still restored on the next start.

@@ -284,6 +284,8 @@ export const GLOBAL_ACTION_TEXT: Record<GlobalAction, string> = {
 export interface DeviceStatus {
   battery_percent?: number; charging?: boolean; network?: "wifi" | "cellular" | "ethernet" | "none";
   free_storage_mb?: number; orientation?: "portrait" | "landscape"; locked?: boolean; do_not_disturb?: boolean;
+  /** Since 1.21 (R72). */
+  speed?: "standard" | "turbo"; thermal?: "none" | "light" | "moderate" | "severe" | "critical";
 }
 export interface DeviceInfo {
   device: { platform: string; os_version: string; model: string; app_version: string };

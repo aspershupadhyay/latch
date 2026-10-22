@@ -297,6 +297,23 @@ object PhoneControls {
             locked = context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked,
             doNotDisturb = filter?.takeIf { it != NotificationManager.INTERRUPTION_FILTER_UNKNOWN }
                 ?.let { it != NotificationManager.INTERRUPTION_FILTER_ALL },
+            speed = if (Turbo.of(context).active) "turbo" else "standard",
+            thermal = thermal(context),
         )
+    }
+
+    /** R72: Android's thermal status in five steps; null when the phone does not say. */
+    private fun thermal(context: Context): String? {
+        val power = context.getSystemService(android.os.PowerManager::class.java) ?: return null
+        return when (power.currentThermalStatus) {
+            android.os.PowerManager.THERMAL_STATUS_NONE -> "none"
+            android.os.PowerManager.THERMAL_STATUS_LIGHT -> "light"
+            android.os.PowerManager.THERMAL_STATUS_MODERATE -> "moderate"
+            android.os.PowerManager.THERMAL_STATUS_SEVERE -> "severe"
+            android.os.PowerManager.THERMAL_STATUS_CRITICAL,
+            android.os.PowerManager.THERMAL_STATUS_EMERGENCY,
+            android.os.PowerManager.THERMAL_STATUS_SHUTDOWN -> "critical"
+            else -> null
+        }
     }
 }
