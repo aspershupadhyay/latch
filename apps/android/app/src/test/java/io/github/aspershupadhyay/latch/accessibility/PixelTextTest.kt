@@ -69,4 +69,26 @@ class PixelTextTest {
         assertEquals(2, added.size)
         assertEquals(Rect(0, 500, 1080, 550), added[0].bounds)
     }
+
+    @Test fun iconsAndStarsAreLeftOutOfTheWords() {
+        assertEquals("4.6", PixelText.clean("4.6 **ttt"))
+        assertEquals("", PixelText.clean("46t*tt*"))
+        assertEquals("Tickets", PixelText.clean("H Tickets"))
+        assertEquals("Share", PixelText.clean("K Share"))
+        assertEquals("Amar Jawan Jyoti Rd", PixelText.clean("-Amar Jawan Jyoti Rd-"))
+        // A real one-letter word stays.
+        assertEquals("A Street", PixelText.clean("A Street"))
+        assertEquals("इंडिया गेट", PixelText.clean("इंडिया गेट"))
+    }
+
+    @Test fun aLabelAlreadyListedIsNotAddedAgainEvenWithAnEllipsis() {
+        val chip = node("n4", Rect(100, 500, 500, 560), "Food & Drink", "n0")
+        val lines = listOf(
+            TextLine("Food & Drink…", Rect(110, 505, 520, 555)),
+            TextLine("H Tickets", Rect(100, 700, 400, 760)),
+            TextLine("46t*tt*", Rect(100, 800, 300, 850)),
+        )
+        val added = PixelText.nodes(lines, wordy() + chip, screen, topInset = 80, firstIndex = 5, limit = 100)
+        assertEquals(listOf("Tickets"), added.map { it.text })
+    }
 }

@@ -280,9 +280,12 @@ function downloadText(links: Links, token: string, record: LinkRecord): ToolResu
   ) as ToolResult;
 }
 
+/** Android needs no permission to add a picture, only to see the gallery (PHOTOS_SAVE_NOTE in files.rs). */
+const PHOTOS_SAVE_NOTE = " It is in the phone's gallery. Android lets Latch add photos without the photo permission, so saving works even when list_files photos says the owner has not allowed photos; reading them needs that permission.";
+
 function savedText(item: FileItem, place: string, size: number, askedName: string): ToolResult {
   const renamed = item.name !== askedName ? " A file with that name already existed, so this one got a new name." : "";
-  return textResult(`Saved ${quote(item.name, 80)} to ${place} (${sizeText(size)}). file_id: ${item.id}.${renamed}`) as ToolResult;
+  return textResult(`Saved ${quote(item.name, 80)} to ${place} (${sizeText(size)}). file_id: ${item.id}.${renamed}${item.location === "photos" ? PHOTOS_SAVE_NOTE : ""}`) as ToolResult;
 }
 
 function progressText(record: LinkRecord, t: FileTransfer): ToolResult {

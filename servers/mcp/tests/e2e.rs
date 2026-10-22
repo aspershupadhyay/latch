@@ -1484,7 +1484,12 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
         lines[0], "Latch gateway, protocol 1.20, 38 tools.",
         "{devices}"
     );
-    let lines = &lines[1..];
+    // One "- " line per phone; a connected phone's file places follow on an indented line.
+    let lines: Vec<&str> = lines[1..]
+        .iter()
+        .copied()
+        .filter(|l| l.starts_with("- "))
+        .collect();
     assert!(
         lines[0].contains(&new_id) && lines[0].contains("connected"),
         "{devices}"
