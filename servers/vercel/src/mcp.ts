@@ -286,6 +286,18 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       },
     }, args);
   }
+  if (name === "tap" && argStr(args, "text") !== undefined) {
+    // Turbo fix 3 and 7: find by words, scroll to it, and tap N times in one call.
+    const step: Record<string, unknown> = { do: "tap", target: argStr(args, "text"), long_press: argBool(args, "long_press", false) };
+    const near = argStr(args, "near");
+    if (near !== undefined) step.near = near;
+    const repeat = argInt(args, "repeat");
+    if (repeat !== undefined) {
+      if (repeat < 0) throw new ProtocolError("invalid_request", "repeat must be positive");
+      step.repeat = repeat;
+    }
+    return runTool(ctx, "run_steps", { device_id: deviceId, steps: [step] });
+  }
   if (name === "set_clipboard") {
     const text = reqStr(args, "text");
     const run = await execute(ctx, deviceId, { name: "clipboard.set", params: { text } });
@@ -491,6 +503,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       return withTiming(textResult(text), run.timing);
     }
     case "tap": {
+      if (argStr(args, "near") !== undefined || argInt(args, "repeat") !== undefined) throw bad("near and repeat go with text");
       const observationId = reqStr(args, "observation_id");
       const element = argStr(args, "element_id");
       const x = argInt(args, "x");

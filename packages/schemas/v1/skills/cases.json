@@ -1755,6 +1755,609 @@
       "target": "ADD || +",
       "near": "White bread",
       "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n2",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 520,
+            "right": 840,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 520,
+            "right": 900,
+            "bottom": 580
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n4",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 520,
+            "right": 980,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n5",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n6",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 740,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n7",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 740,
+            "right": 900,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n8",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 740,
+            "right": 980,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "target": "+",
+      "near": "Cow Milk 500 ml",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n2",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 520,
+            "right": 840,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 520,
+            "right": 900,
+            "bottom": 580
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n4",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 520,
+            "right": 980,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n5",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n6",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 740,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n7",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 740,
+            "right": 900,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n8",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 740,
+            "right": 980,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "target": "add",
+      "near": "Cow Milk 1 L",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n2",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 520,
+            "right": 840,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 520,
+            "right": 900,
+            "bottom": 580
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n4",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 520,
+            "right": 980,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n5",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n6",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 740,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n7",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 740,
+            "right": 900,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n8",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 740,
+            "right": 980,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "target": "+",
+      "want": "tap"
+    },
+    {
+      "nodes": [
+        {
+          "id": "n1",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 420,
+            "right": 700,
+            "bottom": 480
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n2",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 520,
+            "right": 840,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n3",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 520,
+            "right": 900,
+            "bottom": 580
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n4",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 520,
+            "right": 980,
+            "bottom": 580
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 1 L"
+        },
+        {
+          "id": "n5",
+          "role": "View",
+          "bounds": {
+            "left": 40,
+            "top": 640,
+            "right": 700,
+            "bottom": 700
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n6",
+          "role": "ImageView",
+          "bounds": {
+            "left": 760,
+            "top": 740,
+            "right": 840,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "− · Mother Dairy Cow Milk 500 ml"
+        },
+        {
+          "id": "n7",
+          "role": "View",
+          "bounds": {
+            "left": 840,
+            "top": 740,
+            "right": 900,
+            "bottom": 800
+          },
+          "clickable": false,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "text": "1"
+        },
+        {
+          "id": "n8",
+          "role": "ImageView",
+          "bounds": {
+            "left": 900,
+            "top": 740,
+            "right": 980,
+            "bottom": 800
+          },
+          "clickable": true,
+          "long_clickable": false,
+          "editable": false,
+          "scrollable": false,
+          "enabled": true,
+          "focused": false,
+          "sensitive": false,
+          "label": "+ · Mother Dairy Cow Milk 500 ml"
+        }
+      ],
+      "target": "minus",
+      "near": "500 ml",
+      "want": "tap"
     }
   ]
 }

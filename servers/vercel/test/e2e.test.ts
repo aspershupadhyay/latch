@@ -431,6 +431,14 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.match(text(badRun), /is not a whole number/);
   assert.equal(text(await client.callTool({ name: "delete_skill", arguments: { name: "order_groceries" } })), 'Deleted the skill "order_groceries".');
 
+  // Turbo fixes 3 and 7 (R68): tap by words, near picks the row, repeat taps a quantity, in one call.
+  assert.match(text(await client.callTool({ name: "run_steps", arguments: { steps: [{ do: "type", target: "Search products", text: "bread", submit: true }] } })), /all 1 steps done/);
+  const tapped = text(await client.callTool({ name: "tap", arguments: { text: "+", near: "White bread", repeat: 2 } }));
+  assert.match(tapped, /tap "\+" near "White bread" ×2/);
+  assert.match(tapped, /"Cart \(10\)"/);
+  const idRepeat = await client.callTool({ name: "tap", arguments: { element_id: "n1", repeat: 2, observation_id: "o_1" } });
+  assert.ok(idRepeat.isError && /near and repeat go with text/.test(text(idRepeat)), text(idRepeat));
+
   // Revoke: the phone learns on its next poll and exits; tools report it gone.
   const deviceId = (await api("/v1/admin/devices")).body.devices[0].id;
   assert.equal((await api(`/v1/admin/devices/${deviceId}`, { method: "DELETE" })).status, 204);

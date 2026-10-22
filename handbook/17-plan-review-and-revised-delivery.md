@@ -236,7 +236,7 @@ Google's ARTEMIS (github.com/google/artemis, Apache-2.0, August 2026) is an ADB-
 
 **Handoff rule.** This table is the work queue. Any session, on any account, continues from it: read AGENTS.md and this chapter, prioritize R27 while it is TODO or IN_PROGRESS (owner request 2026-10-17), then take the first row that is TODO and not blocked; set the selected row to IN_PROGRESS in the same commit as the first code change, and update the row (status, evidence, PR) with every push. A row is DONE only when its acceptance check passed in CI or on the phone as stated. Rows marked *needs phone* stay IN_REVIEW until the owner runs them. Each row that changes a protocol, capability, or chapter 08 rule needs its fixtures, both gateways, and an ADR in the same change.
 
-Order (updated 2026-10-19): R27 first, then R1 → R2 → R3 → R10 → R9 → R4 → R13, then the rest top to bottom. Every row up to R32 is built and waits on the owner's phone, so the next code work is section H (owner request 2026-10-19: "make our stream faster … optimize the app"), in this order: R35 (measure first) → R45 → R46 → R36 → R37 → R38 → R39 → R48 → R49 → R50 → R47 → R40 → R41 → R42 → R44 → R43 → R33 → R34. R43 (approvals from the page) needs a threat review and the owner's yes before code; R33 and R34 need an ADR each. **Status 2026-10-20:** every row of section H that needs no owner decision is built (ADR-059) and waits on the phone for its numbers (R35 first, then the rows it judges); R41 is BLOCKED on the owner's decision about QUIC dependencies; R43, R33, and R34 still wait for the owner's yes.
+Order (updated 2026-10-19): R27 first, then R1 → R2 → R3 → R10 → R9 → R4 → R13, then the rest top to bottom. Every row up to R32 is built and waits on the owner's phone, so the next code work is section H (owner request 2026-10-19: "make our stream faster … optimize the app"), in this order: R35 (measure first) → R45 → R46 → R36 → R37 → R38 → R39 → R48 → R49 → R50 → R47 → R40 → R41 → R42 → R44 → R43 → R33 → R34. R43 (approvals from the page) needs a threat review and the owner's yes before code; R33 and R34 need an ADR each. **Turbo (owner request 2026-10-22):** section I (R68–R74, §12, ADR-071) is the next code work, in this order: R68 (built, waits on the phone) → R69 (measure) → R70 → R71 → R72 → R73 → R74; rows marked *needs owner yes* wait for it before code. **Status 2026-10-20:** every row of section H that needs no owner decision is built (ADR-059) and waits on the phone for its numbers (R35 first, then the rows it judges); R41 is BLOCKED on the owner's decision about QUIC dependencies; R43, R33, and R34 still wait for the owner's yes.
 
 | ID | Item | Acceptance | Status | Evidence / notes |
 |---|---|---|---|---|
@@ -315,6 +315,14 @@ Order (updated 2026-10-19): R27 first, then R1 → R2 → R3 → R10 → R9 → 
 | R65 | Link and scan instead of codes; QR pairing for the hosted relay; files both ways (owner 2026-10-22: "I don't want that code entering part in the mirror … the qr is not scanning … file sharing … fast … QR connection pairing for the hosting on the vercel") | ADR-069; the mirror page shows a QR code instead of a code box and joins by itself once the phone scans it; one scanner for every Latch code; the hosted relay's page shows its own QR code and the deploy's phone pairs by scanning it; Send files and Share → Send to computer reach the watching page as downloads | IN_REVIEW · *needs phone* | **Built 2026-10-22:** gateway `mirror_share.rs` (`/v1/mirror/qr.svg`, `/v1/mirror/outbox`, one-time `/v1/mirror/outbox/{token}`; the file-drop route moved here); page: Connect your phone (own key, QR, polling), `file_ready` saves; Vercel `page.ts` renders `/` (qrcode-generator 2.0.4), `public/index.html` removed; app: `ScanLink`, `MirrorShare`, `SendToComputerActivity`, the card without a code, deploy key kept sealed until the scan. Tests: Rust e2e and units, Vercel page tests, `ScanLinkTest`, `MirrorShareTest`, page helpers; both QR codes decoded with zxing-cpp as camera-like frames; the page checked in headless Chromium. *Needs phone:* scan both pages; send a large video both ways and note the speed. |
 | R66 | The `latch` commands in the gateway, and winget (owner 2026-10-22: "go ahead and build latch into the gateway binary for winget") | ADR-070; `winget install AspershUpadhyay.Latch` gives `latch` with every command; keys, background start on Windows, stop, logs, update, and uninstall in the gateway; installed for real with winget before a release publishes; submitted to winget-pkgs on publish when `WINGET_TOKEN` is set | IN_REVIEW · *needs v0.1.0* | **Built 2026-10-22:** `servers/mcp/src/owner.rs` (+ unit tests), `main.rs` dispatch; `packaging/latch.ps1` hands every command but update/uninstall to the gateway; `render.sh` winget alias `latch`; `release.yml` job `winget`; `winget.yml`; CI runs the Windows gateway alone as `latch.exe`. *Next:* v0.1.0, then the `WINGET_TOKEN` secret for the first submission. |
 | R67 | Fixes from the owner's Wi-Fi MCP QA report (owner 2026-10-22: "fix all these issues that I have tested through the wifi mcp", report v2: 107 test rows, S1–S9, M1–M10) | S1 text drawn as pixels (photos, maps, Flutter apps) becomes elements marked *read from picture* by the on-phone reader of ADR-032, used by observe, wait_for, scroll_to, and step targets, never over a sensitive field or the status bar; S2/S3 volume unmutes, checks Android's value, and answers the step it set; S4 a folder rename keeps ids (children follow it) and a stale id is target_not_found; S5 refusals the gateway decides reach the phone's History as `refused {tool, code}` (content-free); S6 `swipe hold_ms` in place is one held touch; S7 state, slider, focus, and selection count as a change, and the phone claims nothing over a map or video; S8 saved vs run step numbers spelled out; S9 run_steps reports the owner's answer and stops on "I can't"; M1 `task:"latest"` honours `limit`; M2/M7 plain refusal labels, unknown file ids refused before any approval; M3 list_devices names photos and shared folders; M4/M5 photos write and Downloads subfolders documented and shown; M6/M9 panels the phone cannot show fail instead of "Done", a stuck panel is started fresh; M8 one clear save_skill error; M10 bounds kept on the screen | IN_REVIEW · *needs phone* | **Built 2026-10-22:** protocol 1.20 additive fields (`UiNode.ocr`, `ActionResult.level`, `FileItem.subfolder`, `SessionInfo.files`, g2d `refused`) with fixtures and both gateways; Android `PixelText` (+ JVM tests), `ScreenTextReader`, `PhoneControls`, `PhoneFiles`, `CommandExecutor`; gateway e2e and Vercel e2e cover S5, S8, S9, M1, M3, M8 and the volume answer. **Retest 2026-10-22 22:08 IST:** 16 fixed, S3 partly, M3 and M4 open. **Follow-up:** volume asks for the exact step (at least step 1 for any level above 0) and steps down past a lowest step a phone reports above its own slider's (realme alarm), saying when Android kept it higher; list_devices puts the file places on their own line, also when file reading is off or the app does not report them; a photos save says reading needs the photo permission; read-from-picture lines drop star and icon glyphs and labels an element already says, and Devanagari lines come from ML Kit through Google Play services (no model in the APK). *Next:* re-run C06 (6%) and D01 on the phone. |
+| **I. Latch Turbo: speed and execution (owner request 2026-10-22: "add this in the plan and make it fast … so ai can navigate and get done"; spec and order in §12, ADR-071)** | | | | |
+| R68 | Turbo phase 1: the seven QA-run fixes (realme RMX3710, Android 15, 2026-10-22) | (1) an unnamed control takes its card's words ("+ · Mother Dairy Cow Milk 500 ml"; a stepper's ends "−" and "+"); (2) `scroll_to` turns once when the list ends or its swipes run out; (3) `tap` with `text` and `near` finds, scrolls, and taps in one call; (4) `type_text` submit waits for typing's suggestions, then in a search box taps the "search for" suggestion when Enter does nothing; (5) read-from-picture lines drop confidence < 0.6, fragments < 3 characters, and lines inside a card that has words; (6) a misread rupee sign ("F36", "स49") reads ₹; (7) `tap` with `repeat`. Gate: the 3-item cart benchmark under 60 s on the phone | IN_REVIEW · *needs phone* | **Built 2026-10-22:** `TreeReading.cardNames` (+ JVM tests), `LatchAccessibilityService.readTree`/`scrollTo`/`typeText`, `PixelText` and `ButtonReader` (confidence, + JVM tests); `tap` text/near/repeat on both gateways through the `run_steps` engine, label-aware `find` with icon words ("+" = add = plus), shared cases in `packages/schemas/v1/skills/cases.json`, e2e on both gateways. No protocol change. *Next:* the owner times the cart task on the phone. |
+| R69 | Turbo benchmark: the eight cross-app tasks of §12, timed from the model's first token to the last guard, with round trips, observation bytes, local recoveries, and steps that needed the model | Fake-phone versions in CI (R10 suite) with the scripted reference steps; real-phone numbers recorded here | TODO | Measure before and after each later phase, as R35 does for the stream. |
+| R70 | Turbo phase 2: program core on the phone | `run_program`: the §12 command set (open, go, tap, type, find, toggle, scroll, back, home, wait, expect, read, if, for_each, call), selectors (text, desc, id, role, near, inside, index, state) resolved and ranked on the phone with the 10 % ambiguity rule, guards with the 1.5 s local recovery ladder, settle from accessibility quiet (60 ms) and two matching low-res frame hashes, compact observations, `resume.from_step`; every step judged like the single tool; protocol minor version with fixtures and both gateways. Gate: chat, toggle, and video tasks at their first-run targets | TODO | ADR-071 accepts the direction; the protocol shape gets its own ADR in the first code change. Supersedes the gateway-side matching of R4/R68 once phones run it; the gateway keeps it for older phones. |
+| R71 | Turbo phase 3a: route selection | Public routes only first: system APIs (media session, volume, torch, alarms and timers through `AlarmClock`, clipboard), intents (dial, send-to, maps, share, Settings panels), deep links and app shortcuts harvested once per app; `go` and `open` pick the fastest; the result names the route | TODO | Content-provider reads and notification replies are separate capabilities and wait for the owner's yes (ADR-071). |
+| R72 | Turbo phase 3b: Fast and Turbo tiers | Performance setting with per-feature switches; Fast: prefetch, app warm-up, keep-screen-on while a task runs, thermal easing, learned timings, Latch keyboard; Turbo (`WRITE_SECURE_SETTINGS`): animations off, peak refresh, chooser clean-up, with a snapshot restored at task end, disconnect, or the next start after a crash, and a visible "Turbo active" indicator; tier reported in `device_status`; tier loss degrades and is noted in the step result. Gate: 5 of 8 tasks at first-run target | TODO · *needs owner yes* | Threat review first: system settings changed and restored; an input method sees typed text. Open question: does the realme build apply animation scales without a reboot? |
+| R73 | Turbo phase 4: streaming and memory | Steps start as they stream in; trace replay by app, version, and goal with fuzzy selectors; app maps and `go("app > screen")`; popup rules; per-screen settle ceilings. Gate: all replay targets | TODO | Auto-saved skills need the owner's yes (ADR-031 saves only when asked). |
+| R74 | Turbo phase 5: Max and Root tiers, icon classifier, on-device model | Shizuku input injection and window dumps, root tuning, a small on-device icon classifier, an optional on-device model for micro-decisions. Gate: all first-run targets on a fast device | TODO · *needs owner yes* | ADR and threat review each (new trust roots, dependencies, APK size). System-dialog suppression stays inside ADR-022's opt-in. Open question: Gemini Nano (device-limited) or a bundled Gemma (bigger APK)? |
 
 ## 11. R27 handoff: full-access ADB over wireless MCP
 
@@ -326,3 +334,122 @@ Order (updated 2026-10-19): R27 first, then R1 → R2 → R3 → R10 → R9 → 
 4. Add versioned contracts and shared fixtures on both gateways. Existing ordinary-tool rules and no-shell tests describe the shipped runtime; migrate only the tests/contracts necessary for ADB mode. Keep ordinary UI/file protections intact. New ADB tests must prove authentication/enrollment refusal and full authorized execution without inheriting ordinary capability restrictions.
 5. Prove clean cable-free setup/pairing, harmless arbitrary shell/script execution, representative ADB operations, identical identity/results, full large-output delivery, long-running execution, continued access beyond the ordinary session timer, owner Stop/revoke, wrong client/device refusal, disconnect/reconnect, and no duplicate execution. Run repository CI; keep R27 IN_REVIEW until hardware evidence exists. USB is not an acceptance prerequisite.
 6. Document actual OS/backend limits, initial trust, disabling/revoking the bridge, key recovery, and best-effort cancellation. Do not claim disconnect reverses completed effects or kills every detached process. Do not claim this documentation change implements ADB.
+
+## 12. Latch Turbo: speed and execution (owner spec, 2026-10-22)
+
+**Source:** *Latch Turbo — Speed & Execution Spec* (owner, 2026-10-22), recorded here as the plan; decisions and safety limits in ADR-071; rows R68–R74 in §10 section I.
+
+**Goal:** about one round trip per goal and 0.1–0.4 s of phone time per step, so common tasks finish faster than a person. Task time = round trips × (model think + phone execution + observation size).
+
+| Term | Today (QA run, realme RMX3710, 2026-10-22) | Target |
+|---|---|---|
+| Round trips for a 3-item cart | ~15 | 1–2 |
+| Phone time per step | 0.5–2 s | 0.1–0.4 s |
+| Observation size | 20–30 OCR lines + tree, ~3,000 words | ~300 words |
+
+**Principles:** (1) think once per goal: the model sends a program, the phone runs it and calls back only on surprise; (2) fastest route first: system API, intent, deep link, notification action, UI last; (3) selectors over ids and coordinates, resolved on the phone; (4) never wait blind: settle from events and frames, not fixed timeouts; (5) every win is opt-in by tier and degrades cleanly; (6) repeats get faster: successful runs are remembered.
+
+### 12.1 Speed tiers (one Performance setting; each includes the ones below; `device_status` reports the active tier)
+
+| Tier | Owner action | Unlocks | Fallback if lost |
+|---|---|---|---|
+| Standard | none (default) | Programs, selectors, settle detection, compact observations, public-intent routes | — |
+| Fast | switch in Latch | Latch keyboard, notification-action replies, prefetch, app warm-up, keep-screen-on, performance-mode request, learned timings, replay | System keyboard; open the app to reply |
+| Turbo | one-time `pm grant … WRITE_SECURE_SETTINGS` (Latch's own full ADB can do it) | Animation scales 0 during tasks, peak refresh rate, default-app and "always ask" clean-up, stay-awake while plugged in | Animations left as they are; settle detection absorbs the delay |
+| Max | install and start Shizuku, approve Latch | Input injection, fast window dumps, multi-touch, `am`/`cmd` intents beyond public ones, capture without a consent prompt | Accessibility actions and gestures |
+| Root | rooted phone, grant su | Performance governor, big-core affinity, top-app priority, dialog handling the owner pre-approved | Max |
+
+Rules: every Turbo, Max, and Root change is snapshotted and restored when the task ends, the session drops, or on the next start after a crash; a persistent "Turbo active" indicator shows while any system setting is altered; each feature has its own switch; losing a tier mid-task degrades to the next and says so in the step result.
+
+### 12.2 Program execution (`run_program`, R70)
+
+Runs a list of steps with guards on the phone and returns only on completion or a guard failure it could not recover. It generalizes `run_steps`.
+
+| Command | Arguments | Behaviour |
+|---|---|---|
+| open | app name or package, fresh? | Warm process first, then launch intent |
+| go | deep link, intent, or app-map path ("settings > hotspot") | Route selection, then the UI path from the app map |
+| tap | selector, repeat?, long? | Node click; injection at Max; gesture last |
+| type | selector, text, submit? | Set text or Latch keyboard commit; submit with the fallback chain |
+| find | selector, direction? | Scrolls both ways until resolved |
+| toggle | selector, on/off | Reads the checked state; taps only if needed |
+| scroll | selector?, direction, until? | `until` = selector to stop at |
+| back, home | — | Global actions |
+| wait | selector or settle | Event-driven; no fixed sleeps |
+| expect | condition (text, gone, state, app, count, playing) | Guard |
+| read | selector, as? | Text or value into a variable |
+| if / for_each | condition / list | Control flow on the phone |
+| call | route name + args | §12.3 |
+
+**Selectors:** optional fields `text`, `desc`, `id` (substring and fuzzy), `role` (button, input, row, card, switch, tab, video, image, or an icon class: plus, send, back, search, close, cart, heart, share, menu), `near` (same row or card, else closest), `inside` (a dialog, list, sheet), `index` (n-th in reading order), `state` (checked, selected, enabled, focused). Ranked by fields matched and fuzzy score; **if the top two are within 10 %, the step fails listing both instead of guessing.**
+
+**Guards and local recovery:** every step has an implicit guard (the screen or the target's state changed); `expect` adds explicit ones. On failure, within 1.5 s: settle again → dismiss a known popup → hide the keyboard if it covers the target → scroll to the target → retry once; then stop and return. **Streaming:** steps start as they parse; a step that reads a variable waits for its writer. **Result on failure:** `{status, step, command, selector, reason (e.g. ambiguous), candidates, recovery_tried, screen (compact), resume: {from_step}}`; completed steps never run again.
+
+### 12.3 Route selection (R71)
+
+In order, the UI only when nothing faster exists; the result names the route that ran.
+
+| Route | Time | Tier | Example |
+|---|---|---|---|
+| System API (media session, volume, Wi-Fi/Bluetooth panels, torch, `AlarmClock`, clipboard) | < 50 ms | Standard | "Pause music", "Set a 10 min timer" |
+| Content provider (contacts, calendar, call log, SMS, MediaStore) | < 100 ms | Standard, with permission | "What's my next meeting?" |
+| Notification action (RemoteInput reply, mark read) | < 100 ms | Fast | "Reply 'on my way' to Mom" |
+| Intent (send-to, dial, `geo:`/navigation, share, Settings panels) | 200–500 ms | Standard | "Navigate home", "Open hotspot settings" |
+| Deep link or app shortcut (harvested once per app) | 300–800 ms | Standard | "Open my Amazon cart" |
+| Privileged intent (`cmd`, `am`) | — | Max | Settings with no public intent |
+| UI program | — | Standard | Everything else |
+
+### 12.4 UI, input, and perception
+
+- **Acceleration:** animations off (Turbo, 300–500 ms per screen change), Latch keyboard committing whole strings (Fast), peak refresh and keep-screen-on, performance mode, default apps chosen once.
+- **Input order:** accessibility node actions (no gesture animation, 100–300 ms faster) → Shizuku injection (Max) → gestures (canvases, maps, games). `tap repeat` sends taps with no gap unless the app needs debounce (learned per app).
+- **Perception:** a live screen model updated from window events, never a fresh full dump; rows and cards grouped by bounds, an unnamed control named after its container; an icon classifier cached by bitmap hash; stable element ids (hash of role, text, container path, coarse position); OCR only on changed, unlabelled regions, cached by image hash, lines under 0.6 confidence or 3 characters dropped; compact observations (actionable elements and changed text by container; screenshot only on request, 540 px wide); settle = 60 ms without accessibility events and two matching low-res frame hashes, capped by a learned per-app ceiling.
+
+### 12.5 Speculation, transport, model side, memory, device
+
+- **Speculation:** prefetch the next observation as input lands; pre-resolve selectors; run the next step early when it succeeded in ≥ 95 % of past runs on this app, verify both, `back` on mismatch (never across an approval); warm the apps a program names; optional split screen for two-app tasks.
+- **Transport:** LAN-first persistent WebSocket, relay only off-network; binary framing (protobuf or CBOR) with zstd and observation diffs against the last acknowledged state; pushed events (`message_arrived`, `screen_settled`, `download_done`); < 20 ms per LAN message.
+- **Model side:** one program per goal; a fast model for routine steps and repairs, the large one on repeated failure or a new app; a stable observation format so prompt caching hits; optional on-device model for micro-decisions.
+- **Memory:** trace replay by app, version, and goal; app maps (screens fingerprinted by stable ids); popup rules per app; learned timings; auto-skills after three runs (owner's yes first, ADR-071).
+- **Device:** foreground service and battery-optimization exemption (Standard); thermal easing at "moderate" (Fast); governor, core affinity, and priority (Root).
+
+### 12.6 Near-term fixes from the QA run (R68)
+
+| # | Problem seen | Fix | Evidence |
+|---|---|---|---|
+| 1 | Unlabelled "+" forced a screenshot and x/y taps | Name it after its card or row ("+ · Mother Dairy Cow Milk 500 ml") | Every Amazon Now add |
+| 2 | `scroll_to` searched one direction | Search the given way, then the other | Milk card above the screen: 4 manual scrolls |
+| 3 | Find-then-tap cost 2+ calls | `tap` with words and `near`, scrolling until found | Milk: 5 scrolls + 1 tap |
+| 4 | `submit` only opened suggestions | Wait for the suggestions, press Enter, then tap the "search for" suggestion | "lays india's magic masala" |
+| 5 | OCR repeated labelled text and noise | Skip lines inside labelled cards; drop < 0.6 confidence and < 3 characters | "Lauy's", "of Adst's RODA" |
+| 6 | Rupee sign misread | "F36", "Z120", "स49" → ₹; a leading 7 stays (it may be real) | "736", "F3648", "स49" |
+| 7 | One call per unit of quantity | `tap` with `repeat` | Milk ×2 |
+
+### 12.7 Safety and limits
+
+Turbo never relaxes the safety model (ADR-071): approvals for payment, install, permission, password, OTP, and account deletion still stop for the owner, inside programs and replays; sensitive-field refusal holds on every route; speculation never crosses an approval; every altered setting is restored; the active tier is always visible. **Human-pace mode** (jittered timing for apps that flag automation) is listed by the spec but not scheduled: it exists to avoid an app noticing automation, so it waits for the owner's explicit decision. **Limits nothing removes:** network and server time inside apps; `FLAG_SECURE` screens (tree, intents, and APIs only); apps with empty trees and no deep links (screenshots plus the icon classifier, slower); slow or throttled phones.
+
+### 12.8 Benchmark and rollout (R69)
+
+Timed from the model's first token to the final guard; also counted: round trips, observation bytes, steps recovered on the phone, steps that needed the model.
+
+| Task | Apps | Today (estimate) | First run | Replay |
+|---|---|---|---|---|
+| Send a chat message | WhatsApp | ~40 s | 6 s | 2 s |
+| Reply from a notification | WhatsApp | ~40 s | 2 s | 1 s |
+| Toggle hotspot | Settings | ~25 s | 3 s | 1 s |
+| Navigate home | Maps | ~30 s | 4 s | 2 s |
+| Search and play a video | YouTube | ~35 s | 6 s | 3 s |
+| Fill a 3-item cart | Amazon Now | 2–3 min | 15 s | 5 s |
+| Share a photo with a caption | Instagram | ~90 s | 15 s | 6 s |
+| Copy an address from mail to maps | Gmail + Maps | ~60 s | 8 s | 3 s |
+
+| Phase | Rows | Gate |
+|---|---|---|
+| 1 — QA fixes | R68 | Cart benchmark under 60 s |
+| 2 — Program core | R70 | Chat, toggle, and video tasks at first-run target |
+| 3 — Fast and Turbo tiers, routes | R71, R72 | 5 of 8 tasks at first-run target |
+| 4 — Streaming and memory | R73 | All replay targets |
+| 5 — Max, Root, on-device model | R74 | All first-run targets on a fast phone |
+
+**Open questions (owner):** does the realme build apply `WRITE_SECURE_SETTINGS` animation changes without a reboot? Which on-device model ships first: Gemini Nano (device-limited) or a bundled Gemma (larger APK)? Is human-pace mode wanted at all?
