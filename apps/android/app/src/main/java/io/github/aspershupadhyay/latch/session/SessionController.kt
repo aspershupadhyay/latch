@@ -386,6 +386,8 @@ class SessionController(
         autonomy?.endSession()
         transfers?.cancelAll()
         files?.reset()
+        // R72: the screen tools end here, so Turbo does too.
+        if (turbo?.restore() == true) log.add(ActivityKind.SESSION, "Turbo: system animations are back as they were")
         log.add(ActivityKind.SESSION, "Session time ended. Full ADB access stays connected until you press Stop", by = ActivityActor.LATCH)
         pushState()
     }
@@ -399,7 +401,11 @@ class SessionController(
     /** The emergency stop: ends the session, drops queued work, and denies any pending approval. */
     fun stop(reason: String = OWNER_STOP) {
         if (reason == OWNER_STOP) onOwnerStop?.invoke()
-        if (!wanted && link == null) return
+        if (!wanted && link == null) {
+            // R72: Stop always puts Turbo's settings back, even with no session to end.
+            if (turbo?.restore() == true) log.add(ActivityKind.SESSION, "Turbo: system animations are back as they were")
+            return
+        }
         wanted = false
         paused = false
         bridge.touches.onOwnerTap = null

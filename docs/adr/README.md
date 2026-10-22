@@ -1018,7 +1018,7 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Problem:** every screen change waits for Android's window, transition, and animator animations (300–500 ms each), and Latch's settle detection waits for them to finish.
 
 **Decision:**
-- **One switch, off by default:** Access → More choices → Speed → **Turbo**. While it is on and a session runs, Latch sets `Settings.Global` window, transition, and animator scales to 0; Stop, the session's end, or its expiry puts the owner's values back.
+- **One switch, off by default:** Access → More choices → Speed → **Turbo**. While it is on and a session runs, Latch sets `Settings.Global` window, transition, and animator scales to 0; Stop, the session's end, or its timer running out (even while Full ADB keeps the link up) puts the owner's values back. Changing the switch takes effect at the next session.
 - **The values are saved before anything changes** (written to disk synchronously), so a crash between the two is undone the next time Latch starts. A refused write puts back what was written and leaves the session at the standard tier.
 - **The permission:** `WRITE_SECURE_SETTINGS`, which Android grants only over ADB. With Full ADB paired, **Allow with Full ADB** runs `pm grant <latch> android.permission.WRITE_SECURE_SETTINGS` through Latch's own wireless ADB, once, at the owner's tap; otherwise the card shows that command to run from a computer.
 - **Visible:** while animations are off, the session notification says so; the activity log records each change and each restore; `device_status` reports `speed: turbo` or `standard`, and the phone's temperature (`thermal`, from `PowerManager`), so an AI can ease off when Android starts throttling.
