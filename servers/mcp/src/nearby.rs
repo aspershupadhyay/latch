@@ -270,7 +270,7 @@ fn now_ms() -> u64 {
 /// The Wi-Fi certificate's pin, which the phone saw; None without a Wi-Fi listener.
 /// Read from disk once (these routes take requests from anyone on the Wi-Fi, so
 /// none of them should cost a file read and a key parse).
-fn own_pin(state: &AppState) -> Option<String> {
+pub(crate) fn own_pin(state: &AppState) -> Option<String> {
     if let Some(pin) = state.nearby.pin.get() {
         return Some(pin.clone());
     }

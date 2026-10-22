@@ -7,14 +7,14 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Gateway, PRIVATE_HEADERS, configFromEnv } from "./gateway.js";
 import { MemoryStore, storeFromEnv } from "./store.js";
+import { PAGE_CSP } from "./page.js";
 
 const STATIC: Record<string, [string, string]> = {
-  "/": ["index.html", "text/html; charset=utf-8"],
   "/gateway.css": ["gateway.css", "text/css; charset=utf-8"],
   "/robots.txt": ["robots.txt", "text/plain; charset=utf-8"],
 };
 
-export const PAGE_CSP = "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+export { PAGE_CSP };
 
 async function toRequest(req: IncomingMessage, origin: string): Promise<Request> {
   const chunks: Buffer[] = [];

@@ -8,6 +8,10 @@
   },
   "rewrites": [
     {
+      "source": "/",
+      "destination": "/api/gateway"
+    },
+    {
       "source": "/mcp",
       "destination": "/api/gateway"
     },
@@ -63,7 +67,7 @@
       ]
     },
     {
-      "source": "/(index.html|gateway.css|robots.txt)?",
+      "source": "/(gateway.css|robots.txt)",
       "headers": [
         {
           "key": "Content-Security-Policy",

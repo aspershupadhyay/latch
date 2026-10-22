@@ -11,28 +11,34 @@
   <script src="/mirror.js" defer></script>
 </head>
 <body>
-  <!-- Joining: the code the phone shows, or its link. -->
+  <!-- ADR-069: connect by scanning this page's QR code with Latch, or by opening the phone's link. -->
   <main id="join" class="join" hidden>
-    <section class="card">
-      <h1>Mirror your phone</h1>
-      <p class="muted">On the phone, open Latch and tap <strong>Mirror on computer</strong>. Enter the code it shows.</p>
-      <form id="join-form" autocomplete="off">
-        <label for="code">Code from the phone</label>
-        <input id="code" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="123 456" required aria-describedby="join-error">
-        <button type="submit" class="primary">Connect</button>
-      </form>
-      <p id="join-error" class="error" role="alert"></p>
-      <p id="mode-note" class="muted small"></p>
+    <section class="card connect">
+      <div class="connect-text">
+        <h1>Connect your phone</h1>
+        <ol class="steps-list">
+          <li>Open <strong>Latch</strong> on your phone.</li>
+          <li>On the <strong>Connect</strong> tab, tap <strong>Scan computer's code</strong> under Mirror on computer.</li>
+          <li>Point the phone at this code. The screen appears here by itself.</li>
+        </ol>
+        <p id="join-status" class="join-status" role="status" aria-live="polite"><b></b><span id="join-status-text">Waiting for your phone</span></p>
+        <p id="join-error" class="error" role="alert"></p>
+        <p class="muted small">Or open the link the phone shows (Copy link) in this browser. This computer is remembered, so next time it connects as soon as you start mirroring. Scan only a code on your own computer's screen: it lets that page see and use your phone.</p>
+        <p id="mode-note" class="muted small"></p>
+      </div>
+      <figure class="qr">
+        <img id="join-qr" alt="QR code for Latch to scan" width="240" height="240">
+        <button id="join-retry" type="button" class="link" hidden>Show a new code</button>
+      </figure>
     </section>
   </main>
 
-  <!-- Ended, replaced, or refused: one message and what to do next. -->
+  <!-- Ended or watched elsewhere: one message and what to do next. -->
   <main id="over" class="join" hidden>
     <section class="card">
       <h1 id="over-title">Mirroring ended</h1>
       <p id="over-text" class="muted"></p>
       <button id="over-again" type="button" class="primary">Watch here</button>
-      <button id="over-code" type="button" class="link" hidden>Enter a code instead</button>
     </section>
   </main>
 

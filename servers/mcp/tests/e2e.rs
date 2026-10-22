@@ -4299,6 +4299,71 @@ async fn the_mirror_carries_status_clipboard_screenshots_and_dropped_files() {
     assert_eq!(file["sha256"], digest);
 }
 
+/// ADR-069: the phone sends a file to the computer watching it, which saves
+/// it once; the page's QR code is drawn by the gateway for any valid key.
+#[tokio::test]
+async fn files_from_the_phone_reach_the_watching_page_once() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    let send = |token: String, name: &str, body: &'static [u8]| {
+        let head = format!(
+            "POST /v1/mirror/outbox?name={name} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+            gw.addr,
+            body.len()
+        );
+        let mut raw = head.into_bytes();
+        raw.extend_from_slice(body);
+        let addr = gw.addr;
+        async move {
+            let mut stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+            stream.write_all(&raw).await.expect("write");
+            let mut out = Vec::new();
+            stream.read_to_end(&mut out).await.expect("read");
+            String::from_utf8_lossy(&out).into_owned()
+        }
+    };
+    let body: &'static [u8] = b"a photo from the phone";
+
+    // Nobody watches yet: refused before anything is stored.
+    let (mut ph, _ready) = start_mirror(&gw, &phone, VIEWER_KEY, true).await;
+    let early = send(phone.token.clone(), "a.jpg", body).await;
+    assert!(early.starts_with("HTTP/1.1 409"), "{early}");
+    let stranger = send("ldt_not-a-device".into(), "a.jpg", body).await;
+    assert!(stranger.starts_with("HTTP/1.1 401"), "{stranger}");
+
+    let (mut viewer, _joined) = join(&gw, json!({"key": VIEWER_KEY})).await;
+    let _ = next_of(&mut ph, "viewer").await;
+    let bad_name = send(phone.token.clone(), "..", body).await;
+    assert!(bad_name.starts_with("HTTP/1.1 400"), "{bad_name}");
+    let answer = send(phone.token.clone(), "holiday%20photo.jpg", body).await;
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+
+    let ready = next_of(&mut viewer, "file_ready").await;
+    assert_eq!(ready["name"], "holiday photo.jpg");
+    assert_eq!(ready["size"], body.len());
+    let url = ready["url"].as_str().expect("url");
+    assert!(url.starts_with("/v1/mirror/outbox/ltr_"), "{url}");
+    let (status, head, saved) = get_raw(&gw, url).await;
+    assert_eq!(status, 200);
+    assert!(head.contains("content-disposition: attachment;"), "{head}");
+    assert!(
+        head.contains("filename*=utf-8''holiday%20photo.jpg"),
+        "{head}"
+    );
+    assert_eq!(saved.as_bytes(), body);
+    // Saved once: the link is spent.
+    let (again, _, _) = get_raw(&gw, url).await;
+    assert_eq!(again, 404);
+    drop(ph);
+
+    let (status, head, svg) = get_raw(&gw, &format!("/v1/mirror/qr.svg?k={VIEWER_KEY}")).await;
+    assert_eq!(status, 200);
+    assert!(head.contains("content-type: image/svg+xml"), "{head}");
+    assert!(svg.starts_with("<svg"), "{svg}");
+    let (status, _, _) = get_raw(&gw, "/v1/mirror/qr.svg?k=short").await;
+    assert_eq!(status, 400);
+}
+
 /// ADR-060: a phone finds the gateway with no QR code, both sides show the
 /// same number, and only the owner's yes on the computer gives it a code.
 #[tokio::test]

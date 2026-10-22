@@ -56,6 +56,20 @@ h1 span { color: var(--ember); }
 .owner ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 15px; display: grid; gap: 4px; }
 .owner strong { color: var(--text); }
 
+/* ADR-069: the hosted relay's "Connect your phone" page: its QR code beside three steps. */
+.connect { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: center; margin: 4px 0 20px; }
+.qr { margin: 0; display: grid; gap: 8px; justify-items: center; }
+.qr svg { width: 220px; height: 220px; display: block; border-radius: 14px; }
+.qr figcaption { font: 12px var(--mono); color: var(--muted); word-break: break-all; text-align: center; max-width: 220px; }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; color: var(--muted); }
+.steps strong, .lead strong { color: var(--text); }
+.lead.small { font-size: 14px; margin: 0; }
+.term-body code { font: 14px var(--mono); color: var(--text); }
+@media (max-width: 560px) {
+  .connect { grid-template-columns: 1fr; justify-items: center; }
+  .qr svg { width: min(240px, 72vw); height: auto; aspect-ratio: 1; }
+}
+
 footer { text-align: center; font: 12px var(--mono); color: var(--muted); }
 footer a { color: var(--text); text-decoration-color: var(--line); text-underline-offset: 3px; }
 a:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; border-radius: 4px; }
