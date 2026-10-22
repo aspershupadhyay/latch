@@ -74,6 +74,7 @@ jobs:
   windows-installer:
     name: Windows gateway installer
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - run: rustup show active-toolchain || rustup toolchain install
@@ -174,6 +175,7 @@ jobs:
   unix-installer:
     name: macOS and Linux gateway installer
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       # As `curl … | sh` runs it, from a local release: the published beta gateway with this commit's scripts.

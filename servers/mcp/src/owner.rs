@@ -378,19 +378,36 @@ fn autostart(home: &Path, what: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Starts `run-background` now, hidden and on its own, as the Startup entry
-/// does at log-in.
+/// Starts the background gateway now, through the Startup entry, as log-in does.
+/// Not as our own child: Windows would hand it every handle this process may
+/// pass on, among them a pipe a caller reads our output from (`latch.ps1`,
+/// `| Out-Null`), and that caller would then wait for it forever. wscript
+/// starts it without them and exits at once; it gets 10 s to do so.
 fn start_background() {
-    let mut command = Command::new(this_exe());
-    command
-        .arg("run-background")
+    let Some(entry) = startup_entry().filter(|e| e.exists()) else {
+        return;
+    };
+    let Ok(mut wscript) = Command::new("wscript.exe")
+        .arg(&entry)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: no window, and Ctrl+C here does not reach it.
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0200);
-    let _ = command.spawn();
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        eprintln!("latch: cannot run {}", entry.display());
+        return;
+    };
+    for _ in 0..100 {
+        if matches!(wscript.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ = wscript.kill();
+    eprintln!(
+        "latch: {} did not finish; the background gateway may not have started",
+        entry.display()
+    );
 }
 
 /// Keeps the gateway running, as launchd or systemd would, with its output in

@@ -91,6 +91,7 @@ jobs:
   homebrew:
     needs: archives
     runs-on: macos-latest
+    timeout-minutes: 20
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
       HOMEBREW_NO_ENV_HINTS: 1
@@ -122,6 +123,7 @@ jobs:
   scoop:
     needs: archives
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
@@ -162,6 +164,7 @@ jobs:
   winget:
     needs: archives
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
