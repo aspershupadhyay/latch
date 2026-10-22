@@ -8,7 +8,7 @@
 #
 #   out/Formula/latch.rb    Homebrew (macOS and Linux): brew install latch from our tap
 #   out/bucket/latch.json   Scoop (Windows): scoop install latch from our bucket
-#   out/winget/...          winget manifests, ready to submit to microsoft/winget-pkgs
+#   out/winget/...          winget manifests (winget install AspershUpadhyay.Latch), for microsoft/winget-pkgs
 #
 # The release workflow runs it on every tag and proposes the first two for main,
 # where the repository itself is the tap and the bucket (docs/install.md). CI runs
@@ -118,9 +118,8 @@ jq -n \
     }
   }' >"$out/bucket/latch.json"
 
-# winget: the gateway program only. winget puts .exe files on the PATH, not
-# PowerShell scripts, so the `latch` command comes with Scoop or the one-line
-# installer until it is part of latch-gateway.exe itself.
+# winget: the gateway program alone, on the PATH as `latch`. It has the latch
+# commands built in (ADR-069), so nothing else is needed.
 id=AspershUpadhyay.Latch
 wdir="$out/winget/manifests/a/AspershUpadhyay/Latch/$version"
 mkdir -p "$wdir"
@@ -140,7 +139,7 @@ InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
   - RelativeFilePath: latch-gateway.exe
-    PortableCommandAlias: latch-gateway
+    PortableCommandAlias: latch
 Installers:
   - Architecture: x64
     InstallerUrl: $base/$zip

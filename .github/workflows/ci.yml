@@ -76,15 +76,53 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - run: rustup show active-toolchain || rustup toolchain install
+        shell: bash
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo build --release --locked -p latch-gateway
+        shell: bash
+      # The program alone, as winget installs it (as `latch`): the latch commands are built in (ADR-069).
+      - name: The gateway on its own, called latch
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'alone'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item target/release/latch-gateway.exe (Join-Path $dir 'latch.exe')
+          $latch = Join-Path $dir 'latch.exe'
+          $env:LATCH_HOME = Join-Path $env:RUNNER_TEMP 'alone-home'
+          function Wait-Up($what) {
+            foreach ($i in 1..30) {
+              try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/healthz | Out-Null; return } catch { Start-Sleep -Seconds 1 }
+            }
+            Get-Content -ErrorAction SilentlyContinue (Join-Path $env:LATCH_HOME 'gateway.log')
+            throw "the gateway did not answer $what"
+          }
+          $ErrorActionPreference = 'Continue'
+          & $latch keys; if ($LASTEXITCODE -ne 0) { throw 'latch keys failed' }
+          if ((Get-Content -Raw (Join-Path $env:LATCH_HOME 'latch.env')) -notmatch 'LATCH_MCP_TOKEN=lgt_') { throw 'no keys were made' }
+          & $latch autostart on; if ($LASTEXITCODE -ne 0) { throw 'autostart on failed' }
+          Wait-Up 'after autostart on'
+          if ((& $latch autostart status) -notmatch '^on') { throw 'autostart status is not on' }
+          & $latch status; if ($LASTEXITCODE -ne 0) { throw 'latch status: not running' }
+          & $latch restart
+          Start-Sleep -Seconds 2
+          Wait-Up 'after restart'
+          & $latch autostart off
+          Start-Sleep -Seconds 2
+          if (Get-Process -Name latch, latch-gateway -ErrorAction SilentlyContinue) { throw 'a gateway still runs after autostart off' }
+          if (Test-Path (Join-Path ([Environment]::GetFolderPath('Startup')) 'Latch gateway.vbs')) { throw 'the Startup entry is still there' }
+          & $latch uninstall --all
+          if (Test-Path $env:LATCH_HOME) { throw 'uninstall --all left the keys' }
       # Windows PowerShell 5.1, what most owners have. The script runs as `irm … | iex` would run it,
-      # from a local release: the gateway already published in the beta, with this commit's scripts.
+      # from a local release: this commit's gateway and scripts.
       - name: Install, start in the background, update, stop, uninstall
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $rel = Join-Path $env:RUNNER_TEMP 'release'
           New-Item -ItemType Directory -Force $rel | Out-Null
-          Invoke-WebRequest -UseBasicParsing -OutFile (Join-Path $rel 'latch-gateway-windows-x86_64.exe') https://github.com/aspershupadhyay/latch/releases/download/beta/latch-gateway-windows-x86_64.exe
+          Copy-Item target/release/latch-gateway.exe (Join-Path $rel 'latch-gateway-windows-x86_64.exe')
           Copy-Item packaging/latch.ps1, packaging/latch.cmd $rel
           Get-ChildItem $rel | ForEach-Object { "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content -Encoding ASCII (Join-Path $rel 'latch-gateway.sha256')
           Copy-Item scripts/install-gateway.ps1 $rel

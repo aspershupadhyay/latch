@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+name: winget
+
+# Publishing a release vX.Y.Z (not the rolling beta) submits its winget
+# manifests to microsoft/winget-pkgs, where Microsoft's checks and reviewers
+# take it from there; `winget install AspershUpadhyay.Latch` then finds it.
+# Needs the WINGET_TOKEN secret: a GitHub token with public_repo, which
+# wingetcreate uses to fork winget-pkgs and open the pull request. Without it
+# this only says so. See docs/operations/release.md (ADR-069).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to submit (vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v')) }}
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - if: env.WINGET_TOKEN == ''
+        run: echo "::notice::Not submitted to winget. Add a WINGET_TOKEN secret (a GitHub token with public_repo) and re-run, or submit by hand (docs/operations/release.md)."
+        shell: bash
+      - if: env.WINGET_TOKEN != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern "latch-$($env:TAG)-winget-manifests.tar.gz"
+          tar -xzf "latch-$($env:TAG)-winget-manifests.tar.gz"
+          # Microsoft's own tool for winget-pkgs submissions.
+          Invoke-WebRequest -UseBasicParsing https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --token $env:WINGET_TOKEN (Join-Path 'manifests\a\AspershUpadhyay\Latch' $env:TAG.TrimStart('v'))
