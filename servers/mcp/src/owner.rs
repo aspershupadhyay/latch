@@ -387,6 +387,7 @@ fn start_background() {
     let Some(entry) = startup_entry().filter(|e| e.exists()) else {
         return;
     };
+    unblock(&this_exe());
     let Ok(mut wscript) = Command::new("wscript.exe")
         .arg(&entry)
         .stdin(Stdio::null())
@@ -408,6 +409,19 @@ fn start_background() {
         "latch: {} did not finish; the background gateway may not have started",
         entry.display()
     );
+}
+
+/// Removes Windows' "downloaded from the internet" mark from this program, as
+/// the installer's `Unblock-File` does. winget leaves it on, and with it Windows
+/// asks "Open File - Security Warning" before the Startup entry may start the
+/// gateway: a question nobody sees at log-in, so it never starts. The owner
+/// chose to install this file, and winget checked its SHA-256 first.
+fn unblock(exe: &Path) {
+    if cfg!(windows) {
+        let mut stream = exe.as_os_str().to_owned();
+        stream.push(":Zone.Identifier");
+        let _ = fs::remove_file(PathBuf::from(stream));
+    }
 }
 
 /// Keeps the gateway running, as launchd or systemd would, with its output in

@@ -187,7 +187,10 @@ jobs:
           $ErrorActionPreference = 'Continue'
           & $latch version; if ($LASTEXITCODE -ne 0) { throw 'latch version failed' }
           & $latch keys
+          $installed = Get-ChildItem -Recurse (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages') -Filter latch-gateway.exe | Select-Object -First 1
+          Write-Host "Downloaded-file mark before autostart: $([bool](Get-Item $installed.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue))"
           & $latch autostart on
+          Write-Host "Downloaded-file mark after autostart: $([bool](Get-Item $installed.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue))"
           $up = $false
           foreach ($i in 1..30) {
             try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/healthz | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
