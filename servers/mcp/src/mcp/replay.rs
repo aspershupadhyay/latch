@@ -86,6 +86,12 @@ fn seconds(ms: u64) -> String {
 }
 
 pub fn render_latest_task(list: &ActivityList) -> String {
+    render_latest_task_limited(list, None)
+}
+
+/// Like [`render_latest_task`], listing only the task's newest `limit` entries;
+/// the counts in the first line still cover the whole task.
+pub fn render_latest_task_limited(list: &ActivityList, limit: Option<usize>) -> String {
     let Some(task) = latest(list) else {
         return format!(
             "No AI task in the phone's activity log (read the newest {} entries). Entries are kept on the phone for 7 days.\n",
@@ -110,7 +116,16 @@ pub fn render_latest_task(list: &ActivityList) -> String {
         count(ActivityKind::Refusal),
     );
     let _ = writeln!(out, "Started {}.", super::utc_time(start));
-    for e in &task.entries {
+    let skip = limit.map_or(0, |l| task.entries.len().saturating_sub(l));
+    if skip > 0 {
+        let _ = writeln!(
+            out,
+            "Showing the newest {} of {} entries; pass a larger limit for more.",
+            task.entries.len() - skip,
+            task.entries.len()
+        );
+    }
+    for e in &task.entries[skip..] {
         let kind = serde_json::to_value(e.kind)
             .ok()
             .and_then(|v| v.as_str().map(str::to_owned))

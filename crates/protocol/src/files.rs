@@ -52,6 +52,10 @@ pub struct FileItem {
     /// Unix ms of the last change, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modified_ms: Option<u64>,
+    /// Since 1.20 (R67), photos and Downloads only: the subfolder the file is
+    /// in, e.g. `Latch` for `Download/Latch/` (untrusted text). Absent at the top.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subfolder: Option<String>,
 }
 
 /// Answer to `file.list`.

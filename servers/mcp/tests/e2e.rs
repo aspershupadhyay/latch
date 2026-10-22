@@ -9,7 +9,7 @@ use std::time::Duration;
 use latch_fake_device::transfers;
 use latch_fake_device::{Approval, Control, FakeState, Shared};
 use latch_gateway::{AppState, Config, router, store::Store};
-use latch_protocol::Capability;
+use latch_protocol::{Capability, ErrorCode};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -835,6 +835,19 @@ async fn stale_observations_and_sensitive_fields_are_refused() {
     // Policy stopped both sensitive attempts before they reached the phone; both "alice" ones did.
     assert_eq!(s.executed.iter().filter(|c| *c == "input.type").count(), 2);
     assert_eq!(s.executed.iter().filter(|c| *c == "input.tap").count(), 0);
+    // R67: the phone heard of both refusals, for the owner's history: tool and code only.
+    assert!(
+        s.refusals
+            .contains(&("type_text".into(), ErrorCode::SensitiveTarget)),
+        "{:?}",
+        s.refusals
+    );
+    assert!(
+        s.refusals
+            .contains(&("tap".into(), ErrorCode::SensitiveTarget)),
+        "{:?}",
+        s.refusals
+    );
     drop(s);
     phone.task.abort();
 }
@@ -1750,6 +1763,12 @@ async fn files_round_trip_between_phone_and_computer() {
     );
     assert!(text.contains("\n- +0.0 s "), "{text}");
     assert!(text.ends_with(" task by AI: Ran task.done\n"), "{text}");
+    // R67: limit lists only the newest entries of the task.
+    let (is_error, text, _) =
+        call(&gw, "get_activity", json!({"task": "latest", "limit": 1})).await;
+    assert!(!is_error, "{text}");
+    assert!(text.contains("Showing the newest 1 of "), "{text}");
+    assert_eq!(text.matches("\n- +").count(), 1, "{text}");
     let (is_error, text, _) = call(
         &gw,
         "get_activity",
@@ -1769,7 +1788,12 @@ async fn files_round_trip_between_phone_and_computer() {
     )
     .await;
     assert!(!is_error, "{text}");
-    assert_eq!(text, "Done: Set the media volume to 40%.");
+    // R67: the step the phone really set, read back from Android.
+    assert_eq!(
+        text,
+        "Done: Set the media volume to 40%. The phone set step 6 of 15 (40%); its own volume \
+         slider may show a slightly different number."
+    );
     let (is_error, text, _) = call(
         &gw,
         "phone_control",
@@ -2117,6 +2141,33 @@ async fn ask_owner_hands_a_step_to_the_owner() {
 
     let (is_error, text, _) = call(&gw, "ask_owner", json!({"message": "  "})).await;
     assert!(is_error && text.contains("invalid_request"), "{text}");
+
+    // R67: run_steps says what the owner answered, and stops when they cannot.
+    let steps = json!({"steps": [
+        {"do": "ask_owner", "message": "Unlock the phone"},
+        {"do": "press", "button": "back"}
+    ]});
+    let (is_error, text, _) = call(&gw, "run_steps", steps.clone()).await;
+    assert!(
+        !is_error
+            && text.contains("stopped: The owner says they can't do it now.")
+            && text.contains("run_steps with from_step 2"),
+        "{text}"
+    );
+    phone.state.lock().expect("lock").owner_reply = latch_protocol::OwnerReply::Done;
+    let (is_error, text, _) = call(&gw, "run_steps", steps).await;
+    assert!(
+        !is_error
+            && text.contains("1. ✓ ask the owner: \"Unlock the phone\" → the owner tapped Done"),
+        "{text}"
+    );
+
+    // R67: list_devices names the file places the phone shares.
+    let (_, text, _) = call(&gw, "list_devices", json!({})).await;
+    assert!(
+        text.contains("files: Downloads, photos allowed, 1 shared folder"),
+        "{text}"
+    );
     phone.task.abort();
 }
 
@@ -2199,6 +2250,21 @@ async fn skills_replay_with_new_inputs_and_hand_back_what_differs() {
     let (is_error, text, _) = call(&gw, "save_skill", json!({ "skill": skill })).await;
     assert!(
         !is_error && text.contains("Saved skill \"order_groceries\""),
+        "{text}"
+    );
+    // R67: saved and run step numbers are told apart.
+    assert!(
+        text.contains("(5 steps as written; a run numbers every for_each step once per item"),
+        "{text}"
+    );
+    // R67: a for_each step with do gets one clear answer.
+    let (is_error, text, _) = call(&gw, "save_skill", json!({ "skill": {
+        "name": "bad", "description": "x",
+        "params": [{ "name": "items", "type": "list", "fields": ["name"] }],
+        "steps": [{ "for_each": "items", "do": "tap", "steps": [{ "do": "press", "button": "back" }] }]
+    }})).await;
+    assert!(
+        is_error && text.contains("a step has either do or for_each, not both"),
         "{text}"
     );
     let (_, list, _) = call(&gw, "list_skills", json!({})).await;
@@ -2557,6 +2623,7 @@ fn hello_with(
             approve_every_action: false,
             paused: false,
             remote_approvals: false,
+            files: None,
         },
         device_time_ms: None,
         device_key: key.map(latch_fake_device::signing::DeviceKey::public_b64),
@@ -2660,6 +2727,7 @@ async fn phones_sign_their_messages_and_a_stolen_token_is_not_enough() {
             approve_every_action: false,
             paused: false,
             remote_approvals: false,
+            files: None,
         },
         device_time_ms: None,
     };

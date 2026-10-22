@@ -23,7 +23,7 @@ import kotlin.coroutines.resume
 class ButtonReader(
     private val context: Context,
     private val capture: suspend (Rect) -> android.graphics.Bitmap?,
-) : LabelReader {
+) : LabelReader, ScreenTextReader {
     private var recognizer: TextRecognizer? = null
 
     @Synchronized
@@ -52,6 +52,29 @@ class ButtonReader(
         }
     }
 
+    override suspend fun lines(bitmap: android.graphics.Bitmap): List<TextLine> = try {
+        withTimeoutOrNull(SCREEN_TIMEOUT_MS) {
+            suspendCancellableCoroutine { cont ->
+                recognizer().process(InputImage.fromBitmap(bitmap, 0))
+                    .addOnSuccessListener { text ->
+                        cont.resume(
+                            text.textBlocks.flatMap { it.lines }.mapNotNull { line ->
+                                val box = line.boundingBox ?: return@mapNotNull null
+                                val words = line.text.trim().take(MAX_LINE_CHARS)
+                                if (words.isEmpty()) null else TextLine(words, Rect(box.left, box.top, box.right, box.bottom))
+                            },
+                        )
+                    }
+                    .addOnFailureListener { cont.resume(emptyList()) }
+                    .addOnCanceledListener { cont.resume(emptyList()) }
+            }
+        } ?: emptyList()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        emptyList()
+    }
+
     /** Frees ML Kit's native resources; a later [read] starts it again. */
     @Synchronized
     fun close() {
@@ -62,5 +85,8 @@ class ButtonReader(
     private companion object {
         const val READ_TIMEOUT_MS = 1_500L
         const val MAX_CHARS = 200
+        /** A whole screen takes longer than one button. */
+        const val SCREEN_TIMEOUT_MS = 2_500L
+        const val MAX_LINE_CHARS = 200
     }
 }

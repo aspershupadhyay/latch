@@ -244,9 +244,18 @@ fn validate_step(step: &Value, top: bool, lists: &[String]) -> Result<Value, Str
         if !top {
             return Err("for_each cannot be nested".into());
         }
+        if obj.contains_key("do") {
+            return Err(
+                "a step has either do or for_each, not both; put the repeated steps under steps"
+                    .into(),
+            );
+        }
         for key in obj.keys() {
             if !["for_each", "steps", "note"].contains(&key.as_str()) {
-                return Err(format!("unknown for_each field '{}'", truncate(key, 32)));
+                return Err(format!(
+                    "unknown for_each field '{}' (a for_each step takes for_each, steps, and note)",
+                    truncate(key, 32)
+                ));
             }
         }
         let list = list.as_str().unwrap_or_default();
@@ -276,6 +285,9 @@ fn validate_step(step: &Value, top: bool, lists: &[String]) -> Result<Value, Str
         return Ok(Value::Object(clean));
     }
     let kind = obj.get("do").and_then(Value::as_str).unwrap_or_default();
+    if kind.is_empty() && obj.contains_key("steps") {
+        return Err("a step with steps needs for_each: <list param>".into());
+    }
     if !KINDS.contains(&kind) {
         return Err(format!(
             "each step needs do: one of {}, or for_each",
@@ -849,7 +861,7 @@ pub fn definitions() -> Vec<Value> {
                 "device_id": device_id_schema(),
                 "name": { "type": "string", "maxLength": 40 },
                 "params": { "type": "object", "description": "Values for the skill's params; lists as arrays of objects." },
-                "from_step": { "type": "integer", "minimum": 1, "description": "Continue from this step number (from a stopped run's answer)." },
+                "from_step": { "type": "integer", "minimum": 1, "description": "Continue from this step number, as a stopped run's answer numbers it (every for_each step counts once per item)." },
             }),
             &["name"],
         ),
@@ -868,7 +880,7 @@ pub fn definitions() -> Vec<Value> {
             json!({
                 "device_id": device_id_schema(),
                 "steps": { "type": "array", "minItems": 1, "maxItems": MAX_TOP_STEPS, "items": { "type": "object" }, "description": "The steps, in order." },
-                "from_step": { "type": "integer", "minimum": 1, "description": "Continue from this step number (from a stopped run's answer)." },
+                "from_step": { "type": "integer", "minimum": 1, "description": "Continue from this step number, as a stopped run's answer numbers it (every for_each step counts once per item)." },
             }),
             &["steps"],
         ),
@@ -959,6 +971,7 @@ pub fn run_store(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Valu
             let skill = validate(args.get("skill").unwrap_or(&Value::Null)).map_err(bad)?;
             let skill_name = skill["name"].as_str().unwrap_or_default().to_owned();
             let steps = expand_count(&skill);
+            let numbering = if has_loop(&skill) { LOOP_NUMBERING } else { "" };
             let mut store = state.store();
             let replaced = store.skill(&skill_name).is_some();
             if !replaced && store.skills().len() >= MAX_SKILLS {
@@ -970,7 +983,7 @@ pub fn run_store(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Valu
                 .put_skill(skill)
                 .map_err(|_| ProtocolError::new(ErrorCode::Internal, "could not save the skill"))?;
             Ok(text_result(format!(
-                "{} skill {} ({steps} steps). Run it with run_skill and new params.",
+                "{} skill {} ({steps} steps{numbering}). Run it with run_skill and new params.",
                 if replaced { "Replaced" } else { "Saved" },
                 quote(&skill_name, 40)
             )))
@@ -1023,6 +1036,16 @@ pub fn run_store(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Valu
     }
 }
 
+/// Said wherever a skill with for_each is counted, so saved and run step numbers are not confused.
+const LOOP_NUMBERING: &str = " as written; a run numbers every for_each step once per item, \
+     and from_step uses the run's numbers";
+
+fn has_loop(skill: &Value) -> bool {
+    skill["steps"]
+        .as_array()
+        .is_some_and(|s| s.iter().any(|st| st.get("for_each").is_some()))
+}
+
 fn expand_count(skill: &Value) -> usize {
     skill["steps"]
         .as_array()
@@ -1047,6 +1070,8 @@ enum Stop {
     Failed(usize, ProtocolError),
     /// Out of time or actions for this call.
     Paused(usize),
+    /// The owner answered an ask_owner step with anything but Done.
+    Owner(usize, String),
 }
 
 /// run_skill: executes the steps through the ordinary tools.
@@ -1106,7 +1131,9 @@ impl Run {
     }
     fn again(&self, from: usize) -> String {
         match self {
-            Run::Skill(_) => format!("run_skill with from_step {from} and the same params"),
+            Run::Skill(_) => format!(
+                "run_skill with from_step {from} (this run's step numbers) and the same params"
+            ),
             Run::Inline => format!("run_steps with from_step {from} and the same steps"),
         }
     }
@@ -1176,7 +1203,7 @@ async fn execute(
         };
         if let Some((tool_name, tool_args)) = simple {
             actions += 1;
-            match Box::pin(super::run_tool(state, tool_name, &tool_args)).await {
+            match Box::pin(super::run_tool_logged(state, tool_name, &tool_args)).await {
                 Ok(v) => {
                     // wait_for answers normally even on a timeout; its text says so.
                     if tool_name == "wait_for" && timed_out(&first_text(&v)) && !optional {
@@ -1186,6 +1213,17 @@ async fn execute(
                             format!("{} did not appear in time", quote(&s("text"), 60)),
                         );
                         break;
+                    }
+                    if tool_name == "ask_owner" {
+                        let said = first_text(&v);
+                        last = Some(v);
+                        if said.starts_with(OWNER_DONE) {
+                            lines.push(format!("{n}. ✓ {} → the owner tapped Done", label(step)));
+                        } else {
+                            stop = Stop::Owner(n, owner_answer(&said));
+                            break;
+                        }
+                        continue;
                     }
                     last = Some(v);
                     lines.push(format!("{n}. ✓ {}", label(step)));
@@ -1211,7 +1249,7 @@ async fn execute(
                 };
                 actions += 1;
                 let tool_args = json!({ "device_id": device, "observation_id": obs, "text": s("text"), "direction": s("direction") });
-                match Box::pin(super::run_tool(state, "scroll_to", &tool_args)).await {
+                match Box::pin(super::run_tool_logged(state, "scroll_to", &tool_args)).await {
                     Ok(v) => {
                         let found = !first_text(&v).starts_with("Did not find");
                         last = Some(v);
@@ -1266,7 +1304,8 @@ async fn execute(
                             actions += 1;
                             let tool_args = json!({ "device_id": device, "observation_id": obs, "text": goal, "max_swipes": 4 });
                             if let Ok(v) =
-                                Box::pin(super::run_tool(state, "scroll_to", &tool_args)).await
+                                Box::pin(super::run_tool_logged(state, "scroll_to", &tool_args))
+                                    .await
                             {
                                 last = Some(v);
                             }
@@ -1306,7 +1345,7 @@ async fn execute(
                             json!({ "device_id": device, "observation_id": obs, "element_id": element, "text": s("text"), "submit": step["submit"] }),
                         )
                     };
-                    match Box::pin(super::run_tool(state, tool_name, &tool_args)).await {
+                    match Box::pin(super::run_tool_logged(state, tool_name, &tool_args)).await {
                         Ok(v) => last = Some(v),
                         Err(e) if e.code == ErrorCode::StaleObservation => {
                             // The screen moved between reading and acting: read it again and retry once.
@@ -1316,7 +1355,8 @@ async fn execute(
                                     let mut retry = tool_args.clone();
                                     retry["observation_id"] = json!(obs);
                                     retry["element_id"] = json!(element);
-                                    match Box::pin(super::run_tool(state, tool_name, &retry)).await
+                                    match Box::pin(super::run_tool_logged(state, tool_name, &retry))
+                                        .await
                                     {
                                         Ok(v) => last = Some(v),
                                         Err(e) => {
@@ -1372,6 +1412,10 @@ async fn execute(
             e.message,
             run.again(*n)
         ),
+        Stop::Owner(n, said) => format!(
+            "Ran {name_q} up to step {n} of {total} and stopped: {said} If the user wants to continue later, call {}.",
+            run.again(*n + 1)
+        ),
         Stop::Paused(n) => format!(
             "Ran {name_q} up to step {} of {total} and paused to keep this call short. Call {} to continue.",
             n.saturating_sub(1),
@@ -1387,7 +1431,7 @@ async fn execute(
     }
     // Show the screen as it is now: the last action's answer, or a fresh look.
     let screen = match (&stop, last) {
-        (Stop::Help(..), _) | (_, None) => Box::pin(super::run_tool(
+        (Stop::Help(..), _) | (_, None) => Box::pin(super::run_tool_logged(
             state,
             "observe",
             &json!({ "device_id": device, "screenshot": false }),
@@ -1405,6 +1449,20 @@ async fn execute(
         content.extend(parts.iter().filter(|p| !first_is_headline(p)).cloned());
     }
     Ok(result)
+}
+
+/// How ask_owner's answer starts when the owner tapped Done (`owner_said` in mcp.rs).
+const OWNER_DONE: &str = "The owner says it's done.";
+
+/// The owner's answer from ask_owner's text, without the screen headline after it.
+fn owner_answer(text: &str) -> String {
+    let end = text.find(" The screen after").unwrap_or(text.len());
+    let said = text[..end].trim();
+    if said.is_empty() {
+        "the owner did not say it's done.".into()
+    } else {
+        said.to_owned()
+    }
 }
 
 /// wait_for answers normally on a timeout; these are its words for one.
@@ -1430,7 +1488,7 @@ async fn current(state: &Arc<AppState>, device_id: &str) -> Option<String> {
     if let Some(obs) = state.devices.latest_observation(device_id) {
         return Some(obs.observation_id.clone());
     }
-    Box::pin(super::run_tool(
+    Box::pin(super::run_tool_logged(
         state,
         "observe",
         &json!({ "device_id": device_id, "screenshot": false }),

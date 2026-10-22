@@ -66,6 +66,7 @@ fn shared_policy_cases() {
             approve_every_action: s["approve_every_action"].as_bool().expect("approve"),
             paused: s["paused"].as_bool().expect("paused"),
             remote_approvals: false,
+            files: None,
         };
         let age = field("observation_age_ms");
         let latest = age.as_u64().map(|a| (&observation, now - a));

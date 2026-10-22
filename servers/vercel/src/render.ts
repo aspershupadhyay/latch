@@ -52,6 +52,9 @@ export function readingNote(obs: Observation): string | undefined {
   else if (guessed > 1) parts.push(`${guessed} names guessed (label?)`);
   if (web) parts.push("a web page");
   if (drawn) parts.push("a drawn area (video, camera, map, or game) with no elements inside");
+  const ocr = obs.nodes.filter((n) => n.ocr === true).length;
+  if (ocr === 1) parts.push("1 text read from the picture on the phone (read from picture)");
+  else if (ocr > 1) parts.push(`${ocr} texts read from the picture on the phone (read from picture)`);
   if (shown < 2) parts.push("almost nothing to read");
   let out = "";
   if (parts.length > 0) {
@@ -170,6 +173,7 @@ function nodeLines(obs: Observation): [string, string][] {
     if (node.selected === true) flags.push("selected");
     if (node.heading === true) flags.push("heading");
     if (node.covered === true) flags.push("covered");
+    if (node.ocr === true) flags.push("read from picture");
     if (flags.length > 0) line += ` [${flags.join(",")}]`;
     out.push([node.id, line]);
   }

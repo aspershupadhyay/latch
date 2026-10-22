@@ -31,6 +31,7 @@ fuzz_target!(|data: &[u8]| {
         approve_every_action: flags & 2 == 2,
         paused: flags & 4 == 4,
         remote_approvals: flags & 8 == 8,
+        files: None,
     };
     let ctx = DeviceContext {
         capabilities: &capabilities,

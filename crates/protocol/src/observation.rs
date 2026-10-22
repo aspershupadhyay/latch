@@ -110,6 +110,11 @@ pub struct UiNode {
     /// Since 1.16: drawn under another window of the app (a menu, sheet, or dialog), so a tap lands on that window.
     #[serde(default, skip_serializing_if = "is_false")]
     pub covered: bool,
+    /// Since 1.20 (R67): words the phone read from the screen's pixels with
+    /// on-device text recognition, where the app gives no element (a picture,
+    /// a map, a canvas). A tap on it lands at the centre of `bounds`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ocr: bool,
 }
 
 /// Where an element sits in a list or grid: `index` counts from 0; `count` is the list's length when known.
@@ -152,6 +157,7 @@ impl Default for UiNode {
             actions: Vec::new(),
             label: None,
             covered: false,
+            ocr: false,
         }
     }
 }

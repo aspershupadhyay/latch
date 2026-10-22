@@ -439,6 +439,26 @@
         }
       ]
     },
+    "FileAccess": {
+      "description": "The file places the owner shares (since 1.20, R67), so an AI knows what\n`list_files` can reach before it asks. Downloads (the files Latch saved) is\nalways reachable while file reading is on.",
+      "type": "object",
+      "properties": {
+        "folders": {
+          "description": "How many folders the owner shares in Latch → Access → Files.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "photos": {
+          "description": "Photos are switched on in Latch and allowed by Android.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "photos",
+        "folders"
+      ]
+    },
     "Hello": {
       "description": "First message on every device connection.",
       "type": "object",
@@ -553,6 +573,17 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "files": {
+          "description": "Since 1.20 (R67): which file places the owner shares with the AI.\nAbsent from older phones.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileAccess"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "paused": {
           "description": "When true the owner paused the session; commands are refused.",

@@ -22,6 +22,7 @@ import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
 import io.github.aspershupadhyay.latch.protocol.Command
 import io.github.aspershupadhyay.latch.protocol.CommandEnvelope
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
+import io.github.aspershupadhyay.latch.protocol.FileAccess
 import io.github.aspershupadhyay.latch.protocol.HelloMessage
 import io.github.aspershupadhyay.latch.protocol.Outgoing
 import io.github.aspershupadhyay.latch.protocol.Protocol
@@ -227,6 +228,10 @@ class SessionController(
 
     private fun sessionInfo() = SessionInfo(
         expiresAtMs, settings.preferences.value.approveEveryAction, paused, settings.preferences.value.remoteApprovals,
+        files = files?.let {
+            val preferences = settings.preferences.value
+            FileAccess(photos = preferences.photosOn && it.photosAllowed(), folders = preferences.folders.size)
+        },
     )
 
     private fun wireCapabilities() = capabilityStatuses().map { (c, s) -> CapabilityState(c.wire, s.wire) }
@@ -711,6 +716,13 @@ class SessionController(
                 if (approvals.answerRemote(nonce, choice)) log.add(ActivityKind.APPROVAL, "Answered in the AI app: $choice", by = ActivityActor.AI)
             }
         }
+
+        // R67: refusals the gateway decided on its own belong in the owner's history too.
+        override fun refused(tool: String, code: ErrorCode) {
+            scope.launch {
+                if (wanted) log.add(ActivityKind.REFUSAL, "Refused before reaching the phone: ${tool.replace('_', ' ')} (${refusalReason(code)})", by = ActivityActor.AI)
+            }
+        }
     }
 
     /**
@@ -753,6 +765,8 @@ class SessionController(
         override fun cancel(commandId: String) = linkEvents.cancel(commandId)
 
         override fun approvalAnswer(nonce: String, choice: String) = linkEvents.approvalAnswer(nonce, choice)
+
+        override fun refused(tool: String, code: ErrorCode) = linkEvents.refused(tool, code)
     }
 
     /** Tells a 1.4 gateway the phone waits for the owner; it may ask in the AI app too. */
@@ -839,18 +853,18 @@ class SessionController(
             Outgoing.ok(envelope.id, data)
         } catch (e: ProtocolException) {
             if (e.code != ErrorCode.USER_DENIED && e.code != ErrorCode.CONFIRMATION_EXPIRED) {
-                log.add(ActivityKind.REFUSAL, "Refused ${envelope.command.name}: ${e.code.wire}")
+                log.add(ActivityKind.REFUSAL, "Refused: ${describe(envelope.command)} (${refusalReason(e.code)})")
             }
             Outgoing.error(envelope.id, e.code, e.message ?: e.code.wire)
         } catch (e: TimeoutCancellationException) {
-            log.add(ActivityKind.REFUSAL, "Ran out of time: ${envelope.command.name}")
+            log.add(ActivityKind.REFUSAL, "Ran out of time: ${describe(envelope.command)}")
             Outgoing.error(envelope.id, ErrorCode.DEADLINE_EXCEEDED, "the phone ran out of time")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
             // The kind of failure only, never a path or screen text.
             Crashes.record(e)
-            log.add(ActivityKind.REFUSAL, "Could not finish ${envelope.command.name}: ${e.javaClass.simpleName}")
+            log.add(ActivityKind.REFUSAL, "Could not finish: ${describe(envelope.command)} (${e.javaClass.simpleName})")
             Outgoing.error(envelope.id, ErrorCode.INTERNAL, "the phone could not finish this (${e.javaClass.simpleName}); observe and try again")
         }
     }

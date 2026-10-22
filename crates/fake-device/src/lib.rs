@@ -15,10 +15,10 @@ use futures_util::{SinkExt, StreamExt};
 use latch_protocol::{
     ActionEffect, ActionResult, ActivityActor, ActivityEntry, ActivityKind, ActivityList,
     AdbJobState, AdbResult, AppList, Capability, CapabilityState, CapabilityStatus, Command,
-    CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway, ErrorCode,
-    GatewayToDevice, GlobalAction, Hello, NetworkKind, Observation, Orientation, Outcome,
-    OwnerReply, PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo, Screenshot, SessionInfo,
-    Target, WaitResult, validate,
+    CommandEnvelope, ControlLevel, DeviceDescriptor, DeviceInfo, DeviceStatus, DeviceToGateway,
+    ErrorCode, FileAccess, GatewayToDevice, GlobalAction, Hello, NetworkKind, Observation,
+    Orientation, Outcome, OwnerReply, PROTOCOL_VERSION, PhoneControl, ProtocolError, ScreenInfo,
+    Screenshot, SessionInfo, Target, WaitResult, validate,
 };
 use screens::{Effect, Phone, Screen};
 
@@ -77,6 +77,8 @@ pub struct FakeState {
     pub transfer_delay_ms: u64,
     /// Every `clipboard.set` text.
     pub clipboard: Vec<String>,
+    /// Every refusal the gateway reported (protocol 1.20): tool and code.
+    pub refusals: Vec<(String, ErrorCode)>,
     /// Every `task.done` summary (empty when none was given).
     pub tasks_done: Vec<String>,
     /// Every `device.control` the phone carried out (protocol 1.11).
@@ -360,6 +362,10 @@ impl FakeState {
                 approve_every_action: false,
                 paused: false,
                 remote_approvals: false,
+                files: Some(FileAccess {
+                    photos: true,
+                    folders: 1,
+                }),
             },
             approval: Approval::Approve,
             approval_requests: Vec::new(),
@@ -372,6 +378,7 @@ impl FakeState {
             jobs: Vec::new(),
             transfer_delay_ms: 0,
             clipboard: Vec::new(),
+            refusals: Vec::new(),
             tasks_done: Vec::new(),
             controls: Vec::new(),
             pressed: Vec::new(),
@@ -1067,8 +1074,23 @@ pub fn handle(
                 state.latest = None;
                 return done(state);
             }
-            serde_json::to_value(ActionResult::default())
-                .map_err(|_| err(ErrorCode::Internal, "encode"))
+            // The fake phone has 15 volume steps per stream, like many real ones.
+            let level = match control {
+                PhoneControl::Volume { percent, .. } => {
+                    let step = (u32::from(*percent) * 15 + 50) / 100;
+                    Some(ControlLevel {
+                        step,
+                        max_step: 15,
+                        percent: u8::try_from(step * 100 / 15).unwrap_or(100),
+                    })
+                }
+                _ => None,
+            };
+            serde_json::to_value(ActionResult {
+                level,
+                ..ActionResult::default()
+            })
+            .map_err(|_| err(ErrorCode::Internal, "encode"))
         }
         Command::SetClipboard { text } => {
             state.clipboard.push(text.clone());
@@ -1691,6 +1713,7 @@ pub async fn run(
                 }
             }
             GatewayToDevice::Cancel { .. } | GatewayToDevice::ApprovalAnswer { .. } => {}
+            GatewayToDevice::Refused { tool, code } => lock(&state).refusals.push((tool, code)),
             GatewayToDevice::Revoked { .. } => {
                 lock(&state).revoked = true;
                 break;
@@ -1824,6 +1847,9 @@ pub async fn run_poll(
                     GatewayToDevice::Revoked { .. } => {
                         lock(&state).revoked = true;
                         return Ok(());
+                    }
+                    GatewayToDevice::Refused { tool, code } => {
+                        lock(&state).refusals.push((tool, code));
                     }
                     GatewayToDevice::Cancel { .. }
                     | GatewayToDevice::Welcome { .. }

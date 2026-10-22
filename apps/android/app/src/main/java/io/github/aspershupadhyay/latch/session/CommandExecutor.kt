@@ -49,6 +49,7 @@ import io.github.aspershupadhyay.latch.protocol.SessionInfo
 import io.github.aspershupadhyay.latch.protocol.Target
 import io.github.aspershupadhyay.latch.protocol.WaitResult
 import io.github.aspershupadhyay.latch.protocol.isFileChange
+import io.github.aspershupadhyay.latch.protocol.touchesPixels
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 
@@ -81,7 +82,7 @@ fun describe(command: Command): String = when (command) {
     is Command.TypeText ->
         "Type ${command.text.codePointCount(0, command.text.length)} characters" + if (command.submit) " and press Enter" else ""
     is Command.WaitFor -> if (command.gone) "Wait for text to disappear" else "Wait for text to appear"
-    is Command.ScrollTo -> "Scroll to text"
+    is Command.ScrollTo -> "Scroll to find text"
     is Command.Global -> command.action.description
     Command.ListApps -> "List installed apps"
     is Command.LaunchApp -> if (command.fresh) "Open ${command.packageName} from its first screen" else "Open ${command.packageName}"
@@ -106,6 +107,19 @@ fun describe(command: Command): String = when (command) {
     is Command.TaskDone -> "Say the task is done"
     is Command.DeviceControl -> command.control.description
     is Command.AdbShell -> "Run an ADB shell command"
+}
+
+/** Why something was refused, in the owner's words, for the activity log. Never screen text. */
+fun refusalReason(code: ErrorCode): String = when (code) {
+    ErrorCode.INVALID_REQUEST -> "the request was not valid"
+    ErrorCode.UNSUPPORTED_CAPABILITY -> "this phone cannot do that"
+    ErrorCode.PERMISSION_MISSING -> "a switch or permission is off"
+    ErrorCode.POLICY_REFUSED -> "Latch's rules do not allow it"
+    ErrorCode.SENSITIVE_TARGET -> "a password or other private field"
+    ErrorCode.STALE_OBSERVATION -> "the screen had changed"
+    ErrorCode.TARGET_NOT_FOUND -> "it was not there"
+    ErrorCode.SCREEN_PROTECTED -> "the app blocks screenshots"
+    else -> code.wire.replace('_', ' ')
 }
 
 private fun where(location: FileLocation) = when (location) {
@@ -341,6 +355,8 @@ class CommandExecutor(
 
         val service = bridge.service.value
             ?: throw ProtocolException(ErrorCode.PERMISSION_MISSING, "the Latch accessibility service is switched off")
+        // R67: the same on-phone reader (ADR-032) finds words drawn as pixels for observe, wait_for, and scroll_to.
+        service.textReader = labelReader() as? io.github.aspershupadhyay.latch.accessibility.ScreenTextReader
 
         val action = ActionResult()
         fun files() = files ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot use files")
@@ -394,9 +410,9 @@ class CommandExecutor(
             }
             // Panels open over the app like launching one: the screen comes back below.
             is Command.DeviceControl if command.control !is PhoneControl.Panel -> {
-                PhoneControls.apply(service, command.control)
+                val level = PhoneControls.apply(service, command.control)
                 note(ActivityKind.ACTION, judged ?: describe(command))
-                Protocol.json.encodeToJsonElement(ActionResult.serializer(), action)
+                Protocol.json.encodeToJsonElement(ActionResult.serializer(), action.copy(level = level))
             }
             is Command.SetClipboard -> {
                 service.setClipboard(command.text)
@@ -451,7 +467,7 @@ class CommandExecutor(
                 // What the screen looked like before, so settling can tell when the action took effect.
                 var before = if (envelope.observeAfter?.quietMs != null) service.screenSignature() else 0
                 // Protocol 1.9 `effect`: the screen and app before anything happened, typing included.
-                val untouched = if (envelope.observeAfter != null) service.screenSignature() to service.currentPackage() else null
+                val untouched = if (envelope.observeAfter != null) service.effectSignature() to service.currentPackage() else null
                 var expectChangeMs = EXPECT_CHANGE_MS
                 // R7: taps, swipes, and pinches in an app that always reacts fast wait less for a change.
                 val learnKey = learnKey(command, service.currentPackage())
@@ -483,7 +499,10 @@ class CommandExecutor(
                     is Command.Global -> service.global(command.action)
                     is Command.LaunchApp -> service.launch(command.packageName, command.fresh)
                     is Command.OpenLink -> service.openLink(command.url, command.packageName)
-                    is Command.DeviceControl -> (command.control as? PhoneControl.Panel)?.let { service.openPanel(PhoneControls.panelIntent(it.panel)) }
+                    is Command.DeviceControl -> (command.control as? PhoneControl.Panel)?.let {
+                        PhoneControls.requirePanel(service, it.panel)
+                        service.openPanel(PhoneControls.panelIntent(it.panel))
+                    }
                     is Command.AskOwner -> owner = askOwner(command, envelope)
                     is Command.Share -> files().share(service, command.packageName, command.ids, command.text)
                     is Command.ScrollTo ->
@@ -590,6 +609,11 @@ class CommandExecutor(
     private suspend fun approveFileChange(envelope: CommandEnvelope, session: SessionInfo): String {
         val command = envelope.command
         val files = files ?: throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone cannot use files")
+        // An unknown id is answered before anything is approved or logged as approved.
+        val target = (command as? Command.DeleteFile)?.id ?: (command as? Command.RenameFile)?.id
+        if (target != null && files.nameOf(target) == null) {
+            throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "no file with that id in this session; list files again")
+        }
         val title = when (command) {
             is Command.DeleteFile -> "Delete “${files.nameOf(command.id) ?: "a file"}” from your phone"
             is Command.RenameFile -> "Rename “${files.nameOf(command.id) ?: "a file"}” to “${command.newName}”"
@@ -882,7 +906,13 @@ class CommandExecutor(
             }
         }
         service.cursorStatus("Reading the new screen")
-        val effected = untouched?.let { (signature, pkg) -> result.copy(effect = effectOf(signature, pkg, service.screenSignature(), service.currentPackage())) } ?: result
+        val effected = untouched?.let { (signature, pkg) ->
+            var effect: String? = effectOf(signature, pkg, service.effectSignature(), service.currentPackage())
+            // A touch on a map, video, or picture changes pixels the element list does not show:
+            // the phone cannot tell, so it claims nothing rather than "no change".
+            if (effect == "none" && command.touchesPixels && service.drawnAreaShown()) effect = null
+            result.copy(effect = effect)
+        } ?: result
         return observeSettled(service, after, effected, current)
     }
 

@@ -375,6 +375,19 @@ export class Devices {
     await this.store.lpush(K.queue(deferred.device, deferred.conn), JSON.stringify({ type: "approval_answer", nonce: deferred.nonce, choice }), CONFIRM_DEADLINE_MS);
   }
 
+  /**
+   * Tells a phone that the gateway refused `tool` before it reached the phone,
+   * for the owner's activity log (protocol 1.20, R67). Best effort.
+   */
+  async noteRefusal(requested: string | undefined, tool: string, code: ErrorCode): Promise<void> {
+    try {
+      const { id, live } = await this.resolveDevice(requested);
+      await this.store.lpush(K.queue(id, live.conn), JSON.stringify({ type: "refused", tool, code }), 60_000);
+    } catch {
+      // No phone to tell.
+    }
+  }
+
   async online(): Promise<LiveSummary[]> {
     const records = await this.records();
     const lives = await this.store.mget(records.map((r) => K.live(r.id)));
@@ -634,7 +647,11 @@ export class Devices {
     if (approvalSeen) finish.push({ op: "del", key: K.approval(commandId) });
 
     const outcome = JSON.parse(result) as Outcome;
-    if (outcome.status === "error") throw new ProtocolError(outcome.error.code, outcome.error.message);
+    if (outcome.status === "error") {
+      const error = new ProtocolError(outcome.error.code, outcome.error.message);
+      error.fromPhone = true;
+      throw error;
+    }
     const remember = (observation: Observation) => {
       const { screenshot: _drop, ...withoutScreenshot } = observation;
       finish.push({

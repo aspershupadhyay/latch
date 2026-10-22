@@ -336,7 +336,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const mixed = await client.callTool({ name: "get_activity", arguments: { task: "latest", kinds: ["file"] } });
   assert.ok(mixed.isError && /task cannot be combined/.test(text(mixed)), text(mixed));
   // Roadmap R16: phone controls (same texts as the Rust gateway).
-  assert.equal(text(await client.callTool({ name: "phone_control", arguments: { control: "volume", percent: 40 } })), "Done: Set the media volume to 40%.");
+  assert.equal(text(await client.callTool({ name: "phone_control", arguments: { control: "volume", percent: 40 } })), "Done: Set the media volume to 40%. The phone set step 6 of 15 (40%); its own volume slider may show a slightly different number.");
   const panel = await client.callTool({ name: "phone_control", arguments: { control: "panel", panel: "wifi" } });
   assert.ok(!panel.isError && text(panel).includes("app com.android.settings"), text(panel));
   for (const [args, says] of [
@@ -410,7 +410,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
       { do: "tap", target: "Not now", optional: true },
     ],
   };
-  assert.match(text(await client.callTool({ name: "save_skill", arguments: { skill } })), /^Saved skill "order_groceries" \(5 steps\)/);
+  assert.match(text(await client.callTool({ name: "save_skill", arguments: { skill } })), /^Saved skill "order_groceries" \(5 steps as written; a run numbers every for_each step once per item/);
   assert.match(text(await client.callTool({ name: "list_skills", arguments: {} })), /items: list of \{name, qty\}/);
   let ran = text(await client.callTool({ name: "run_skill", arguments: { name: "order_groceries", params: { items: [{ name: "White bread", qty: 1 }, { name: "Paneer", qty: 3 }] } } }));
   assert.match(ran, /all 8 steps done/);

@@ -97,6 +97,7 @@ fn accept(name: &str, json: &str) -> Result<(), String> {
             GatewayToDevice::ApprovalAnswer { nonce, .. } => {
                 validate::approval_nonce(nonce).map_err(err)?
             }
+            GatewayToDevice::Refused { tool, .. } => validate::refused_tool(tool).map_err(err)?,
             _ => {}
         }
         let reparsed: GatewayToDevice =

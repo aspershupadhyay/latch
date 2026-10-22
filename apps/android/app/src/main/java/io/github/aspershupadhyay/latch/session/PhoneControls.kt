@@ -20,6 +20,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.KeyEvent
 import io.github.aspershupadhyay.latch.protocol.Capability
+import io.github.aspershupadhyay.latch.protocol.ControlLevel
 import io.github.aspershupadhyay.latch.protocol.CapabilityStatus
 import io.github.aspershupadhyay.latch.protocol.DeviceStatus
 import io.github.aspershupadhyay.latch.protocol.ErrorCode
@@ -34,10 +35,13 @@ import kotlin.math.roundToInt
  * flashlight; and settings panels and pages. Only public Android APIs.
  */
 object PhoneControls {
-    /** Applies an off-screen control. Panels open over the app instead: see [panelIntent]. */
-    fun apply(context: Context, control: PhoneControl) {
+    /**
+     * Applies an off-screen control. Panels open over the app instead: see [panelIntent].
+     * Answers the volume step Android actually set, for a volume change.
+     */
+    fun apply(context: Context, control: PhoneControl): ControlLevel? {
         when (control) {
-            is PhoneControl.Volume -> volume(context, control.stream, control.percent)
+            is PhoneControl.Volume -> return volume(context, control.stream, control.percent)
             is PhoneControl.Media -> media(context, control.action)
             is PhoneControl.Brightness -> brightness(context, control.percent)
             is PhoneControl.Flashlight -> flashlight(context, control.on)
@@ -46,6 +50,17 @@ object PhoneControls {
             is PhoneControl.Ringer -> ringer(context, control.mode)
             is PhoneControl.DoNotDisturb -> doNotDisturb(context, control.on)
             is PhoneControl.Panel -> error("panels open as a screen action")
+        }
+        return null
+    }
+
+    /** Refuses a panel this phone cannot show, e.g. NFC on a phone without NFC. */
+    fun requirePanel(context: Context, panel: String) {
+        if (panel == "nfc" && android.nfc.NfcAdapter.getDefaultAdapter(context) == null) {
+            unsupported("this phone has no NFC")
+        }
+        if (panelIntent(panel).resolveActivity(context.packageManager) == null) {
+            unsupported("this phone has no ${panel.replace('_', ' ')} settings panel")
         }
     }
 
@@ -90,7 +105,7 @@ object PhoneControls {
         Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    private fun volume(context: Context, stream: String, percent: Int) {
+    private fun volume(context: Context, stream: String, percent: Int): ControlLevel {
         val audio = context.getSystemService(AudioManager::class.java) ?: unsupported("this phone has no audio service")
         val type = when (stream) {
             "ring" -> AudioManager.STREAM_RING
@@ -100,13 +115,25 @@ object PhoneControls {
         }
         val min = audio.getStreamMinVolume(type)
         val max = audio.getStreamMaxVolume(type)
-        val index = (min + (max - min) * percent / 100.0).roundToInt()
+        // Percent of the whole slider, from 0, the way phones draw it; a stream
+        // with a lowest step above 0 (often the alarm) cannot go below it.
+        val index = (max * percent / 100.0).roundToInt().coerceIn(min, max)
         try {
+            // A muted stream stays silent at any level until it is unmuted.
+            if (index > 0 && audio.isStreamMute(type)) audio.adjustStreamVolume(type, AudioManager.ADJUST_UNMUTE, 0)
             audio.setStreamVolume(type, index, 0)
         } catch (_: SecurityException) {
             // Android refuses ring and notification changes that would turn Do Not Disturb on or off.
             throw ProtocolException(ErrorCode.POLICY_REFUSED, "Android did not allow this volume change while Do Not Disturb is on")
         }
+        val now = audio.getStreamVolume(type)
+        if (index > 0 && (now == 0 || audio.isStreamMute(type))) {
+            throw ProtocolException(
+                ErrorCode.POLICY_REFUSED,
+                "Android kept the $stream volume muted (Do Not Disturb, a silent mode, or a connected device may hold it); nothing changed",
+            )
+        }
+        return ControlLevel(step = now, maxStep = max, percent = if (max > 0) (now * 100.0 / max).roundToInt() else 0)
     }
 
     private fun media(context: Context, action: String) {
