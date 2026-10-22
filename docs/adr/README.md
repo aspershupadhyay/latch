@@ -923,3 +923,28 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Checks:** Rust e2e `files_from_the_phone_reach_the_watching_page_once` (refused while nobody watches and for a stranger, name rules, `file_ready` to the page, download decrypted with the name, second download `404`, QR image and bad key); unit tests for names, `Content-Disposition`, and the scan link. Vercel: the page shows the code (and nothing to type), setup mode shows the step left. Android JVM: `ScanLinkTest` (three kinds, refusals, own-gateway check), `MirrorShareTest` (names). Page helpers (node): key shape, sizes. Headless Chromium: the mirror page shows the code, makes and keeps a key, polls, no console errors. *Needs phone:* scan the mirror page and the relay page; Send files and Share → Send to computer with a large video.
 
 **Rollback:** revert. An older app ignores the new codes (it refuses them as before) and still mirrors with its link; an older page still asks for a code, which the gateway still accepts; a relay without the new page serves the old static one.
+
+## ADR-070 — The `latch` commands live in the gateway; winget installs it as `latch`
+**Status:** accepted (2026-10-22, owner: "go ahead and build latch into the gateway binary for winget") · **Amends:** ADR-068 (winget) · **Protocol:** unchanged
+
+**Problem:** ADR-068 left winget out: winget puts only `.exe` files on the PATH, and the `latch` command was a shell or PowerShell script beside the gateway, so a winget install would have had no keys, no background start, and no `latch start`.
+
+**Decision:**
+- **The gateway has the owner commands** (`servers/mcp/src/owner.rs`): `start`, `run`, `keys`, `autostart on|off|status`, `stop`, `restart`, `logs`, `update`, `uninstall`, and `version`, next to `serve`, `pair`, `status`, and `usb`. Run as `latch` (any name), it is the whole command.
+- **Keys:** made once in `~/.latch/latch.env` (`LATCH_HOME`), readable by the owner only (0600, or `icacls` on Windows), in the format the installers already write, and read back in either. Variables already set in the environment win. The gateway hands the keys over by running itself again with them set, because `unsafe_code` stays forbidden and changing a running process's environment is unsafe in Rust 2024. `pair`, `status`, and `usb` read the saved keys when the environment has none.
+- **Background on Windows:** a script in the owner's Startup folder starts `latch run-background` hidden at log-in. It does nothing once the program is gone. `autostart on` first removes Windows' "downloaded from the internet" mark from the program, as the installer's `Unblock-File` does: winget leaves it on, and Windows would then ask "Open File – Security Warning" at every log-in, where nobody sees it. `autostart on` and `restart` start the gateway through that same entry, not as their own child: on Windows a child inherits handles such as the pipe a caller reads the output from, and that caller would wait forever. `run-background` restarts the gateway after 3 s if it exits, logs to `~/.latch/gateway.log`, and records its process id. `stop` ends that process and every other gateway of this user, but never the one asking. On macOS and Linux, background start stays with the `latch` script (launchd or systemd), which knows Homebrew's paths.
+- **`update` and `uninstall`** name the right command for winget, Scoop, or Homebrew; `uninstall` turns background start off first, and `--all` deletes the keys. `packaging/latch.ps1` now hands every command to the gateway except `update` and `uninstall`, which replace or remove files.
+- **winget:** the manifest installs `latch-gateway.exe` alone with `PortableCommandAlias: latch`. The release workflow installs it with winget itself before publishing. Publishing a release runs `winget.yml`, which submits the manifests to microsoft/winget-pkgs with Microsoft's `wingetcreate`, if the owner set a `WINGET_TOKEN` secret.
+
+**Threat review:**
+- **Keys:** the gateway only gains the right to write its keys file and the owner's own Startup entry, with the same permissions the installers used. Removing the downloaded-file mark applies only to the program's own file, which the owner chose to install and winget checked against its SHA-256. Keys never appear on a command line or in a log, because they are passed through the environment of the child process.
+- **Stopping processes:** `stop` only signals processes named `latch-gateway` or `latch` that belong to this user (on Windows, those the user can end).
+- **winget submission:** the token needs only `public_repo`, is used only on a published, non-beta release, and Microsoft's reviewers check every submission.
+- No network path is added, and full ADB (ADR-046) is unchanged.
+
+**Checks:**
+- **Unit tests:** both key-file formats; keys made once and only readable by the owner; installer detection; the Startup script.
+- **CI:** builds the Windows gateway from the change and runs it alone as `latch.exe` through keys, autostart, restart, stop, and uninstall. The PowerShell installer test uses the same build.
+- **Release workflow:** installs, uses, and uninstalls the winget package with winget.
+
+**Rollback:** the new commands sit beside the old ones. Reverting brings back the script-only `latch`; keys files and Startup entries keep working with either.

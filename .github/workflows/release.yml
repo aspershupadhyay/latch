@@ -6,8 +6,8 @@ name: Release
 # for macOS, Linux, and Windows (archives the packages install), container image
 # on GHCR, Android APK (signed when the signing secrets exist), the Homebrew,
 # Scoop, and winget manifests, SHA256SUMS, an SPDX SBOM, and build-provenance
-# attestations for every artifact. The Homebrew and Scoop packages are installed
-# for real before anything is published, and a pull request brings the new
+# attestations for every artifact. The Homebrew, Scoop, and winget packages are
+# installed for real before anything is published, and a pull request brings the new
 # manifests to main once the release is out (docs/install.md).
 # Run it by hand (Actions -> Release -> Run workflow) for a dry run: everything
 # is built, tested, signed, summed, and given an SBOM, but nothing is pushed,
@@ -91,6 +91,7 @@ jobs:
   homebrew:
     needs: archives
     runs-on: macos-latest
+    timeout-minutes: 20
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
       HOMEBREW_NO_ENV_HINTS: 1
@@ -100,6 +101,7 @@ jobs:
         with: { path: dist, pattern: "archive-*", merge-multiple: true }
       - run: |
           (cd dist && python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          for i in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:8000/ && break; sleep 1; done
           packaging/render.sh "$TAG" dist http://127.0.0.1:8000 pkg
           # Homebrew installs formulae only from a tap: a local one, as `brew tap` would make.
           brew tap-new --no-git latch-ci/test
@@ -121,6 +123,7 @@ jobs:
   scoop:
     needs: archives
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
@@ -131,6 +134,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Process -WindowStyle Hidden python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1' -WorkingDirectory dist
+          foreach ($i in 1..30) { try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/ | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
           Invoke-Expression "& {$(Invoke-RestMethod -UseBasicParsing https://get.scoop.sh)} -RunAsAdmin"
           scoop install .\pkg\bucket\latch.json
           latch version; if ($LASTEXITCODE -ne 0) { throw 'latch version failed' }
@@ -154,6 +158,57 @@ jobs:
           Start-Sleep -Seconds 2
           if (Get-Process -Name latch-gateway -ErrorAction SilentlyContinue) { throw 'the gateway still runs after uninstalling' }
           if (Test-Path (Join-Path $env:USERPROFILE '.latch')) { throw 'uninstall --all left the keys' }
+
+  # And with winget's own local install, as `winget install AspershUpadhyay.Latch` would:
+  # the program alone, on the PATH as `latch`, with the latch commands built in (ADR-070).
+  winget:
+    needs: archives
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with: { path: dist, pattern: "archive-*", merge-multiple: true }
+      - run: packaging/render.sh "$TAG" dist http://127.0.0.1:8000 pkg
+        shell: bash
+      - shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Process -WindowStyle Hidden python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1' -WorkingDirectory dist
+          foreach ($i in 1..30) { try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/ | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw 'winget is not on this runner' }
+          winget --version
+          winget settings --enable LocalManifestFiles
+          $manifest = Join-Path 'pkg\winget\manifests\a\AspershUpadhyay\Latch' $env:TAG.TrimStart('v')
+          winget install --manifest $manifest --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "winget install exited with $LASTEXITCODE" }
+          $latch = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\latch.exe'
+          if (-not (Test-Path $latch)) { throw "winget did not put latch on the PATH ($latch)" }
+          $ErrorActionPreference = 'Continue'
+          & $latch version; if ($LASTEXITCODE -ne 0) { throw 'latch version failed' }
+          & $latch keys
+          $installed = Get-ChildItem -Recurse (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages') -Filter latch-gateway.exe | Select-Object -First 1
+          Write-Host "Downloaded-file mark before autostart: $([bool](Get-Item $installed.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue))"
+          & $latch autostart on
+          Write-Host "Downloaded-file mark after autostart: $([bool](Get-Item $installed.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue))"
+          $up = $false
+          foreach ($i in 1..30) {
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/healthz | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $up) {
+            Get-Content -ErrorAction SilentlyContinue (Join-Path $env:USERPROFILE '.latch\gateway.log')
+            Get-Content -ErrorAction SilentlyContinue (Join-Path ([Environment]::GetFolderPath('Startup')) 'Latch gateway.vbs')
+            Get-Process -Name latch*, wscript -ErrorAction SilentlyContinue | Format-Table Id, Name, Path
+            throw 'the gateway did not answer after latch autostart on'
+          }
+          & $latch status
+          & $latch update
+          & $latch uninstall --all
+          Start-Sleep -Seconds 2
+          if (Get-Process -Name latch, latch-gateway -ErrorAction SilentlyContinue) { throw 'a gateway still runs after latch uninstall' }
+          # Installed from a local manifest, it is found by that manifest, not by id in a source.
+          winget uninstall --manifest $manifest --accept-source-agreements --disable-interactivity
+          if (Test-Path $latch) { throw 'winget uninstall left latch' }
 
   android:
     runs-on: ubuntu-latest
@@ -256,7 +311,7 @@ jobs:
           push-to-registry: true
 
   publish:
-    needs: [gateway, archives, homebrew, scoop, android, container]
+    needs: [gateway, archives, homebrew, scoop, winget, android, container]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -311,5 +366,5 @@ jobs:
             commit -m "Packages: Homebrew and Scoop for Latch $TAG"
           git push origin "$branch"
           gh pr create --base main --head "$branch" --title "Packages: Latch $TAG on Homebrew and Scoop" \
-            --body "The Homebrew formula and Scoop manifest for $TAG, made by the release workflow from the published archives. Merge after publishing the $TAG draft release, so brew install latch and scoop install latch find its files. winget: submit latch-$TAG-winget-manifests.tar.gz from the release to microsoft/winget-pkgs (docs/install.md)." \
+            --body "The Homebrew formula and Scoop manifest for $TAG, made by the release workflow from the published archives. Merge after publishing the $TAG draft release, so brew install latch and scoop install latch find its files. winget: publishing the release runs winget.yml, which submits latch-$TAG-winget-manifests.tar.gz to microsoft/winget-pkgs when the WINGET_TOKEN secret is set (docs/operations/release.md)." \
             || echo "::warning::Could not open the pull request (Settings → Actions → Allow GitHub Actions to create pull requests). The branch $branch holds the manifests."

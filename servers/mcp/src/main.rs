@@ -6,13 +6,26 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use latch_gateway::terminal::{self, PhoneSetup, Style, Summary};
-use latch_gateway::{AppState, Config, mcp, now_ms, router, secret, store::Store, wifi};
+use latch_gateway::{AppState, Config, mcp, now_ms, owner, router, secret, store::Store, wifi};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 const USAGE: &str = "\
 latch-gateway — connect MCP-capable AI clients to phones you control
 
-USAGE:
+USAGE (also as `latch`, e.g. from winget):
+    latch start               Start it with your keys and show the QR code for your phone
+    latch pair [--open]       A new QR code (--open: big, in the browser); approves Find my computer
+    latch status              Running? Version, phones, Wi-Fi address
+    latch usb [--watch]       Phone on a USB cable: the lowest mirror delay (needs adb, USB debugging)
+    latch autostart on|off    Keep it running in the background, also after a restart (Windows;
+                              on macOS and Linux the latch script from Homebrew or the installer)
+    latch stop | restart      Stop it / start the background gateway again
+    latch logs                Follow the background gateway's log
+    latch keys                Where your keys are (made on first use in ~/.latch, LATCH_HOME)
+    latch update              How to update, for the way it was installed
+    latch uninstall [--all]   Background start off; --all also deletes your keys and phones
+    latch version
+
     latch-gateway [serve]     Run the HTTP gateway (MCP at /mcp, phones at /v1/device, console at /)
     latch-gateway stdio       Speak MCP on stdin/stdout and serve phones over HTTP in the background
     latch-gateway pair        Show a new QR code and setup code for a phone on this Wi-Fi
@@ -41,8 +54,7 @@ ENVIRONMENT:
     LATCH_NEARBY            0: turn off Find my computer (linking with no QR code)
     LATCH_NAME              this computer's name in the app's Find my computer list
 
-Installed with install-gateway.sh, the `latch` command wraps these:
-    latch start | pair | status | usb | update | uninstall | autostart on|off | stop | restart | logs
+    LATCH_HOME              where latch start keeps keys, log, and data (default ~/.latch)
     RUST_LOG                log filter (default info)
 ";
 
@@ -74,6 +86,16 @@ fn init_logging() {
 
 fn main() -> ExitCode {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "serve".into());
+    // The `latch` commands (ADR-070): keys from ~/.latch, background start, stop, logs.
+    let rest: Vec<String> = std::env::args().skip(2).collect();
+    if let Some(code) = owner::run(&mode, &rest) {
+        return code;
+    }
+    if matches!(mode.as_str(), "pair" | "status" | "usb")
+        && let Some(code) = owner::with_saved_keys(&mode, &rest)
+    {
+        return code;
+    }
     if mode == "serve" || mode == "stdio" {
         init_logging();
     }
@@ -95,7 +117,7 @@ async fn run(mode: String) -> ExitCode {
             println!("{}", secret::new_token("lgt"));
             return ExitCode::SUCCESS;
         }
-        "--version" | "-V" => {
+        "--version" | "-V" | "version" => {
             println!("latch-gateway {}", env!("CARGO_PKG_VERSION"));
             return ExitCode::SUCCESS;
         }

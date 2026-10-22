@@ -27,11 +27,11 @@ From the first numbered release, the gateway comes as a package, so you install 
 | System | Install | Update |
 |---|---|---|
 | macOS, Linux (Homebrew) | `brew tap aspershupadhyay/latch https://github.com/aspershupadhyay/latch`<br>`brew install latch` | `brew upgrade latch`, then `latch restart` |
+| Windows (winget) | `winget install AspershUpadhyay.Latch` | `latch stop`, `winget upgrade AspershUpadhyay.Latch`, `latch restart` |
 | Windows (Scoop) | `scoop bucket add latch https://github.com/aspershupadhyay/latch`<br>`scoop install latch` | `scoop update latch` |
 
-This repository is the Homebrew tap and the Scoop bucket ([ADR-068](adr/README.md#adr-068--packages-homebrew-and-scoop-from-tagged-releases-one-latch-command-everywhere)): no second repository and no third party. Each release's workflow builds the archives, writes the formula and the manifest with their checksums, and installs both packages on real macOS and Windows machines before anything is published.
+This repository is the Homebrew tap and the Scoop bucket ([ADR-068](adr/README.md#adr-068--packages-homebrew-and-scoop-from-tagged-releases-one-latch-command-everywhere)): no second repository and no third party. winget installs one program, on the PATH as `latch`, because the `latch` commands are built into the gateway itself ([ADR-070](adr/README.md#adr-070--the-latch-commands-live-in-the-gateway-winget-installs-it-as-latch)); Microsoft reviews each version before winget offers it. Each release's workflow builds the archives, writes the manifests with their checksums, and installs all three packages on real macOS and Windows machines before anything is published.
 
-**winget** is not offered yet. It puts only `.exe` files on the PATH, so it would install the gateway without the `latch` command. Its manifests are made with every release and will be submitted once `latch` is built into the gateway itself.
 
 ## Use it
 
@@ -56,7 +56,7 @@ Windows asks once whether to let `latch-gateway` through its firewall: allow it 
 
 ## Remove it
 
-Run `latch uninstall` (add `--all` to delete your keys and paired phones too). With a package, it turns background start off and then hands over: Homebrew removes itself, and on Windows run `scoop uninstall latch` after it. Then remove Latch from your AI app, for example `claude mcp remove latch`.
+Run `latch uninstall` (add `--all` to delete your keys and paired phones too). With a package, it turns background start off and then hands over: Homebrew removes itself, and on Windows it names the command to run after it (`scoop uninstall latch` or `winget uninstall AspershUpadhyay.Latch`). Then remove Latch from your AI app, for example `claude mcp remove latch`.
 
 ## By hand
 

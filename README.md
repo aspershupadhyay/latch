@@ -50,7 +50,7 @@ flowchart LR
   |---|---|
   | macOS, Linux | `curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh \| sh` |
   | Windows (PowerShell) | `irm https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.ps1 \| iex` |
-  | From v0.1.0 | `brew install latch` · `scoop install latch` ([how](docs/install.md#as-a-package-from-v010)) |
+  | From v0.1.0 | `brew install latch` · `winget install AspershUpadhyay.Latch` · `scoop install latch` ([how](docs/install.md#as-a-package-from-v010)) |
 
   Then run `latch start` and, in the app, tap **Scan the QR code**.
 
