@@ -39,6 +39,8 @@ export const RECOVERY_HINTS: Record<ErrorCode, string> = {
 export const RETRYABLE: ReadonlySet<ErrorCode> = new Set(["deadline_exceeded", "device_unavailable", "transport_unavailable"]);
 
 export class ProtocolError extends Error {
+  /** True when the phone itself answered with this error (and so logged it); R67. */
+  fromPhone = false;
   constructor(readonly code: ErrorCode, message: string) {
     super(message);
   }
@@ -78,6 +80,8 @@ export interface SessionInfo {
   expires_at_ms: number; approve_every_action: boolean; paused: boolean;
   /** Since 1.4: the owner lets approvals be answered in the AI app too. */
   remote_approvals?: boolean;
+  /** Since 1.20 (R67): which file places the owner shares. */
+  files?: { photos: boolean; folders: number };
 }
 
 /** Since 1.4: answers to an approval. */
@@ -111,7 +115,7 @@ export interface UiNode {
   checked?: boolean; enabled: boolean; focused: boolean; sensitive: boolean;
   // Since 1.16 (ADR-044): optional facts from the phone's accessibility tree.
   state?: string; hint?: string; selected?: boolean; heading?: boolean; position?: { index: number; count?: number };
-  percent?: number; actions?: string[]; label?: string; covered?: boolean;
+  percent?: number; actions?: string[]; label?: string; covered?: boolean; ocr?: boolean;
 }
 export interface Screenshot { mime: string; width: number; height: number; data_base64: string }
 export interface Observation {
@@ -334,7 +338,7 @@ export interface FileTransfer {
 export type FileLocation = "photos" | "downloads" | "folder";
 export const FILE_LOCATIONS: readonly FileLocation[] = ["photos", "downloads", "folder"];
 export type FileKind = "folder" | "image" | "video" | "file";
-export interface FileItem { id: string; name: string; kind: FileKind; location: FileLocation; mime?: string; size?: number; modified_ms?: number }
+export interface FileItem { id: string; name: string; kind: FileKind; location: FileLocation; mime?: string; size?: number; modified_ms?: number; subfolder?: string }
 export interface FileList { location: FileLocation; folder_name?: string; items: FileItem[]; total: number; next_offset?: number }
 export interface FilePreview { item: FileItem; text?: string; text_truncated?: boolean; image?: Screenshot }
 export interface FileChunk { item: FileItem; offset: number; data_base64: string; eof: boolean }

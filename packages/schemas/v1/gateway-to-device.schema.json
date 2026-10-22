@@ -103,6 +103,27 @@
         "nonce",
         "choice"
       ]
+    },
+    {
+      "description": "Since 1.20 (R67): the gateway refused a tool call before any command\nreached the phone (a password field, a link Latch never opens, a switch\nthat is off, arguments that do not check out). The phone writes it into\nthe owner's activity log, so History and its report miss no refusal.\nContent-free: the tool's name and the error code only. Older phones\ndrop it like any unknown message.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "refused"
+        }
+      },
+      "required": [
+        "type",
+        "tool",
+        "code"
+      ]
     }
   ],
   "$defs": {
@@ -1346,6 +1367,91 @@
         "down",
         "left",
         "right"
+      ]
+    },
+    "ErrorCode": {
+      "description": "Stable machine-readable failure codes.\n\nEvery failure anywhere in the system maps to exactly one of these. Codes\nare part of the public contract: never rename one, only add.",
+      "oneOf": [
+        {
+          "description": "The request was malformed or violated a protocol limit.",
+          "type": "string",
+          "const": "invalid_request"
+        },
+        {
+          "description": "The device does not offer this capability on this platform.",
+          "type": "string",
+          "const": "unsupported_capability"
+        },
+        {
+          "description": "The owner has not enabled a required capability, or an OS permission is missing.",
+          "type": "string",
+          "const": "permission_missing"
+        },
+        {
+          "description": "Policy refused the operation outright.",
+          "type": "string",
+          "const": "policy_refused"
+        },
+        {
+          "description": "The operation targets a password, OTP, or otherwise sensitive element.",
+          "type": "string",
+          "const": "sensitive_target"
+        },
+        {
+          "description": "The screen changed since the referenced observation.",
+          "type": "string",
+          "const": "stale_observation"
+        },
+        {
+          "description": "The referenced element no longer exists or is not actionable.",
+          "type": "string",
+          "const": "target_not_found"
+        },
+        {
+          "description": "The app marked its window as secure; the OS refused capture.",
+          "type": "string",
+          "const": "screen_protected"
+        },
+        {
+          "description": "The owner denied the approval request.",
+          "type": "string",
+          "const": "user_denied"
+        },
+        {
+          "description": "The approval request was not answered in time.",
+          "type": "string",
+          "const": "confirmation_expired"
+        },
+        {
+          "description": "The operation was cancelled before it ran.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "The device did not answer before the deadline.",
+          "type": "string",
+          "const": "deadline_exceeded"
+        },
+        {
+          "description": "No device is connected, the session is paused or stopped, or it ended.",
+          "type": "string",
+          "const": "device_unavailable"
+        },
+        {
+          "description": "More than one device is online and none was named.",
+          "type": "string",
+          "const": "ambiguous_device"
+        },
+        {
+          "description": "A transient transport problem; retrying may help.",
+          "type": "string",
+          "const": "transport_unavailable"
+        },
+        {
+          "description": "A bug in Latch. Please report it with the correlation id.",
+          "type": "string",
+          "const": "internal"
+        }
       ]
     },
     "FileLink": {

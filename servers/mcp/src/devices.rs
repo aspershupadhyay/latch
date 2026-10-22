@@ -422,6 +422,17 @@ impl Registry {
         None
     }
 
+    /// Tells a phone that the gateway refused `tool` before it reached the phone,
+    /// for the owner's activity log (protocol 1.20, R67). Best effort.
+    pub fn note_refusal(&self, device_id: &str, tool: &str, code: ErrorCode) {
+        if let Some(live) = self.lock().get(device_id) {
+            let _ = live.tx.try_send(GatewayToDevice::Refused {
+                tool: tool.to_owned(),
+                code,
+            });
+        }
+    }
+
     /// Tells a device it was revoked and drops its connection. Its commands in
     /// flight fail at once: a revoked phone does not come back.
     pub fn kick(&self, device_id: &str, reason: &str) {
@@ -523,6 +534,12 @@ impl Registry {
         out.sort_by(|a, b| a.device_id.cmp(&b.device_id));
         out
     }
+}
+
+tokio::task_local! {
+    /// Set while a tool call runs; true once the phone itself answered a command
+    /// with an error (and so logged it). Read by the MCP layer (R67).
+    pub static PHONE_ANSWERED: std::sync::Arc<std::sync::atomic::AtomicBool>;
 }
 
 /// Typed result of a successful command.
@@ -853,7 +870,12 @@ async fn execute_inner(
 
     let data = match outcome {
         Outcome::Ok { data } => data,
-        Outcome::Error { error } => return Err((decision, error)),
+        Outcome::Error { error } => {
+            // The phone logged this itself; the gateway must not log it again.
+            let _ =
+                PHONE_ANSWERED.try_with(|f| f.store(true, std::sync::atomic::Ordering::Relaxed));
+            return Err((decision, error));
+        }
     };
     let malformed = |e: serde_json::Error| {
         tracing::warn!(device_id, command = command.name(), error = %e, "malformed device result");
@@ -997,6 +1019,7 @@ mod tests {
             approve_every_action: false,
             paused: false,
             remote_approvals: false,
+            files: None,
         };
         // Phone clock is 4s ahead of the gateway.
         assert_eq!(to_gateway_clock(s, Some(5_000), 1_000).expires_at_ms, 6_000);

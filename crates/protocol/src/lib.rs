@@ -36,9 +36,9 @@ pub use files::{
 };
 pub use message::{
     ActionEffect, ActionResult, AdbJobState, AdbResult, AppEntry, AppList, ApprovalChoice,
-    ApprovalKind, ApprovalRequest, CommandEnvelope, DeviceDescriptor, DeviceInfo, DeviceStatus,
-    DeviceToGateway, GatewayToDevice, Hello, NetworkKind, ObserveAfter, Orientation, Outcome,
-    OwnerReply, SIGNING_CONTEXT, SessionInfo, WaitResult, signing_input,
+    ApprovalKind, ApprovalRequest, CommandEnvelope, ControlLevel, DeviceDescriptor, DeviceInfo,
+    DeviceStatus, DeviceToGateway, FileAccess, GatewayToDevice, Hello, NetworkKind, ObserveAfter,
+    Orientation, Outcome, OwnerReply, SIGNING_CONTEXT, SessionInfo, WaitResult, signing_input,
 };
 pub use observation::{ListPosition, Observation, Rect, ScreenInfo, Screenshot, UiNode};
 

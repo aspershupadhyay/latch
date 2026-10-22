@@ -38,7 +38,7 @@ fn location_schema() -> Value {
     json!({
         "type": "string",
         "enum": ["photos", "downloads", "folder"],
-        "description": "photos: pictures and videos the owner allowed (saving here puts a file in the gallery). downloads: the phone's Download folder. folder: the folders the owner shares in Latch (with several, list_files location folder lists them; pass one's file_id as folder_id)."
+        "description": "photos: pictures and videos the owner allowed (saving here puts a file in the gallery; Android needs no photo permission to save, so saving works even when listing photos is not allowed). downloads: the phone's Download folder, files from every subfolder with the subfolder named (Android shows Latch only files it saved there, and no empty folders). folder: the folders the owner shares in Latch (with several, list_files location folder lists them; pass one's file_id as folder_id)."
     })
 }
 
@@ -294,6 +294,9 @@ pub fn item_text(item: &FileItem) -> String {
     }
     if let Some(mime) = &item.mime {
         parts.push(mime.clone());
+    }
+    if let Some(sub) = &item.subfolder {
+        parts.push(format!("in {}", quote(sub, 60)));
     }
     format!(
         "{} {} ({})",

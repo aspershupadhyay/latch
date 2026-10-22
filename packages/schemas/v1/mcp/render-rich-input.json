@@ -22,7 +22,8 @@
       { "id": "n11", "parent": "n0", "role": "FrameLayout", "description": "Profile", "bounds": { "left": 0, "top": 2260, "right": 540, "bottom": 2400 }, "clickable": true, "selected": true },
       { "id": "n12", "role": "ListView", "bounds": { "left": 600, "top": 300, "right": 1040, "bottom": 700 } },
       { "id": "n13", "parent": "n12", "role": "TextView", "text": "Mute", "bounds": { "left": 600, "top": 300, "right": 1040, "bottom": 400 }, "clickable": true },
-      { "id": "n14", "parent": "n12", "role": "TextView", "text": "Unfollow", "bounds": { "left": 600, "top": 400, "right": 1040, "bottom": 500 }, "clickable": true }
+      { "id": "n14", "parent": "n12", "role": "TextView", "text": "Unfollow", "bounds": { "left": 600, "top": 400, "right": 1040, "bottom": 500 }, "clickable": true },
+      { "id": "n15", "parent": "n0", "role": "Text", "text": "Amar Jawan Jyoti Rd", "bounds": { "left": 200, "top": 1500, "right": 700, "bottom": 1550 }, "ocr": true }
     ],
     "redacted_count": 1,
     "truncated": false

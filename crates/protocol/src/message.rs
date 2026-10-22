@@ -33,6 +33,21 @@ pub struct SessionInfo {
     /// whenever the phone sends an [`ApprovalRequest`] marked `remote`.
     #[serde(default)]
     pub remote_approvals: bool,
+    /// Since 1.20 (R67): which file places the owner shares with the AI.
+    /// Absent from older phones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<FileAccess>,
+}
+
+/// The file places the owner shares (since 1.20, R67), so an AI knows what
+/// `list_files` can reach before it asks. Downloads (the files Latch saved) is
+/// always reachable while file reading is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FileAccess {
+    /// Photos are switched on in Latch and allowed by Android.
+    pub photos: bool,
+    /// How many folders the owner shares in Latch → Access → Files.
+    pub folders: u32,
 }
 
 /// What an approval is about (since 1.4).
@@ -228,6 +243,16 @@ pub enum GatewayToDevice {
         nonce: String,
         choice: ApprovalChoice,
     },
+    /// Since 1.20 (R67): the gateway refused a tool call before any command
+    /// reached the phone (a password field, a link Latch never opens, a switch
+    /// that is off, arguments that do not check out). The phone writes it into
+    /// the owner's activity log, so History and its report miss no refusal.
+    /// Content-free: the tool's name and the error code only. Older phones
+    /// drop it like any unknown message.
+    Refused {
+        tool: String,
+        code: crate::ErrorCode,
+    },
 }
 
 // ---- Typed `Outcome::Ok` payloads, by command ----
@@ -313,6 +338,23 @@ pub struct ActionResult {
     /// the phone after the screen settled. Absent from older apps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect: Option<ActionEffect>,
+    /// `device.control` volume only (since 1.20, R67): the level the phone
+    /// actually set, read back from Android. Absent from older apps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<ControlLevel>,
+}
+
+/// The volume step a phone actually set (since 1.20, R67). Phones have a few
+/// steps per stream (often 7 to 25), so a requested percentage lands on the
+/// nearest step; the phone's own slider may draw that step as another number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ControlLevel {
+    /// The step now set, from 0.
+    pub step: u32,
+    /// The highest step of this stream.
+    pub max_step: u32,
+    /// `step` as a percentage of `max_step`.
+    pub percent: u8,
 }
 
 /// What an action visibly did (since 1.9).

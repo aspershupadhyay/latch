@@ -150,6 +150,37 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * [screenSignature] plus what an action may change without moving or
+     * renaming anything (R67): an element's state ("6%"), a slider's value,
+     * input and D-pad focus, and selection. Used to judge an action's effect,
+     * never for settling, so a playing progress bar does not hold settling up.
+     */
+    fun effectSignature(): Int {
+        var h = screenSignature()
+        val root = rootInActiveWindow ?: return h
+        val queue = ArrayDeque(listOf(root))
+        var seen = 0
+        while (queue.isNotEmpty() && seen < SIGNATURE_NODES) {
+            val node = queue.removeFirst()
+            if (!node.isVisibleToUser) continue
+            seen++
+            h = 31 * h + (node.stateDescription?.hashCode() ?: 0)
+            h = 31 * h + (node.rangeInfo?.current?.hashCode() ?: 0)
+            h = 31 * h + (if (node.isFocused) 1 else 0) + (if (node.isAccessibilityFocused) 2 else 0) + (if (node.isSelected) 4 else 0)
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return if (h == 0) 1 else h
+    }
+
+    /** Whether part of the screen is drawn as pixels the element list cannot follow (a map, a video, a picture). */
+    fun drawnAreaShown(): Boolean {
+        val root = rootInActiveWindow ?: topAppWindowRoot() ?: return false
+        val screen = screenInfo()
+        val tree = readTree(root, root.packageName?.toString(), screen, MAX_SEARCH_NODES)
+        return PixelText.drawnArea(tree.ui.values, screen)
+    }
+
+    /**
      * What the screen says, without positions and without text fields: changes
      * when a search shows results or a message joins a chat, but not when the
      * field the agent typed into grows a line or the layout shifts.
@@ -637,13 +668,18 @@ class LatchAccessibilityService : AccessibilityService() {
         val screen = screenInfo()
         var tree = readTree(root, packageName, screen, maxNodes)
         var screenshot: Screenshot? = null
+        val reader = textReader
         if (includeScreenshot) {
             // The list and the picture must show the same moment (ADR-044): if the screen
             // changed while the screenshot was taken, read the list again to match it.
             val before = screenSignature()
             val shot = withoutCursor { capture() }
             if (screenSignature() != before) tree = readTree(rootInActiveWindow ?: topAppWindowRoot(), packageName, screen, maxNodes)
-            screenshot = encode(shot, if (marks) tree.ui.values.filter(::markable) else emptyList())
+            val picture = softwareBitmap(shot)
+            if (reader != null && PixelText.needed(tree.ui.values, screen)) tree = withPixelText(tree, reader.lines(picture), screen, maxNodes)
+            screenshot = encode(picture, if (marks) tree.ui.values.filter(::markable) else emptyList())
+        } else if (reader != null && PixelText.needed(tree.ui.values, screen)) {
+            tree = withPixelText(tree, readPixels(reader), screen, maxNodes)
         }
 
         observationCounter++
@@ -667,6 +703,52 @@ class LatchAccessibilityService : AccessibilityService() {
         val redacted: Int,
         val truncated: Boolean,
     )
+
+    /** R67: reads words drawn as pixels on the phone (ML Kit); set by the session while the owner allows it. */
+    @Volatile var textReader: ScreenTextReader? = null
+
+    /** The last screen read for words, so a still screen is not read again (and screenshots are not taken too fast). */
+    private var pixelCache: Pair<Int, List<TextLine>>? = null
+
+    /** The words drawn on the screen right now; none when the screen cannot be captured. */
+    private suspend fun readPixels(reader: ScreenTextReader): List<TextLine> {
+        val signature = screenSignature()
+        pixelCache?.takeIf { it.first == signature }?.let { return it.second }
+        val shot = withoutCursor {
+            suspendCancellableCoroutine<ScreenshotResult?> { cont ->
+                takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: ScreenshotResult) = cont.resume(screenshot)
+                    override fun onFailure(errorCode: Int) = cont.resume(null)
+                })
+            }
+        } ?: return emptyList()
+        val picture = runCatching { softwareBitmap(shot) }.getOrNull() ?: return emptyList()
+        return try {
+            reader.lines(picture).also { pixelCache = signature to it }
+        } finally {
+            picture.recycle()
+        }
+    }
+
+    private fun withPixelText(tree: Tree, lines: List<TextLine>, screen: ScreenInfo, maxNodes: Int): Tree {
+        if (lines.isEmpty()) return tree
+        val added = PixelText.nodes(lines, tree.ui.values, screen, statusBarHeight(), tree.ui.size, maxNodes - tree.ui.size)
+        if (added.isEmpty()) return tree
+        val ui = LinkedHashMap(tree.ui)
+        added.forEach { ui[it.id] = it }
+        return Tree(ui, tree.refs, tree.redacted, tree.truncated)
+    }
+
+    /** Whether [text] is drawn on the screen as pixels where the element list has no words (R67). */
+    private suspend fun pixelsShow(text: String): Boolean {
+        val reader = textReader ?: return false
+        val root = rootInActiveWindow ?: topAppWindowRoot()
+        val screen = screenInfo()
+        val tree = readTree(root, root?.packageName?.toString() ?: foregroundPackage, screen, MAX_SEARCH_NODES)
+        if (!PixelText.needed(tree.ui.values, screen)) return false
+        return PixelText.nodes(readPixels(reader), tree.ui.values, screen, statusBarHeight(), 0, PixelText.MAX_LINES)
+            .any { it.text?.contains(text, ignoreCase = true) == true }
+    }
 
     /**
      * The windows of the app in front, top first (ADR-044): a menu, sheet, or
@@ -724,7 +806,7 @@ class LatchAccessibilityService : AccessibilityService() {
                 }
                 val id = "n${ui.size}"
                 val sensitive = Redaction.isSensitive(facts(node))
-                val candidate = toUiNode(node, id, parentId, sensitive, above)
+                val candidate = toUiNode(node, id, parentId, sensitive, above).let { it.copy(bounds = onScreen(it.bounds, screen)) }
                 // Apps like Maps repeat an element in its container, a label, or a twin control:
                 // list it once and hang what the repeat contains on the kept element.
                 if (repeats.repeats(candidate, parentId?.let(ui::get))) {
@@ -743,6 +825,12 @@ class LatchAccessibilityService : AccessibilityService() {
         }
         return Tree(ui, refs, redacted, truncated)
     }
+
+    /** [r] cut to the screen: some apps report elements wider than it (a settings page at 268–1348 on a 1080-px screen). */
+    private fun onScreen(r: Rect, screen: ScreenInfo) = Rect(
+        r.left.coerceIn(0, screen.width), r.top.coerceIn(0, screen.height),
+        r.right.coerceIn(0, screen.width), r.bottom.coerceIn(0, screen.height),
+    )
 
     /** Elements that get their id drawn on a marked screenshot: the ones the AI can act on and reach. */
     private fun markable(n: UiNode): Boolean =
@@ -951,44 +1039,50 @@ class LatchAccessibilityService : AccessibilityService() {
     }
 
     /** The screenshot as WebP or JPEG; with [marks], each element's id drawn at its top-left corner (ADR-044). */
-    private fun encode(shot: ScreenshotResult, marks: List<UiNode>): Screenshot {
+    /** A CPU copy of a screenshot (text recognition and encoding read its pixels); closes the shot. */
+    private fun softwareBitmap(shot: ScreenshotResult): Bitmap {
         val buffer = shot.hardwareBuffer
         try {
             val hardware = Bitmap.wrapHardwareBuffer(buffer, shot.colorSpace)
                 ?: throw ProtocolException(ErrorCode.INTERNAL, "could not read the screenshot")
             val software = hardware.copy(Bitmap.Config.ARGB_8888, false)
             hardware.recycle()
-            // R48: scaled in one pass into a bitmap the marks are drawn on directly, so no
-            // further full-size copy is made.
-            val scale = minOf(1f, MAX_SCREENSHOT_EDGE.toFloat() / max(software.width, software.height))
-            var scaled = if (scale < 1f || marks.isNotEmpty()) {
-                val target = Bitmap.createBitmap((software.width * scale).roundToInt(), (software.height * scale).roundToInt(), Bitmap.Config.ARGB_8888)
-                android.graphics.Canvas(target).drawBitmap(
-                    software,
-                    null,
-                    android.graphics.Rect(0, 0, target.width, target.height),
-                    android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
-                )
-                software.recycle()
-                target
-            } else {
-                software
-            }
-            if (marks.isNotEmpty()) scaled = drawMarks(scaled, marks, scaled.width.toFloat() / screenInfo().width)
-            // Base64 is written while the image is compressed: no copy of the compressed bytes.
-            val out = ByteArrayOutputStream()
-            // Roadmap R6: WebP is about 40 % smaller than JPEG at the same quality; gateways take it since 1.10.
-            val webp = LatchApp.get(this).bridge.gatewayMinor >= WEBP_SINCE_MINOR
-            android.util.Base64OutputStream(out, Base64.NO_WRAP).use { b64 ->
-                scaled.compress(if (webp) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.JPEG, SCREENSHOT_QUALITY, b64)
-            }
-            val mime = if (webp) "image/webp" else "image/jpeg"
-            val result = Screenshot(mime, scaled.width, scaled.height, out.toString(Charsets.US_ASCII.name()))
-            scaled.recycle()
-            return result
+            return software
         } finally {
             buffer.close()
         }
+    }
+
+    /** [software] (recycled here) as the observation's screenshot. */
+    private fun encode(software: Bitmap, marks: List<UiNode>): Screenshot {
+        // R48: scaled in one pass into a bitmap the marks are drawn on directly, so no
+        // further full-size copy is made.
+        val scale = minOf(1f, MAX_SCREENSHOT_EDGE.toFloat() / max(software.width, software.height))
+        var scaled = if (scale < 1f || marks.isNotEmpty()) {
+            val target = Bitmap.createBitmap((software.width * scale).roundToInt(), (software.height * scale).roundToInt(), Bitmap.Config.ARGB_8888)
+            android.graphics.Canvas(target).drawBitmap(
+                software,
+                null,
+                android.graphics.Rect(0, 0, target.width, target.height),
+                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
+            )
+            software.recycle()
+            target
+        } else {
+            software
+        }
+        if (marks.isNotEmpty()) scaled = drawMarks(scaled, marks, scaled.width.toFloat() / screenInfo().width)
+        // Base64 is written while the image is compressed: no copy of the compressed bytes.
+        val out = ByteArrayOutputStream()
+        // Roadmap R6: WebP is about 40 % smaller than JPEG at the same quality; gateways take it since 1.10.
+        val webp = LatchApp.get(this).bridge.gatewayMinor >= WEBP_SINCE_MINOR
+        android.util.Base64OutputStream(out, Base64.NO_WRAP).use { b64 ->
+            scaled.compress(if (webp) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.JPEG, SCREENSHOT_QUALITY, b64)
+        }
+        val mime = if (webp) "image/webp" else "image/jpeg"
+        val result = Screenshot(mime, scaled.width, scaled.height, out.toString(Charsets.US_ASCII.name()))
+        scaled.recycle()
+        return result
     }
 
     /**
@@ -1053,6 +1147,9 @@ class LatchAccessibilityService : AccessibilityService() {
 
     /** Re-reads an element and checks it is still visible, enabled, unmoved, and not sensitive. */
     private fun liveNode(snap: Snapshot, elementId: String): AccessibilityNodeInfo {
+        if (snap.ui[elementId]?.ocr == true) {
+            throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "that is text read from the picture, not an app element: tap it, or use the element it is drawn on")
+        }
         val node = snap.nodes[elementId] ?: throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "no element with that id")
         val planned = snap.ui.getValue(elementId)
         if (planned.sensitive) throw ProtocolException(ErrorCode.SENSITIVE_TARGET, "that element is sensitive")
@@ -1061,8 +1158,9 @@ class LatchAccessibilityService : AccessibilityService() {
         }
         if (Redaction.isSensitive(facts(node))) throw ProtocolException(ErrorCode.SENSITIVE_TARGET, "that element is sensitive")
         if (!node.isEnabled) throw ProtocolException(ErrorCode.TARGET_NOT_FOUND, "that element is disabled")
-        val r = android.graphics.Rect()
-        node.getBoundsInScreen(r)
+        val raw = android.graphics.Rect()
+        node.getBoundsInScreen(raw)
+        val r = onScreen(Rect(raw.left, raw.top, raw.right, raw.bottom), screenInfo())
         val b = planned.bounds
         if (abs(r.left - b.left) > MOVE_TOLERANCE_PX || abs(r.top - b.top) > MOVE_TOLERANCE_PX ||
             abs(r.right - b.right) > MOVE_TOLERANCE_PX || abs(r.bottom - b.bottom) > MOVE_TOLERANCE_PX
@@ -1157,8 +1255,11 @@ class LatchAccessibilityService : AccessibilityService() {
             double -> CursorOverlay.Press.DOUBLE
             else -> CursorOverlay.Press.TAP
         }
-        val (x, y) = when (target) {
-            is Target.Element -> {
+        val pixelWords = (target as? Target.Element)?.let { snap.ui[it.element] }?.takeIf { it.ocr == true }
+        val (x, y) = when {
+            // Words read from the picture have no element to click: press where they were drawn.
+            pixelWords != null -> pixelWords.bounds.centerX to pixelWords.bounds.centerY
+            target is Target.Element -> {
                 val node = liveNode(snap, target.element)
                 val r = android.graphics.Rect()
                 node.getBoundsInScreen(r)
@@ -1178,7 +1279,7 @@ class LatchAccessibilityService : AccessibilityService() {
                 }
                 r.centerX() to r.centerY()
             }
-            is Target.Point -> target.x to target.y
+            else -> (target as Target.Point).x to target.y
         }
         movePillAside(x to y)
         checkGesturePoint(x, y, snap)
@@ -1319,10 +1420,20 @@ class LatchAccessibilityService : AccessibilityService() {
                 holdMs.toLong(),
             )
         }
-        if (holdMs > 0) {
+        if (holdMs > 0 && io.github.aspershupadhyay.latch.policy.Consequences.isTapMovement(listOf(fromX to fromY, toX to toY))) {
+            // Touch and hold in place (drop a pin, open a menu): one finger that stays down,
+            // as gesture with a single point does. A held stroke followed by a zero-length
+            // move was not taken for a long press by apps such as Maps.
+            gesture(fromX, fromY, fromX, fromY, holdMs.toLong() + durationMs)
+        } else if (holdMs > 0) {
             // A drag: hold still first (the app picks the item up), then move without lifting.
+            // A stroke's path needs a segment, so the hold is a zero-length line.
             val hold = GestureDescription.StrokeDescription(
-                Path().apply { moveTo(fromX.toFloat(), fromY.toFloat()) }, 0, holdMs.toLong(), true,
+                Path().apply {
+                    moveTo(fromX.toFloat(), fromY.toFloat())
+                    lineTo(fromX.toFloat(), fromY.toFloat())
+                },
+                0, holdMs.toLong(), true,
             )
             dispatch(GestureDescription.Builder().addStroke(hold).build())
             val move = hold.continueStroke(
@@ -1452,7 +1563,7 @@ class LatchAccessibilityService : AccessibilityService() {
             val current = rootInActiveWindow?.packageName?.toString() ?: foregroundPackage
             refuseRestrictedPackage(current)
             if (current != snap.packageName) throw ProtocolException(ErrorCode.STALE_OBSERVATION, "a different app is in the foreground now")
-            if (showsText(text)) return true
+            if (showsText(text) || pixelsShow(text)) return true
             if (attempt == maxSwipes) return false
             val before = signature(container)
             val screenBefore = screenSignature()
@@ -1465,7 +1576,7 @@ class LatchAccessibilityService : AccessibilityService() {
             awaitSettled(screenBefore, SCROLL_QUIET_MS, SCROLL_MAX_SETTLE_MS, 0, SCROLL_EXPECT_CHANGE_MS)
             if (container?.refresh() == false) container = largestScrollable()
             // Nothing moved: the list is at its end.
-            if (signature(container) == before) return showsText(text)
+            if (signature(container) == before) return showsText(text) || pixelsShow(text)
         }
         return false
     }
@@ -1635,10 +1746,33 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Opens a settings panel over the current app (protocol 1.11). */
-    fun openPanel(intent: Intent) {
+    /**
+     * Opens a settings panel over the current app (protocol 1.11). Android
+     * answers a panel start without saying whether anything showed: a panel
+     * closed with Back can stay behind in its task and not come up again, and
+     * some phones accept a panel they do not draw. So the screen is checked;
+     * the panel starts once more in a fresh task, then the call fails.
+     */
+    suspend fun openPanel(intent: Intent) {
+        val before = screenSignature() to currentPackage()
         invalidate()
-        startActivity(intent)
+        for (attempt in 0..1) {
+            if (attempt == 1) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            try {
+                startActivity(intent)
+            } catch (_: android.content.ActivityNotFoundException) {
+                throw ProtocolException(ErrorCode.UNSUPPORTED_CAPABILITY, "this phone has no such settings panel")
+            }
+            val until = SystemClock.uptimeMillis() + PANEL_SHOW_MS
+            while (SystemClock.uptimeMillis() < until) {
+                kotlinx.coroutines.delay(100)
+                if ((screenSignature() to currentPackage()) != before) return
+            }
+        }
+        throw ProtocolException(
+            ErrorCode.TARGET_NOT_FOUND,
+            "the screen did not change: the phone did not show that panel, or it was already open; call observe to check",
+        )
     }
 
     /** Puts text on the clipboard (protocol 1.7). Latch never reads the clipboard. */
@@ -2027,6 +2161,8 @@ class LatchAccessibilityService : AccessibilityService() {
         /** Time for the Stop pill's window to move before a gesture starts where it was. */
         private const val PILL_MOVE_MS = 60L
         private const val SIGNATURE_NODES = 300
+        /** How long a settings panel may take to show before it counts as not shown. */
+        private const val PANEL_SHOW_MS = 1_500L
         /** What res/xml/latch_accessibility.xml asks for. */
         private const val FULL_EVENTS = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
             AccessibilityEvent.TYPE_VIEW_SCROLLED or AccessibilityEvent.TYPE_WINDOWS_CHANGED or AccessibilityEvent.TYPE_VIEW_CLICKED or

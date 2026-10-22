@@ -151,6 +151,7 @@ impl FakeFiles {
             mime: f.mime.clone(),
             size: (!f.folder).then_some(f.data.len() as u64),
             modified_ms: Some(f.modified_ms),
+            subfolder: None,
         }
     }
 

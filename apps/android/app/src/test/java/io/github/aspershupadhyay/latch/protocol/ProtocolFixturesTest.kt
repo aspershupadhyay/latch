@@ -60,6 +60,11 @@ class ProtocolFixturesTest {
 
         val state = Protocol.json.decodeFromString(StateMessage.serializer(), all.getValue("d2g-state.json"))
         assertTrue(state.session.paused)
+        // Protocol 1.20 (R67): the file places the owner shares.
+        assertEquals(FileAccess(photos = false, folders = 2), state.session.files)
+        val refused = GatewayParser.parse(all.getValue("g2d-refused.json")) as GatewayMessage.Refused
+        assertEquals("type_text", refused.tool)
+        assertEquals(ErrorCode.SENSITIVE_TARGET, refused.code)
 
         val result = Protocol.json.parseToJsonElement(all.getValue("d2g-result-observation.json"))
         val data = (result as kotlinx.serialization.json.JsonObject)["outcome"]!!.let { (it as kotlinx.serialization.json.JsonObject)["data"]!! }

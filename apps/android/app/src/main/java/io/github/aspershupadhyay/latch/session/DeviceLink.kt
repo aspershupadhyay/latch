@@ -4,6 +4,7 @@ package io.github.aspershupadhyay.latch.session
 
 import io.github.aspershupadhyay.latch.protocol.ByeMessage
 import io.github.aspershupadhyay.latch.protocol.CommandEnvelope
+import io.github.aspershupadhyay.latch.protocol.ErrorCode
 import io.github.aspershupadhyay.latch.protocol.GatewayMessage
 import io.github.aspershupadhyay.latch.protocol.GatewayParser
 import io.github.aspershupadhyay.latch.protocol.HelloMessage
@@ -69,6 +70,8 @@ class DeviceLink(
         fun gatewayProtocol(version: String) = Unit
         /** Since 1.4: the owner answered an approval in the AI app. */
         fun approvalAnswer(nonce: String, choice: String) = Unit
+        /** Since 1.20 (R67): the gateway refused [tool] before it reached the phone. */
+        fun refused(tool: String, code: ErrorCode) = Unit
     }
 
     @Volatile private var base = gatewayUrl.trimEnd('/')
@@ -341,6 +344,7 @@ class DeviceLink(
             }
             is GatewayMessage.Cancel -> events.cancel(message.id)
             is GatewayMessage.ApprovalAnswer -> events.approvalAnswer(message.nonce, message.choice)
+            is GatewayMessage.Refused -> events.refused(message.tool, message.code)
             is GatewayMessage.Revoked -> {
                 events.rejected(revoked = true)
                 loop?.cancel()

@@ -178,6 +178,7 @@ export function itemText(item: FileItem): string {
   const parts: string[] = [item.kind];
   if (item.size !== undefined && item.kind !== "folder") parts.push(sizeText(item.size));
   if (item.mime !== undefined) parts.push(item.mime);
+  if (typeof item.subfolder === "string") parts.push(`in ${quote(item.subfolder, 60)}`);
   return `${item.id} ${quote(item.name, 80)} (${parts.join(", ")})`;
 }
 

@@ -1055,7 +1055,7 @@ export const SERVER = {
             "type": "integer"
           },
           "location": {
-            "description": "photos: pictures and videos the owner allowed (saving here puts a file in the gallery). downloads: the phone's Download folder. folder: the folders the owner shares in Latch (with several, list_files location folder lists them; pass one's file_id as folder_id).",
+            "description": "photos: pictures and videos the owner allowed (saving here puts a file in the gallery; Android needs no photo permission to save, so saving works even when listing photos is not allowed). downloads: the phone's Download folder, files from every subfolder with the subfolder named (Android shows Latch only files it saved there, and no empty folders). folder: the folders the owner shares in Latch (with several, list_files location folder lists them; pass one's file_id as folder_id).",
             "enum": [
               "photos",
               "downloads",
@@ -1231,7 +1231,7 @@ export const SERVER = {
             "type": "string"
           },
           "location": {
-            "description": "photos: pictures and videos the owner allowed (saving here puts a file in the gallery). downloads: the phone's Download folder. folder: the folders the owner shares in Latch (with several, list_files location folder lists them; pass one's file_id as folder_id).",
+            "description": "photos: pictures and videos the owner allowed (saving here puts a file in the gallery; Android needs no photo permission to save, so saving works even when listing photos is not allowed). downloads: the phone's Download folder, files from every subfolder with the subfolder named (Android shows Latch only files it saved there, and no empty folders). folder: the folders the owner shares in Latch (with several, list_files location folder lists them; pass one's file_id as folder_id).",
             "enum": [
               "photos",
               "downloads",
@@ -1524,7 +1524,7 @@ export const SERVER = {
             "type": "string"
           },
           "from_step": {
-            "description": "Continue from this step number (from a stopped run's answer).",
+            "description": "Continue from this step number, as a stopped run's answer numbers it (every for_each step counts once per item).",
             "minimum": 1,
             "type": "integer"
           },
@@ -1562,7 +1562,7 @@ export const SERVER = {
             "type": "string"
           },
           "from_step": {
-            "description": "Continue from this step number (from a stopped run's answer).",
+            "description": "Continue from this step number, as a stopped run's answer numbers it (every for_each step counts once per item).",
             "minimum": 1,
             "type": "integer"
           },

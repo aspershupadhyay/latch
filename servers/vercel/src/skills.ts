@@ -135,8 +135,9 @@ function validateStep(step: unknown, top: boolean, lists: string[]): Obj {
   if (!isObj(step)) return fail("each step must be an object");
   if (step.for_each !== undefined) {
     if (!top) fail("for_each cannot be nested");
+    if (step.do !== undefined) fail("a step has either do or for_each, not both; put the repeated steps under steps");
     for (const key of sortedKeys(step)) {
-      if (!["for_each", "steps", "note"].includes(key)) fail(`unknown for_each field '${cut(key, 32)}'`);
+      if (!["for_each", "steps", "note"].includes(key)) fail(`unknown for_each field '${cut(key, 32)}' (a for_each step takes for_each, steps, and note)`);
     }
     const list = typeof step.for_each === "string" ? step.for_each : "";
     if (!lists.includes(list)) fail(`for_each must name a list param (got '${cut(list, 32)}')`);
@@ -147,6 +148,7 @@ function validateStep(step: unknown, top: boolean, lists: string[]): Obj {
     return clean;
   }
   const kind = typeof step.do === "string" ? step.do : "";
+  if (kind === "" && step.steps !== undefined) fail("a step with steps needs for_each: <list param>");
   if (!KINDS.includes(kind)) fail(`each step needs do: one of ${KINDS.join(", ")}, or for_each`);
   const allowed = KIND_FIELDS[kind]!;
   for (const key of sortedKeys(step)) {
@@ -483,6 +485,9 @@ function summaryLine(skill: Obj): string {
   return `- ${skill.name as string} ${quote(skill.description as string, 300)} (params: ${params.length === 0 ? "none" : params.join("; ")})`;
 }
 
+/** Said wherever a skill with for_each is counted (LOOP_NUMBERING in skills.rs). */
+const LOOP_NUMBERING = " as written; a run numbers every for_each step once per item, and from_step uses the run's numbers";
+
 function stepCount(skill: Obj): number {
   return (skill.steps as Obj[]).reduce((sum, st) => sum + (Array.isArray(st.steps) ? st.steps.length : 1), 0);
 }
@@ -516,7 +521,8 @@ export async function runStore(store: Store, name: string, args: Record<string, 
       throw bad(`this gateway already keeps ${MAX_SKILLS} skills; delete one first`);
     }
     await store.hset(KEY, skillName, JSON.stringify(skill));
-    return textResult(`${replaced ? "Replaced" : "Saved"} skill ${quote(skillName, 40)} (${stepCount(skill)} steps). Run it with run_skill and new params.`);
+    const numbering = (skill.steps as Obj[]).some((st) => st.for_each !== undefined) ? LOOP_NUMBERING : "";
+    return textResult(`${replaced ? "Replaced" : "Saved"} skill ${quote(skillName, 40)} (${stepCount(skill)} steps${numbering}). Run it with run_skill and new params.`);
   }
   if (name === "list_skills") {
     if (args.starters === true) return textResult(startersText());
@@ -558,9 +564,17 @@ type Stop =
   | { kind: "help"; n: number; why: string }
   | { kind: "failed"; n: number; error: ProtocolError }
   | { kind: "paused"; n: number }
+  | { kind: "owner"; n: number; said: string }
   | { kind: "waiting"; n: number; result: ToolResult };
 
 const firstText = (v: ToolResult) => v.content?.[0]?.text ?? "";
+/** How ask_owner's answer starts when the owner tapped Done (ownerSaid in mcp.ts). */
+const OWNER_DONE = "The owner says it's done.";
+const ownerAnswer = (t: string) => {
+  const end = t.indexOf(" The screen after");
+  const said = (end < 0 ? t : t.slice(0, end)).trim();
+  return said === "" ? "the owner did not say it's done." : said;
+};
 const timedOut = (t: string) => t.includes(" did not appear within ") || t.includes(" was still on screen after ");
 const isHeadline = (part: { text?: string }) => typeof part.text === "string" && part.text.endsWith("The screen after the action:");
 
@@ -580,7 +594,7 @@ export async function runSkill(ctx: RunContext, args: Record<string, unknown>): 
   const steps = asProtocol(() => expand(skill, args.params));
   return executeSteps(ctx, args, steps, {
     what: quote(skillName, 40),
-    again: (from) => `run_skill with from_step ${from} and the same params`,
+    again: (from) => `run_skill with from_step ${from} (this run's step numbers) and the same params`,
     differs: "The screen may differ from when the skill was saved (another product, a new pop-up).",
   });
 }
@@ -662,6 +676,12 @@ async function executeSteps(ctx: RunContext, args: Record<string, unknown>, step
       if (simple[0] === "wait_for" && timedOut(firstText(v)) && !optional) {
         stop = { kind: "help", n, why: `${quote(s("text"), 60)} did not appear in time` };
         break;
+      }
+      if (simple[0] === "ask_owner") {
+        const said = firstText(v);
+        if (!said.startsWith(OWNER_DONE)) { stop = { kind: "owner", n, said: ownerAnswer(said) }; break; }
+        lines.push(`${n}. ✓ ${label(step)} → the owner tapped Done`);
+        continue;
       }
       lines.push(`${n}. ✓ ${label(step)}`);
       continue;
@@ -745,6 +765,9 @@ async function executeSteps(ctx: RunContext, args: Record<string, unknown>, step
     case "failed":
       head = `Ran ${nameQ} up to step ${stop.n} of ${total} and stopped: ${stop.error.code}: ${stop.error.message}. Tell the user; if they want to continue, fix the cause and ` +
         `call ${run.again(stop.n)}.`;
+      break;
+    case "owner":
+      head = `Ran ${nameQ} up to step ${stop.n} of ${total} and stopped: ${stop.said} If the user wants to continue later, call ${run.again(stop.n + 1)}.`;
       break;
     case "paused":
       head = `Ran ${nameQ} up to step ${Math.max(stop.n - 1, 0)} of ${total} and paused to keep this call short. Call ${run.again(stop.n)} to continue.`;

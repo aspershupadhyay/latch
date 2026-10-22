@@ -125,7 +125,7 @@ class PhoneFiles(
         else -> "file"
     }
 
-    private fun item(entry: Entry, size: Long?, modified: Long?) = FileItem(
+    private fun item(entry: Entry, size: Long?, modified: Long?, place: String? = entry.subfolder) = FileItem(
         id = idFor(entry),
         name = entry.name,
         kind = kindOf(entry.folder, entry.mime),
@@ -133,6 +133,7 @@ class PhoneFiles(
         mime = entry.mime,
         size = if (entry.folder) null else size,
         modifiedMs = modified,
+        subfolder = if (entry.location == FileLocation.FOLDER) null else place,
     )
 
     // ---- Permissions ----
@@ -210,14 +211,20 @@ class PhoneFiles(
         val projection = mediaProjection(
             location,
             MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE,
-            MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.MediaColumns.RELATIVE_PATH,
         )
         val items = mutableListOf<FileItem>()
         resolver.query(collection, projection, queryArgs, null)?.use { c ->
             while (c.moveToNext() && items.size < limit) {
-                val type = if (location == FileLocation.PHOTOS) c.getInt(5) else MediaStore.Files.FileColumns.MEDIA_TYPE_NONE
-                val entry = Entry(contentUriFor(location, c.getLong(0), type), location, false, c.getString(1) ?: "file", c.getString(2))
-                items += item(entry, c.getLong(3), c.getLong(4) * 1000)
+                val type = if (location == FileLocation.PHOTOS) c.getInt(6) else MediaStore.Files.FileColumns.MEDIA_TYPE_NONE
+                // Downloads lists files from every subfolder; say which one, so two files of the same name differ.
+                val place = subfolderOf(location, c.getString(5))
+                val own = c.getString(5)?.let { relative ->
+                    val top = if (location == FileLocation.DOWNLOADS) "Download/" else "Pictures/"
+                    relative.removePrefix(top).trimEnd('/').takeIf { it.isNotEmpty() && '/' !in it && relativePath(location, it) == relative }
+                }
+                val entry = Entry(contentUriFor(location, c.getLong(0), type), location, false, c.getString(1) ?: "file", c.getString(2), own)
+                items += item(entry, c.getLong(3), c.getLong(4) * 1000, place)
             }
         }
         val end = offset + items.size
@@ -394,6 +401,11 @@ class PhoneFiles(
         fail(ErrorCode.PERMISSION_MISSING, "Latch may no longer read that file")
     } catch (_: java.io.FileNotFoundException) {
         fail(ErrorCode.TARGET_NOT_FOUND, "the file is gone; list files again")
+    } catch (_: IllegalArgumentException) {
+        // A folder provider's answer for a document that moved (its folder was renamed) or is gone.
+        fail(ErrorCode.TARGET_NOT_FOUND, "the file moved or is gone; list files again")
+    } catch (_: IllegalStateException) {
+        fail(ErrorCode.TARGET_NOT_FOUND, "the file moved or is gone; list files again")
     }
 
     @Synchronized
@@ -435,6 +447,13 @@ class PhoneFiles(
                 ?.let { idFor(folderEntry(tree, it)) }
         }
         else -> findMedia(location, subfolder, name)?.let(::idFor)
+    }
+
+    /** `Download/LatchQA/` → `LatchQA`; photos keep their whole place, e.g. `DCIM/Camera`. Null at the top. */
+    private fun subfolderOf(location: FileLocation, relative: String?): String? {
+        val path = relative?.trim('/') ?: return null
+        val inside = if (location == FileLocation.DOWNLOADS) path.removePrefix("Download").trimStart('/') else path
+        return inside.takeIf { it.isNotEmpty() }
     }
 
     private fun relativePath(location: FileLocation, subfolder: String?): String =
@@ -653,6 +672,8 @@ class PhoneFiles(
             fail(ErrorCode.PERMISSION_MISSING, "Latch may no longer read that file")
         } catch (_: java.io.FileNotFoundException) {
             fail(ErrorCode.TARGET_NOT_FOUND, "the file is gone; list files again")
+        } catch (_: IllegalArgumentException) {
+            fail(ErrorCode.TARGET_NOT_FOUND, "the file moved or is gone; list files again")
         } ?: fail(ErrorCode.TARGET_NOT_FOUND, "the file could not be opened")
         return Triple(item(entry, size, null), size, input)
     }
@@ -703,10 +724,45 @@ class PhoneFiles(
             }
             Entry(entry.uri, entry.location, false, displayName(entry.uri) ?: newName, entry.mime, entry.subfolder)
         }
-        entries.remove(id)
+        // The renamed file or folder keeps its id; ids issued inside a renamed folder follow it.
         idsByUri.remove(entry.uri.toString())
+        idsByUri[renamed.uri.toString()] = id
+        entries[id] = renamed
         if (entry.uri.toString() in written) written += renamed.uri.toString()
+        if (entry.folder) moveChildren(entry.uri, renamed.uri)
         return item(renamed, sizeOf(renamed.uri), System.currentTimeMillis())
+    }
+
+    /**
+     * After a folder rename, points the ids of everything inside it at the new
+     * place. Folder providers that name documents by path (the phone's own
+     * storage, SD cards) give children a new document id; for those the old id
+     * is rewritten. Any other child id is closed, so using it answers
+     * target_not_found instead of failing inside the provider.
+     */
+    private fun moveChildren(old: Uri, new: Uri) {
+        val oldDoc = runCatching { DocumentsContract.getDocumentId(old) }.getOrNull() ?: return
+        val newDoc = runCatching { DocumentsContract.getDocumentId(new) }.getOrNull() ?: return
+        val tree = treeOf(new)
+        for ((childId, child) in entries.entries.toList()) {
+            if (child.location != FileLocation.FOLDER || child.uri.authority != old.authority) continue
+            val doc = runCatching { DocumentsContract.getDocumentId(child.uri) }.getOrNull() ?: continue
+            if (!doc.startsWith("$oldDoc/")) continue
+            idsByUri.remove(child.uri.toString())
+            val moved = if (oldDoc != newDoc && tree != null) {
+                DocumentsContract.buildDocumentUriUsingTree(tree, newDoc + doc.removePrefix(oldDoc))
+            } else {
+                null
+            }
+            if (moved == null) {
+                entries.remove(childId)
+                continue
+            }
+            val wasWritten = written.remove(child.uri.toString())
+            entries[childId] = Entry(moved, child.location, child.folder, child.name, child.mime, child.subfolder)
+            idsByUri[moved.toString()] = childId
+            if (wasWritten) written += moved.toString()
+        }
     }
 
     @Synchronized

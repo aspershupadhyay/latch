@@ -880,6 +880,15 @@ fn check_text(name: &str, value: &str, max: usize) -> Result<(), ProtocolError> 
 }
 
 /// Checks an approval answer for the phone (since 1.4).
+/// Since 1.20 (R67): a refused tool's name, as `refused` carries it: 1–32 of `a-z` and `_`.
+pub fn refused_tool(tool: &str) -> Result<(), ProtocolError> {
+    if (1..=32).contains(&tool.len()) && tool.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
+        Ok(())
+    } else {
+        Err(invalid("tool must be a tool name"))
+    }
+}
+
 pub fn approval_nonce(nonce: &str) -> Result<(), ProtocolError> {
     if nonce.len() == 32
         && nonce

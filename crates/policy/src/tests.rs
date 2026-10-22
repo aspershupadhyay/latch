@@ -85,6 +85,7 @@ fn session() -> SessionInfo {
         approve_every_action: false,
         paused: false,
         remote_approvals: false,
+        files: None,
     }
 }
 

@@ -5,7 +5,7 @@
 // test/ hold both to packages/schemas/v1/mcp.
 
 import { SERVER } from "./generated/contract.js";
-import { renderLatestTask } from "./replay.js";
+import { renderLatestTaskLimited } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ADB_PLATFORM_MAX_MS, ApprovalDeferred, COMMAND_DEADLINE_MS, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
 import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type AdbShellParams, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
@@ -186,9 +186,13 @@ async function callTool(ctx: McpContext, name: string, args: Record<string, unkn
   // Reject unexpected arguments so typos do not silently change behaviour.
   const allowed = Object.keys(tool.inputSchema.properties);
   const extra = Object.keys(args).find((k) => !allowed.includes(k));
-  if (extra !== undefined) return toolError(bad(`unexpected argument '${truncate(extra, 32)}'`));
+  if (extra !== undefined) {
+    const error = bad(`unexpected argument '${truncate(extra, 32)}'`);
+    await noteRefusal(ctx, name, args, error);
+    return toolError(error);
+  }
   try {
-    return name === "answer_approval" ? await answerApproval(ctx, args) : await runTool(ctx, name, args);
+    return name === "answer_approval" ? await answerApproval(ctx, args) : await runToolLogged(ctx, name, args);
   } catch (e) {
     if (e instanceof ApprovalDeferred) {
       await ctx.devices.saveDeferred(e.request.command_id, {
@@ -215,6 +219,29 @@ async function answerApproval(ctx: McpContext, args: Record<string, unknown>): P
   await ctx.devices.dropDeferred(requestId);
   // The phone applies the answer (or already had one from the owner) and finishes the command.
   return runTool({ ...ctx, askOwner: undefined, deferWhenAsked: false, resumeCommandId: requestId }, deferred.tool, deferred.args);
+}
+
+/** Errors about reaching the phone, which are not refusals. */
+const NOT_REFUSALS = new Set(["device_unavailable", "ambiguous_device", "transport_unavailable", "deadline_exceeded", "cancelled"]);
+
+/**
+ * A refusal decided here, before any command reached the phone, goes into the
+ * phone's activity log (protocol 1.20, R67): the tool's name and the code,
+ * never its arguments. `note_refusal` in mcp.rs.
+ */
+async function noteRefusal(ctx: McpContext, name: string, args: Record<string, unknown>, error: ProtocolError): Promise<void> {
+  if (error.fromPhone || NOT_REFUSALS.has(error.code)) return;
+  await ctx.devices.noteRefusal(typeof args.device_id === "string" ? args.device_id : undefined, name, error.code);
+}
+
+/** runTool, logging a refusal it decides without the phone; skills run their steps through this too. */
+async function runToolLogged(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
+  try {
+    return await runTool(ctx, name, args);
+  } catch (e) {
+    if (e instanceof ProtocolError) await noteRefusal(ctx, name, args, e);
+    throw e;
+  }
 }
 
 async function runTool(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -249,7 +276,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     return (name === "run_skill" ? runSkill : runSteps)({
       store: ctx.skills,
       deviceId,
-      act: async (tool, toolArgs) => (await runTool(ctx, tool, toolArgs)) as Awaited<ReturnType<RunContext["act"]>>,
+      act: async (tool, toolArgs) => (await runToolLogged(ctx, tool, toolArgs)) as Awaited<ReturnType<RunContext["act"]>>,
       latest: () => ctx.devices.latestObservation(deviceId),
       deferred: async (e, tool, toolArgs) => {
         await ctx.devices.saveDeferred(e.request.command_id, {
@@ -355,9 +382,11 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     if (task !== undefined && task !== null) {
       if (task !== "latest") throw bad('task must be "latest"');
       if ((args.kinds ?? null) !== null || (args.since_ms ?? null) !== null) throw bad("task cannot be combined with kinds or since_ms");
+      const limit = args.limit ?? null;
+      if (limit !== null && (!Number.isInteger(limit) || (limit as number) < 1)) throw bad("limit must be positive");
       // The whole recent log: a task is cut from every kind of entry.
       const run = await execute(ctx, deviceId, { name: "activity.list", params: { limit: LIMITS.maxActivityEntries } });
-      return withTiming(textResult(renderLatestTask(run.data as ActivityList)), run.timing);
+      return withTiming(textResult(renderLatestTaskLimited(run.data as ActivityList, limit === null ? undefined : (limit as number))), run.timing);
     }
     const kinds = args.kinds;
     if (kinds !== undefined && kinds !== null && (!Array.isArray(kinds) || kinds.some((k) => !(ACTIVITY_KINDS as readonly unknown[]).includes(k)))) {
@@ -411,7 +440,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     const control = phoneControl(args);
     if (control.kind !== "panel") {
       const run = await execute(ctx, deviceId, { name: "device.control", params: { control } });
-      return withTiming(textResult(`Done: ${describeControl(control)}.`), run.timing);
+      return withTiming(textResult(`Done: ${describeControl(control)}.${levelText(run.data)}`), run.timing);
     }
   }
   if (name === "finish_task") {
@@ -589,6 +618,13 @@ const SETTLE_MAX_MS = 1_500;
 const QUIET_MS = 150;
 
 /** What the owner answered to `ask_owner`, for the AI (same text as the Rust gateway). */
+/** The volume step the phone actually set (protocol 1.20, R67); `level_text` in mcp.rs. */
+function levelText(data: unknown): string {
+  const level = (data as { level?: { step?: unknown; max_step?: unknown; percent?: unknown } } | null)?.level;
+  if (!level || !Number.isInteger(level.step) || !Number.isInteger(level.max_step) || !Number.isInteger(level.percent)) return "";
+  return ` The phone set step ${level.step as number} of ${level.max_step as number} (${level.percent as number}%); its own volume slider may show a slightly different number.`;
+}
+
 function ownerSaid(reply: unknown): string {
   if (reply === "done") return "The owner says it's done.";
   if (reply === "cant") return "The owner says they can't do it now. Do not ask again; tell the user and stop or find another way.";
@@ -792,12 +828,20 @@ export async function renderDevices(devices: Devices): Promise<string> {
       const enabled = live.capabilities.filter((c) => c.status === "enabled").map((c) => c.capability);
       out += `- ${d.id} "${truncate(d.name, 40)}" (${live.platform} ${live.os_version}, ${truncate(live.model, 40)}) connected`
         + `${live.session.paused ? ", PAUSED by owner" : ""}; enabled: ${enabled.length === 0 ? "nothing" : enabled.join(", ")}`
+        + `${enabled.includes("file.read") ? filePlaces(live.session.files) : ""}`
         + `${live.session.approve_every_action ? "; owner approves every action" : ""}${appNote(live.protocol)}\n`;
     } else {
       out += `- ${d.id} "${truncate(d.name, 40)}" (${truncate(d.model, 40)}) not connected\n`;
     }
   }
   return out + slowStoreNote(storeMs);
+}
+
+/** Which places list_files reaches on a phone (protocol 1.20, R67); `file_places` in mcp.rs. */
+function filePlaces(files: { photos?: unknown; folders?: unknown } | undefined): string {
+  if (!files || typeof files.photos !== "boolean" || !Number.isInteger(files.folders)) return "";
+  const n = files.folders as number;
+  return `; files: Downloads, photos ${files.photos ? "allowed" : "not allowed"}, ${n === 0 ? "no shared folder" : n === 1 ? "1 shared folder" : `${n} shared folders`}`;
 }
 
 /** Tells the owner, through the AI, that every command pays for a far-away database. */

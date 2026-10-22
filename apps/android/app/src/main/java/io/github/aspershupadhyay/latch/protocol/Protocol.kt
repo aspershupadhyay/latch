@@ -127,7 +127,13 @@ data class SessionInfo(
     val paused: Boolean = false,
     /** Since 1.4: approvals may also be answered in the AI app (the owner's switch). */
     @SerialName("remote_approvals") val remoteApprovals: Boolean = false,
+    /** Since 1.20 (R67): which file places the owner shares, so the AI knows before it asks. */
+    val files: FileAccess? = null,
 )
+
+/** Since 1.20 (R67): photos allowed (Latch switch and Android), and how many folders are shared. */
+@Serializable
+data class FileAccess(val photos: Boolean, val folders: Int)
 
 @Serializable
 data class DeviceDescriptor(
@@ -181,6 +187,8 @@ data class UiNode(
     val label: String? = null,
     /** Under another window of the app (a menu, sheet, or dialog). */
     val covered: Boolean? = null,
+    /** Since 1.20 (R67): words read from the screen's pixels on the phone (ML Kit), not an app element. */
+    val ocr: Boolean? = null,
 )
 
 /** Where an element sits in a list or grid; [index] counts from 0. */
@@ -251,6 +259,16 @@ data class ActionResult(
     val owner: String? = null,
     /** Since 1.9, with observe_after: none, changed, or new_app, judged after the screen settled. */
     val effect: String? = null,
+    /** `device.control` volume only (since 1.20, R67): the step Android actually set. */
+    val level: ControlLevel? = null,
+)
+
+/** The volume step a phone actually set (since 1.20, R67), read back from Android. */
+@Serializable
+data class ControlLevel(
+    val step: Int,
+    @SerialName("max_step") val maxStep: Int,
+    val percent: Int,
 )
 
 /**
@@ -302,6 +320,8 @@ data class FileItem(
     val mime: String? = null,
     val size: Long? = null,
     @SerialName("modified_ms") val modifiedMs: Long? = null,
+    /** Since 1.20 (R67), photos and Downloads only: the subfolder the file is in, e.g. `Latch`. */
+    val subfolder: String? = null,
 )
 
 @Serializable
@@ -865,6 +885,10 @@ val Command.isFileChange: Boolean
     get() = this is Command.WriteFile || this is Command.FetchFile || this is Command.MakeFolder ||
         this is Command.RenameFile || this is Command.DeleteFile
 
+/** Touches on the screen, which may change only pixels (a map zooming) and no element (R67). */
+val Command.touchesPixels: Boolean
+    get() = this is Command.Tap || this is Command.Swipe || this is Command.Pinch || this is Command.Gesture
+
 /** Since 1.2: observe after a successful action and return it in the same result. */
 data class ObserveAfter(
     val settleMs: Int,
@@ -889,6 +913,8 @@ sealed interface GatewayMessage {
     data class Revoked(val reason: String) : GatewayMessage
     /** Since 1.4: the owner answered in the AI app; [choice] is once, session, always, or deny. */
     data class ApprovalAnswer(val nonce: String, val choice: String) : GatewayMessage
+    /** Since 1.20 (R67): the gateway refused [tool] before it reached the phone; logged for the owner. */
+    data class Refused(val tool: String, val code: ErrorCode) : GatewayMessage
 }
 
 /**
@@ -957,6 +983,12 @@ object GatewayParser {
                 val choice = root.str("choice")
                 if (choice !in setOf("once", "session", "always", "deny")) invalid("unknown approval choice")
                 GatewayMessage.ApprovalAnswer(nonce, choice)
+            }
+            "refused" -> {
+                val tool = root.str("tool")
+                if (!Regex("^[a-z_]{1,32}$").matches(tool)) invalid("tool must be a tool name")
+                val code = root.str("code").let { wire -> ErrorCode.entries.firstOrNull { it.wire == wire } } ?: invalid("unknown error code")
+                GatewayMessage.Refused(tool, code)
             }
             "command" -> {
                 val id = root.str("id")

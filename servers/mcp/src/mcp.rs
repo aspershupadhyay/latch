@@ -992,6 +992,12 @@ async fn activity(
                     "task cannot be combined with kinds or since_ms",
                 ));
             }
+            let limit = match arg_int(args, "limit").map_err(bad)? {
+                None => None,
+                Some(l) => Some(usize::try_from(l).ok().filter(|l| *l > 0).ok_or_else(|| {
+                    ProtocolError::new(ErrorCode::InvalidRequest, "limit must be positive")
+                })?),
+            };
             // The whole recent log: a task is cut from every kind of entry.
             let command = Command::ListActivity {
                 limit: latch_protocol::validate::MAX_ACTIVITY_ENTRIES,
@@ -1004,7 +1010,9 @@ async fn activity(
                     "unexpected answer from the phone",
                 ));
             };
-            return Ok(text_result(replay::render_latest_task(&list)));
+            return Ok(text_result(replay::render_latest_task_limited(
+                &list, limit,
+            )));
         }
         Some(_) => {
             return Err(ProtocolError::new(
@@ -1286,15 +1294,59 @@ async fn call_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Option<Va
             .as_object()
             .and_then(|a| a.keys().find(|k| !allowed.contains_key(*k)))
     {
-        return Some(tool_error(&ProtocolError::new(
+        let error = ProtocolError::new(
             ErrorCode::InvalidRequest,
             format!("unexpected argument '{}'", truncate(extra, 32)),
-        )));
+        );
+        note_refusal(state, name, args, &error);
+        return Some(tool_error(&error));
     }
-    Some(match run_tool(state, name, args).await {
+    Some(match run_tool_logged(state, name, args).await {
         Ok(result) => result,
         Err(error) => tool_error(&error),
     })
+}
+
+/// [`run_tool`], and a refusal it decides without the phone goes into the
+/// phone's activity log. Skills run their steps through this too.
+async fn run_tool_logged(
+    state: &Arc<AppState>,
+    name: &str,
+    args: &Value,
+) -> Result<Value, ProtocolError> {
+    let phone_answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let result = devices::PHONE_ANSWERED
+        .scope(
+            phone_answered.clone(),
+            Box::pin(run_tool(state, name, args)),
+        )
+        .await;
+    if let Err(error) = &result
+        && !phone_answered.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        note_refusal(state, name, args, error);
+    }
+    result
+}
+
+/// A refusal decided here, before any command reached the phone, goes into the
+/// phone's activity log (protocol 1.20, R67): the tool's name and the code,
+/// never its arguments. Errors about reaching the phone are not refusals.
+fn note_refusal(state: &AppState, name: &str, args: &Value, error: &ProtocolError) {
+    if matches!(
+        error.code,
+        ErrorCode::DeviceUnavailable
+            | ErrorCode::AmbiguousDevice
+            | ErrorCode::TransportUnavailable
+            | ErrorCode::DeadlineExceeded
+            | ErrorCode::Cancelled
+    ) {
+        return;
+    }
+    let requested = args.get("device_id").and_then(Value::as_str);
+    if let Ok(device_id) = devices::resolve_device(state, requested) {
+        state.devices.note_refusal(&device_id, name, error.code);
+    }
 }
 
 async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Value, ProtocolError> {
@@ -1395,8 +1447,17 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
         }
         let control = phone_control(args)?;
         if !control.shows_screen() {
-            devices::execute(state, &device_id, Command::DeviceControl { control }).await?;
-            return Ok(text_result(format!("Done: {}.", control.describe())));
+            let output =
+                devices::execute(state, &device_id, Command::DeviceControl { control }).await?;
+            let level = match output {
+                Output::Action(result) => result.level,
+                _ => None,
+            };
+            return Ok(text_result(format!(
+                "Done: {}.{}",
+                control.describe(),
+                level.map(level_text).unwrap_or_default()
+            )));
         }
     }
     if name == "adb" {
@@ -1686,6 +1747,15 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
 const SETTLE_MAX_MS: u32 = 1_500;
 /// The screen counts as settled after this long without changes.
 const QUIET_MS: u32 = 150;
+
+/// The volume step the phone actually set (protocol 1.20, R67): phones have a
+/// few steps per stream, and their own slider may draw a step as another number.
+fn level_text(level: latch_protocol::ControlLevel) -> String {
+    format!(
+        " The phone set step {} of {} ({}%); its own volume slider may show a slightly different number.",
+        level.step, level.max_step, level.percent
+    )
+}
 
 /// What the owner answered to `ask_owner`, for the AI.
 fn owner_said(reply: Option<OwnerReply>) -> &'static str {
@@ -2151,6 +2221,13 @@ pub fn reading_note(obs: &Observation) -> Option<String> {
     if drawn {
         parts.push("a drawn area (video, camera, map, or game) with no elements inside".into());
     }
+    match obs.nodes.iter().filter(|n| n.ocr).count() {
+        0 => {}
+        1 => parts.push("1 text read from the picture on the phone (read from picture)".into()),
+        n => parts.push(format!(
+            "{n} texts read from the picture on the phone (read from picture)"
+        )),
+    }
     if shown < 2 {
         parts.push("almost nothing to read".into());
     }
@@ -2283,12 +2360,32 @@ fn node_lines(obs: &Observation) -> Vec<(String, String)> {
         if node.covered {
             flags.push("covered");
         }
+        if node.ocr {
+            flags.push("read from picture");
+        }
         if !flags.is_empty() {
             let _ = write!(line, " [{}]", flags.join(","));
         }
         out.push((node.id.clone(), line));
     }
     out
+}
+
+/// Which places `list_files` reaches on a phone (protocol 1.20, R67).
+fn file_places(files: latch_protocol::FileAccess) -> String {
+    format!(
+        "; files: Downloads, photos {}, {}",
+        if files.photos {
+            "allowed"
+        } else {
+            "not allowed"
+        },
+        match files.folders {
+            0 => "no shared folder".to_owned(),
+            1 => "1 shared folder".to_owned(),
+            n => format!("{n} shared folders"),
+        }
+    )
 }
 
 /// Tells the agent when the phone's app is too old for the newest tools.
@@ -2442,9 +2539,13 @@ fn render_devices(state: &AppState) -> String {
                     .filter(|c| c.status == latch_protocol::CapabilityStatus::Enabled)
                     .map(|c| c.capability.id())
                     .collect();
+                let reads_files = live.capabilities.iter().any(|c| {
+                    c.capability == latch_protocol::Capability::FileRead
+                        && c.status == latch_protocol::CapabilityStatus::Enabled
+                });
                 let _ = writeln!(
                     out,
-                    "- {} \"{}\" ({} {}, {}) connected{}; enabled: {}{}{}",
+                    "- {} \"{}\" ({} {}, {}) connected{}; enabled: {}{}{}{}",
                     device.id,
                     truncate(&device.name, 40),
                     live.platform,
@@ -2459,6 +2560,10 @@ fn render_devices(state: &AppState) -> String {
                         "nothing".into()
                     } else {
                         enabled.join(", ")
+                    },
+                    match live.session.files.filter(|_| reads_files) {
+                        Some(files) => file_places(files),
+                        None => String::new(),
                     },
                     if live.session.approve_every_action {
                         "; owner approves every action"
