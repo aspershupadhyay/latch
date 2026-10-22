@@ -97,7 +97,7 @@ export const SERVER = {
         "readOnlyHint": false,
         "title": "Tap"
       },
-      "description": "Tap an element (preferred) or a point from the latest observation. Taps on controls that send, buy, delete, publish, or change accounts wait for the owner's approval on the phone. Returns the new observation.",
+      "description": "Tap an element (preferred) or a point from the latest observation, or name it by its words with text (no observation_id needed): the gateway finds it on the live screen, scrolls both ways when it is off screen, and taps it, repeat times if asked (text \"+\" near \"Cow Milk 500 ml\", repeat 2 adds two). Taps on controls that send, buy, delete, publish, or change accounts wait for the owner's approval on the phone. Returns the new observation.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -118,14 +118,31 @@ export const SERVER = {
             "default": false,
             "type": "boolean"
           },
+          "near": {
+            "description": "With text: pick the match in the row or card showing these words.",
+            "maxLength": 200,
+            "type": "string"
+          },
           "observation_id": {
             "description": "observation_id from the latest observe result (or the observation returned by the previous action).",
             "type": "string"
+          },
+          "repeat": {
+            "default": 1,
+            "description": "With text: tap this many times, e.g. a quantity.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
           },
           "screenshot_after": {
             "default": false,
             "description": "Also return a screenshot of the screen after the action. Default false (element tree only).",
             "type": "boolean"
+          },
+          "text": {
+            "description": "Instead of element_id or x/y: the words on the element, or its guessed name (\"+\" for an unnamed plus button; alternatives as \"ADD || +\").",
+            "maxLength": 200,
+            "type": "string"
           },
           "x": {
             "description": "Screen x in pixels; use with y instead of element_id.",
@@ -137,9 +154,7 @@ export const SERVER = {
             "type": "integer"
           }
         },
-        "required": [
-          "observation_id"
-        ],
+        "required": [],
         "type": "object"
       },
       "name": "tap",

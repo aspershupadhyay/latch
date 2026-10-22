@@ -3,6 +3,8 @@
 package io.github.aspershupadhyay.latch.accessibility
 
 import io.github.aspershupadhyay.latch.protocol.Rect
+import io.github.aspershupadhyay.latch.protocol.ScreenInfo
+import io.github.aspershupadhyay.latch.protocol.UiNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -68,5 +70,54 @@ class TreeReadingTest {
         assertTrue(TreeReading.covered(Rect(500, 400, 900, 500), listOf(menu)))
         assertFalse(TreeReading.covered(Rect(0, 400, 500, 500), listOf(menu)))
         assertFalse(TreeReading.covered(Rect(500, 400, 900, 500), emptyList()))
+    }
+
+    // Turbo fix 1 (R68): unnamed controls take their card's words.
+    private val screen = ScreenInfo(1080, 2400)
+
+    private fun n(id: String, parent: String?, bounds: Rect, text: String? = null, clickable: Boolean = false, role: String = "View", label: String? = null, sensitive: Boolean = false) =
+        UiNode(id = id, parent = parent, role = role, text = text, bounds = bounds, clickable = clickable, label = label, sensitive = sensitive)
+
+    private fun card(base: Int, top: Int, name: String) = listOf(
+        n("n$base", "n0", Rect(0, top, 1080, top + 300)),
+        n("n${base + 1}", "n$base", Rect(40, top + 20, 700, top + 80), name),
+        n("n${base + 2}", "n$base", Rect(40, top + 90, 300, top + 140), "₹36"),
+        n("n${base + 3}", "n$base", Rect(700, top + 180, 1040, top + 260)),
+        n("n${base + 4}", "n${base + 3}", Rect(700, top + 180, 800, top + 260), clickable = true, role = "ImageView"),
+        n("n${base + 5}", "n${base + 3}", Rect(820, top + 180, 920, top + 260), "1"),
+        n("n${base + 6}", "n${base + 3}", Rect(940, top + 180, 1040, top + 260), clickable = true, role = "ImageView"),
+    )
+
+    @Test fun aStepperInACardIsNamedMinusAndPlusAfterTheCard() {
+        val nodes = listOf(n("n0", null, Rect(0, 0, 1080, 2400))) + card(1, 400, "Mother Dairy Cow Milk 1 L") + card(8, 720, "Mother Dairy Cow Milk 500 ml")
+        val names = TreeReading.cardNames(nodes, screen)
+        assertEquals("− · Mother Dairy Cow Milk 1 L", names["n5"])
+        assertEquals("+ · Mother Dairy Cow Milk 1 L", names["n7"])
+        assertEquals("+ · Mother Dairy Cow Milk 500 ml", names["n14"])
+        assertEquals(4, names.size)
+    }
+
+    @Test fun aLoneIconKeepsItsOwnGuessAndGainsTheRow() {
+        val nodes = listOf(
+            n("n0", null, Rect(0, 0, 1080, 2400)),
+            n("n1", "n0", Rect(0, 300, 1080, 450)),
+            n("n2", "n1", Rect(40, 320, 800, 420), "Wi-Fi"),
+            n("n3", "n1", Rect(900, 320, 1040, 420), clickable = true, role = "ImageButton", label = "settings gear"),
+            n("n4", "n0", Rect(900, 600, 1040, 700), clickable = true, role = "ImageButton"),
+        )
+        val names = TreeReading.cardNames(nodes, screen)
+        assertEquals("settings gear · Wi-Fi", names["n3"])
+        // Its only container is the whole page: no card, no name.
+        assertNull(names["n4"])
+    }
+
+    @Test fun sensitiveWordsNeverNameAControl() {
+        val nodes = listOf(
+            n("n0", null, Rect(0, 0, 1080, 2400)),
+            n("n1", "n0", Rect(0, 300, 1080, 450)),
+            n("n2", "n1", Rect(40, 320, 800, 420), sensitive = true),
+            n("n3", "n1", Rect(900, 320, 1040, 420), clickable = true, role = "ImageButton"),
+        )
+        assertTrue(TreeReading.cardNames(nodes, screen).isEmpty())
     }
 }

@@ -714,23 +714,75 @@ fn score_one(node: &UiNode, target: &str) -> u8 {
     if t.is_empty() {
         return 0;
     }
-    [node.text.as_deref(), node.description.as_deref()]
+    let words = [node.text.as_deref(), node.description.as_deref()]
         .into_iter()
         .flatten()
-        .map(|c| {
-            let c = norm(c);
-            if c == t {
-                3
-            } else if c.starts_with(&t) {
-                2
-            } else if c.contains(&t) {
-                1
-            } else {
-                0
-            }
-        })
+        .map(|c| match_level(&norm(c), &t))
         .max()
-        .unwrap_or(0)
+        .unwrap_or(0);
+    if words > 0 {
+        return words;
+    }
+    // An unnamed control: the phone's guessed name ("+ · Cow Milk 500 ml"), its own
+    // part before the dot, where "+" also matches "add" and "plus".
+    let Some(head) = node.label.as_deref().map(|l| norm(label_parts(l).0)) else {
+        return 0;
+    };
+    let level = match_level(&head, &t);
+    if level > 0 {
+        return level;
+    }
+    let same_icon = icon_class(&t).is_some_and(|class| {
+        icon_class(&head) == Some(class) || head.split(' ').any(|w| icon_class(w) == Some(class))
+    });
+    if same_icon { 2 } else { 0 }
+}
+
+fn match_level(c: &str, t: &str) -> u8 {
+    if c == t {
+        3
+    } else if c.starts_with(t) {
+        2
+    } else if c.contains(t) {
+        1
+    } else {
+        0
+    }
+}
+
+/// A guessed label's own name and the card it sits in: "+ · Cow Milk" → ("+", "Cow Milk").
+fn label_parts(label: &str) -> (&str, &str) {
+    match label.split_once(" · ") {
+        Some((head, card)) => (head, card),
+        None => (label, ""),
+    }
+}
+
+/// Words that name the same icon: a plus button is "+", "add", or "plus".
+fn icon_class(word: &str) -> Option<&'static str> {
+    match word {
+        "+" | "add" | "plus" | "increase" | "increment" => Some("plus"),
+        "-" | "−" | "minus" | "remove" | "decrease" | "decrement" => Some("minus"),
+        "search" | "find" => Some("search"),
+        "back" | "navigate up" | "up" => Some("back"),
+        "close" | "x" | "×" | "dismiss" => Some("close"),
+        "send" => Some("send"),
+        "cart" | "basket" | "bag" => Some("cart"),
+        "menu" | "more" | "more options" | "⋮" => Some("menu"),
+        "share" => Some("share"),
+        "heart" | "like" | "favourite" | "favorite" => Some("heart"),
+        _ => None,
+    }
+}
+
+/// Whether an unnamed control's guessed card names the `near` words.
+fn in_card(node: &UiNode, near: &str) -> bool {
+    let near = norm(near);
+    !near.is_empty()
+        && node
+            .label
+            .as_deref()
+            .is_some_and(|l| norm(label_parts(l).1).contains(&near))
 }
 
 fn is_blank(target: &str) -> bool {
@@ -750,11 +802,14 @@ pub enum Want {
 
 /// Finds the element a step means on the live screen, by its words.
 ///
-/// Best text match wins (exact, then starts-with, then contains; text or
-/// description), preferring tappable elements, then the one highest and
+/// Best text match wins (exact, then starts-with, then contains; text,
+/// description, or the phone's guessed name of an unnamed control, where "+"
+/// also means "add"), preferring tappable elements, then the one highest and
 /// furthest left. With `near`, the match closest to the element showing that
 /// text wins instead, e.g. the "ADD" button in the row of "Paneer". A target
 /// may list alternatives, "ADD || +"; a node matching any of them counts.
+/// An unnamed control the phone placed in the card of the `near` words wins
+/// over a closer one outside it.
 pub fn find(nodes: &[UiNode], target: &str, near: Option<&str>, want: Want) -> Option<String> {
     let candidates: Vec<(usize, &UiNode, u8)> = nodes
         .iter()
@@ -788,11 +843,14 @@ pub fn find(nodes: &[UiNode], target: &str, near: Option<&str>, want: Want) -> O
             Some(best.1.bounds.center())
         }
     };
+    let near_words = near.map(str::trim).unwrap_or_default();
     let pick = match anchor {
         Some((ax, ay)) => candidates.iter().min_by_key(|(i, n, s)| {
             let (cx, cy) = n.bounds.center();
             let distance = i64::from((cy - ay).abs()) * 2 + i64::from((cx - ax).abs());
             (
+                // A control the phone placed in the card of those words beats a closer one outside it.
+                !near_words.split("||").any(|w| in_card(n, w)),
                 distance,
                 std::cmp::Reverse(*s),
                 !n.clickable,

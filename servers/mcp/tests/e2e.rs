@@ -2446,6 +2446,60 @@ async fn run_steps_does_several_steps_in_one_call_under_the_same_rules() {
     assert!(is_error, "{text}");
 }
 
+/// Turbo fixes 3 and 7 (R68): tap names its element by words, picks the row
+/// with near, and taps a quantity with repeat, all in one call.
+#[tokio::test]
+async fn tap_by_words_with_near_and_repeat_is_one_call() {
+    let gw = start_gateway().await;
+    let phone = connect_phone(&gw, &Capability::ALL).await;
+    call(
+        &gw,
+        "launch_app",
+        json!({ "package": "org.latch.demo.shop" }),
+    )
+    .await;
+    let (_, text, _) = call(
+        &gw,
+        "run_steps",
+        json!({ "steps": [
+            { "do": "type", "target": "Search products", "text": "bread", "submit": true }
+        ]}),
+    )
+    .await;
+    assert!(text.contains("all 1 steps done"), "{text}");
+
+    let (is_error, text, _) =
+        call(&gw, "tap", json!({ "text": "ADD", "near": "White bread" })).await;
+    assert!(!is_error && text.contains("all 1 steps done"), "{text}");
+    let (is_error, text, _) = call(
+        &gw,
+        "tap",
+        json!({ "text": "+", "near": "White bread", "repeat": 2 }),
+    )
+    .await;
+    assert!(
+        !is_error && text.contains("tap \"+\" near \"White bread\" ×2"),
+        "{text}"
+    );
+    assert_eq!(phone.state.lock().expect("lock").phone.cart[..2], [0, 3]);
+
+    let (is_error, text, _) = call(&gw, "tap", json!({ "text": "Teleport" })).await;
+    assert!(
+        !is_error && text.contains("could not find \"Teleport\""),
+        "{text}"
+    );
+    let (is_error, text, _) = call(
+        &gw,
+        "tap",
+        json!({ "element_id": "n1", "repeat": 2, "observation_id": "o_1" }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("near and repeat go with text"),
+        "{text}"
+    );
+}
+
 /// Roadmap R8: starter skills are listed with their recipes but nothing is
 /// saved (or can run) until an AI saves one.
 #[tokio::test]

@@ -264,21 +264,26 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "tap",
             "Tap",
-            "Tap an element (preferred) or a point from the latest observation. Taps on controls that \
-             send, buy, delete, publish, or change accounts wait for the owner's approval on the phone. \
-             Returns the new observation.",
+            "Tap an element (preferred) or a point from the latest observation, or name it by its words with text \
+             (no observation_id needed): the gateway finds it on the live screen, scrolls both ways when it is \
+             off screen, and taps it, repeat times if asked (text \"+\" near \"Cow Milk 500 ml\", repeat 2 adds two). \
+             Taps on controls that send, buy, delete, publish, or change accounts wait for the owner's approval on \
+             the phone. Returns the new observation.",
             false,
             json!({
                 "device_id": device_id_schema(),
                 "observation_id": observation_id_schema(),
                 "element_id": { "type": "string", "description": "Element id such as n12." },
+                "text": { "type": "string", "maxLength": 200, "description": "Instead of element_id or x/y: the words on the element, or its guessed name (\"+\" for an unnamed plus button; alternatives as \"ADD || +\")." },
+                "near": { "type": "string", "maxLength": 200, "description": "With text: pick the match in the row or card showing these words." },
+                "repeat": { "type": "integer", "minimum": 1, "maximum": 50, "default": 1, "description": "With text: tap this many times, e.g. a quantity." },
                 "x": { "type": "integer", "minimum": 0, "description": "Screen x in pixels; use with y instead of element_id." },
                 "y": { "type": "integer", "minimum": 0 },
                 "long_press": { "type": "boolean", "default": false },
                 "double": { "type": "boolean", "default": false, "description": "Two quick taps, e.g. to zoom a map or like a photo." },
                 "screenshot_after": screenshot_after_schema(),
             }),
-            &["observation_id"],
+            &[],
         ),
         tool(
             "type_text",
@@ -1390,6 +1395,24 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
     if name == "run_steps" {
         return skills::run_steps(state, args, &device_id).await;
     }
+    if name == "tap"
+        && let Some(text) = arg_str(args, "text").map_err(bad)?
+    {
+        // Turbo fix 3 and 7: find by words, scroll to it, and tap N times in one call.
+        let mut step = json!({
+            "do": "tap",
+            "target": text,
+            "long_press": arg_bool(args, "long_press", false).map_err(bad)?,
+        });
+        if let Some(near) = arg_str(args, "near").map_err(bad)? {
+            step["near"] = json!(near);
+        }
+        if let Some(times) = arg_int(args, "repeat").map_err(bad)? {
+            step["repeat"] = json!(positive(times, "repeat")?);
+        }
+        let steps = json!({ "device_id": device_id, "steps": [step] });
+        return skills::run_steps(state, &steps, &device_id).await;
+    }
     if name == "set_clipboard" {
         let text = req_str(args, "text").map_err(bad)?.to_owned();
         let count = text.chars().count();
@@ -1549,6 +1572,11 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             };
         }
         "tap" => {
+            if arg_str(args, "near").map_err(bad)?.is_some()
+                || arg_int(args, "repeat").map_err(bad)?.is_some()
+            {
+                return Err(bad(ArgError("near and repeat go with text".into())));
+            }
             let observation_id = req_str(args, "observation_id").map_err(bad)?.to_owned();
             let element = arg_str(args, "element_id").map_err(bad)?;
             let (x, y) = (

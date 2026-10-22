@@ -377,16 +377,51 @@ export function label(step: Obj): string {
 
 const norm = (s: string) => s.trim().split(/\s+/u).filter(Boolean).join(" ").toLowerCase();
 
+const matchLevel = (c: string, t: string) => (c === t ? 3 : c.startsWith(t) ? 2 : c.includes(t) ? 1 : 0);
+
+/** A guessed label's own name and the card it sits in: "+ · Cow Milk" → ["+", "Cow Milk"]. */
+function labelParts(label: string): [string, string] {
+  const at = label.indexOf(" · ");
+  return at < 0 ? [label, ""] : [label.slice(0, at), label.slice(at + 3)];
+}
+
+const ICON_CLASSES: Record<string, string> = {
+  "+": "plus", add: "plus", plus: "plus", increase: "plus", increment: "plus",
+  "-": "minus", "−": "minus", minus: "minus", remove: "minus", decrease: "minus", decrement: "minus",
+  search: "search", find: "search",
+  back: "back", "navigate up": "back", up: "back",
+  close: "close", x: "close", "×": "close", dismiss: "close",
+  send: "send",
+  cart: "cart", basket: "cart", bag: "cart",
+  menu: "menu", more: "menu", "more options": "menu", "⋮": "menu",
+  share: "share",
+  heart: "heart", like: "heart", favourite: "heart", favorite: "heart",
+};
+/** Words that name the same icon: a plus button is "+", "add", or "plus". */
+const iconClass = (word: string): string | undefined => (Object.hasOwn(ICON_CLASSES, word) ? ICON_CLASSES[word] : undefined);
+
 function scoreOne(node: UiNode, target: string): number {
   const t = norm(target);
   if (t === "") return 0;
   let best = 0;
   for (const raw of [node.text, node.description]) {
     if (raw === undefined) continue;
-    const c = norm(raw);
-    best = Math.max(best, c === t ? 3 : c.startsWith(t) ? 2 : c.includes(t) ? 1 : 0);
+    best = Math.max(best, matchLevel(norm(raw), t));
   }
-  return best;
+  if (best > 0 || node.label === undefined) return best;
+  // An unnamed control: the phone's guessed name ("+ · Cow Milk 500 ml"), its own
+  // part before the dot, where "+" also matches "add" and "plus".
+  const head = norm(labelParts(node.label)[0]);
+  const level = matchLevel(head, t);
+  if (level > 0) return level;
+  const cls = iconClass(t);
+  return cls !== undefined && (iconClass(head) === cls || head.split(" ").some((w) => iconClass(w) === cls)) ? 2 : 0;
+}
+
+/** Whether an unnamed control's guessed card names the `near` words. */
+function inCard(node: UiNode, near: string): boolean {
+  const n = norm(near);
+  return n !== "" && node.label !== undefined && norm(labelParts(node.label)[1]).includes(n);
 }
 const score = (node: UiNode, target: string) => Math.max(0, ...target.split("||").map((t) => scoreOne(node, t)));
 const isBlank = (target: string) => target.split("||").every((t) => norm(t) === "");
@@ -437,7 +472,9 @@ export function find(nodes: UiNode[], target: string, near: string | undefined, 
     ? lexMin(candidates, (c) => {
         const [cx, cy] = center(c.n);
         const distance = Math.abs(cy - anchor[1]) * 2 + Math.abs(cx - anchor[0]);
-        return [distance, -c.s, c.n.clickable ? 0 : 1, c.n.bounds.top, c.n.bounds.left, c.i];
+        // A control the phone placed in the card of those words beats a closer one outside it.
+        const card = nearText!.split("||").some((w) => inCard(c.n, w)) ? 0 : 1;
+        return [card, distance, -c.s, c.n.clickable ? 0 : 1, c.n.bounds.top, c.n.bounds.left, c.i];
       })
     : lexMin(candidates, (c) => [-c.s, c.n.clickable ? 0 : 1, c.n.bounds.top, c.n.bounds.left, c.i]);
   return pick?.n.id;

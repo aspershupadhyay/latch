@@ -948,3 +948,24 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 - **Release workflow:** installs, uses, and uninstalls the winget package with winget.
 
 **Rollback:** the new commands sit beside the old ones. Reverting brings back the script-only `latch`; keys files and Startup entries keep working with either.
+
+## ADR-071 — Latch Turbo: fewer round trips and faster phone steps, never fewer rules
+**Status:** accepted as direction (2026-10-22, owner: "add this in the plan and make it fast … so ai can navigate and get done", with the *Latch Turbo — Speed & Execution Spec* of 2026-10-22) · **Amends:** R4 (action chains), R8 (skills) · **Protocol:** unchanged for phase 1; later phases each bring their own minor version and fixtures
+
+**Problem:** the owner's QA run on a realme RMX3710 (Android 15, 2026-10-22) took about 15 round trips for a three-item cart, 0.5–2 s of phone time per step, and observations of about 3,000 words. Task time is round trips × (model think + phone time + observation size), so every term has to shrink.
+
+**Decision:**
+- **Speed changes how steps run, never which steps are allowed.** Payment, install, permission, password, OTP, and account-deletion steps still stop for the owner, inside programs and replays too; sensitive-field refusal holds on every route (node actions, a Latch keyboard, injected input); speculation never crosses an approval step. Full ADB (ADR-046) is unchanged and is not what Turbo uses for ordinary tools.
+- **Phase 1 (R68) ships first, without a protocol change:** unnamed controls carry their card's words in the existing `label` field ("+ · Mother Dairy Cow Milk 500 ml", a stepper's ends as "−" and "+"); `scroll_to` turns once when the list ends or its swipes run out; `tap` takes `text`, `near`, and `repeat` (find, scroll, and tap N times in one call, through the `run_steps` engine and its rules); both gateways match a guessed label, where "+" also means "add" or "plus"; `type_text` with `submit` waits for typing's suggestions before pressing Enter, and in a search box taps the "search for …" suggestion when Enter does nothing; read-from-picture lines drop low confidence (< 0.6), fragments under 3 characters, and lines inside a card that already has words; a misread rupee sign ("F36", "स49") reads "₹36".
+- **Later phases follow the spec's order** (chapter 17 §12): a phone-side program runner (`run_program`) with selectors, guards, local recovery, and event-driven settling; route selection (system API → intent → deep link → UI); then the opt-in Fast, Turbo, Max, and Root tiers; then streaming execution and memory. Each phase is its own roadmap row.
+- **Parts that wait for the owner's yes and a threat review before code:** anything that changes a system setting (Turbo: animation scales, refresh rate, default apps) and its restore guarantee; a Latch keyboard (an input method sees what is typed); notification replies (notification access); content-provider reads (contacts, calendar, SMS, call log); Shizuku or root (new trust roots and a dependency); system-dialog suppression, which must stay inside ADR-022's opt-in and never answer a permission prompt the owner did not switch on; auto-saved skills, since ADR-031 saves a skill only when asked; and human-pace timing, which is meant to keep apps from noticing automation and so may break an app's terms.
+
+**Threat review (phase 1):**
+- **Labels are guesses.** A card's words come only from non-sensitive elements already in the observation, so no new content leaves the phone. Approvals read labels only to add reasons to ask (protocol 1.16), so a card name can make Latch ask more, never less.
+- **Tap by words** runs through `run_steps`, so each tap is policy-checked and judged on the phone like a single `tap`; `repeat` is capped at 50 and every tap re-reads the screen.
+- **The suggestion fallback** runs only in a field that says it is a search box, only on a short, non-editable, non-sensitive row below it that holds the typed words, and only after the session judged Enter in that field; it starts the same search Enter would have.
+- **Scrolling both ways** adds swipes, not actions; the foreground app is checked before every look.
+
+**Checks:** shared find cases (`packages/schemas/v1/skills/cases.json`) for both gateways; gateway e2e on both for tap by words, near, and repeat; JVM tests for card names, the stepper, OCR filtering, and the rupee rewrite. On the phone: the cart benchmark under 60 s (the phase 1 gate).
+
+**Rollback:** each fix is local. Reverting removes the label words and the new `tap` arguments; older phones and gateways keep working, since no message changed.

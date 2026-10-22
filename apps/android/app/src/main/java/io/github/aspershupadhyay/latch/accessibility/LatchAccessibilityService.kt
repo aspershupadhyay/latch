@@ -823,6 +823,8 @@ class LatchAccessibilityService : AccessibilityService() {
             }
             above += Rect(windowBounds.left, windowBounds.top, windowBounds.right, windowBounds.bottom)
         }
+        // Turbo fix 1 (R68): an unnamed "+" takes its card's words, so the AI names it instead of guessing x/y.
+        for ((id, label) in TreeReading.cardNames(ui.values, screen)) ui[id]?.let { ui[id] = it.copy(label = label) }
         return Tree(ui, refs, redacted, truncated)
     }
 
@@ -1488,16 +1490,60 @@ class LatchAccessibilityService : AccessibilityService() {
         }
         val typed = screenSignature()
         if (!submit) return Typed(typed, null)
+        // Turbo fix 4 (R68): let the suggestions typing opens appear first, so they are not taken for the search.
+        awaitSettled(typed, SUBMIT_QUIET_MS, SUBMIT_SETTLE_MS, 0, SUBMIT_QUIET_MS)
         val content = contentSignature()
         // The keyboard's own action key for this field: Enter, Search, Send, Go, or Done.
         node.refresh()
-        if (!node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
+        val entered = node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+        if (entered && awaitSubmitEffect(node, text, content)) return Typed(typed, true)
+        // Enter did nothing in a search box: tap the suggestion that searches for the words.
+        if (searchField(node) && tapSuggestion(node, text) && awaitSubmitEffect(node, text, content)) return Typed(typed, true)
+        if (!entered) {
             throw ProtocolException(
                 ErrorCode.TARGET_NOT_FOUND,
                 "the text was typed, but this field does not take Enter; it may be a placeholder that opens the real search box. Observe and use the field that now has focus",
             )
         }
-        return Typed(typed, awaitSubmitEffect(node, text, content))
+        return Typed(typed, false)
+    }
+
+    /** A search box, by what the app says about it; only there does a suggestion stand in for Enter. */
+    private fun searchField(node: AccessibilityNodeInfo): Boolean =
+        listOfNotNull(node.hintText, node.contentDescription, node.viewIdResourceName, node.className)
+            .any { it.toString().contains("search", ignoreCase = true) }
+
+    /**
+     * Taps the top suggestion below [field] that holds the typed [text] ("Search for
+     * lays magic masala", or the words themselves): the same search Enter would
+     * have started, which the session already judged. Only short rows (not an
+     * ad that happens to mention the words), never an editable or sensitive one.
+     */
+    private fun tapSuggestion(field: AccessibilityNodeInfo, text: String): Boolean {
+        val fieldBounds = android.graphics.Rect().also(field::getBoundsInScreen)
+        val query = text.trim()
+        if (query.isEmpty()) return false
+        val row = visibleNodes()
+            .filter { n ->
+                !n.isEditable && !Redaction.isSensitive(facts(n)) && n != field &&
+                    (n.text ?: n.contentDescription)?.toString()
+                        ?.let { it.length <= query.length + SUGGESTION_EXTRA_CHARS && it.contains(query, ignoreCase = true) } == true
+            }
+            .mapNotNull { n -> clickableSelfOrAncestor(n)?.let { it to android.graphics.Rect().also(it::getBoundsInScreen) } }
+            .filter { (_, r) -> r.top >= fieldBounds.bottom - 1 }
+            .minByOrNull { (_, r) -> r.top }
+            ?.first ?: return false
+        return row.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    private fun clickableSelfOrAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (current != null && hops++ < 4) {
+            if (current.isClickable) return current
+            current = current.parent
+        }
+        return null
     }
 
     /**
@@ -1554,31 +1600,58 @@ class LatchAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Scrolls until an element containing [text] is visible. Returns whether it is. */
+    /**
+     * Scrolls until an element containing [text] is visible. Returns whether it is.
+     * Turbo fix 2 (R68): when the list ends, or [maxSwipes] pass, in [direction]
+     * without the text, it turns once and searches the other way, with
+     * [maxSwipes] more swipes past where it began (a card just above the screen
+     * is found going down, then up).
+     */
     suspend fun scrollTo(observationId: String, text: String, direction: Direction, containerId: String?, maxSwipes: Int): Boolean {
         val snap = requireFresh(observationId)
         invalidate()
         var container = if (containerId != null) liveNode(snap, containerId) else largestScrollable()
-        for (attempt in 0..maxSwipes) {
+        var way = direction
+        var swipes = 0
+        var budget = maxSwipes
+        var turned = false
+        while (true) {
             val current = rootInActiveWindow?.packageName?.toString() ?: foregroundPackage
             refuseRestrictedPackage(current)
             if (current != snap.packageName) throw ProtocolException(ErrorCode.STALE_OBSERVATION, "a different app is in the foreground now")
             if (showsText(text) || pixelsShow(text)) return true
-            if (attempt == maxSwipes) return false
+            if (swipes >= budget) {
+                if (turned) return false
+                // Not found this way: come back past the start and search the other way.
+                turned = true
+                way = opposite(way)
+                budget = swipes * 2 + maxSwipes
+            }
             val before = signature(container)
             val screenBefore = screenSignature()
-            if (container != null && scrollOnce(container, direction)) {
-                showScroll(container, direction)
+            if (container != null && scrollOnce(container, way)) {
+                showScroll(container, way)
             } else {
-                scrollByGesture(container, direction, snap)
+                scrollByGesture(container, way, snap)
             }
+            swipes++
             // Lists fling on after the gesture: wait until they stop before looking again.
             awaitSettled(screenBefore, SCROLL_QUIET_MS, SCROLL_MAX_SETTLE_MS, 0, SCROLL_EXPECT_CHANGE_MS)
             if (container?.refresh() == false) container = largestScrollable()
-            // Nothing moved: the list is at its end.
-            if (signature(container) == before) return showsText(text) || pixelsShow(text)
+            if (signature(container) != before) continue
+            // Nothing moved: the list is at its end. Turn once, with room to get back past the start.
+            if (turned || showsText(text) || pixelsShow(text)) return showsText(text) || pixelsShow(text)
+            turned = true
+            way = opposite(way)
+            budget = swipes * 2 - 1 + maxSwipes
         }
-        return false
+    }
+
+    private fun opposite(d: Direction) = when (d) {
+        Direction.UP -> Direction.DOWN
+        Direction.DOWN -> Direction.UP
+        Direction.LEFT -> Direction.RIGHT
+        Direction.RIGHT -> Direction.LEFT
     }
 
     private fun visibleNodes(): Sequence<AccessibilityNodeInfo> = sequence {
@@ -2180,6 +2253,9 @@ class LatchAccessibilityService : AccessibilityService() {
         private const val KEYBOARD_WAIT_MS = 1_000L
         /** How long Enter has to show an effect before the agent hears it did nothing. */
         private const val SUBMIT_EFFECT_MS = 1_000L
+        private const val SUBMIT_QUIET_MS = 100L
+        private const val SUBMIT_SETTLE_MS = 600L
+        private const val SUGGESTION_EXTRA_CHARS = 40
         private const val MAX_SEARCH_NODES = 2_000
         private const val SCROLL_QUIET_MS = 120L
         private const val SCROLL_MAX_SETTLE_MS = 800L

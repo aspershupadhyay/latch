@@ -91,4 +91,29 @@ class PixelTextTest {
         val added = PixelText.nodes(lines, wordy() + chip, screen, topInset = 80, firstIndex = 5, limit = 100)
         assertEquals(listOf("Tickets"), added.map { it.text })
     }
+
+    // Turbo fix 5 and 6 (R68): less noise from the picture, and the rupee sign read right.
+    @Test fun unsureShortAndCardLinesAreDropped() {
+        val photo = node("n4", Rect(0, 400, 1080, 1400), parent = "n0")
+        val cardBox = node("n5", Rect(0, 1500, 1080, 1800), parent = "n0")
+        val name = node("n6", Rect(40, 1520, 700, 1580), "Lay's India's Magic Masala", "n5")
+        val existing = wordy() + photo + cardBox + name
+        val lines = listOf(
+            TextLine("Big Sale Today", Rect(100, 500, 600, 560), 0.92f),
+            TextLine("Lauy's", Rect(100, 700, 300, 760), 0.41f),
+            TextLine("ok", Rect(100, 800, 200, 850), 0.99f),
+            TextLine("of Adst's RODA", Rect(400, 1620, 900, 1680), 0.8f),
+        )
+        val added = PixelText.nodes(lines, existing, screen, 80, existing.size, 10)
+        assertEquals(listOf("Big Sale Today"), added.map { it.text })
+    }
+
+    @Test fun aMisreadRupeeSignIsRewritten() {
+        assertEquals("₹36", PixelText.clean("F36"))
+        assertEquals("MRP ₹49", PixelText.clean("MRP स49"))
+        assertEquals("₹120.50", PixelText.clean("Z120.50"))
+        // A 7 may be a real digit, and words stay words.
+        assertEquals("736", PixelText.clean("736"))
+        assertEquals("Fresh", PixelText.clean("Fresh"))
+    }
 }

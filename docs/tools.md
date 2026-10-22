@@ -8,8 +8,8 @@ Gateways at protocol 1.20 offer **38 tools**. The first line of `list_devices` s
 |---|---|
 | `list_devices` | Lists your paired phones, whether they're online, and what's switched on |
 | `observe` | Reads the screen (buttons, text, positions) and, if allowed, takes a screenshot |
-| `tap`, `type_text`, `scroll`, `swipe`, `press` | Act on the latest screen reading; each one returns the next reading. `tap` can double-tap; `swipe` with `hold_ms` drags; `type_text` with `submit` also presses Enter/Search/Send; `press` has back, home, recents, lock screen, screenshot (saved to your gallery), split screen, and the arrow keys (the notification shade stays off limits) |
-| `scroll_to` | Scrolls until a text is visible, in one call |
+| `tap`, `type_text`, `scroll`, `swipe`, `press` | Act on the latest screen reading; each one returns the next reading. `tap` can double-tap, or take the words on the element (`text`, with `near` to pick the row and `repeat` for a quantity) and find, scroll to, and tap it in one call; `swipe` with `hold_ms` drags; `type_text` with `submit` also presses Enter/Search/Send; `press` has back, home, recents, lock screen, screenshot (saved to your gallery), split screen, and the arrow keys (the notification shade stays off limits) |
+| `scroll_to` | Scrolls until a text is visible, in one call; when the list ends first, it searches the other way |
 | `wait_for` | Waits until a text appears (or disappears), in one call |
 | `pinch` | Zooms in or out with two fingers |
 | `gesture` | Any touch gesture with up to 10 fingers, each following its own path: rotate, two- or three-finger swipes, curved paths, edge swipes, press-then-drag. A finger that does not move is a tap and asks you exactly like `tap` would. Ends within 15 s; needs Latch 1.18 |

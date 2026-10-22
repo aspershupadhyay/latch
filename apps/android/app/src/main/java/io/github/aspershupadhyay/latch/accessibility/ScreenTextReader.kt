@@ -5,8 +5,11 @@ package io.github.aspershupadhyay.latch.accessibility
 import android.graphics.Bitmap
 import io.github.aspershupadhyay.latch.protocol.Rect
 
-/** One line of words found in a picture of the screen, with where it was drawn (screen pixels). */
-class TextLine(val text: String, val bounds: Rect)
+/**
+ * One line of words found in a picture of the screen, with where it was drawn
+ * (screen pixels) and how sure the reader is, 0 to 1 (1 when it does not say).
+ */
+class TextLine(val text: String, val bounds: Rect, val confidence: Float = 1f)
 
 /**
  * Reads the words drawn in a picture of the screen, on the phone (R67): text
