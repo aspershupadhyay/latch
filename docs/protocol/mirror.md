@@ -10,8 +10,15 @@ The live mirror (roadmap R30, [ADR-051](../adr/README.md#adr-051--live-mirror-th
 | `GET /v1/mirror/phone` (WebSocket) | phone | `Authorization: Bearer <device token>`, then a start signed with the device key |
 | `GET /v1/mirror/view` (WebSocket) | browser | its first message: the 6-digit code or the viewer key; same-origin only |
 | `POST /v1/mirror/files?name=<file name>` | browser | `x-latch-mirror-key: <viewer key>` of a mirror someone watches; same-origin only (ADR-057) |
+| `GET /v1/mirror/qr.svg?k=<viewer key>` | browser | none: draws the page's own key as a QR code (ADR-069) |
+| `POST /v1/mirror/outbox?name=<file name>` | phone | `Authorization: Bearer <device token>`; a page must be watching this phone's mirror (ADR-069) |
+| `GET /v1/mirror/outbox/<token>` | browser | the 256-bit token itself, sent only to the watching page; single use (ADR-069) |
 
 `POST /v1/mirror/files` takes the raw file as its body (up to `LATCH_MAX_TRANSFER_MB`). The gateway stores it encrypted exactly as an upload link (protocol 1.7), sends the phone `{"t":"file","url":"<its address>/v1/blobs/<token>","key":"<64 hex>","iv":"<32 hex>","sha256":"<64 hex>","name":"…","size":n}` over the mirror link, and answers `{"ok":true,"text":"sent; …"}` or `{"error":"…"}`. The phone fetches, decrypts, and checks it as `file.fetch` does (no AI session needed) and tells the page with a `notice`. Names with `/`, `\`, control characters, or over 200 characters are refused.
+
+**Scan to mirror (ADR-069).** A page without a key makes one (32 random bytes, base64url, 43 characters), keeps it in `localStorage`, and shows `GET /v1/mirror/qr.svg?k=<key>`: a QR code of `<origin>/mirror#k=<key>&pin=<Wi-Fi pin>` (no `&pin` without a Wi-Fi listener), where `<origin>` is the address the browser used. Latch accepts it only when the pin equals its Wi-Fi gateway's pin, or, without a pin, when the origin is its gateway's address; it then keeps that key as its mirror key (replacing the one kept by ADR-058) and starts or moves its mirror to it. The page meanwhile joins with the key every 1.5 s (5 s after a minute, for 30 minutes), getting `4404` until the phone mirrors with it. The 6-digit code still works on the viewer socket for older apps; the page no longer asks for it.
+
+**Files to the computer (ADR-069).** The phone streams the raw file to `POST /v1/mirror/outbox` (up to `LATCH_MAX_TRANSFER_MB`); the gateway refuses with `409` before storing anything when no page watches, stores it encrypted as any link (protocol 1.7, key in memory only), and sends the watching page `{"t":"file_ready","url":"/v1/mirror/outbox/<token>","name":"…","size":n,"sha256":"<64 hex>"}`. The page saves it with a download link; the gateway decrypts on the way out with `Content-Disposition: attachment`, deletes the stored copy at the end, and answers `404` to a second request. Names follow the rule above.
 
 The Vercel gateway has none of these (it cannot hold a stream); the phone gets 404 and says the self-hosted gateway is needed.
 
@@ -55,6 +62,7 @@ browser                                       gateway
   ◀── {"t":"joined","version":1,"device":"Pixel 8","codec":"h264","key":"…"}   (keep the key to reconnect)
   ◀── the phone's screen / ai / pong / notice / status / input / clipboard / stats / quality messages, {"t":"phone","online":bool}, binary frames
   ◀── {"t":"volume","percent":0-100}             (an AI app set the computer's volume, ADR-056)
+  ◀── {"t":"file_ready","url":"/v1/mirror/outbox/<token>","name":"…","size":n,"sha256":"…"}   (a file the owner sent from the phone, ADR-069)
   ── {"t":"touch","phase":"down|move|up|cancel","x":int,"y":int} ──▶
   ── {"t":"wheel","x":int,"y":int,"dx":int,"dy":int} ──▶
   ── {"t":"text","text":"…"} ──▶                 (1–256 characters, no control characters)
