@@ -200,7 +200,8 @@ jobs:
           & $latch uninstall --all
           Start-Sleep -Seconds 2
           if (Get-Process -Name latch, latch-gateway -ErrorAction SilentlyContinue) { throw 'a gateway still runs after latch uninstall' }
-          winget uninstall --id AspershUpadhyay.Latch --accept-source-agreements --disable-interactivity
+          # Installed from a local manifest, it is found by that manifest, not by id in a source.
+          winget uninstall --manifest $manifest --accept-source-agreements --disable-interactivity
           if (Test-Path $latch) { throw 'winget uninstall left latch' }
 
   android:
