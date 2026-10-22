@@ -186,7 +186,12 @@ jobs:
           foreach ($i in 1..30) {
             try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/healthz | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
           }
-          if (-not $up) { Get-Content -ErrorAction SilentlyContinue (Join-Path $env:USERPROFILE '.latch\gateway.log'); throw 'the gateway did not answer after latch autostart on' }
+          if (-not $up) {
+            Get-Content -ErrorAction SilentlyContinue (Join-Path $env:USERPROFILE '.latch\gateway.log')
+            Get-Content -ErrorAction SilentlyContinue (Join-Path ([Environment]::GetFolderPath('Startup')) 'Latch gateway.vbs')
+            Get-Process -Name latch*, wscript -ErrorAction SilentlyContinue | Format-Table Id, Name, Path
+            throw 'the gateway did not answer after latch autostart on'
+          }
           & $latch status
           & $latch update
           & $latch uninstall --all

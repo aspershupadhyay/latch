@@ -166,8 +166,22 @@ pub fn installed_by(exe: &Path) -> Installer {
     }
 }
 
+/// This program's own file, through any link: winget puts a link named `latch`
+/// on the PATH, and the Startup entry and installer checks need the real file.
 fn this_exe() -> PathBuf {
-    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("latch-gateway"))
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("latch-gateway"));
+    match fs::canonicalize(&exe) {
+        Ok(real) => plain_path(real),
+        Err(_) => exe,
+    }
+}
+
+/// Windows' canonical form starts with `\\?\`, which scripts cannot use.
+pub fn plain_path(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|p| p.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
+        _ => path,
+    }
 }
 
 /// Runs this program again as `mode` with the keys set, and ends with its exit code.
@@ -364,14 +378,19 @@ fn autostart(home: &Path, what: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Starts `run-background` now, hidden and on its own, as the Startup entry
+/// does at log-in.
 fn start_background() {
-    if let Some(entry) = startup_entry() {
-        let _ = Command::new("wscript.exe")
-            .arg(&entry)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-    }
+    let mut command = Command::new(this_exe());
+    command
+        .arg("run-background")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: no window, and Ctrl+C here does not reach it.
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0200);
+    let _ = command.spawn();
 }
 
 /// Keeps the gateway running, as launchd or systemd would, with its output in
@@ -656,6 +675,18 @@ mod tests {
         ] {
             assert_eq!(installed_by(Path::new(path)), by, "{path}");
         }
+    }
+
+    #[test]
+    fn plain_paths_for_scripts() {
+        assert_eq!(
+            plain_path(PathBuf::from(r"\\?\C:\Latch\latch-gateway.exe")),
+            PathBuf::from(r"C:\Latch\latch-gateway.exe")
+        );
+        assert_eq!(
+            plain_path(PathBuf::from("/usr/bin/latch-gateway")),
+            PathBuf::from("/usr/bin/latch-gateway")
+        );
     }
 
     #[test]
