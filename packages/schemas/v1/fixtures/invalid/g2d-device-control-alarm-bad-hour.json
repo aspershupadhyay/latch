@@ -1,0 +1,1 @@
+{ "type": "command", "id": "c_0204", "deadline_ms": 15000, "command": { "name": "device.control", "params": { "control": { "kind": "alarm", "hour": 24, "minute": 0 } } } }

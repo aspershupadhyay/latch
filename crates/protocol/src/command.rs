@@ -257,7 +257,16 @@ pub enum PhoneControl {
     Ringer { mode: RingerMode },
     /// Since 1.15: Do Not Disturb on or off (Sound switch, same access).
     DoNotDisturb { on: bool },
+    /// Since 1.21 (R71): start a countdown in the phone's clock app without
+    /// opening it, 1 s to 24 h (settings pages switch).
+    Timer { seconds: u32 },
+    /// Since 1.21 (R71): set an alarm for the next hour:minute, 24-hour clock,
+    /// in the phone's clock app without opening it (settings pages switch).
+    Alarm { hour: u8, minute: u8 },
 }
+
+/// Longest timer `device.control` starts, in seconds (24 h).
+pub const MAX_TIMER_S: u32 = 86_400;
 
 impl PhoneControl {
     /// The capability the owner switches on for this group of controls.
@@ -271,7 +280,9 @@ impl PhoneControl {
             | PhoneControl::Rotation { .. }
             | PhoneControl::ScreenTimeout { .. } => Capability::ControlBrightness,
             PhoneControl::Flashlight { .. } => Capability::ControlFlashlight,
-            PhoneControl::Panel { .. } => Capability::ControlPanels,
+            PhoneControl::Panel { .. }
+            | PhoneControl::Timer { .. }
+            | PhoneControl::Alarm { .. } => Capability::ControlPanels,
         }
     }
 
@@ -338,13 +349,25 @@ impl PhoneControl {
             PhoneControl::DoNotDisturb { on } => {
                 format!("Turn Do Not Disturb {}", if *on { "on" } else { "off" })
             }
+            PhoneControl::Timer { seconds } => {
+                match (seconds / 3600, seconds % 3600 / 60, seconds % 60) {
+                    (0, 0, s) => format!("Start a {s} s timer"),
+                    (0, m, 0) => format!("Start a {m} min timer"),
+                    (0, m, s) => format!("Start a {m} min {s} s timer"),
+                    (h, m, s) => format!("Start a {h} h {m} min {s} s timer"),
+                }
+            }
+            PhoneControl::Alarm { hour, minute } => {
+                format!("Set an alarm for {hour:02}:{minute:02}")
+            }
         }
     }
 
     /// Volume, brightness, flashlight, and the first four panels are
-    /// understood since 1.11; the rest since 1.15.
+    /// understood since 1.11; timers and alarms since 1.21; the rest since 1.15.
     pub fn min_minor_version(&self) -> u32 {
         match self {
+            PhoneControl::Timer { .. } | PhoneControl::Alarm { .. } => 21,
             PhoneControl::Volume { .. }
             | PhoneControl::Media { .. }
             | PhoneControl::Brightness { .. }

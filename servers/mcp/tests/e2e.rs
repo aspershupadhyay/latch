@@ -1482,7 +1482,7 @@ async fn offline_phones_are_listed_last_and_errors_name_the_connected_one() {
     let (_, devices, _) = call(&gw, "list_devices", json!({})).await;
     let lines: Vec<&str> = devices.lines().collect();
     assert_eq!(
-        lines[0], "Latch gateway, protocol 1.20, 39 tools.",
+        lines[0], "Latch gateway, protocol 1.21, 39 tools.",
         "{devices}"
     );
     // One "- " line per phone; a connected phone's file places follow on an indented line.
@@ -2621,6 +2621,42 @@ async fn run_program_does_a_task_in_one_call_and_resumes_after_a_stop() {
     assert_eq!(report["routes"], json!(["flashlight"]), "{text}");
     assert!(text.contains("3. – skipped, not on screen"), "{text}");
 
+    // R71: a timer and an alarm through the phone's clock, no screen.
+    let (is_error, text, _) = call(
+        &gw,
+        "run_program",
+        json!({ "steps": [
+            { "do": "call", "route": "timer", "args": { "minutes": 10 } },
+            { "do": "call", "route": "alarm", "args": { "hour": 6, "minute": 30 } }
+        ]}),
+    )
+    .await;
+    assert!(
+        !is_error && program_report(&text)["status"] == "done",
+        "{text}"
+    );
+    {
+        let state = phone.state.lock().expect("lock");
+        let n = state.controls.len();
+        assert_eq!(
+            state.controls[n - 2..],
+            [
+                latch_protocol::PhoneControl::Timer { seconds: 600 },
+                latch_protocol::PhoneControl::Alarm {
+                    hour: 6,
+                    minute: 30
+                }
+            ]
+        );
+    }
+    for bad in [
+        json!({ "control": "timer", "duration_s": 0 }),
+        json!({ "control": "alarm", "hour": 24, "minute": 0 }),
+    ] {
+        let (is_error, text, _) = call(&gw, "phone_control", bad).await;
+        assert!(is_error && text.contains("invalid_request"), "{text}");
+    }
+
     // Approvals still apply inside a program: Send in the chat asks the owner.
     let (is_error, text, _) = call(
         &gw,
@@ -3618,7 +3654,7 @@ async fn the_phone_check_passes_on_the_fake_phone_and_its_report_keeps_nothing_p
     assert!(report.passed());
     let markdown = report.markdown(phone_check::now_s());
     assert!(
-        markdown.contains("Phone: Latch fake phone, app protocol 1.20"),
+        markdown.contains("Phone: Latch fake phone, app protocol 1.21"),
         "{markdown}"
     );
     assert!(!markdown.contains("Sparsh"), "no phone name: {markdown}");

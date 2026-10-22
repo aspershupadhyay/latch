@@ -139,7 +139,7 @@ impl Capability {
             }
             Capability::ControlBrightness => "set the screen brightness, rotation, and timeout",
             Capability::ControlFlashlight => "turn the flashlight on or off",
-            Capability::ControlPanels => "open settings panels and pages",
+            Capability::ControlPanels => "open settings panels and pages, and set timers and alarms",
             Capability::AdbShell => {
                 "run arbitrary ADB shell commands (owner-enabled full-access mode)"
             }

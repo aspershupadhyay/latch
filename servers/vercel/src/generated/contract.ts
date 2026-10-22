@@ -870,7 +870,7 @@ export const SERVER = {
         "readOnlyHint": false,
         "title": "Control sound, screen, flashlight, or open a settings page"
       },
-      "description": "One phone control per call, each group behind its own owner switch (off by default). Sound: volume (a stream to 0-100 %), media keys (play_pause, next, previous), ringer (normal, vibrate, silent), do_not_disturb (on). Screen: brightness (0-100 %, turns adaptive brightness off), rotation (auto, portrait, landscape), screen_timeout (15-1800 seconds). Flashlight: on or off. Panels: panel opens a settings panel or page over the current app (wifi, internet, bluetooth, volume, nfc, airplane_mode, location, display, battery, sound, notifications, storage, date_time) and returns the screen, where you continue with tap. Ringer and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. screen_light (on false) turns only the screen's light off while the phone, the live mirror, and your actions keep working; on true lights it again (the power button also does); it needs Full ADB on. mirror_volume sets how loud the phone's sound plays on the computer watching the live mirror (0-100 %); the phone's own speaker stays quiet while the mirror plays it. mirror_notifications (on true) turns off Android 15's screen-share protection so notifications show in the live mirror (on false hides them again); it needs Full ADB on and applies when mirroring starts. Needs Latch 1.11 on the phone; ringer, do_not_disturb, rotation, screen_timeout, and the panels after volume need 1.15.",
+      "description": "One phone control per call, each group behind its own owner switch (off by default). Sound: volume (a stream to 0-100 %), media keys (play_pause, next, previous), ringer (normal, vibrate, silent), do_not_disturb (on). Screen: brightness (0-100 %, turns adaptive brightness off), rotation (auto, portrait, landscape), screen_timeout (15-1800 seconds). Flashlight: on or off. Panels: panel opens a settings panel or page over the current app (wifi, internet, bluetooth, volume, nfc, airplane_mode, location, display, battery, sound, notifications, storage, date_time) and returns the screen, where you continue with tap. Clock (same switch as panels, Latch 1.21): timer starts a countdown of duration_s seconds and alarm sets one for hour:minute, in the phone's clock app without opening it. Ringer and Do Not Disturb need the owner to allow Do Not Disturb access for Latch once. screen_light (on false) turns only the screen's light off while the phone, the live mirror, and your actions keep working; on true lights it again (the power button also does); it needs Full ADB on. mirror_volume sets how loud the phone's sound plays on the computer watching the live mirror (0-100 %); the phone's own speaker stays quiet while the mirror plays it. mirror_notifications (on true) turns off Android 15's screen-share protection so notifications show in the live mirror (on false hides them again); it needs Full ADB on and applies when mirroring starts. Needs Latch 1.11 on the phone; ringer, do_not_disturb, rotation, screen_timeout, and the panels after volume need 1.15.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -894,6 +894,8 @@ export const SERVER = {
               "screen_timeout",
               "flashlight",
               "panel",
+              "timer",
+              "alarm",
               "screen_light",
               "mirror_volume",
               "mirror_notifications"
@@ -903,6 +905,24 @@ export const SERVER = {
           "device_id": {
             "description": "Device to use. Optional when exactly one phone is connected; see list_devices.",
             "type": "string"
+          },
+          "duration_s": {
+            "description": "For timer: how long, in seconds.",
+            "maximum": 86400,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "hour": {
+            "description": "For alarm, 24-hour clock.",
+            "maximum": 23,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "minute": {
+            "description": "For alarm.",
+            "maximum": 59,
+            "minimum": 0,
+            "type": "integer"
           },
           "mode": {
             "description": "For ringer (normal, vibrate, silent) and rotation (auto, portrait, landscape).",
@@ -1632,7 +1652,7 @@ export const SERVER = {
         "readOnlyHint": false,
         "title": "Run a program"
       },
-      "description": "Run a whole task on the phone in one call: think once, send every step. Steps (field do): open {app: name or package, fresh?}; go {link, app} (an app link) or go {link: \"settings > wifi\"}; tap {sel, repeat?, long?}; type {sel?, text, submit?}; find {sel}; toggle {sel, on}; scroll {direction, sel?, until?}; back; home; wait {sel?, gone?, timeout_ms?} (no sel: let the screen settle); expect {cond, timeout_ms?}; read {sel, as} (stores the element's words as {as}); if {cond, then, else?}; for_each {items, as?, steps} ({item} or {item.field} in any text); call {route, args} (media {action: play_pause|next|previous}, volume {stream?, percent}, flashlight {on}, brightness {percent}, ringer {mode}, do_not_disturb {on}, panel {panel}, link {url, app}, clipboard {text}: the phone's own controls, no screen); ask_owner {message}. Any step may be optional (skipped when its element is not there) and have a note. A selector (sel) is the element's words, or {text, desc, id, role (button, input, row, card, switch, tab, video, image, or an icon: plus, minus, send, back, search, close, cart, heart, share, menu), near: sel (in the same row or card), inside: sel (a dialog, list, or sheet), index (the n-th match, top to bottom), state: {checked|selected|enabled|focused}}. Conditions: {text: sel}, {gone: sel}, {state: {sel, checked: true}}, {app: package}, {count: {sel, min?, max?}}, {playing: true}, {var: {name, equals|contains}}, {not: cond}. If two elements fit a selector equally well, the step fails and lists both: add near, inside, role, or index. A step that finds nothing first reads the screen again, closes a known pop-up (Not now, Skip, Close …), and scrolls to it. Every phone action goes through the same rules as the single tools (apps the owner allows, approvals, refused fields). On a stop the answer is JSON with the step, the reason, the candidates, what was tried, and resume: call run_program again with the same steps, from_step, and vars to continue; finished steps never run again.",
+      "description": "Run a whole task on the phone in one call: think once, send every step. Steps (field do): open {app: name or package, fresh?}; go {link, app} (an app link) or go {link: \"settings > wifi\"}; tap {sel, repeat?, long?}; type {sel?, text, submit?}; find {sel}; toggle {sel, on}; scroll {direction, sel?, until?}; back; home; wait {sel?, gone?, timeout_ms?} (no sel: let the screen settle); expect {cond, timeout_ms?}; read {sel, as} (stores the element's words as {as}); if {cond, then, else?}; for_each {items, as?, steps} ({item} or {item.field} in any text); call {route, args} (media {action: play_pause|next|previous}, volume {stream?, percent}, flashlight {on}, brightness {percent}, ringer {mode}, do_not_disturb {on}, panel {panel}, link {url, app}, clipboard {text}, timer {minutes?, seconds?}, alarm {hour, minute}: the phone's own controls, no screen); ask_owner {message}. Any step may be optional (skipped when its element is not there) and have a note. A selector (sel) is the element's words, or {text, desc, id, role (button, input, row, card, switch, tab, video, image, or an icon: plus, minus, send, back, search, close, cart, heart, share, menu), near: sel (in the same row or card), inside: sel (a dialog, list, or sheet), index (the n-th match, top to bottom), state: {checked|selected|enabled|focused}}. Conditions: {text: sel}, {gone: sel}, {state: {sel, checked: true}}, {app: package}, {count: {sel, min?, max?}}, {playing: true}, {var: {name, equals|contains}}, {not: cond}. If two elements fit a selector equally well, the step fails and lists both: add near, inside, role, or index. A step that finds nothing first reads the screen again, closes a known pop-up (Not now, Skip, Close …), and scrolls to it. Every phone action goes through the same rules as the single tools (apps the owner allows, approvals, refused fields). On a stop the answer is JSON with the step, the reason, the candidates, what was tried, and resume: call run_program again with the same steps, from_step, and vars to continue; finished steps never run again.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

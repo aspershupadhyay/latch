@@ -9,7 +9,7 @@ import { SERVER } from "./generated/contract.js";
 import { renderLatestTaskLimited } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
 import { ADB_PLATFORM_MAX_MS, ApprovalDeferred, COMMAND_DEADLINE_MS, type CommandTiming, type Devices, type DeviceRecord, type Live, SLOW_STORE_MS } from "./devices.js";
-import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type AdbShellParams, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
+import { ACTIVITY_KINDS, GLOBAL_ACTIONS, type GlobalAction, MAX_SCREEN_TIMEOUT_S, MAX_TIMER_S, MEDIA_ACTIONS, MIN_SCREEN_TIMEOUT_S, type PhoneControl, RINGER_MODES, ROTATION_MODES, SETTINGS_PANELS, VOLUME_STREAMS, describeControl, type AdbResult, type AdbShellParams, type DeviceInfo, type ActivityKind, type ActivityList, type ApprovalChoice, type ApprovalRequest, type Command, type Direction, LIMITS, type Stroke, type Observation, PROTOCOL_VERSION, ProtocolError, minorVersion } from "./protocol.js";
 import { quote, renderChanges, renderObservation, textResult, toolError, truncate } from "./render.js";
 import { FILE_TOOLS, encryptedUploadLink, runFileTool, type Transfers, uploadLink } from "./files.js";
 import type { Links } from "./links.js";
@@ -941,8 +941,19 @@ function phoneControl(args: Record<string, unknown>): PhoneControl {
       return { kind: "screen_timeout", seconds };
     }
     case "panel": return { kind: "panel", panel: pick("panel", SETTINGS_PANELS, `panel must be one of ${SETTINGS_PANELS.join(", ")}`) };
+    case "timer": {
+      const seconds = argInt(args, "duration_s");
+      if (seconds === undefined || seconds < 1 || seconds > MAX_TIMER_S) throw bad("duration_s must be between 1 and 86400 for timer");
+      return { kind: "timer", seconds };
+    }
+    case "alarm": {
+      const hour = argInt(args, "hour");
+      const minute = argInt(args, "minute");
+      if (hour === undefined || minute === undefined || hour < 0 || hour > 23 || minute < 0 || minute > 59) throw bad("alarm needs hour (0-23) and minute (0-59)");
+      return { kind: "alarm", hour, minute };
+    }
     default:
-      throw bad("control must be volume, media, ringer, do_not_disturb, brightness, rotation, screen_timeout, flashlight, or panel");
+      throw bad("control must be volume, media, ringer, do_not_disturb, brightness, rotation, screen_timeout, flashlight, panel, timer, or alarm");
   }
 }
 

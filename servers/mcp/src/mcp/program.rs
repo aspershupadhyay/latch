@@ -75,6 +75,8 @@ pub const ROUTES: &[&str] = &[
     "panel",
     "link",
     "clipboard",
+    "timer",
+    "alarm",
 ];
 
 /// Words of the buttons that close a pop-up without choosing anything (rating
@@ -1016,8 +1018,8 @@ pub fn definition() -> Value {
          expect {cond, timeout_ms?}; read {sel, as} (stores the element's words as {as}); \
          if {cond, then, else?}; for_each {items, as?, steps} ({item} or {item.field} in any text); \
          call {route, args} (media {action: play_pause|next|previous}, volume {stream?, percent}, flashlight {on}, \
-         brightness {percent}, ringer {mode}, do_not_disturb {on}, panel {panel}, link {url, app}, clipboard {text}: \
-         the phone's own controls, no screen); ask_owner {message}. Any step may be optional (skipped when its \
+         brightness {percent}, ringer {mode}, do_not_disturb {on}, panel {panel}, link {url, app}, clipboard {text}, \
+         timer {minutes?, seconds?}, alarm {hour, minute}: the phone's own controls, no screen); ask_owner {message}. Any step may be optional (skipped when its \
          element is not there) and have a note. A selector (sel) is the element's words, or {text, desc, id, role \
          (button, input, row, card, switch, tab, video, image, or an icon: plus, minus, send, back, search, close, \
          cart, heart, share, menu), near: sel (in the same row or card), inside: sel (a dialog, list, or sheet), \
@@ -1696,6 +1698,17 @@ impl Runner<'_> {
                     ),
                     "link" => ("open_link", json!({ "url": a("url"), "package": a("app") })),
                     "clipboard" => ("set_clipboard", json!({ "text": a("text") })),
+                    "timer" => {
+                        let n = |k: &str| args.get(k).and_then(Value::as_i64).unwrap_or(0);
+                        (
+                            "phone_control",
+                            json!({ "control": "timer", "duration_s": n("minutes") * 60 + n("seconds") }),
+                        )
+                    }
+                    "alarm" => (
+                        "phone_control",
+                        json!({ "control": "alarm", "hour": a("hour"), "minute": a("minute") }),
+                    ),
                     _ => {
                         return Err(fail(
                             "route_unavailable",

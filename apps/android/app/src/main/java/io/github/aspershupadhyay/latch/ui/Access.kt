@@ -100,7 +100,7 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
     CONTROLS(
         "Phone controls", LatchIcons.Sliders,
         listOf(Capability.CONTROL_SOUND, Capability.CONTROL_BRIGHTNESS, Capability.CONTROL_FLASHLIGHT, Capability.CONTROL_PANELS),
-        "With this on, the AI can set volumes, the ringer, and Do Not Disturb, play or pause media, change the brightness, rotation, and screen timeout, use the flashlight, and open settings panels and pages. Each group is its own switch, off until you turn it on.",
+        "With this on, the AI can set volumes, the ringer, and Do Not Disturb, play or pause media, change the brightness, rotation, and screen timeout, use the flashlight, open settings panels and pages, and set timers and alarms. Each group is its own switch, off until you turn it on.",
     ),
     ADB(
         "Full ADB access", LatchIcons.Key, listOf(Capability.ADB_SHELL),

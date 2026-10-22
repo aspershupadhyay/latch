@@ -27,7 +27,7 @@ const RUN_BUDGET_MS = 240_000;
 
 const KINDS = ["open", "go", "tap", "type", "find", "toggle", "scroll", "back", "home", "wait", "expect", "read", "if", "for_each", "call", "ask_owner"];
 const ROLES = ["button", "input", "row", "card", "switch", "tab", "video", "image", "plus", "minus", "send", "back", "search", "close", "cart", "heart", "share", "menu"];
-export const ROUTES = ["media", "volume", "flashlight", "brightness", "ringer", "do_not_disturb", "panel", "link", "clipboard"];
+export const ROUTES = ["media", "volume", "flashlight", "brightness", "ringer", "do_not_disturb", "panel", "link", "clipboard", "timer", "alarm"];
 const POPUP_WORDS = ["not now", "no thanks", "no, thanks", "maybe later", "later", "skip", "dismiss", "close", "got it", "remind me later"];
 
 const KIND_FIELDS: Record<string, string[]> = {
@@ -1050,6 +1050,8 @@ class Runner {
           panel: ["phone_control", { control: "panel", panel: a("panel") }],
           link: ["open_link", { url: a("url"), package: a("app") }],
           clipboard: ["set_clipboard", { text: a("text") }],
+          timer: ["phone_control", { control: "timer", duration_s: (isInt(args.minutes) ? args.minutes : 0) * 60 + (isInt(args.seconds) ? args.seconds : 0) }],
+          alarm: ["phone_control", { control: "alarm", hour: a("hour"), minute: a("minute") }],
         };
         const target = routes[route];
         if (target === undefined) throw fail("route_unavailable", `no route ${quote(route, 30)}`);

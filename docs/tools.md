@@ -2,7 +2,7 @@
 
 What an AI app can call once it is connected. The currently shipped ordinary tools below require their capability switches, app consent, and risk-based approvals.
 
-Gateways at protocol 1.20 offer **39 tools**. The first line of `list_devices` says how many yours has.
+Gateways at protocol 1.21 offer **39 tools**. The first line of `list_devices` says how many yours has.
 
 | Tool | What it does |
 |---|---|

@@ -469,6 +469,12 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.equal(rep.status, "done", text(prog as never));
   assert.deepEqual(rep.routes, ["flashlight"]);
   assert.match(text(prog as never), /6\. – skipped, not on screen/);
+  // R71: the phone's clock without the screen (protocol 1.21).
+  prog = await client.callTool({ name: "run_program", arguments: { steps: [{ do: "call", route: "timer", args: { minutes: 10 } }] } });
+  assert.equal(report(prog).status, "done", text(prog as never));
+  assert.match(text(prog as never), /Start a 10 min timer|Done/);
+  const badTimer = await client.callTool({ name: "phone_control", arguments: { control: "timer", duration_s: 0 } });
+  assert.ok(badTimer.isError && /duration_s must be between 1 and 86400/.test(text(badTimer)), text(badTimer));
   const badProgram = await client.callTool({ name: "run_program", arguments: { steps: [{ do: "tap", sel: { role: "rocket" } }] } });
   assert.ok(badProgram.isError && /selector role must be one of/.test(text(badProgram)), text(badProgram));
   const idRepeat = await client.callTool({ name: "tap", arguments: { element_id: "n1", repeat: 2, observation_id: "o_1" } });

@@ -994,3 +994,20 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Checks:** shared cases (`packages/schemas/v1/program`: validation, selector resolution, conditions, templates) on both gateways; e2e on both gateways: a settings task with toggle, expect, and read; ambiguity then resume without re-running finished steps; loops with `repeat` from item fields; a missing product with the recovery tried; `if`/`var`, an optional step, a route; Send still asks the owner; the Vercel approval pause.
 
 **Rollback:** remove the tool; nothing else depends on it.
+
+## ADR-073 — Timers and alarms through Android's clock API (protocol 1.21)
+**Status:** accepted (2026-10-22, owner: "go ahead and do it all") · **Amends:** ADR-035 (phone controls) · **Protocol:** 1.21, additive
+
+**Problem:** "Set a 10 min timer" is one of the spec's fastest routes (a system API, under 50 ms of phone work), but Latch could only do it by opening the clock app and tapping through it: several model round trips for something Android does in one call.
+
+**Decision:**
+- `device.control` gains `timer {seconds}` (1 s–24 h) and `alarm {hour, minute}`; the phone sends `AlarmClock.ACTION_SET_TIMER` or `ACTION_SET_ALARM` with `EXTRA_SKIP_UI` to whichever clock app it has, so nothing opens on the screen. The `SET_ALARM` permission is a normal one, granted at install.
+- **No new switch** (ADR-066 asked for fewer): both sit behind the settings-pages switch, whose description now says "and set timers and alarms" in Access, on both gateways, and in the protocol crate.
+- MCP: `phone_control` with `control: timer, duration_s` or `control: alarm, hour, minute`; `run_program` routes `timer {minutes?, seconds?}` and `alarm {hour, minute}`.
+- Phones before 1.21 are refused by the gateway's version check; a phone without a clock app that takes timers answers `unsupported_capability`.
+
+**Threat review:** a timer or alarm is visible in the clock app, harmless, and undone by the owner in one tap; it reads nothing. The only new Android permission (`SET_ALARM`) cannot read or delete existing alarms. Intent visibility is limited to the two clock actions (`<queries>`).
+
+**Checks:** shared fixtures (valid timer and alarm, timer 0 and hour 24 refused) on the protocol crate and the Android parser; gateway e2e on both gateways (program routes reach the phone as `Timer {600}` and `Alarm {6, 30}`; bad values refused).
+
+**Rollback:** remove the two kinds; older gateways never send them.

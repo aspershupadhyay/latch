@@ -229,7 +229,7 @@
       "error": "step if: blocks nest at most 3 deep"
     },
     {
-      "error": "step call: route must be one of media, volume, flashlight, brightness, ringer, do_not_disturb, panel, link, clipboard"
+      "error": "step call: route must be one of media, volume, flashlight, brightness, ringer, do_not_disturb, panel, link, clipboard, timer, alarm"
     },
     {
       "error": "step wait: timeout_ms must be 100 to 30000"
