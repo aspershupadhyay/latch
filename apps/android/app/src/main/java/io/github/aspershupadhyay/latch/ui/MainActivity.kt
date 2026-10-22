@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         val app = LatchApp.get(this)
-        if (app.settings.preferences.value.checkUpdates) app.updater.checkIfDue()
+        app.updater.checkIfDue()
     }
 
     override fun onResume() {
@@ -539,7 +539,7 @@ private fun MainTabs(app: LatchApp, reducedMotion: Boolean) {
                             openSettings = { settingsOpen = true },
                         )
                         Tab.CAPABILITIES -> CapabilitiesRoute(app) { setupOpen = true }
-                        Tab.CONNECT -> ConnectRoute(app, signInRequests) { requestsTick++ }
+                        Tab.CONNECT -> ConnectRoute(app, signInRequests, openSetup = { setupOpen = true }) { requestsTick++ }
                         Tab.ACTIVITY -> {
                             val entries by app.log.entries.collectAsStateWithLifecycle(app.log.snapshot())
                             val context = LocalContext.current
@@ -685,14 +685,14 @@ private fun HomeRoute(
     val p = pairing ?: return
 
     val (phase, headline, detail) = when (val s = state) {
-        SessionState.Unpaired, SessionState.Idle -> Triple(Phase.IDLE, "Ready", "Nothing is shared until you start. Start when you want your AI to help on this phone.")
+        SessionState.Unpaired, SessionState.Idle -> Triple(Phase.IDLE, "Ready", "Nothing is shared until you start.")
         is SessionState.Connecting -> Triple(Phase.CONNECTING, "Connecting\u2026", "Nothing happens until your relay answers.")
         is SessionState.Reconnecting -> Triple(Phase.RECONNECTING, "Reconnecting", "The internet dropped. Nothing can happen until it's back.")
         is SessionState.Active -> when {
             pending != null -> Triple(Phase.ACTIVE, "Your answer is needed", "The AI waits until you answer below.")
             s.paused -> Triple(Phase.PAUSED, "Paused", "The AI can't see or do anything until you resume.")
             now >= s.expiresAtMs -> Triple(Phase.ACTIVE, "Only full ADB access is on", "The session time ended, so the AI can only run ADB commands. Stop ends it.")
-            else -> Triple(Phase.ACTIVE, "Your AI can work now", "Only in the apps you allowed. Stop ends everything at once.")
+            else -> Triple(Phase.ACTIVE, "Your AI can work now", "Stop ends everything at once.")
         }
         is SessionState.Revoked -> Triple(Phase.REVOKED, "Revoked", s.reason)
         is SessionState.Failed -> Triple(Phase.FAILED, "Stopped", s.message)
@@ -703,16 +703,6 @@ private fun HomeRoute(
         else -> null
     }
     val statuses = remember(prefs, service, now) { app.session.capabilityStatuses() }
-    val mirror by app.mirror.status.collectAsStateWithLifecycle()
-    val mirrorRemembered by app.settings.mirrorRemembered.collectAsStateWithLifecycle()
-    val mirrorConsent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val data = result.data
-        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) app.mirror.allowed(result.resultCode, data) else app.mirror.declined()
-    }
-    // ADR-055: the phone's sound in the mirror needs audio recording; the picture works without it.
-    val mirrorAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        mirrorConsent.launch(app.mirror.consentIntent())
-    }
 
     HomeScreen(
         HomeState(
@@ -737,8 +727,6 @@ private fun HomeRoute(
             outdatedGateway = outdatedGateway,
             slowRelayMs = slowRelayMs,
             update = update,
-            mirror = mirror,
-            mirrorRemembered = mirrorRemembered,
             lastSession = lastSession,
         ),
         HomeActions(
@@ -773,6 +761,32 @@ private fun HomeRoute(
             openGatewayUpdateHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, GATEWAY_UPDATE_HELP.toUri())) },
             openRelaySpeedHelp = { context.startActivity(Intent(Intent.ACTION_VIEW, RELAY_SPEED_HELP.toUri())) },
             installUpdate = { info -> installUpdate(app, context, info) },
+        ),
+    )
+}
+
+/**
+ * The mirror's buttons (R30): its card sits on the Connect tab, with the other
+ * ways a computer reaches this phone.
+ */
+@Composable
+private fun MirrorSection(app: LatchApp, openSetup: () -> Unit) {
+    val context = LocalContext.current
+    val service by app.bridge.service.collectAsStateWithLifecycle()
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val mirror by app.mirror.status.collectAsStateWithLifecycle()
+    val mirrorRemembered by app.settings.mirrorRemembered.collectAsStateWithLifecycle()
+    val mirrorConsent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) app.mirror.allowed(result.resultCode, data) else app.mirror.declined()
+    }
+    // ADR-055: the phone's sound in the mirror needs audio recording; the picture works without it.
+    val mirrorAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        mirrorConsent.launch(app.mirror.consentIntent())
+    }
+    MirrorCard(
+        mirror,
+        HomeActions(
             startMirror = {
                 val reason = app.mirror.unavailableReason()
                 if (reason != null) {
@@ -798,6 +812,7 @@ private fun HomeRoute(
                 android.widget.Toast.makeText(context, "Done. Computers need a new code next time.", android.widget.Toast.LENGTH_LONG).show()
             },
         ),
+        mirrorRemembered,
     )
 }
 
@@ -874,8 +889,6 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
                 app.settings.update { p -> p.copy(folders = p.folders.filterNot { it.uri == gone.uri }) }
             }
         },
-        photosOn = prefs.photosOn,
-        onPhotosOn = { v -> app.settings.update { it.copy(photosOn = v) } },
         localTransfers = prefs.localTransfers,
         onLocalTransfers = { v -> app.settings.update { it.copy(localTransfers = v) } },
         adbEndpoint = prefs.adbEndpoint,
@@ -927,10 +940,6 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         onToggle = { c, on -> app.settings.update { p -> p.copy(enabled = if (on) p.enabled + c else p.enabled - c) } },
         onApproveEveryAction = { v -> app.settings.update { it.copy(approveEveryAction = v) } },
         onOpenSetup = openSetup,
-        showCursor = prefs.showCursor,
-        keepAwake = prefs.keepAwake,
-        onShowCursor = { v -> app.settings.update { it.copy(showCursor = v) } },
-        onKeepAwake = { v -> app.settings.update { it.copy(keepAwake = v) } },
         saved = always.map(::SavedApproval).map { SavedApprovalRow(it.key, it.action, app.appLabel(it.packageName) ?: it.packageName) },
         onRemoveSaved = app.grants::remove,
         onRemoveAllSaved = app.grants::clearAll,
@@ -938,11 +947,13 @@ private fun CapabilitiesRoute(app: LatchApp, openSetup: () -> Unit) {
         onOpenGroup = { group = it },
         allApps = autonomy.allApps,
         onPreset = { applyPreset(app, it) },
+        trustCritical = autonomy.trustCritical,
+        onTrustCritical = app.autonomy::setTrustCritical,
     )
 }
 
 @Composable
-private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequestsChanged: () -> Unit) {
+private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, openSetup: () -> Unit, onRequestsChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
@@ -1013,6 +1024,7 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, onRequest
                 }
             },
         ),
+        mirror = { MirrorSection(app, openSetup) },
     )
 }
 
@@ -1021,7 +1033,6 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
     val context = LocalContext.current
     val pairing by app.settings.pairing.collectAsStateWithLifecycle()
     val isOwner by app.settings.isOwner.collectAsStateWithLifecycle()
-    val prefs by app.settings.preferences.collectAsStateWithLifecycle()
     val update by app.updater.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var keyRotation by remember { mutableStateOf<KeyRotation>(KeyRotation.Idle) }
@@ -1048,13 +1059,8 @@ private fun SettingsRoute(app: LatchApp, reducedMotion: Boolean, openGuide: () -
         version = BuildConfig.VERSION_NAME,
         onForget = { app.session.forget() },
         onDisconnectKeep = { app.session.keepAndSetUpAnother() },
-        onOpenAccessibility = { openAccessibilityFor(context) },
         onOpenSetup = openSetup,
         update = update,
-        checkUpdates = prefs.checkUpdates,
-        onCheckUpdates = { v -> app.settings.update { it.copy(checkUpdates = v) } },
-        readButtons = prefs.readButtons,
-        onReadButtons = { v -> app.settings.update { it.copy(readButtons = v) } },
         onCheckNow = { app.updater.check(manual = true) },
         onInstallUpdate = { info -> installUpdate(app, context, info) },
         reducedMotion = reducedMotion,
@@ -1088,8 +1094,6 @@ private fun AppsRoute(app: LatchApp, onBack: () -> Unit) {
         onToggle = { pkg, on -> app.autonomy.setAllowed(pkg, on) },
         onAllOff = { app.autonomy.clearAll() },
         onBack = onBack,
-        trustCritical = autonomy.trustCritical,
-        onTrustCritical = app.autonomy::setTrustCritical,
         icon = { pkg ->
             LaunchedEffect(pkg) {
                 if (pkg !in icons) {

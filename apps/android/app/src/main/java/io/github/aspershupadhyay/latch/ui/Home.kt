@@ -192,7 +192,6 @@ fun HomeScreen(state: HomeState, actions: HomeActions) {
                 TileNote("in your history", maxLines = 1)
             }
         }
-        MirrorCard(state.mirror, actions, state.mirrorRemembered)
     }
 }
 
@@ -335,7 +334,7 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        StatusOrb(orb, state.headline, state.reducedMotion, size = 112.dp, tint = tint)
+        StatusOrb(orb, state.headline, state.reducedMotion, size = 96.dp, tint = tint)
         Column(
             Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -348,15 +347,13 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
             ) { Text(it, style = MaterialTheme.typography.displaySmall, color = signal.text, textAlign = TextAlign.Center) }
             Text(state.detail, style = MaterialTheme.typography.bodyMedium, color = signal.text2, textAlign = TextAlign.Center)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            // It says what is checked: the link to the relay is encrypted. Who runs the relay is in Settings.
-            Pill(
-                if (state.encrypted) "Encrypted" else "Not encrypted",
-                if (state.encrypted) signal.success else signal.warning,
-                if (state.encrypted) LatchIcons.Lock else LatchIcons.Warning,
-            )
-            state.minutesLeft?.let { left ->
-                Pill("${if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"} left", signal.text2, LatchIcons.Clock)
+        // Tags only when they tell something: time left while live, and a warning if the link is not encrypted.
+        if (!state.encrypted || state.minutesLeft != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!state.encrypted) Pill("Not encrypted", signal.warning, LatchIcons.Warning)
+                state.minutesLeft?.let { left ->
+                    Pill("${if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"} left", signal.text2, LatchIcons.Clock)
+                }
             }
         }
         if (live) {
@@ -389,12 +386,6 @@ private fun HeroCard(state: HomeState, actions: HomeActions) {
                     outline = signal.border2,
                 )
             }
-            Text(
-                "You can keep using Latch. Stop is on every screen.",
-                style = MaterialTheme.typography.bodySmall,
-                color = signal.text3,
-                textAlign = TextAlign.Center,
-            )
         } else {
             IconButtonLarge(
                 if (state.accessibilityOn) "Start · ${spokenLength(state.sessionMinutes)}" else "Finish setup to start",
