@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
-import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -185,22 +184,15 @@ private fun iconFor(kind: ActivityKind) = when (kind) {
     ActivityKind.TASK -> LatchIcons.Check
 }
 
-/** The Activity filters, in the order the owner looks for things. Session also covers the connection. */
+/** The History filters (ADR-067): four, in the order the owner looks for things. */
 internal enum class ActivityFilter(val label: String, val kinds: Set<ActivityKind>?, val by: ActivityActor? = null) {
     ALL("All", null),
-    BY_AI("By AI", null, ActivityActor.AI),
-    BY_YOU("By you", null, ActivityActor.OWNER),
     /** Not a filter: the AI's tasks as timelines (roadmap R14). */
-    BY_TASK("By task", null),
-    ACTIONS("Actions", setOf(ActivityKind.ACTION)),
-    APPS("App access", setOf(ActivityKind.APP)),
-    APPROVALS("Approvals", setOf(ActivityKind.APPROVAL)),
-    REFUSED("Refused", setOf(ActivityKind.REFUSAL)),
-    FILES("Files", setOf(ActivityKind.FILE)),
-    FOLDERS("Folders", setOf(ActivityKind.FOLDER)),
-    SCREEN("Screen reads", setOf(ActivityKind.SCREEN)),
-    TASKS("Tasks", setOf(ActivityKind.TASK)),
-    SESSION("Session", setOf(ActivityKind.SESSION, ActivityKind.CONNECTION)),
+    BY_TASK("Tasks", null),
+    /** What Latch asked you: approvals and first-time app questions. */
+    ASKED("Asked you", setOf(ActivityKind.APPROVAL, ActivityKind.APP)),
+    /** What Latch stopped. */
+    REFUSED("Blocked", setOf(ActivityKind.REFUSAL)),
     ;
 
     fun matches(e: ActivityEntry) = (kinds == null || e.kind in kinds) && (by == null || e.by == by)
@@ -267,7 +259,7 @@ private fun TimelineRow(
             Row {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                Text(time, style = MaterialTheme.typography.bodySmall, fontFamily = GeistMono, color = signal.text3, maxLines = 1)
+                Text(time, style = MaterialTheme.typography.bodySmall, color = signal.text3, maxLines = 1)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(detail, style = MaterialTheme.typography.bodySmall, color = signal.text2, modifier = Modifier.weight(1f))
@@ -328,7 +320,7 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "${f.label} ${counts[f] ?: 0}",
+                            f.label,
                             style = MaterialTheme.typography.labelLarge,
                             color = if (selected) signal.onInk else signal.text,
                             maxLines = 1,
@@ -373,7 +365,7 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
                     iconFor(e.kind), tint, e.summary,
                     if (e.kind == ActivityKind.REFUSAL) signal.danger else signal.text,
                     format.format(Date(e.atMs)),
-                    listOfNotNull(e.kind.label, e.app).joinToString(" \u00b7 "),
+                    e.app ?: e.kind.label,
                     e.by, last,
                 )
             }
@@ -386,7 +378,7 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
             }
         }
         if (entries.isNotEmpty()) {
-            item { TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Clear activity", color = signal.danger) } }
+            item { TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Clear history", color = signal.danger) } }
         }
     }
     if (choosePeriod) {
@@ -421,7 +413,7 @@ fun ActivityScreen(entries: List<ActivityEntry>, onClear: () -> Unit, onExport: 
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear all activity?") },
+            title = { Text("Clear history?") },
             text = { Text("Every line is deleted from this phone. The AI's past actions cannot be listed again afterwards.") },
             confirmButton = { TextButton(onClick = { onClear(); confirmClear = false }) { Text("Clear", color = signal.danger) } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },

@@ -68,11 +68,12 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
     var showKeys by rememberSaveable { mutableStateOf(false) }
     var limiting by rememberSaveable { mutableStateOf<String?>(null) }
     var removing by rememberSaveable { mutableStateOf<String?>(null) }
+    var revoking by rememberSaveable { mutableStateOf<String?>(null) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScreenTitle("Connect your AI", "Give this link to your AI app. That's it.")
+        ScreenTitle("Connect", "Give this link to your AI app.")
 
         // Sign-in requests come first: someone is waiting in a browser.
         state.requests.forEach { request -> SignInCard(request, actions) }
@@ -134,7 +135,8 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
                     )
                 }
             }
-            Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            // The steps are for the first time; once an AI app is connected they are noise.
+            if (state.clients.isEmpty()) Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 HowStep(1, "Copy the link.")
                 HowStep(2, "Paste it in your AI app as a connector. In Claude: Settings \u2192 Connectors \u2192 Add custom connector.")
                 HowStep(3, "A 4-letter code shows there and here. If they match, tap Approve.")
@@ -163,21 +165,20 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
         if (state.isOwner && state.created == null) {
             if (state.clients.isNotEmpty()) {
                 val format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                SectionCaption("Connected apps")
+                SectionCaption("Your AI apps")
                 Card {
                     state.clients.forEachIndexed { index, client ->
                         if (index > 0) RowDivider()
-                        val how = if (client.kind == "oauth") "Signed in" else "Key"
                         ListRow(
                             if (client.kind == "oauth") LatchIcons.ShieldCheck else LatchIcons.Key,
                             client.name,
-                            "$how · " + (client.lastUsedMs?.let { "used ${format.format(Date(it))}" } ?: "not used yet") +
-                                " · " + appsSummary(client.apps, state.phoneApps),
+                            (client.lastUsedMs?.let { "Used ${format.format(Date(it))}" } ?: "Not used yet") +
+                                (client.apps?.let { " \u00b7 " + appsSummary(it, state.phoneApps) } ?: ""),
                             tint = signal.accent,
                             onClick = { limiting = client.id },
                             onClickLabel = "Choose which phone apps ${client.name} may use",
                             trailing = {
-                                IconButton(onClick = { actions.revoke(client.id) }) {
+                                IconButton(onClick = { revoking = client.id }) {
                                     Icon(LatchIcons.Trash, contentDescription = "Remove ${client.name}", tint = signal.danger, modifier = Modifier.size(20.dp))
                                 }
                             },
@@ -187,7 +188,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
             }
 
             TextButton(onClick = { showKeys = !showKeys }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (showKeys) "Hide keys" else "AI app has no sign-in? Use a key instead", color = signal.accent)
+                Text(if (showKeys) "Hide" else "No sign-in in your AI app? Use a key", color = signal.text2)
             }
             AnimatedVisibility(showKeys, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 Card {
@@ -220,14 +221,14 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
         state.connection?.let { current ->
             if (state.created == null) {
                 SectionCaption("Connection")
-                ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved, state.bothConnected, actions.setBothConnected)
+                ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved)
             }
         }
 
         if (state.isOwner && state.created == null) {
             if (state.otherPhones.isNotEmpty()) {
                 val format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                SectionCaption("Other phones on this relay")
+                SectionCaption("Other phones")
                 Card {
                     state.otherPhones.forEachIndexed { index, phone ->
                         if (index > 0) RowDivider()
@@ -249,6 +250,17 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
                         )
                     }
                 }
+            }
+            state.clients.firstOrNull { it.id == revoking }?.let { client ->
+                AlertDialog(
+                    onDismissRequest = { revoking = null },
+                    title = { Text("Remove ${client.name}?") },
+                    text = { Text("It can no longer reach this phone. To use it again, connect it again with the link.") },
+                    confirmButton = {
+                        TextButton(onClick = { actions.revoke(client.id); revoking = null }) { Text("Remove", color = signal.danger) }
+                    },
+                    dismissButton = { TextButton(onClick = { revoking = null }) { Text("Cancel") } },
+                )
             }
             state.otherPhones.firstOrNull { it.id == removing }?.let { phone ->
                 AlertDialog(

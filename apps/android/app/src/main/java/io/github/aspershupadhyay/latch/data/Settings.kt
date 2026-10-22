@@ -257,7 +257,8 @@ class Settings(private val context: Context) {
             localTransfers = prefs.getBoolean("local_transfers", false),
             adbEndpoint = prefs.getString("adb_endpoint", null),
             adbFixedPort = prefs.getBoolean("adb_fixed_port", false),
-            bothConnected = prefs.getBoolean("both_connected", true),
+            // ADR-067: both kept connections are always used, so a session survives losing one.
+            bothConnected = true,
             theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
     }

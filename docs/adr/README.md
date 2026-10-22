@@ -865,3 +865,19 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** revert the commit; the stored preferences are untouched, so the old switches would read them again.
 
+## ADR-067 — Connect and History: one job each, nothing repeated
+**Status:** accepted (2026-10-22, owner: "now do the same for connect and history tab") · **Amends:** ADR-063 (Connect), ADR-053 (both connections at once), the History filters · **Protocol:** unchanged
+
+**Audit (before):** Connect showed the three setup steps forever, a long explanation and a "Keep both connected" switch inside the connection card, rows that repeated how each AI app signed in, and a trash button that removed an AI app in one tap. History offered 13 filter chips in a sideways scroll, each with a count, and every line repeated its kind under an icon that already showed it.
+
+**Decision:**
+- **Connect:** the link card first; the three steps only until the first AI app connects; "Your AI apps" rows say when each was last used, and its app limit only when it has one; removing an AI app asks first. The connection card is the Hosted / Wi-Fi choice, the one in use, and a kept one as **Backup** with Forget.
+- **Both connections are always used:** a kept connection of the other kind joins every session, so losing Wi-Fi or the internet does not end it. The switch is gone; an older stored "off" is no longer read.
+- **History:** four filters, **All, Tasks, Asked you, Blocked**, without counts. Each line shows what happened, the app, the time, and who did it.
+
+**Threat review:** no new grant or data path. Using both kept connections was already the default (ADR-053); each is authenticated as before. Removing an AI app now needs a second tap, which prevents accidental loss of access.
+
+**Checks:** the app builds with warnings as errors; unit tests and lint pass; Connect and History were rendered (`connect_list`, `activity_night`).
+
+**Rollback:** revert the commit; stored preferences are untouched.
+
