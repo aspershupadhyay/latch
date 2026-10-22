@@ -28,11 +28,20 @@ button.danger { color: var(--red); }
 .join { min-height: 100%; display: grid; place-items: center; padding: 16px; }
 .card { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 28px 24px; }
 .card h1 { margin: 0 0 8px; font-size: 1.6rem; letter-spacing: -0.02em; }
-.card form { display: grid; gap: 10px; margin-top: 18px; }
-.card label { font-size: 13px; color: var(--muted); }
-.card input {
-  font: 600 28px var(--mono); letter-spacing: 0.2em; text-align: center; padding: 10px; color: var(--text);
-  background: #0a0c0e; border: 1px solid var(--line); border-radius: 12px;
+/* ADR-069: the QR code to scan with Latch, beside three short steps. */
+.card.connect { width: min(760px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: center; }
+.steps-list { margin: 12px 0 16px; padding-left: 1.3em; display: grid; gap: 6px; }
+.join-status { display: inline-flex; align-items: center; gap: 8px; margin: 0; font: 13px var(--mono); color: var(--muted); }
+.join-status b { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); animation: pulse 1.6s ease-in-out infinite; }
+.join-status.done b { background: var(--green); animation: none; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .join-status b { animation: none; } }
+.qr { margin: 0; display: grid; justify-items: center; }
+.qr img { width: 240px; height: 240px; background: #fff; border-radius: 14px; padding: 10px; image-rendering: pixelated; }
+@media (max-width: 640px) {
+  .card.connect { grid-template-columns: 1fr; }
+  .qr { order: -1; }
+  .qr img { width: min(240px, 70vw); height: auto; aspect-ratio: 1; }
 }
 
 .app { height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }

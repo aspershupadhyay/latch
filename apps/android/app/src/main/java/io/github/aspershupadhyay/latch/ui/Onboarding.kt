@@ -220,20 +220,28 @@ fun CreateGatewayScreen(state: CreateGatewayState, actions: CreateGatewayActions
         }
 
         SetupStep(
-            3, false, "Paste your relay's address",
-            "When Vercel shows “Congratulations”, copy the web address it shows and paste it here.",
+            3, false, "Scan your relay's page",
+            "When Vercel shows “Congratulations”, open your relay's address on the computer (Visit). It shows a QR code: scan it and this phone connects by itself.",
         ) {
-            LabeledField(
-                label = "Relay address",
-                hint = "It ends in .vercel.app, for example latch-gateway-ada.vercel.app",
-                value = state.address,
-                onValueChange = actions.setAddress,
-                topic = HelpTopic.RELAY,
-                placeholder = "something.vercel.app",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            )
+            PrimaryButton(if (state.busy) "Connecting…" else "Scan QR code", actions.scan, Modifier.fillMaxWidth(), enabled = !state.busy)
             state.error?.let { Text(it, color = signal.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-            PrimaryButton(if (state.busy) "Connecting…" else "Connect", actions.connect, Modifier.fillMaxWidth(), enabled = !state.busy && state.address.isNotBlank())
+            var typing by rememberSaveable { mutableStateOf(state.address.isNotBlank()) }
+            if (!typing) {
+                TextButton(onClick = { typing = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Can't scan? Type the address", color = signal.text2)
+                }
+            } else {
+                LabeledField(
+                    label = "Relay address",
+                    hint = "It ends in .vercel.app, for example latch-gateway-ada.vercel.app",
+                    value = state.address,
+                    onValueChange = actions.setAddress,
+                    topic = HelpTopic.RELAY,
+                    placeholder = "something.vercel.app",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                SecondaryButton(if (state.busy) "Connecting…" else "Connect", actions.connect, Modifier.fillMaxWidth(), enabled = !state.busy && state.address.isNotBlank())
+            }
         }
         Text(
             "Prefer the gateway on your computer? Go back and choose “Computer on Wi-Fi”.",

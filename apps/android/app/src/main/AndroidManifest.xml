@@ -83,12 +83,33 @@
             </intent-filter>
         </activity>
 
-        <!-- ADR-054: Latch's own QR scanner for Wi-Fi setup (ScanActivity). It asks
+        <!-- ADR-054, ADR-069: Latch's own QR scanner (ScanActivity): setup and mirror codes. It asks
              for the camera itself, only when the owner taps Scan. -->
         <activity
             android:name=".ui.ScanActivity"
             android:exported="false"
             android:theme="@style/Theme.Latch.Camera" />
+
+        <!-- ADR-069: "Send to computer" in the Share sheet; files go to the computer
+             watching the mirror. It reads only the files the owner shares. -->
+        <activity
+            android:name=".ui.SendToComputerActivity"
+            android:exported="true"
+            android:label="@string/send_to_computer_label"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Latch">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
 
         <!-- Only the system can bind: BIND_ACCESSIBILITY_SERVICE is a signature permission. -->
         <service

@@ -92,6 +92,10 @@ class HomeActions(
     val stopMirror: () -> Unit = {},
     val copyMirrorLink: () -> Unit = {},
     val forgetMirrorComputers: () -> Unit = {},
+    /** ADR-069: scan the computer's mirror page; share the link; send files to the computer. */
+    val scanMirror: () -> Unit = {},
+    val shareMirrorLink: () -> Unit = {},
+    val sendFilesToComputer: () -> Unit = {},
 )
 
 data class ConnectState(
@@ -151,6 +155,8 @@ class CreateGatewayActions(
     val setAddress: (String) -> Unit = {},
     val connect: () -> Unit = {},
     val back: () -> Unit = {},
+    /** ADR-069: scan the QR code the relay's own page shows. */
+    val scan: () -> Unit = {},
 )
 
 enum class JoinMode { OWNER_KEY, PAIRING_CODE }

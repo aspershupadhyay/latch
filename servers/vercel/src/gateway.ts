@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // HTTP routes of the Vercel gateway. Same paths, status codes, and JSON shapes
 // as the Rust gateway (servers/mcp/src/http.rs and device_http.rs), so the
-// phone app works against either. The page at "/" is static (public/).
+// phone app works against either. The page at "/" is rendered here (page.ts).
 
 import { type DeviceIdentity, type DeviceRecord, Devices, SLOW_STORE_MS, type Timing } from "./devices.js";
 import { REFUSED, openHello, openMessage } from "./signing.js";
@@ -11,6 +11,7 @@ import { GATEWAY_LINK_BYTES, blobLinksFromEnv, type BlobLinks, Links } from "./l
 import { type Elicit, type ElicitResult, askOwnerVia, handle as handleMcp, SUPPORTED_VERSIONS } from "./mcp.js";
 import { type ApprovalRequest, type Hello, PROTOCOL_VERSION, ProtocolError, LIMITS, type Outcome, isValidMime, parseApprovalRequest, validateHello } from "./protocol.js";
 import { OAuth } from "./oauth.js";
+import { PAGE_CSP, connectPage } from "./page.js";
 import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret.js";
 import { SealedStore, storeKey } from "./sealed.js";
 import type { Store } from "./store.js";
@@ -231,6 +232,12 @@ export class Gateway {
   private async route(request: Request, path: string): Promise<Response> {
     const m = request.method;
     if (path === "/healthz" && m === "GET") return this.health();
+    // ADR-069: "Connect your phone", with this relay's address as a QR code.
+    if (path === "/" && m === "GET") {
+      return new Response(connectPage(this.baseUrl(request), this.setupMode), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": PAGE_CSP },
+      });
+    }
     if (path.startsWith("/.well-known/") || path.startsWith("/oauth/")) {
       const oauth = await this.oauthRoute(request, path, m);
       if (oauth) return oauth;

@@ -64,6 +64,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.aspershupadhyay.latch.BuildConfig
+import io.github.aspershupadhyay.latch.session.ScanLink
 import io.github.aspershupadhyay.latch.LatchApp
 import io.github.aspershupadhyay.latch.data.SavedApproval
 import io.github.aspershupadhyay.latch.accessibility.LatchAccessibilityService
@@ -231,7 +232,8 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
     LaunchedEffect(Unit) { app.pendingSetup.value = null }
     var installCopied by rememberSaveable { mutableStateOf(false) }
     var startCopied by rememberSaveable { mutableStateOf(false) }
-    var ownerKey by rememberSaveable { mutableStateOf(GatewaySetup.newOwnerKey()) }
+    // ADR-069: a key already made for a deploy is kept until the relay's page is scanned.
+    var ownerKey by rememberSaveable { mutableStateOf(app.settings.pendingDeployKey() ?: GatewaySetup.newOwnerKey()) }
     var keyCopied by rememberSaveable { mutableStateOf(false) }
     var deployOpened by rememberSaveable { mutableStateOf(false) }
     var address by rememberSaveable { mutableStateOf("") }
@@ -271,6 +273,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
                 val paired = if (asOwner) app.setup.pairAsOwner(url, key.trim(), model, model) else app.setup.pairWithCode(url, key, model)
                 // A setup code from the owner's terminal also brings the owner key (ADR-054).
                 (if (asOwner) key.trim() else paired.ownerKey)?.let { app.settings.saveOwnerKey(it) }
+                if (asOwner && key.trim() == app.settings.pendingDeployKey()) app.settings.clearDeployKey()
                 paired.save(app, parsed.pin)
                 // A newer connection of the same kind replaces the one kept before.
                 app.settings.pairing.value?.kind?.let { app.session.forgetSaved(it) }
@@ -338,11 +341,38 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         }
     }
 
+    // ADR-069: the hosted relay's page shows its address as a QR code. With the key
+    // this phone made for the deploy, it pairs as the owner at once; otherwise
+    // the owner pastes that key once.
+    fun connectHosted(url: String) {
+        address = url
+        val kept = app.settings.pendingDeployKey()
+        if (kept != null) {
+            ownerKey = kept
+            step = Onboarding.CREATE
+            connect(asOwner = true, key = kept, input = url)
+        } else {
+            mode = JoinMode.OWNER_KEY
+            secret = ""
+            step = Onboarding.JOIN
+            error = "Found your relay. Paste its owner key (LATCH_ADMIN_TOKEN in Vercel) once, then tap Connect."
+        }
+    }
+
     val scanner = rememberLauncherForActivityResult(ScanSetupQr()) { text ->
-        // From any screen: show the Wi-Fi screen, where progress and any error appear.
-        text?.let {
-            step = Onboarding.WIFI
-            connectWifi(scanned = it)
+        // From any screen: show the screen where progress and any error appear.
+        when (val scanned = text?.let { ScanLink.parse(it, BuildConfig.ALLOW_CLEARTEXT) }) {
+            is ScanLink.WifiSetup -> {
+                step = Onboarding.WIFI
+                connectWifi(scanned = scanned.text)
+            }
+            is ScanLink.Hosted -> connectHosted(scanned.url)
+            is ScanLink.Mirror -> android.widget.Toast.makeText(
+                context,
+                "That is the mirror page. Connect this phone first: scan the code in your computer's terminal or on your relay's page.",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+            null -> Unit
         }
     }
 
@@ -398,14 +428,23 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         Onboarding.CREATE -> CreateGatewayScreen(
             CreateGatewayState(ownerKey, keyCopied, deployOpened, address, busy, error),
             CreateGatewayActions(
-                copyKey = { copyToClipboard(context, "Owner key", ownerKey, sensitive = true); keyCopied = true },
+                copyKey = {
+                    app.settings.deployOwnerKey { ownerKey }
+                    copyToClipboard(context, "Owner key", ownerKey, sensitive = true)
+                    keyCopied = true
+                },
                 openDeploy = {
+                    app.settings.deployOwnerKey { ownerKey }
                     deployOpened = true
                     context.startActivity(Intent(Intent.ACTION_VIEW, GatewaySetup.vercelDeployUrl().toUri()))
                 },
                 setAddress = { address = it; error = null },
                 connect = { connect(asOwner = true, key = ownerKey) },
                 back = { step = Onboarding.CHOOSE; error = null },
+                scan = {
+                    error = null
+                    scanner.launch(Unit)
+                },
             ),
         )
         Onboarding.JOIN -> JoinGatewayScreen(
@@ -784,32 +823,61 @@ private fun MirrorSection(app: LatchApp, openSetup: () -> Unit) {
     val mirrorAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         mirrorConsent.launch(app.mirror.consentIntent())
     }
+    fun startMirror() {
+        val reason = app.mirror.unavailableReason()
+        if (reason != null) {
+            android.widget.Toast.makeText(context, reason, android.widget.Toast.LENGTH_LONG).show()
+            if (service == null) openSetup()
+        } else {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                mirrorConsent.launch(app.mirror.consentIntent())
+            } else {
+                mirrorAudio.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+    fun say(text: String) = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show()
+    // ADR-069: the computer's mirror page shows a QR code; its key becomes the mirror's, and mirroring starts.
+    val mirrorScanner = rememberLauncherForActivityResult(ScanSetupQr()) { text ->
+        val scanned = text?.let { io.github.aspershupadhyay.latch.session.ScanLink.parse(it, BuildConfig.ALLOW_CLEARTEXT) } ?: return@rememberLauncherForActivityResult
+        if (scanned !is io.github.aspershupadhyay.latch.session.ScanLink.Mirror) {
+            say("That code connects a new phone. This phone is already connected; scan the code on your computer's mirror page.")
+            return@rememberLauncherForActivityResult
+        }
+        val why = app.mirror.useScannedKey(scanned)
+        when {
+            why != null -> say(why)
+            app.mirror.status.value.phase == io.github.aspershupadhyay.latch.mirror.MirrorStatus.Phase.OFF ||
+                app.mirror.status.value.phase == io.github.aspershupadhyay.latch.mirror.MirrorStatus.Phase.FAILED -> startMirror()
+            else -> say("Connected. Your computer shows this phone in a moment.")
+        }
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        // The app's scope: the upload goes on when the owner leaves this tab.
+        if (uris.isNotEmpty()) app.scope.launch(kotlinx.coroutines.Dispatchers.Main) { say(app.mirror.sendToComputer(uris)) }
+    }
     MirrorCard(
         mirror,
         HomeActions(
-            startMirror = {
-                val reason = app.mirror.unavailableReason()
-                if (reason != null) {
-                    android.widget.Toast.makeText(context, reason, android.widget.Toast.LENGTH_LONG).show()
-                    if (service == null) openSetup()
-                } else {
-                    if (Build.VERSION.SDK_INT >= 33 &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                        mirrorConsent.launch(app.mirror.consentIntent())
-                    } else {
-                        mirrorAudio.launch(Manifest.permission.RECORD_AUDIO)
-                    }
+            startMirror = ::startMirror,
+            scanMirror = { mirrorScanner.launch(Unit) },
+            shareMirrorLink = {
+                mirror.link?.let { link ->
+                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link)
+                    context.startActivity(Intent.createChooser(send, "Open the mirror on your computer"))
                 }
             },
+            sendFilesToComputer = { filePicker.launch("*/*") },
             stopMirror = { app.mirror.stop() },
             copyMirrorLink = { mirror.link?.let { copySensitive(context, "Latch mirror link", it) } },
             forgetMirrorComputers = {
                 app.settings.forgetMirrorComputers()
-                android.widget.Toast.makeText(context, "Done. Computers need a new code next time.", android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(context, "Done. Computers need to scan the code again next time.", android.widget.Toast.LENGTH_LONG).show()
             },
         ),
         mirrorRemembered,

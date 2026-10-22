@@ -442,6 +442,14 @@ impl Mirrors {
             .map(|(id, _)| id.clone())
     }
 
+    /// Whether a page watches this phone's mirror now (ADR-069: files from the phone go to it).
+    pub fn is_watched(&self, device_id: &str) -> bool {
+        lock(&self.inner)
+            .sessions
+            .get(device_id)
+            .is_some_and(|s| s.path.viewer().is_some())
+    }
+
     /// Where this phone reached the gateway for its mirror, while connected.
     pub fn link_base(&self, device_id: &str) -> Option<String> {
         lock(&self.inner)

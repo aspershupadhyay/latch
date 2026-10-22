@@ -139,11 +139,15 @@ test('screenshots get a dated name, and the status line reads well', () => {
   assert.equal(m.statusText({ signal: 9 }).bars, 4);
 });
 
-test('codes, links, and latency colours', () => {
-  assert.equal(m.normalizeCode(' 123 456 '), '123456');
-  assert.equal(m.normalizeCode('123-456'), '123456');
-  assert.equal(m.normalizeCode('12345'), null);
-  assert.equal(m.normalizeCode('abcdef'), null);
+test('keys, links, sizes, and latency colours', () => {
+  // ADR-069: the page's own key has the shape the phone and gateway accept.
+  const made = m.base64url(new Uint8Array(32).fill(251));
+  assert.equal(made.length, 43);
+  assert.match(made, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(m.keyFromHash(`#k=${made}&pin=abc`), made);
+  assert.equal(m.sizeText(512), '512 B');
+  assert.equal(m.sizeText(1536), '1.5 KB');
+  assert.equal(m.sizeText(25 * 1024 * 1024), '25 MB');
   const key = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO-_';
   assert.equal(m.keyFromHash(`#k=${key}`), key);
   assert.equal(m.keyFromHash('#k=short'), null);
