@@ -10,6 +10,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **Install the gateway as a package** (R64, ADR-068): from v0.1.0, `brew install latch` on macOS and Linux and `scoop install latch` on Windows, from this repository (no second repository, no third party), with `brew upgrade` / `scoop update` for updates. Every release builds an archive per system and installs both packages on real machines before it publishes. The `latch` command is now one file shared by the packages and the one-line installers, which check it against the published checksum too; it makes your keys on first use, and `latch keys` shows where they are. `latch-start` and `latch-autostart` keep working.
 - **Calmer Connect and History** (R63, ADR-067): Connect shows the setup steps only until your first AI app connects, keeps your other connection as a backup in every session, and asks before removing an AI app. History has four filters: All, Tasks, Asked you, Blocked.
 - **Fewer switches** (R62, ADR-066): reading unlabeled buttons, the update check, the AI cursor, and keeping the screen on are simply on. Home shows only your phone's state, Start, and two tiles; the computer mirror moved to Connect. Settings fits on one screen, and every Access page is shorter.
 - **A much shorter Access tab** (R61, ADR-065): three choices and three rows (Your apps, Files, More choices). Everyday actions such as going back, volume, the flashlight, copying text, and sharing come with the level you pick; you are asked only about apps, your files, and full ADB.

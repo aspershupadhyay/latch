@@ -77,11 +77,21 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       # Windows PowerShell 5.1, what most owners have. The script runs as `irm … | iex` would run it,
-      # against the gateway already published in the beta release.
-      - name: Install, start in the background, stop, reinstall, uninstall
+      # from a local release: the gateway already published in the beta, with this commit's scripts.
+      - name: Install, start in the background, update, stop, uninstall
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $rel = Join-Path $env:RUNNER_TEMP 'release'
+          New-Item -ItemType Directory -Force $rel | Out-Null
+          Invoke-WebRequest -UseBasicParsing -OutFile (Join-Path $rel 'latch-gateway-windows-x86_64.exe') https://github.com/aspershupadhyay/latch/releases/download/beta/latch-gateway-windows-x86_64.exe
+          Copy-Item packaging/latch.ps1, packaging/latch.cmd $rel
+          Get-ChildItem $rel | ForEach-Object { "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content -Encoding ASCII (Join-Path $rel 'latch-gateway.sha256')
+          Copy-Item scripts/install-gateway.ps1 $rel
+          Start-Process -WindowStyle Hidden python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1' -WorkingDirectory $rel
+          Start-Sleep -Seconds 2
+          $env:LATCH_RELEASE = 'http://127.0.0.1:8000'
+
           $bin = Join-Path $env:LOCALAPPDATA 'Latch\bin'
           $latch = Join-Path $bin 'latch.cmd'
           Get-Content -Raw scripts/install-gateway.ps1 | Invoke-Expression
@@ -99,8 +109,10 @@ jobs:
           & $latch autostart status
           & $latch status
 
-          # Installing again is an update: the running gateway is replaced, comes back, and the keys stay.
-          Get-Content -Raw scripts/install-gateway.ps1 | Invoke-Expression
+          # `latch update` runs the installer again: the running gateway is replaced, comes back, and the keys stay.
+          Remove-Item Env:LATCH_RELEASE
+          & $latch update
+          if ($LASTEXITCODE -ne 0) { throw "latch update exited with $LASTEXITCODE" }
           if ((Get-Content -Raw (Join-Path $env:USERPROFILE '.latch\latch.env')) -ne $keys) { throw 'reinstalling changed the keys' }
           $up = $false
           foreach ($i in 1..30) {
@@ -117,6 +129,42 @@ jobs:
           if (Test-Path (Join-Path $bin 'latch-gateway.exe')) { throw 'uninstall left the gateway' }
           if (Test-Path (Join-Path $bin 'latch.cmd')) { throw 'uninstall left the latch command' }
           if (Test-Path (Join-Path $env:USERPROFILE '.latch')) { throw 'uninstall --all left the keys' }
+
+  unix-installer:
+    name: macOS and Linux gateway installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # As `curl … | sh` runs it, from a local release: the published beta gateway with this commit's scripts.
+      - name: Install, run, update, stop, uninstall
+        run: |
+          set -eux
+          rel="$RUNNER_TEMP/release"
+          mkdir -p "$rel"
+          curl -fsSL -o "$rel/latch-gateway-linux-x86_64" https://github.com/aspershupadhyay/latch/releases/download/beta/latch-gateway-linux-x86_64
+          cp packaging/latch "$rel/"
+          (cd "$rel" && sha256sum latch-gateway-linux-x86_64 latch > latch-gateway.sha256)
+          cp scripts/install-gateway.sh "$rel/"
+          (cd "$rel" && exec python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 2
+          export PATH="$HOME/.local/bin:$PATH"
+          LATCH_RELEASE=http://127.0.0.1:8000 sh scripts/install-gateway.sh
+          latch version
+          grep -q 'LATCH_MCP_TOKEN=lgt' ~/.latch/latch.env
+          keys="$(cat ~/.latch/latch.env)"
+          latch run >"$RUNNER_TEMP/gateway.log" 2>&1 &
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:8787/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8787/healthz >/dev/null || { cat "$RUNNER_TEMP/gateway.log"; exit 1; }
+          latch status
+          # Update installs from the release it came from, and keeps the keys.
+          latch update
+          [ "$(cat ~/.latch/latch.env)" = "$keys" ]
+          test -x ~/.local/bin/latch-start && test -x ~/.local/bin/latch-autostart
+          latch stop
+          for i in $(seq 10); do pgrep -x latch-gateway || break; sleep 1; done
+          if pgrep -x latch-gateway; then echo "the gateway still runs after latch stop"; exit 1; fi
+          latch uninstall --all
+          test ! -e ~/.local/bin/latch && test ! -e ~/.local/bin/latch-gateway && test ! -e ~/.local/bin/latch-start && test ! -e ~/.latch
 
   vercel:
     name: Vercel gateway (contract, typecheck, end-to-end on Redis)

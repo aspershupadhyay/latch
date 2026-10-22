@@ -12,4 +12,5 @@ packages/schemas/v1/*.schema.json linguist-generated=true
 servers/vercel/src/generated/** linguist-generated=true
 # Windows scripts need CRLF; vendored files stay byte for byte as published.
 *.bat text eol=crlf
+*.cmd text eol=crlf
 apps/android/third_party/** -text

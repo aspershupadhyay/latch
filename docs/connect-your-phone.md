@@ -17,7 +17,7 @@ In **Terminal**:
 curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh
 ```
 
-It picks the right file for your Mac, checks it against the published checksum, installs `latch-gateway` and `latch-start` in `~/.local/bin`, and creates your two keys once in `~/.latch/latch.env` (readable only by you). If it says to add a folder to your PATH, run the line it prints.
+It picks the right file for your Mac, checks it against the published checksum, installs `latch-gateway` and the `latch` command in `~/.local/bin`, and creates your two keys once in `~/.latch/latch.env` (readable only by you). If it says to add a folder to your PATH, run the line it prints. From v0.1.0 you can use `brew install latch` instead ([Install](install.md)).
 
 > **On Windows?** Open **PowerShell** and run `irm https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.ps1 | iex` instead, then `latch start` in a new window. Allow `latch-gateway` on private networks when Windows asks. Everything below works the same.
 
@@ -26,18 +26,18 @@ It picks the right file for your Mac, checks it against the published checksum, 
 ## 3. Start it
 
 ```sh
-latch-start
+latch start
 ```
 
 It prints:
 
 - The ready-made `claude mcp add` command for your AI app.
-- **Connect your phone**: a **QR code**, and under it the address (`https://192.168.x.x:8788#pin=…`) and a single-use **setup code** (`K7QX-M2PD`) in case the camera can't read it. The code works once and expires after 15 minutes; `latch-gateway pair` (in another Terminal, after `. ~/.latch/latch.env`) shows a new one.
+- **Connect your phone**: a **QR code**, and under it the address (`https://192.168.x.x:8788#pin=…`) and a single-use **setup code** (`K7QX-M2PD`) in case the camera can't read it. The code works once and expires after 15 minutes; `latch pair` (in another Terminal) shows a new one.
 - Where AI apps, the live mirror, and the console are on this computer.
 
 If macOS asks whether `latch-gateway` may accept incoming connections, choose **Allow** (the phone connects on port 8788). Leave this Terminal window open while you use Latch. Stop it with Ctrl-C.
 
-**Don't want to start it by hand?** Run `latch-autostart on` once: the gateway then runs in the background and starts again when you log in (`latch-autostart off` undoes it, `latch-autostart status` checks). `latch-start` then just shows a new QR code.
+**Don't want to start it by hand?** Run `latch autostart on` once: the gateway then runs in the background and starts again when you log in (`latch autostart off` undoes it, `latch autostart status` checks). `latch start` then just shows a new QR code.
 
 The address and its `#pin=` stay the same across restarts. If your router gives the computer a new address, the phone finds the gateway again by itself (it checks the pin, so no other device can pass for it); you don't pair again.
 
@@ -64,7 +64,7 @@ Within a few seconds the app moves to the cable by itself; it checks the gateway
 
 ## 5. Connect your AI
 
-Claude Code, using the command `latch-start` printed (same Mac):
+Claude Code, using the command `latch start` printed (same Mac):
 
 ```sh
 claude mcp add --transport http latch http://127.0.0.1:8787/mcp --header "Authorization: Bearer <AI app key>"
@@ -88,16 +88,16 @@ On the phone, tap **Start** on Home first (a session). Then ask your AI:
 
 ## Update the gateway, or start over
 
-- **Update:** run the install command from step 2 again. Your keys and pairing stay. Then `latch-start`. With `latch-autostart on`, restart it: `latch-autostart off && latch-autostart on`.
-- **Start over (forget phones, keys, and the Wi-Fi certificate):** stop the gateway (Ctrl-C, or `latch-autostart off`), then `rm -rf ~/.latch`, run the install command again, and `latch-start`. On the phone: **Settings → Disconnect** (or **Forget** under Connect), then scan the new QR code.
+- **Update:** `latch update` (or `brew upgrade latch` with Homebrew). Your keys and pairing stay, and a background gateway restarts on the new version. If `latch start` runs in a Terminal, stop it with Ctrl-C and start it again.
+- **Start over (forget phones, keys, and the Wi-Fi certificate):** stop the gateway (Ctrl-C, or `latch autostart off`), then `rm -rf ~/.latch` and `latch start` (new keys are made on first use). On the phone: **Settings → Disconnect** (or **Forget** under Connect), then scan the new QR code.
 
 ## If something fails
 
-- **The phone can't connect** (address or connection error): the Mac and phone must be on the same Wi-Fi. Allow `latch-gateway` in **System Settings → Network → Firewall → Options**. If the Mac's Wi-Fi address changed (`latch-start` prints the new one), enter it again; the pin stays the same.
+- **The phone can't connect** (address or connection error): the Mac and phone must be on the same Wi-Fi. Allow `latch-gateway` in **System Settings → Network → Firewall → Options**. If the Mac's Wi-Fi address changed (`latch start` prints the new one), enter it again; the pin stays the same.
 - **Wrong pin / certificate refused:** paste the address exactly, with `#pin=`.
-- **"That code is wrong, used, or expired":** setup codes work once, for 15 minutes. Run `. ~/.latch/latch.env && latch-gateway pair` for a new QR code.
+- **"That code is wrong, used, or expired":** setup codes work once, for 15 minutes. Run `latch pair` for a new QR code.
 - **ADB `pairing failed`:** update Latch (step 1). Keep **Wireless debugging** on and the phone on Wi-Fi, and type the code while Settings still shows it (it changes each time you open the dialog).
 - **Mirror: "this relay cannot mirror":** the phone is paired with a Vercel relay. Pair it with the gateway on your Mac (step 4).
 - **Mirror shows a black screen:** the app on the phone protects its screen (banking, passwords). Android blocks every capture there.
-- **Gateway won't start: "configuration error":** run it through `latch-start` (it loads your keys), not `latch-gateway serve` alone.
+- **Gateway won't start: "configuration error":** run it through `latch start` (it loads your keys), not `latch-gateway serve` alone.
 - Ask your AI to call `diagnose`. It checks the phone and names the fix.
