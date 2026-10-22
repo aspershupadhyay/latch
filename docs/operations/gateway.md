@@ -6,33 +6,22 @@ The gateway is one small binary (or an ~11 MB container image) that AI clients a
 
 ## Download
 
-**macOS and Linux, one line** (checks the checksum, installs `latch-gateway` and `latch-start` in `~/.local/bin`, and makes your keys once in `~/.latch/latch.env`):
+One line on macOS and Linux (`curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh`) or Windows (`irm https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.ps1 | iex` in PowerShell), or, from v0.1.0, `brew install latch` and `scoop install latch`. Each checks the checksums, installs `latch-gateway` with the `latch` command, and makes your keys once in `~/.latch/latch.env` (`%USERPROFILE%\.latch\latch.env` on Windows), readable only by you. Every option: [Install the gateway](../install.md).
 
-```sh
-curl -fsSL https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.sh | sh
-```
-
-**Windows, one line** in PowerShell (checks the checksum, installs `latch-gateway.exe` and the `latch` command in `%LOCALAPPDATA%\Latch\bin` and on your PATH, and makes your keys once in `%USERPROFILE%\.latch\latch.env`, readable only by you; no administrator rights):
-
-```powershell
-irm https://github.com/aspershupadhyay/latch/releases/download/beta/install-gateway.ps1 | iex
-```
-
-Then run `latch start` in a new window. The first time, Windows asks whether to let `latch-gateway` through its firewall: allow it on **private networks**, so the phone can reach it. The `latch` commands below are the same on Windows; `latch autostart on` starts the gateway hidden at log-in from your own Startup folder, and `latch logs` follows `%USERPROFILE%\.latch\gateway.log`. Running the line again updates the gateway and keeps keys and phones.
-
-Then `latch-start` runs it for phones on this Wi-Fi and prints the owner key, the AI key, and the address for the phone. Step by step with the phone: [docs/connect-your-phone.md](../connect-your-phone.md).
+Then `latch start` runs it for phones on this Wi-Fi and prints the AI key and the QR code for the phone. On Windows, allow `latch-gateway` through the firewall on **private networks** when asked; `latch autostart on` starts it hidden at log-in from your own Startup folder. Step by step with the phone: [docs/connect-your-phone.md](../connect-your-phone.md).
 
 **The `latch` command** (installed with it) does everything else:
 
 | Command | What it does |
 |---|---|
-| `latch start` | Start the gateway here (same as `latch-start`) and show the QR code; phones that use **Find my computer** are approved in this window |
+| `latch start` | Start the gateway here and show the QR code; phones that use **Find my computer** are approved in this window |
 | `latch pair [--open]` | A new QR code while the gateway runs (`--open`: big, in the browser), and the place to approve **Find my computer** for a background gateway |
 | `latch status` | Running or not, version, paired and connected phones, Wi-Fi address, data folder (`latch-gateway status` on any system) |
 | `latch autostart on\|off\|status` | Keep it running in the background, also after a restart |
 | `latch stop` / `latch restart` | Stop it (background and terminal) / start the background one again |
 | `latch logs` | Follow the background gateway's log (`~/.latch/gateway.log`) |
-| `latch update` | Install the newest beta with the same folders; keys and phones stay; a background gateway restarts on the new version |
+| `latch update` | Install the newest version with the same folders; keys and phones stay; a background gateway restarts on the new version (with Homebrew it runs `brew upgrade latch`; with Scoop it names `scoop update latch`) |
+| `latch keys` | Where your keys are (made on first use) |
 | `latch uninstall [--all]` | Remove the programs; asks whether to delete keys and paired phones too (`--all` does without asking) |
 | `latch version` / `latch help` | The installed version / this list |
 
@@ -109,7 +98,7 @@ Run the gateway on your own computer and let the phone reach it over your home W
 
 3. In the app, enter that whole address (with `#pin=`) and the owner key. The phone connects with TLS and trusts exactly this gateway's own certificate: the pin is the SHA-256 of its public key. A wrong or missing pin is refused.
 
-The certificate is made once and kept in `LATCH_DATA_DIR/wifi/` (the key readable by you only), so restarts keep the same pin. If your computer's Wi-Fi address changes, the app finds the gateway again on its own: it tries port 8788 on the other addresses of the phone's /24 and accepts only the pinned key (ADR-052). On another network or a larger subnet, enter the new address; the pin stays. `latch-autostart on` (from `scripts/install-gateway.sh`) keeps the gateway running in the background as a LaunchAgent or systemd user service. Allow incoming connections on port 8788 if your firewall asks. Away from home the phone cannot reach this gateway; use a cloud gateway for that.
+The certificate is made once and kept in `LATCH_DATA_DIR/wifi/` (the key readable by you only), so restarts keep the same pin. If your computer's Wi-Fi address changes, the app finds the gateway again on its own: it tries port 8788 on the other addresses of the phone's /24 and accepts only the pinned key (ADR-052). On another network or a larger subnet, enter the new address; the pin stays. `latch autostart on` keeps the gateway running in the background as a LaunchAgent or systemd user service. Allow incoming connections on port 8788 if your firewall asks. Away from home the phone cannot reach this gateway; use a cloud gateway for that.
 
 ## Connect an AI client
 

@@ -127,12 +127,13 @@ jobs:
           # The one-line installers: macOS and Linux (no quarantine, checksum checked), and Windows (PowerShell).
           cp scripts/install-gateway.sh install-gateway.sh
           cp scripts/install-gateway.ps1 install-gateway.ps1
+          # The `latch` command they install, checked against the same checksum file.
+          cp packaging/latch packaging/latch.ps1 packaging/latch.cmd .
           gateways=(latch-gateway-*)
-          if [ ${#gateways[@]} -gt 0 ]; then
-            sha256sum "${gateways[@]}" > latch-gateway.sha256
-            gateways+=(latch-gateway.sha256)
-          fi
-          [ ${#gateways[@]} -eq 5 ] || echo "::warning::Only ${#gateways[@]} of 5 gateway files were built; publishing what exists."
+          [ ${#gateways[@]} -eq 4 ] || echo "::warning::Only ${#gateways[@]} of 4 gateways were built; publishing what exists."
+          gateways+=(latch latch.ps1 latch.cmd)
+          sha256sum "${gateways[@]}" > latch-gateway.sha256
+          gateways+=(latch-gateway.sha256)
           sha256sum latch-android.apk > latch-android.apk.sha256
           jq -n \
             --argjson code "$LATCH_VERSION_CODE" \

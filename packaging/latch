@@ -1,0 +1,237 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+#
+# latch: the Latch gateway on this computer (macOS and Linux). Run `latch help`.
+#
+# One file, the same wherever it was installed from: scripts/install-gateway.sh,
+# Homebrew, or a release archive. It runs the latch-gateway next to it, makes the
+# keys on first use in ~/.latch/latch.env (readable by you only), and keeps the
+# gateway running in the background on request (a LaunchAgent on macOS, a
+# systemd user service on Linux). Options (environment): LATCH_HOME (default
+# ~/.latch), LATCH_RELEASE (where `latch update` installs from).
+set -eu
+
+# This command as you typed it: a Homebrew link keeps its path across upgrades,
+# so the background service points here. The program itself lives where the
+# links end, next to latch-gateway.
+self="$0"
+case "$self" in */*) ;; *) self="$(command -v -- "$self")" ;; esac
+self="$(cd "$(dirname "$self")" && pwd)/$(basename "$self")"
+real="$self"
+while [ -L "$real" ]; do
+  link="$(readlink "$real")"
+  case "$link" in /*) real="$link" ;; *) real="$(dirname "$real")/$link" ;; esac
+done
+bin="$(cd "$(dirname "$real")" && pwd -P)"
+gateway="$bin/latch-gateway"
+case "$real" in
+  */Cellar/*) manager=brew ;;
+  *) manager=script ;;
+esac
+
+release="${LATCH_RELEASE:-https://github.com/aspershupadhyay/latch/releases/download/beta}"
+home="${LATCH_HOME:-$HOME/.latch}"
+env_file="$home/latch.env"
+log="$home/gateway.log"
+label=io.github.aspershupadhyay.latch-gateway
+plist="$HOME/Library/LaunchAgents/$label.plist"
+unit="$HOME/.config/systemd/user/latch-gateway.service"
+
+# Keys, made once and kept across updates and reinstalls.
+ensure_keys() {
+  [ -f "$env_file" ] && return 0
+  mkdir -p "$home"
+  chmod 700 "$home"
+  (
+    umask 077
+    {
+      echo "# Latch gateway keys. Keep this file private."
+      echo "export LATCH_ADMIN_TOKEN=$("$gateway" gen-token)"
+      echo "export LATCH_MCP_TOKEN=$("$gateway" gen-token)"
+      echo "export LATCH_DATA_DIR=\"$home/data\""
+      echo "export LATCH_WIFI=1"
+    } >"$env_file.new"
+    mv "$env_file.new" "$env_file"
+  )
+  echo "Made your gateway keys in $env_file (readable by you only)." >&2
+}
+
+load() {
+  ensure_keys
+  . "$env_file"
+}
+
+background_on() {
+  case "$(uname -s)" in
+    Darwin) [ -f "$plist" ] ;;
+    *) [ -f "$unit" ] ;;
+  esac
+}
+
+background_running() {
+  case "$(uname -s)" in
+    Darwin) launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 ;;
+    *) systemctl --user is-active --quiet latch-gateway.service 2>/dev/null ;;
+  esac
+}
+
+stop_all() {
+  case "$(uname -s)" in
+    Darwin) launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true ;;
+    *) systemctl --user stop latch-gateway.service 2>/dev/null || true ;;
+  esac
+  # One started by `latch start` in a terminal, too (also an older version's).
+  pkill -u "$(id -u)" -x latch-gateway 2>/dev/null || true
+}
+
+start_background() {
+  case "$(uname -s)" in
+    Darwin) launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || true ;;
+    *) systemctl --user start latch-gateway.service ;;
+  esac
+}
+
+autostart() {
+  case "${1:-status}" in
+    on)
+      ensure_keys
+      case "$(uname -s)" in
+        Darwin)
+          mkdir -p "$(dirname "$plist")"
+          cat >"$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key><array><string>$self</string><string>run</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>$log</string>
+  <key>StandardOutPath</key><string>$log</string>
+</dict></plist>
+PLIST
+          stop_all
+          launchctl bootstrap "gui/$(id -u)" "$plist"
+          echo "The gateway now runs in the background and starts when you log in. Log: $log" ;;
+        *)
+          mkdir -p "$(dirname "$unit")"
+          cat >"$unit" <<UNIT
+[Unit]
+Description=Latch gateway
+After=network-online.target
+
+[Service]
+ExecStart="$self" run
+Restart=always
+RestartSec=3
+StandardOutput=append:$log
+StandardError=append:$log
+
+[Install]
+WantedBy=default.target
+UNIT
+          stop_all
+          systemctl --user daemon-reload
+          systemctl --user enable --now latch-gateway.service
+          echo "The gateway now runs in the background. Log: $log"
+          echo "To keep it running while you are logged out: loginctl enable-linger $USER" ;;
+      esac ;;
+    off)
+      case "$(uname -s)" in
+        Darwin)
+          launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+          rm -f "$plist" ;;
+        *)
+          systemctl --user disable --now latch-gateway.service 2>/dev/null || true
+          rm -f "$unit"
+          systemctl --user daemon-reload 2>/dev/null || true ;;
+      esac
+      echo "The gateway no longer runs in the background." ;;
+    status)
+      if background_on; then echo "on (log: $log)"; else echo off; fi ;;
+    *) echo "usage: latch autostart on|off|status" >&2; exit 2 ;;
+  esac
+}
+
+usage() {
+  cat <<USAGE
+latch: the Latch gateway on this computer
+
+  latch start              Start it here and show the QR code for your phone
+  latch pair [--open]      A new QR code (--open: big, in the browser); also approves
+                           phones that use Find my computer
+  latch usb [--watch]      Phone on a USB cable: the lowest mirror delay (needs adb, USB debugging)
+  latch status             Running? Version, phones, Wi-Fi address
+  latch autostart on|off   Keep it running in the background, also after a restart
+  latch stop               Stop it (background and terminal)
+  latch restart            Stop and start the background gateway again
+  latch logs               Follow the background gateway's log
+  latch keys               Where your keys are (made on first use)
+  latch update             Install the newest version, keeping your keys and phones
+  latch uninstall [--all]  Remove it (--all: also your keys and paired phones)
+  latch version            The installed version
+USAGE
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  start)
+    load
+    echo
+    echo "  AI app setup, once (Claude Code):"
+    echo "    claude mcp add --transport http latch http://127.0.0.1:8787/mcp --header \"Authorization: Bearer $LATCH_MCP_TOKEN\""
+    if background_running; then
+      echo
+      echo "  The gateway already runs in the background (latch autostart)."
+      exec "$gateway" pair "$@"
+    fi
+    exec "$gateway" serve "$@" ;;
+  run) load; exec "$gateway" serve ;;  # what the background service runs
+  pair) load; exec "$gateway" pair "$@" ;;
+  usb) load; exec "$gateway" usb "$@" ;;
+  status) load; exec "$gateway" status ;;
+  autostart) autostart "$@" ;;
+  stop) stop_all; echo "Stopped." ;;
+  restart)
+    stop_all
+    if background_on; then start_background; echo "Restarted in the background."; else echo "Stopped. Start it with: latch start (or latch autostart on)"; fi ;;
+  logs)
+    if [ -f "$log" ]; then exec tail -n 100 -f "$log"; fi
+    echo "No background log yet ($log). With latch start, the log is in that terminal." ;;
+  keys) ensure_keys; echo "$env_file" ;;
+  update)
+    if [ "$manager" = brew ]; then
+      brew upgrade latch
+      if background_on; then "$self" restart; fi
+      exit 0
+    fi
+    echo "Updating from $release …"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fsSL -o "$tmp/install-gateway.sh" "$release/install-gateway.sh"
+    # The installer keeps the keys and restarts the background gateway on the new version.
+    LATCH_INSTALL_DIR="$bin" LATCH_HOME="$home" LATCH_RELEASE="$release" sh "$tmp/install-gateway.sh"
+    echo "If latch start runs in a terminal, stop it (Ctrl+C) and start it again." ;;
+  uninstall)
+    all=no
+    [ "${1:-}" = "--all" ] && all=yes
+    if [ "$all" = no ] && [ -t 0 ] && [ -d "$home" ]; then
+      printf "Also delete your keys and paired phones in %s? Phones must then be linked again. [y/N] " "$home"
+      read -r answer || answer=
+      case "$answer" in y | Y | yes | YES) all=yes ;; esac
+    fi
+    autostart off >/dev/null 2>&1 || true
+    stop_all
+    if [ "$all" = yes ]; then rm -rf "$home"; echo "Removed your keys and paired phones."; else echo "Your keys and phones stay in $home."; fi
+    echo "Also remove Latch from your AI app, e.g.: claude mcp remove latch"
+    if [ "$manager" = brew ]; then
+      exec brew uninstall latch
+    fi
+    rm -f "$gateway" "$bin/latch-start" "$bin/latch-autostart" "$real"
+    echo "Removed the gateway." ;;
+  version | --version | -V) exec "$gateway" --version ;;
+  help | --help | -h) usage ;;
+  *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;
+esac

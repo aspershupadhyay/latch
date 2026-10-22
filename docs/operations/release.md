@@ -24,11 +24,21 @@ The tag run publishes:
 | `latch-android-vX.Y.Z-<abi>.apk` | The same app for one chip type (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`): about a third of the size; the updater picks it (R55) |
 | `latch-update.json` | What the app's updater reads: version, URL, SHA-256, size, and each chip type's APK |
 | `latch-gateway-linux-x86_64`, `latch-fake-device-linux-x86_64` | Gateway and fake phone binaries |
+| `latch-vX.Y.Z-<system>.tar.gz` / `.zip` | The gateway with the `latch` command, LICENSE, and NOTICE for `macos-arm64`, `macos-x86_64`, `linux-x86_64`, and `windows-x86_64`: what Homebrew and Scoop install |
+| `latch.rb`, `latch.json`, `latch-vX.Y.Z-winget-manifests.tar.gz` | The Homebrew formula, the Scoop manifest, and the winget manifests for these archives |
 | `ghcr.io/aspershupadhyay/latch-gateway:vX.Y.Z` (and `:latest`) | Container image |
 | `latch-sbom.spdx.json` | SPDX software bill of materials for the repository |
 | `SHA256SUMS` | Checksums of every file above |
 
 Every file and the container image get a build-provenance attestation. The release is created as a **draft**: write the notes (below), then publish it by hand.
+
+Before anything is published, the run installs the Homebrew package on macOS and the Scoop package on Windows from the archives it just built, checks that the gateway answers, and removes them again; the dry run does the same.
+
+## Packages
+
+This repository is the Homebrew tap (`Formula/latch.rb`) and the Scoop bucket (`bucket/latch.json`), so owners install with `brew install latch` and `scoop install latch` ([docs/install.md](../install.md), ADR-064). The tag run opens a pull request, **Packages: Latch vX.Y.Z on Homebrew and Scoop**, with both files made from the release's archives. **Merge it right after publishing the draft release**, so the links in it work; that is what `brew upgrade` and `scoop update` then offer. If the run could not open the pull request (Settings → Actions → General → *Allow GitHub Actions to create and approve pull requests*), the branch `packages/vX.Y.Z` holds the same commit.
+
+winget is not submitted yet (ADR-064: it would install the gateway without the `latch` command). When it is, unpack `latch-vX.Y.Z-winget-manifests.tar.gz` into a fork of [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) and open a pull request there, or run `wingetcreate submit` on the folder.
 
 ## Checking a release
 
@@ -53,7 +63,7 @@ Write them in plain words for owners, not contributors:
   - A cloud gateway sees screen content in transit. The Vercel gateway's database holds it only sealed (ADR-039). Self-host the container gateway if the gateway itself must not see screens.
   - Word lists that spot Send, Pay, and similar buttons, and password fields, are a safety net, not a guarantee. Turn on *Ask me before every action* for apps that matter.
   - The protocol and the MCP tool list may still change before 1.0. Phones and gateways warn when they are too far apart.
-- How to update: the app checks GitHub for the newest release, and gateways update by redeploying (Vercel) or pulling the new image.
+- How to update: the app checks GitHub for the newest release, and gateways update by redeploying (Vercel), pulling the new image, or `brew upgrade latch` / `scoop update latch` / `latch update` on a computer.
 
 ## If a release is bad
 

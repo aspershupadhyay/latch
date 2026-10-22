@@ -117,7 +117,7 @@ fun WelcomeScreen(
             }
             SavedConnectionsCard(saved, onUseSaved)
             Spacer(Modifier.size(2.dp))
-            // One way in is the obvious one: the computer runs latch-start and shows a QR code; one scan connects.
+            // One way in is the obvious one: the computer runs `latch start` and shows a QR code; one scan connects.
             // Every other way waits under "Other ways to connect".
             var others by rememberSaveable { mutableStateOf(false) }
             if (onScan != null) {

@@ -2,9 +2,13 @@
 # Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 name: Release
 
-# Tag vX.Y.Z on main to publish. Produces: gateway binary, container image on
-# GHCR, Android APK (signed when the signing secrets exist), SHA256SUMS, an
-# SPDX SBOM, and build-provenance attestations for every artifact.
+# Tag vX.Y.Z on main to publish. Produces: the gateway with the `latch` command
+# for macOS, Linux, and Windows (archives the packages install), container image
+# on GHCR, Android APK (signed when the signing secrets exist), the Homebrew,
+# Scoop, and winget manifests, SHA256SUMS, an SPDX SBOM, and build-provenance
+# attestations for every artifact. The Homebrew and Scoop packages are installed
+# for real before anything is published, and a pull request brings the new
+# manifests to main once the release is out (docs/install.md).
 # Run it by hand (Actions -> Release -> Run workflow) for a dry run: everything
 # is built, tested, signed, summed, and given an SBOM, but nothing is pushed,
 # attested, or released; the files are kept as a workflow artifact for a week.
@@ -24,6 +28,7 @@ env:
 
 permissions:
   contents: write
+  pull-requests: write
   packages: write
   id-token: write
   attestations: write
@@ -42,6 +47,113 @@ jobs:
           cp target/release/latch-fake-device dist/latch-fake-device-linux-x86_64
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with: { name: gateway, path: dist/* }
+
+  # What the packages and a manual download install: latch-gateway and the `latch`
+  # command (packaging/), with LICENSE and NOTICE.
+  archives:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, platform: linux-x86_64 }
+          - { os: macos-latest, target: aarch64-apple-darwin, platform: macos-arm64 }
+          # Apple's toolchain on the arm64 runner builds x86_64 too.
+          - { os: macos-latest, target: x86_64-apple-darwin, platform: macos-x86_64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, platform: windows-x86_64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - run: rustup target add ${{ matrix.target }}
+        shell: bash
+      - run: cargo build --release --locked -p latch-gateway --target ${{ matrix.target }}
+        shell: bash
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          name="latch-$TAG-${{ matrix.platform }}"
+          mkdir -p "$name" dist
+          cp "target/${{ matrix.target }}/release/latch-gateway" packaging/latch LICENSE NOTICE "$name/"
+          chmod 755 "$name/latch-gateway" "$name/latch"
+          # Apple Silicon runs only signed programs: sign ad hoc and check it.
+          if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - "$name/latch-gateway" && codesign --verify "$name/latch-gateway"; fi
+          tar -czf "dist/$name.tar.gz" "$name"
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "latch-$env:TAG-${{ matrix.platform }}"
+          New-Item -ItemType Directory -Force $name, dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/latch-gateway.exe", packaging/latch.ps1, packaging/latch.cmd, LICENSE, NOTICE $name
+          Compress-Archive -Path "$name/*" -DestinationPath "dist/$name.zip"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with: { name: "archive-${{ matrix.platform }}", path: dist/* }
+
+  # Installs the Homebrew package for real, from the archives just built, before
+  # anything is published.
+  homebrew:
+    needs: archives
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_ENV_HINTS: 1
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with: { path: dist, pattern: "archive-*", merge-multiple: true }
+      - run: |
+          (cd dist && python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          packaging/render.sh "$TAG" dist http://127.0.0.1:8000 pkg
+          # Homebrew installs formulae only from a tap: a local one, as `brew tap` would make.
+          brew tap-new --no-git latch-ci/test
+          cp pkg/Formula/latch.rb "$(brew --repository)/Library/Taps/latch-ci/homebrew-test/Formula/"
+          brew install latch-ci/test/latch
+          brew test latch-ci/test/latch
+          latch version
+          latch keys
+          grep -q 'LATCH_MCP_TOKEN=lgt' ~/.latch/latch.env
+          latch run >gateway.log 2>&1 &
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:8787/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8787/healthz >/dev/null || { cat gateway.log; exit 1; }
+          latch stop
+          latch uninstall --all
+          if brew list latch-ci/test/latch 2>/dev/null; then echo "latch uninstall left the package"; exit 1; fi
+          test ! -e ~/.latch
+
+  # The same for Scoop on Windows, including background start and its update hooks.
+  scoop:
+    needs: archives
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with: { path: dist, pattern: "archive-*", merge-multiple: true }
+      - run: packaging/render.sh "$TAG" dist http://127.0.0.1:8000 pkg
+        shell: bash
+      - shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Process -WindowStyle Hidden python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1' -WorkingDirectory dist
+          Invoke-Expression "& {$(Invoke-RestMethod -UseBasicParsing https://get.scoop.sh)} -RunAsAdmin"
+          scoop install .\pkg\bucket\latch.json
+          latch version; if ($LASTEXITCODE -ne 0) { throw 'latch version failed' }
+          latch keys
+          if ((Get-Content -Raw (Join-Path $env:USERPROFILE '.latch\latch.env')) -notmatch 'LATCH_MCP_TOKEN=lgt') { throw 'no keys were made' }
+          function Wait-Up($what) {
+            foreach ($i in 1..30) {
+              try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/healthz | Out-Null; return } catch { Start-Sleep -Seconds 1 }
+            }
+            Get-Content -ErrorAction SilentlyContinue (Join-Path $env:USERPROFILE '.latch\gateway.log')
+            throw "the gateway did not answer $what"
+          }
+          latch autostart on
+          Wait-Up 'after autostart on'
+          # Reinstalling runs the uninstall and install hooks, as an update does: the gateway comes back.
+          scoop uninstall latch
+          scoop install .\pkg\bucket\latch.json
+          Wait-Up 'after reinstalling'
+          latch uninstall --all
+          scoop uninstall latch
+          Start-Sleep -Seconds 2
+          if (Get-Process -Name latch-gateway -ErrorAction SilentlyContinue) { throw 'the gateway still runs after uninstalling' }
+          if (Test-Path (Join-Path $env:USERPROFILE '.latch')) { throw 'uninstall --all left the keys' }
 
   android:
     runs-on: ubuntu-latest
@@ -144,20 +256,26 @@ jobs:
           push-to-registry: true
 
   publish:
-    needs: [gateway, android, container]
+    needs: [gateway, archives, homebrew, scoop, android, container]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       # Only the release files: the run also holds docker's build record, which
       # does not extract (first dry run, 2026-10-15).
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
-        with: { path: dist, pattern: "{gateway,android}", merge-multiple: true }
+        with: { path: dist, pattern: "{gateway,android,archive-*}", merge-multiple: true }
       - name: SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: spdx-json
           output-file: dist/latch-sbom.spdx.json
+      - name: Package manifests
+        run: |
+          packaging/render.sh "$TAG" dist "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG" pkg
+          cp pkg/Formula/latch.rb dist/latch.rb
+          cp pkg/bucket/latch.json dist/latch.json
+          tar -czf "dist/latch-$TAG-winget-manifests.tar.gz" -C pkg/winget manifests
       - run: cd dist && sha256sum * > SHA256SUMS
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         if: env.DRY_RUN != 'true'
@@ -175,3 +293,23 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag \
             --title "Latch $GITHUB_REF_NAME" \
             --notes "Container: ghcr.io/${{ github.repository_owner }}/latch-gateway@${{ needs.container.outputs.digest }}. Verify with: gh attestation verify <file> --repo ${{ github.repository }}. See docs/operations/release.md."
+      # The tap (Formula/) and the bucket (bucket/) are this repository: propose the new
+      # manifests for main. Merge it after publishing the draft, so the links work.
+      - name: Propose the package manifests for main
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="packages/$TAG"
+          git fetch --depth=1 origin main
+          git switch -c "$branch" FETCH_HEAD
+          mkdir -p Formula bucket
+          cp pkg/Formula/latch.rb Formula/latch.rb
+          cp pkg/bucket/latch.json bucket/latch.json
+          git add Formula/latch.rb bucket/latch.json
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Packages: Homebrew and Scoop for Latch $TAG"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "Packages: Latch $TAG on Homebrew and Scoop" \
+            --body "The Homebrew formula and Scoop manifest for $TAG, made by the release workflow from the published archives. Merge after publishing the $TAG draft release, so brew install latch and scoop install latch find its files. winget: submit latch-$TAG-winget-manifests.tar.gz from the release to microsoft/winget-pkgs (docs/install.md)." \
+            || echo "::warning::Could not open the pull request (Settings → Actions → Allow GitHub Actions to create pull requests). The branch $branch holds the manifests."
