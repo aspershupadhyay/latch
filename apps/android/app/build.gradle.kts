@@ -142,6 +142,7 @@ dependencies {
     implementation(libs.okhttp)
     // ADR-032: reads the words on unlabeled buttons, on the phone, so approvals see them.
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.text.recognition.devanagari)
     // ADR-054: scans the QR code the Wi-Fi gateway prints, so no key is typed.
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)

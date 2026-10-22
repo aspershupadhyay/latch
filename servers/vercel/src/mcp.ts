@@ -440,7 +440,7 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
     const control = phoneControl(args);
     if (control.kind !== "panel") {
       const run = await execute(ctx, deviceId, { name: "device.control", params: { control } });
-      return withTiming(textResult(`Done: ${describeControl(control)}.${levelText(run.data)}`), run.timing);
+      return withTiming(textResult(`Done: ${describeControl(control)}.${levelText(run.data, control.kind === "volume" ? control.percent : undefined)}`), run.timing);
     }
   }
   if (name === "finish_task") {
@@ -619,10 +619,19 @@ const QUIET_MS = 150;
 
 /** What the owner answered to `ask_owner`, for the AI (same text as the Rust gateway). */
 /** The volume step the phone actually set (protocol 1.20, R67); `level_text` in mcp.rs. */
-function levelText(data: unknown): string {
+function levelText(data: unknown, asked: number | undefined): string {
   const level = (data as { level?: { step?: unknown; max_step?: unknown; percent?: unknown } } | null)?.level;
   if (!level || !Number.isInteger(level.step) || !Number.isInteger(level.max_step) || !Number.isInteger(level.percent)) return "";
-  return ` The phone set step ${level.step as number} of ${level.max_step as number} (${level.percent as number}%); its own volume slider may show a slightly different number.`;
+  const step = level.step as number;
+  const max = level.max_step as number;
+  let text = ` The phone set step ${step} of ${max} (${level.percent as number}%); its own volume slider may show a slightly different number.`;
+  // The step the request maps to: any level above 0 is at least the first step.
+  if (asked !== undefined) {
+    const raw = Math.floor((asked * max + 50) / 100);
+    const wanted = asked > 0 ? Math.max(raw, 1) : raw;
+    if (wanted !== step) text += ` Android did not let Latch set step ${wanted}; this is the nearest step it allowed.`;
+  }
+  return text;
 }
 
 function ownerSaid(reply: unknown): string {
@@ -828,8 +837,8 @@ export async function renderDevices(devices: Devices): Promise<string> {
       const enabled = live.capabilities.filter((c) => c.status === "enabled").map((c) => c.capability);
       out += `- ${d.id} "${truncate(d.name, 40)}" (${live.platform} ${live.os_version}, ${truncate(live.model, 40)}) connected`
         + `${live.session.paused ? ", PAUSED by owner" : ""}; enabled: ${enabled.length === 0 ? "nothing" : enabled.join(", ")}`
-        + `${enabled.includes("file.read") ? filePlaces(live.session.files) : ""}`
-        + `${live.session.approve_every_action ? "; owner approves every action" : ""}${appNote(live.protocol)}\n`;
+        + `${live.session.approve_every_action ? "; owner approves every action" : ""}${appNote(live.protocol)}\n`
+        + `  ${filePlaces(live.session.files, enabled.includes("file.read"))}\n`;
     } else {
       out += `- ${d.id} "${truncate(d.name, 40)}" (${truncate(d.model, 40)}) not connected\n`;
     }
@@ -838,10 +847,13 @@ export async function renderDevices(devices: Devices): Promise<string> {
 }
 
 /** Which places list_files reaches on a phone (protocol 1.20, R67); `file_places` in mcp.rs. */
-function filePlaces(files: { photos?: unknown; folders?: unknown } | undefined): string {
-  if (!files || typeof files.photos !== "boolean" || !Number.isInteger(files.folders)) return "";
+function filePlaces(files: { photos?: unknown; folders?: unknown } | undefined, readsFiles: boolean): string {
+  if (!readsFiles) return "files: off (the owner has not let the AI read files)";
+  if (!files || typeof files.photos !== "boolean" || !Number.isInteger(files.folders)) {
+    return "files: Downloads; this Latch app does not say whether photos or folders are shared (update it)";
+  }
   const n = files.folders as number;
-  return `; files: Downloads, photos ${files.photos ? "allowed" : "not allowed"}, ${n === 0 ? "no shared folder" : n === 1 ? "1 shared folder" : `${n} shared folders`}`;
+  return `files: Downloads, photos ${files.photos ? "allowed" : "not allowed"}, ${n === 0 ? "no shared folder" : n === 1 ? "1 shared folder" : `${n} shared folders`}`;
 }
 
 /** Tells the owner, through the AI, that every command pays for a far-away database. */

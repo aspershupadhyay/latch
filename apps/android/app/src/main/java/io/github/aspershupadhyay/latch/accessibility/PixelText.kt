@@ -72,15 +72,17 @@ object PixelText {
                 line.bounds.left.coerceIn(0, screen.width), line.bounds.top.coerceIn(0, screen.height),
                 line.bounds.right.coerceIn(0, screen.width), line.bounds.bottom.coerceIn(0, screen.height),
             )
-            val text = line.text.trim()
-            if (b.isEmpty || text.length < 2 || b.centerY < topInset) continue
+            val text = clean(line.text)
+            if (b.isEmpty || text.count { it.isLetterOrDigit() } < 2 || b.centerY < topInset) continue
             if (existing.any { it.sensitive && overlaps(it.bounds, b) }) continue
-            val folded = text.lowercase()
+            val folded = fold(text)
+            // Words an element on the same spot already says ("Food & Drink…" read off its own chip).
             val said = existing.any { n ->
-                words(n) && n.bounds.contains(b.centerX, b.centerY) &&
-                    listOfNotNull(n.text, n.description, n.label).any { it.lowercase().contains(folded) }
+                words(n) && (n.bounds.contains(b.centerX, b.centerY) || mostlyInside(b, n.bounds)) &&
+                    listOfNotNull(n.text, n.description, n.label).map(::fold).any { it.contains(folded) || (it.length >= 3 && folded.contains(it)) }
             }
             if (said) continue
+            if (out.any { fold(it.text.orEmpty()) == folded && overlaps(it.bounds, b) }) continue
             val under = existing.filter { it.bounds.contains(b.centerX, b.centerY) }.minByOrNull { area(it.bounds) }
             out += UiNode(
                 id = "n${firstIndex + out.size}",
@@ -92,6 +94,32 @@ object PixelText {
             )
         }
         return out
+    }
+
+    /** Letters and digits only, lower case: "Food & Drink…" and "food drink" fold alike. */
+    internal fun fold(s: String) = s.filter { it.isLetterOrDigit() }.lowercase()
+
+    /** Single capital letters the Latin model reads off an icon before a label: "H Tickets", "K Share". */
+    private val ICON_LETTER = Regex("^[B-HJ-Z]\\s+(?=\\p{Lu}\\p{Ll})")
+
+    /**
+     * A recognised line without what icons turn into: rating stars ("4.6 **ttt",
+     * "46t*tt*"), a letter for an icon before a label, and dashes or bullets
+     * around a map label ("-Amar Jawan Jyoti Rd-").
+     */
+    internal fun clean(raw: String): String {
+        val kept = raw.trim().split(Regex("\\s+")).filterNot { word -> word.any { it in STAR_CHARS } }.joinToString(" ")
+        return kept.replace(ICON_LETTER, "").trim { it.isWhitespace() || it in EDGE_CHARS }
+    }
+
+    private const val STAR_CHARS = "*★☆✩✪✫✬✭✮✯"
+    private const val EDGE_CHARS = "-–—_|•·~"
+
+    /** Most of [inner] (a line) lies inside [outer] (an element). */
+    private fun mostlyInside(inner: Rect, outer: Rect): Boolean {
+        val w = minOf(inner.right, outer.right) - maxOf(inner.left, outer.left)
+        val h = minOf(inner.bottom, outer.bottom) - maxOf(inner.top, outer.top)
+        return w > 0 && h > 0 && w.toLong() * h * 2 >= area(inner)
     }
 
     private fun overlaps(a: Rect, b: Rect) = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom

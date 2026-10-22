@@ -1456,7 +1456,9 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
             return Ok(text_result(format!(
                 "Done: {}.{}",
                 control.describe(),
-                level.map(level_text).unwrap_or_default()
+                level
+                    .map(|l| level_text(l, control.percent()))
+                    .unwrap_or_default()
             )));
         }
     }
@@ -1750,11 +1752,22 @@ const QUIET_MS: u32 = 150;
 
 /// The volume step the phone actually set (protocol 1.20, R67): phones have a
 /// few steps per stream, and their own slider may draw a step as another number.
-fn level_text(level: latch_protocol::ControlLevel) -> String {
-    format!(
+fn level_text(level: latch_protocol::ControlLevel, asked: Option<u8>) -> String {
+    let mut text = format!(
         " The phone set step {} of {} ({}%); its own volume slider may show a slightly different number.",
         level.step, level.max_step, level.percent
-    )
+    );
+    // The step the request maps to: any level above 0 is at least the first step.
+    let wanted = asked.map(|p| {
+        let step = (u32::from(p) * level.max_step + 50) / 100;
+        if p > 0 { step.max(1) } else { step }
+    });
+    if let Some(wanted) = wanted.filter(|w| *w != level.step) {
+        text.push_str(&format!(
+            " Android did not let Latch set step {wanted}; this is the nearest step it allowed."
+        ));
+    }
+    text
 }
 
 /// What the owner answered to `ask_owner`, for the AI.
@@ -2372,9 +2385,15 @@ fn node_lines(obs: &Observation) -> Vec<(String, String)> {
 }
 
 /// Which places `list_files` reaches on a phone (protocol 1.20, R67).
-fn file_places(files: latch_protocol::FileAccess) -> String {
+fn file_places(files: Option<latch_protocol::FileAccess>, reads_files: bool) -> String {
+    if !reads_files {
+        return "files: off (the owner has not let the AI read files)".into();
+    }
+    let Some(files) = files else {
+        return "files: Downloads; this Latch app does not say whether photos or folders are shared (update it)".into();
+    };
     format!(
-        "; files: Downloads, photos {}, {}",
+        "files: Downloads, photos {}, {}",
         if files.photos {
             "allowed"
         } else {
@@ -2545,7 +2564,7 @@ fn render_devices(state: &AppState) -> String {
                 });
                 let _ = writeln!(
                     out,
-                    "- {} \"{}\" ({} {}, {}) connected{}; enabled: {}{}{}{}",
+                    "- {} \"{}\" ({} {}, {}) connected{}; enabled: {}{}{}\n  {}",
                     device.id,
                     truncate(&device.name, 40),
                     live.platform,
@@ -2561,16 +2580,13 @@ fn render_devices(state: &AppState) -> String {
                     } else {
                         enabled.join(", ")
                     },
-                    match live.session.files.filter(|_| reads_files) {
-                        Some(files) => file_places(files),
-                        None => String::new(),
-                    },
                     if live.session.approve_every_action {
                         "; owner approves every action"
                     } else {
                         ""
                     },
                     app_note(&live.protocol),
+                    file_places(live.session.files, reads_files),
                 );
             }
             None => {

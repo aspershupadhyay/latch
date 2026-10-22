@@ -20,6 +20,7 @@ camerax = "1.6.2"           # QR scanner camera (ADR-054 addendum 2026-10-21); A
 zxingCpp = "3.1.1"          # QR reader for the scanner, native and tolerant of small, noisy codes; Apache-2.0
 zxingCore = "3.5.3"         # Java QR reader: photos fallback, phones without the native reader, JVM tests; Apache-2.0
 mlkitText = "16.0.1"        # bundled model: works offline; licence and data notes in docs/adr ADR-032
+mlkitDevanagari = "16.0.1"  # R67: Hindi and other Devanagari text; model comes from Google Play services, not the APK
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -40,6 +41,7 @@ camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" 
 zxing-cpp = { module = "io.github.zxing-cpp:android", version.ref = "zxingCpp" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxingCore" }
 mlkit-text-recognition = { module = "com.google.mlkit:text-recognition", version.ref = "mlkitText" }
+mlkit-text-recognition-devanagari = { module = "com.google.android.gms:play-services-mlkit-text-recognition-devanagari", version.ref = "mlkitDevanagari" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestJunit" }

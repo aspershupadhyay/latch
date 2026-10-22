@@ -467,6 +467,11 @@ fn download_text(state: &Arc<AppState>, token: &str, record: &Record) -> Value {
     ))
 }
 
+/// Android needs no permission to add a picture, only to see the gallery (R67, M4).
+pub const PHOTOS_SAVE_NOTE: &str = " It is in the phone's gallery. Android lets Latch add photos \
+     without the photo permission, so saving works even when list_files photos says the owner has \
+     not allowed photos; reading them needs that permission.";
+
 fn saved_text(item: &FileItem, place: &str, size: u64, asked_name: &str) -> Value {
     let renamed = if item.name != asked_name {
         " A file with that name already existed, so this one got a new name."
@@ -474,10 +479,15 @@ fn saved_text(item: &FileItem, place: &str, size: u64, asked_name: &str) -> Valu
         ""
     };
     text_result(format!(
-        "Saved {} to {place} ({}). file_id: {}.{renamed}",
+        "Saved {} to {place} ({}). file_id: {}.{renamed}{}",
         quote(&item.name, 80),
         size_text(size),
-        item.id
+        item.id,
+        if item.location == latch_protocol::FileLocation::Photos {
+            PHOTOS_SAVE_NOTE
+        } else {
+            ""
+        }
     ))
 }
 

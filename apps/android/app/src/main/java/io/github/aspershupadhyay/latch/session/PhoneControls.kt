@@ -113,15 +113,23 @@ object PhoneControls {
             "alarm" -> AudioManager.STREAM_ALARM
             else -> AudioManager.STREAM_MUSIC
         }
-        val min = audio.getStreamMinVolume(type)
         val max = audio.getStreamMaxVolume(type)
-        // Percent of the whole slider, from 0, the way phones draw it; a stream
-        // with a lowest step above 0 (often the alarm) cannot go below it.
-        val index = (max * percent / 100.0).roundToInt().coerceIn(min, max)
+        // Percent of the whole slider, from 0, the way phones draw it. Any level above 0
+        // is at least the first step: a small percentage never mutes the stream.
+        val index = (max * percent / 100.0).roundToInt().coerceIn(if (percent > 0) 1 else 0, max)
         try {
             // A muted stream stays silent at any level until it is unmuted.
             if (index > 0 && audio.isStreamMute(type)) audio.adjustStreamVolume(type, AudioManager.ADJUST_UNMUTE, 0)
             audio.setStreamVolume(type, index, 0)
+            // Some phones (realme) report a lowest step for the alarm above the one their own
+            // slider reaches, and raise a direct setting to it. Stepping down one at a time
+            // reaches the lower steps on those phones; elsewhere Android simply stops.
+            var guard = 0
+            while (audio.getStreamVolume(type) > index && guard++ < max) {
+                val before = audio.getStreamVolume(type)
+                audio.adjustStreamVolume(type, AudioManager.ADJUST_LOWER, 0)
+                if (audio.getStreamVolume(type) >= before) break
+            }
         } catch (_: SecurityException) {
             // Android refuses ring and notification changes that would turn Do Not Disturb on or off.
             throw ProtocolException(ErrorCode.POLICY_REFUSED, "Android did not allow this volume change while Do Not Disturb is on")

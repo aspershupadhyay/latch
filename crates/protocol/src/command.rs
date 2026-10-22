@@ -275,6 +275,16 @@ impl PhoneControl {
         }
     }
 
+    /// The level asked for, for controls that take a percentage.
+    pub fn percent(&self) -> Option<u8> {
+        match self {
+            PhoneControl::Volume { percent, .. } | PhoneControl::Brightness { percent } => {
+                Some(*percent)
+            }
+            _ => None,
+        }
+    }
+
     /// What this control does, in the owner's words, e.g. "Set the media volume to 40%".
     /// The gateways and the phone's approval card use the same text.
     pub fn describe(&self) -> String {
