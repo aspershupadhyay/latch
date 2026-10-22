@@ -847,3 +847,21 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** revert the commit; settings and protocol are untouched.
 
+## ADR-066 — Fewer switches: sensible features are simply on
+**Status:** accepted (2026-10-22, owner: "google ml kit must be enable and for that don't give any toggle button … check when latch opens … there shouldn't be any specific updates … make the home tab less cluttered") · **Amends:** ADR-032 (reading unlabeled buttons), ADR-065 (Access sub-pages), ADR-063 (Home, Settings) · **Protocol:** unchanged
+
+**Audit (before):** Home had a hero, two tiles, and a mirror card; Settings had 11 rows, 2 switches, and a version chip; More choices had 7 switches and an empty "Always allowed" card; Files had a Latch switch for photos on top of Android's own; the Apps list opened with two explanation cards and a payments switch before the search box.
+
+**Decision:**
+- **Always on, no switch:** reading unlabeled buttons (Google ML Kit, on the phone), checking for a newer Latch when it opens, the AI cursor, and keeping the screen on during a session. An older stored "off" for these is no longer read. What leaves the phone for each (ML Kit usage statistics; the GitHub version check) is stated in Settings → Privacy ⓘ.
+- **Photos:** Android's photo permission is the one switch; Latch's own photo switch is gone.
+- **Home:** the state, one action, and two tiles. The Encrypted tag shows only as a warning when the link is not encrypted; the session-time tag only while live. The mirror card moves to Connect → On your computer.
+- **Settings:** Relay and phone; Permissions; one help card (setup guide, Privacy, Latch version that checks for updates on tap, open source); one card for Rotate owner key and Disconnect. "Turn off screen access" lives on the Permissions page, which already opens Android's switch.
+- **Access sub-pages:** no intro card (the ⓘ explains); one switch row where a page has one. More choices: Auto mode; Ask me before every action; Answer in your AI chat too; Skip asking for payments (moved from the Apps list, same confirmation); Android helpers only while missing; Full ADB under Most access. "Always allowed" shows only when it has entries. The Apps list starts with search.
+
+**Threat review:** nothing new reaches the AI. Reading button words makes approvals stricter, not looser. The update check sends no personal data. Payments still ask unless the owner turns the switch on through the same warning dialog. Full ADB (ADR-046) is unchanged.
+
+**Checks:** the app builds with warnings as errors; unit tests and lint pass; Home, Settings, and More choices were rendered (`home_idle_night`, `settings_night`, new `capabilities_more_night`).
+
+**Rollback:** revert the commit; the stored preferences are untouched, so the old switches would read them again.
+

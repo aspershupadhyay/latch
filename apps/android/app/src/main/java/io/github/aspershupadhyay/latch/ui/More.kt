@@ -503,15 +503,10 @@ fun SettingsScreen(
     isOwner: Boolean,
     version: String,
     onForget: () -> Unit,
-    onOpenAccessibility: () -> Unit,
     /** Disconnects but keeps the keys, so reconnecting is one tap with no QR code or key. */
     onDisconnectKeep: () -> Unit = {},
     onOpenSetup: () -> Unit = {},
     update: UpdateState = UpdateState.Idle,
-    checkUpdates: Boolean = true,
-    onCheckUpdates: (Boolean) -> Unit = {},
-    readButtons: Boolean = true,
-    onReadButtons: (Boolean) -> Unit = {},
     onCheckNow: () -> Unit = {},
     onInstallUpdate: (UpdateInfo) -> Unit = {},
     reducedMotion: Boolean = false,
@@ -538,104 +533,61 @@ fun SettingsScreen(
             RowDivider()
             ListRow(LatchIcons.Phone, "This phone", phoneName, tint = signal.text2)
         }
+        // One home for Android permissions; screen access turns off there too, any time.
+        Card {
+            ListRow(LatchIcons.ShieldCheck, "Permissions", "Screen access, notifications, battery", tint = signal.success, onClick = onOpenSetup, onClickLabel = "Open permissions")
+        }
+        if (update.shownOnHome()) UpdateCard(update, reducedMotion, onInstallUpdate)
         Card {
             ListRow(LatchIcons.Info, "How to set up Latch", "Every step in plain words", tint = signal.accent, onClick = onOpenGuide, onClickLabel = "Open the setup guide")
             RowDivider()
-            // One home for Android permissions, screen access included; the turn-off switch is one tap further.
-            ListRow(LatchIcons.ShieldCheck, "Permissions", "Screen access, notifications, battery", tint = signal.success, onClick = onOpenSetup, onClickLabel = "Open permissions")
+            ListRow(LatchIcons.Lock, "Privacy", "Nothing is saved or tracked", tint = signal.text2, trailing = { InfoButton(HelpTopic.PRIVACY) })
             RowDivider()
-            ListRow(LatchIcons.Person, "Turn off screen access", "In Android's settings, any time", tint = signal.text2, onClick = onOpenAccessibility, onClickLabel = "Open accessibility settings")
-            RowDivider()
-            ListRow(LatchIcons.Lock, "Privacy", "Screen content is never saved. No tracking.", tint = signal.text2, trailing = { InfoButton(HelpTopic.PRIVACY) })
-            RowDivider()
-            ListRow(
-                LatchIcons.Eye,
-                "Read unlabeled buttons",
-                "So an icon-only Send or Pay still asks you. Uses Google ML Kit.",
-                tint = signal.accent,
-                trailing = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        InfoButton(HelpTopic.READ_BUTTONS)
-                        LatchSwitch(
-                            checked = readButtons,
-                            onCheckedChange = onReadButtons,
-                            modifier = Modifier.semantics { contentDescription = "Read unlabeled buttons" },
-                        )
-                    }
-                },
-            )
-        }
-        SectionCaption("Updates")
-        if (update.shownOnHome()) UpdateCard(update, reducedMotion, onInstallUpdate)
-        Card {
+            // Latch checks by itself each time it opens; this row checks now and shows the version.
             ListRow(
                 LatchIcons.Sparkle,
-                "Check for updates",
+                "Latch $version",
                 when (update) {
-                    UpdateState.Checking -> "Checking\u2026"
-                    UpdateState.UpToDate -> "You have the newest build ($version)"
-                    is UpdateState.Failed -> if (update.info == null) update.message else "Installed: $version"
-                    else -> "Installed: $version"
+                    UpdateState.Checking -> "Checking for updates\u2026"
+                    UpdateState.UpToDate -> "Up to date"
+                    is UpdateState.Failed -> if (update.info == null) update.message else "Tap to check for updates"
+                    else -> "Tap to check for updates"
                 },
                 tint = signal.accent,
                 onClick = onCheckNow,
                 onClickLabel = "Check for updates now",
             )
             RowDivider()
-            ListRow(
-                LatchIcons.Clock,
-                "Check when Latch opens",
-                "Checks GitHub for a newer Latch. Sends nothing about you.",
-                tint = signal.accent,
-                trailing = {
-                    LatchSwitch(
-                        checked = checkUpdates,
-                        onCheckedChange = onCheckUpdates,
-                        modifier = Modifier.semantics { contentDescription = "Check for updates when Latch opens" },
-                    )
-                },
-            )
-        }
-        Card {
             // AGPL-3.0 section 5(d): the app shows its license and where its source is.
             ListRow(
                 LatchIcons.Info,
                 "Open source",
-                "Free software under the GNU AGPL-3.0. Tap for the source code.",
+                "GNU AGPL-3.0. Tap for the source code.",
                 tint = signal.text2,
                 onClick = onOpenSource,
                 onClickLabel = "Open the source code",
             )
         }
-        if (isOwner) {
-            Card {
+        Card {
+            if (isOwner) {
                 ListRow(
                     LatchIcons.Key,
                     "Rotate owner key",
-                    if (keyRotation == KeyRotation.Busy) "Changing the key\u2026" else "Makes a new secret key for your relay and saves it on this phone. The old key stops working at once.",
+                    if (keyRotation == KeyRotation.Busy) "Changing the key\u2026" else "A new secret key for your relay",
                     tint = signal.live,
                     onClick = { if (keyRotation != KeyRotation.Busy) confirmRotate = true },
                     onClickLabel = "Rotate the owner key",
                 )
+                RowDivider()
             }
-        }
-        Card {
             ListRow(
                 LatchIcons.Leave,
-                "Disconnect from this relay",
-                "Stops everything. Reconnect later in one tap, or forget the keys",
+                "Disconnect",
+                "Stops everything. Reconnect in one tap later",
                 tint = signal.danger,
                 titleColor = signal.danger,
                 onClick = { confirmForget = true },
                 onClickLabel = "Disconnect from this relay",
-            )
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "latch v$version",
-                style = MaterialTheme.typography.labelMedium,
-                color = signal.text2,
-                modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, signal.border, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
     }

@@ -62,7 +62,7 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
+fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composable () -> Unit = {}) {
     val signal = LocalSignal.current
     var name by rememberSaveable { mutableStateOf("") }
     var showKeys by rememberSaveable { mutableStateOf(false) }
@@ -208,6 +208,12 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions) {
                     }
                 }
             }
+        }
+
+        // See and use this phone from a computer's browser (R30).
+        if (state.created == null) {
+            SectionCaption("On your computer")
+            mirror()
         }
 
         // How the AI reaches this phone (Wi-Fi or the internet): set once, so it sits below the everyday parts.

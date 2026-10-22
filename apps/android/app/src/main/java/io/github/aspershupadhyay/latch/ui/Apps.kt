@@ -70,8 +70,6 @@ fun AppsScreen(
     onAllOff: () -> Unit,
     onBack: () -> Unit,
     icon: @Composable (String) -> ImageBitmap? = { null },
-    trustCritical: Boolean = false,
-    onTrustCritical: (Boolean) -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var query by rememberSaveable { mutableStateOf("") }
@@ -79,7 +77,6 @@ fun AppsScreen(
     val chips = remember(apps) { AppCategories.chips(apps.map { it.category }) }
     var confirm by remember { mutableStateOf<AppRow?>(null) }
     var confirmAllOff by remember { mutableStateOf(false) }
-    var confirmTrust by remember { mutableStateOf(false) }
     val shown = remember(apps, query, category) {
         val q = query.trim().lowercase()
         apps.filter { category == AppCategories.ALL || it.category == category }
@@ -96,39 +93,7 @@ fun AppsScreen(
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 BackBar(onBack, "Access")
             }
-            ScreenTitle("Apps the AI can use", "$onCount switched on. Others ask you the first time the AI needs them.")
-        }
-        item {
-            Card(color = signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
-                ListRow(
-                    LatchIcons.ShieldCheck,
-                    "On means no questions in that app",
-                    "Everything it does is listed in History. " +
-                        if (trustCritical) "Payments, installs, and permissions don't ask either." else "Payments, installs, permissions, and deleting an account still ask you.",
-                    tint = signal.accent,
-                )
-            }
-        }
-        item {
-            Card(color = if (trustCritical) signal.danger.copy(alpha = if (signal.dark) 0.16f else 0.1f) else null) {
-                ListRow(
-                    LatchIcons.Warning,
-                    "Also allow payments and permissions",
-                    if (trustCritical) {
-                        "On: in switched-on apps the AI also pays, installs, answers permission pop-ups, and deletes accounts without asking you."
-                    } else {
-                        "Off: those ask you on the phone. Latch never types passwords, PINs, or one-time codes either way."
-                    },
-                    tint = if (trustCritical) signal.danger else signal.warning,
-                    trailing = {
-                        LatchSwitch(
-                            checked = trustCritical,
-                            onCheckedChange = { on -> if (on) confirmTrust = true else onTrustCritical(false) },
-                            modifier = Modifier.semantics { contentDescription = "Also allow payments and permissions without asking" },
-                        )
-                    },
-                )
-            }
+            ScreenTitle("Your apps", "$onCount on. Others ask you the first time.")
         }
         item {
             OutlinedTextField(
@@ -220,22 +185,6 @@ fun AppsScreen(
             },
             confirmButton = { TextButton(onClick = { onToggle(app.packageName, true); confirm = null }) { Text("Switch on", color = signal.warning) } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
-        )
-    }
-    if (confirmTrust) {
-        AlertDialog(
-            onDismissRequest = { confirmTrust = false },
-            title = { Text("Never ask, even for money?") },
-            text = {
-                Text(
-                    "In apps you switched on, the AI will pay, transfer, buy, install apps, answer Android permission pop-ups, and delete accounts without asking you. " +
-                        "Text on a screen, like a message or a website, can trick an AI into doing these. " +
-                        "Latch still never types passwords, PINs, or one-time codes, so payments that need your PIN still need you. " +
-                        "You can switch this off at any time; Stop ends everything at once.",
-                )
-            },
-            confirmButton = { TextButton(onClick = { onTrustCritical(true); confirmTrust = false }) { Text("Allow without asking", color = signal.danger) } },
-            dismissButton = { TextButton(onClick = { confirmTrust = false }) { Text("Keep asking") } },
         )
     }
     if (confirmAllOff) {
