@@ -100,6 +100,7 @@ jobs:
         with: { path: dist, pattern: "archive-*", merge-multiple: true }
       - run: |
           (cd dist && python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          for i in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:8000/ && break; sleep 1; done
           packaging/render.sh "$TAG" dist http://127.0.0.1:8000 pkg
           # Homebrew installs formulae only from a tap: a local one, as `brew tap` would make.
           brew tap-new --no-git latch-ci/test
@@ -131,6 +132,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Process -WindowStyle Hidden python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1' -WorkingDirectory dist
+          foreach ($i in 1..30) { try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/ | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
           Invoke-Expression "& {$(Invoke-RestMethod -UseBasicParsing https://get.scoop.sh)} -RunAsAdmin"
           scoop install .\pkg\bucket\latch.json
           latch version; if ($LASTEXITCODE -ne 0) { throw 'latch version failed' }
@@ -170,6 +172,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Process -WindowStyle Hidden python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1' -WorkingDirectory dist
+          foreach ($i in 1..30) { try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/ | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
           if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw 'winget is not on this runner' }
           winget --version
           winget settings --enable LocalManifestFiles

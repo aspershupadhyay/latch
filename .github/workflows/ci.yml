@@ -127,7 +127,10 @@ jobs:
           Get-ChildItem $rel | ForEach-Object { "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content -Encoding ASCII (Join-Path $rel 'latch-gateway.sha256')
           Copy-Item scripts/install-gateway.ps1 $rel
           Start-Process -WindowStyle Hidden python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1' -WorkingDirectory $rel
-          Start-Sleep -Seconds 2
+          # Wait until the local release answers (Python can take a few seconds to start).
+          foreach ($i in 1..30) {
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/latch-gateway.sha256 | Out-Null; break } catch { Start-Sleep -Seconds 1 }
+          }
           $env:LATCH_RELEASE = 'http://127.0.0.1:8000'
 
           $bin = Join-Path $env:LOCALAPPDATA 'Latch\bin'
@@ -184,7 +187,7 @@ jobs:
           (cd "$rel" && sha256sum latch-gateway-linux-x86_64 latch > latch-gateway.sha256)
           cp scripts/install-gateway.sh "$rel/"
           (cd "$rel" && exec python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &)
-          sleep 2
+          for i in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:8000/latch-gateway.sha256 && break; sleep 1; done
           export PATH="$HOME/.local/bin:$PATH"
           LATCH_RELEASE=http://127.0.0.1:8000 sh scripts/install-gateway.sh
           latch version
