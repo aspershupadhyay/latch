@@ -36,9 +36,9 @@ Before anything is published, the run installs the Homebrew package on macOS and
 
 ## Packages
 
-This repository is the Homebrew tap (`Formula/latch.rb`) and the Scoop bucket (`bucket/latch.json`), so owners install with `brew install latch` and `scoop install latch` ([docs/install.md](../install.md), ADR-064). The tag run opens a pull request, **Packages: Latch vX.Y.Z on Homebrew and Scoop**, with both files made from the release's archives. **Merge it right after publishing the draft release**, so the links in it work; that is what `brew upgrade` and `scoop update` then offer. If the run could not open the pull request (Settings → Actions → General → *Allow GitHub Actions to create and approve pull requests*), the branch `packages/vX.Y.Z` holds the same commit.
+This repository is the Homebrew tap (`Formula/latch.rb`) and the Scoop bucket (`bucket/latch.json`), so owners install with `brew install latch` and `scoop install latch` ([docs/install.md](../install.md), ADR-068). The tag run opens a pull request, **Packages: Latch vX.Y.Z on Homebrew and Scoop**, with both files made from the release's archives. **Merge it right after publishing the draft release**, so the links in it work; that is what `brew upgrade` and `scoop update` then offer. If the run could not open the pull request (Settings → Actions → General → *Allow GitHub Actions to create and approve pull requests*), the branch `packages/vX.Y.Z` holds the same commit.
 
-winget is not submitted yet (ADR-064: it would install the gateway without the `latch` command). When it is, unpack `latch-vX.Y.Z-winget-manifests.tar.gz` into a fork of [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) and open a pull request there, or run `wingetcreate submit` on the folder.
+winget is not submitted yet (ADR-068: it would install the gateway without the `latch` command). When it is, unpack `latch-vX.Y.Z-winget-manifests.tar.gz` into a fork of [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) and open a pull request there, or run `wingetcreate submit` on the folder.
 
 ## Checking a release
 

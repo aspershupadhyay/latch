@@ -311,72 +311,32 @@ fun ConnectionCard(
     onSwitch: (ConnectionKind) -> Unit,
     onSetUp: (ConnectionKind) -> Unit,
     onForgetSaved: (ConnectionKind) -> Unit,
-    bothConnected: Boolean = true,
-    onBothConnected: (Boolean) -> Unit = {},
 ) {
     val signal = LocalSignal.current
     var confirm by remember { mutableStateOf<ConnectionKind?>(null) }
     Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("How your AI reaches this phone", style = MaterialTheme.typography.titleMedium, color = signal.text)
-                    Text(
-                        if (saved.isNotEmpty() && bothConnected) "Both connected: during a session your AI can use either. The one selected is the one this tab manages."
-                        else "Switch any time. Latch keeps both, so switching back asks for nothing.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = signal.text2,
-                    )
-                }
-            }
+        Column {
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(signal.canvas)
-                    .border(1.dp, signal.border2, RoundedCornerShape(10.dp)).padding(4.dp),
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(signal.canvas)
+                    .border(1.dp, signal.border, RoundedCornerShape(14.dp)).padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 ConnectionKind.entries.forEach { kind ->
                     Segment(kind, kind == current, Modifier.weight(1f)) { if (kind != current) confirm = kind }
                 }
             }
-            ListRow(
-                current.icon,
-                "Using ${current.inSentence}",
-                host,
-                tint = signal.success,
-                trailing = { Pill("In use", signal.success) },
-            )
+            ListRow(current.icon, "In use", host, tint = signal.success, showChevron = false)
+            // A kept connection of the other kind is used in every session too (ADR-067), so losing one is not fatal.
             ConnectionKind.entries.filter { it != current }.forEach { other ->
-                val keptHost = saved[other]
-                if (keptHost != null) {
+                saved[other]?.let { keptHost ->
                     ListRow(
                         other.icon,
-                        if (bothConnected) "${other.title} also connected" else "${other.title} kept",
-                        if (bothConnected) "$keptHost · in every session too" else "$keptHost · switch without a key",
+                        "Backup",
+                        keptHost,
                         tint = signal.text2,
                         trailing = {
                             TextButton(onClick = { onForgetSaved(other) }) { Text("Forget", color = signal.danger) }
                         },
-                    )
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Keep both connected", style = MaterialTheme.typography.titleMedium, color = signal.text)
-                            Text(
-                                "Each session connects through both, until you turn this off or disconnect one. Live mirror always uses Wi-Fi.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = signal.text2,
-                            )
-                        }
-                        LatchSwitch(
-                            checked = bothConnected,
-                            onCheckedChange = onBothConnected,
-                            modifier = Modifier.semantics { contentDescription = "Keep both connected" },
-                        )
-                    }
-                } else {
-                    Text(
-                        "No ${other.inSentence} yet. Tap “${other.short}” above to set one up; this one stays kept.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = signal.text2,
                     )
                 }
             }

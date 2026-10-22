@@ -76,14 +76,8 @@ enum class HelpTopic(val title: String, val paragraphs: List<String>) {
             "What's on your screen goes only to your own relay, and only while a session runs. Screen content is never saved.",
             "History (what the AI did, never screen text or typed text) stays on this phone for 7 days.",
             "Latch has no tracking and no ads.",
-        ),
-    ),
-    READ_BUTTONS(
-        "Reading unlabeled buttons",
-        listOf(
-            "Some apps draw a button as an icon with no name. Before the AI taps one, Latch reads the words on it here on the phone, so an icon-only Send or Pay still asks you first.",
-            "This uses Google ML Kit. The picture and the words never leave the phone, but ML Kit sends Google usage statistics: your phone model, the app version, and how fast it ran.",
-            "Turn it off and Latch treats unnamed buttons by their position only.",
+            "Some apps draw a button as an icon with no name. Before the AI taps one, Latch reads the words on it here on the phone (Google ML Kit), so an icon-only Send or Pay is still judged right. The picture and the words never leave the phone; ML Kit sends Google usage statistics: your phone model, the app version, and how fast it ran.",
+            "When Latch opens it asks GitHub whether a newer Latch exists. It sends nothing about you.",
         ),
     ),
     AI_LINK(
@@ -242,7 +236,7 @@ private val GUIDE = listOf(
     ),
     GuideStep(
         "Choose apps",
-        "In the Access tab, open “Apps the AI can use” and switch on only the apps you want the AI to help with.",
+        "In the Access tab, open “Your apps” and switch on only the apps you want the AI to help with, or pick Everything.",
     ),
     GuideStep(
         "Connect your AI app",

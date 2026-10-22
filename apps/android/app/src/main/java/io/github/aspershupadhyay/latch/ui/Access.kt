@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -105,9 +106,10 @@ enum class AccessGroup(val title: String, val icon: ImageVector, val capabilitie
         "Full ADB access", LatchIcons.Key, listOf(Capability.ADB_SHELL),
         "Off by default. With this on, and after you authorize Android wireless debugging, the AI can run any ADB shell command on this phone — the same power as a computer with ADB, with no per-command check. Only turn it on for a client you fully trust, and turn it off or use Stop to end it.",
     ),
-    WORKING(
-        "While the AI works", LatchIcons.Phone, emptyList(),
-        "What you see on the phone while a session runs. None of this gives the AI anything.",
+    /** ADR-065: everything that is not one of the three cards, apps, or files, on one quiet page. */
+    MORE(
+        "More choices", LatchIcons.Sliders, emptyList(),
+        "When Latch asks you, what you see while the AI works, and full ADB. Most people never need these.",
     ),
 }
 
@@ -119,7 +121,7 @@ private fun Signal.hueOf(group: AccessGroup) = when (group) {
     AccessGroup.SHARING -> live
     AccessGroup.CONTROLS -> mint
     AccessGroup.ADB -> warning
-    AccessGroup.WORKING -> text2
+    AccessGroup.MORE -> text2
 }
 
 /** One line per thing the group allows, for its ⓘ sheet. */
@@ -134,10 +136,6 @@ private fun featuresOf(group: AccessGroup): List<Feature> = when (group) {
         Feature(LatchIcons.Folder, "Your folders", "Only the folders you add. It never sees other folders."),
         Feature(LatchIcons.Photo, "Photos", "Only when switched on, and only the photos and videos you allow."),
     )
-    AccessGroup.WORKING -> listOf(
-        Feature(LatchIcons.Tap, "Show where the AI taps", "A dot follows each tap. The AI never sees it."),
-        Feature(LatchIcons.Phone, "Keep the screen on", "The lock screen won't cut a task off. Uses more battery."),
-    )
     else -> group.capabilities.map { catalog.getValue(it).let { c -> Feature(c.icon, c.title, c.short) } }
 }
 
@@ -149,10 +147,6 @@ fun CapabilitiesScreen(
     onToggle: (Capability, Boolean) -> Unit,
     onApproveEveryAction: (Boolean) -> Unit,
     onOpenSetup: () -> Unit = {},
-    showCursor: Boolean = true,
-    keepAwake: Boolean = true,
-    onShowCursor: (Boolean) -> Unit = {},
-    onKeepAwake: (Boolean) -> Unit = {},
     saved: List<SavedApprovalRow> = emptyList(),
     onRemoveSaved: (String) -> Unit = {},
     onRemoveAllSaved: () -> Unit = {},
@@ -167,8 +161,6 @@ fun CapabilitiesScreen(
     onPickFolder: () -> Unit = {},
     onForgetFolder: (Int) -> Unit = {},
     onAllowPhotos: () -> Unit = {},
-    photosOn: Boolean = true,
-    onPhotosOn: (Boolean) -> Unit = {},
     localTransfers: Boolean = false,
     onLocalTransfers: (Boolean) -> Unit = {},
     /** R27 (ADR-046): full-access ADB pairing. */
@@ -184,11 +176,20 @@ fun CapabilitiesScreen(
     /** The open group page, hoisted so it survives a trip to the Apps list. */
     openGroup: AccessGroup? = null,
     onOpenGroup: ((AccessGroup?) -> Unit)? = null,
+    /** ADR-064: every ordinary app is on, and the one-tap choice that sets it. */
+    allApps: Boolean = false,
+    onPreset: (AccessPreset) -> Unit = {},
+    /** ADR-022: payments, installs, and permissions without asking, in switched-on apps. */
+    trustCritical: Boolean = false,
+    onTrustCritical: (Boolean) -> Unit = {},
 ) {
+    val signal = LocalSignal.current
     var localGroup by rememberSaveable { mutableStateOf<AccessGroup?>(null) }
     val group = if (onOpenGroup != null) openGroup else localGroup
     val setGroup: (AccessGroup?) -> Unit = onOpenGroup ?: { localGroup = it }
-    BackHandler(enabled = group != null) { setGroup(null) }
+    // Full ADB opens from More choices, so back from it returns there.
+    val back: () -> Unit = { setGroup(if (group == AccessGroup.ADB) AccessGroup.MORE else null) }
+    BackHandler(enabled = group != null, onBack = back)
 
     // Turning a group on switches on all of its capabilities; off switches all of them off.
     val toggleGroup: (AccessGroup, Boolean) -> Unit = { g, on -> g.capabilities.forEach { onToggle(it, on) } }
@@ -200,21 +201,20 @@ fun CapabilitiesScreen(
     ) { current ->
         if (current == null) {
             AccessOverview(
-                enabled, accessibilityOn, auto, onAuto, appsOn, approveEveryAction, showCursor, keepAwake,
-                onOpenSetup, open = setGroup,
+                enabled, accessibilityOn, auto, appsOn, allApps, approveEveryAction, folders.size, photosAllowed,
+                onOpenSetup, onPreset, onOpenApps, open = setGroup,
             )
         } else {
             ScreenColumn {
-                GroupHeader(current, enabled, onBack = { setGroup(null) }, onToggleGroup = { toggleGroup(current, it) })
+                GroupHeader(current, enabled, onBack = back, onToggleGroup = { toggleGroup(current, it) })
                 when (current) {
                     AccessGroup.AI -> AiAccessBody(
-                        auto, appsOn, onOpenApps, approveEveryAction, onApproveEveryAction, remoteApprovals, onRemoteApprovals,
+                        auto, onAuto, approveEveryAction, onApproveEveryAction, remoteApprovals, onRemoteApprovals,
                         saved, onRemoveSaved, onRemoveAllSaved,
                     )
                     AccessGroup.SCREEN -> CapabilityList(current, enabled, onToggle, includeDeviceInfo = true)
                     AccessGroup.FILES -> {
-                        CapabilityList(current, enabled, onToggle)
-                        FilePlaces(folders, photosAllowed, onPickFolder, onForgetFolder, onAllowPhotos, photosOn, onPhotosOn)
+                        FilePlaces(folders, photosAllowed, onPickFolder, onForgetFolder, onAllowPhotos)
                         FastTransfers(localTransfers, onLocalTransfers)
                     }
                     AccessGroup.SHARING -> CapabilityList(current, enabled, onToggle)
@@ -227,7 +227,27 @@ fun CapabilitiesScreen(
                         CapabilityList(current, enabled, onToggle)
                         AdbPairing(adbEndpoint, adbWirelessAvailable, onPairAdb, onUnpairAdb, onPairFromNotification, adbFixedPort, onAdbFixedPort)
                     }
-                    AccessGroup.WORKING -> WorkingBody(showCursor, keepAwake, onShowCursor, onKeepAwake)
+                    AccessGroup.MORE -> {
+                        AiAccessBody(
+                            auto, onAuto, approveEveryAction, onApproveEveryAction, remoteApprovals, onRemoteApprovals,
+                            saved, onRemoveSaved, onRemoveAllSaved, trustCritical, onTrustCritical,
+                        )
+                        // Android's own switches some phone controls need; each shows only while it is missing.
+                        BrightnessPermission(Capability.CONTROL_BRIGHTNESS in enabled)
+                        DoNotDisturbPermission(Capability.CONTROL_SOUND in enabled)
+                        // The largest grant in the app gets its own place, so it never reads as one more ordinary switch.
+                        SectionCaption("Most access")
+                        Card {
+                            ListRow(
+                                AccessGroup.ADB.icon,
+                                AccessGroup.ADB.title,
+                                if (AccessGroup.ADB.capabilities.any { it in enabled }) "On: the AI can run any ADB command" else "Off. For developers and power users.",
+                                tint = signal.warning,
+                                onClick = { setGroup(AccessGroup.ADB) },
+                                onClickLabel = "Open ${AccessGroup.ADB.title}",
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -239,24 +259,27 @@ private fun AccessOverview(
     enabled: Set<Capability>,
     accessibilityOn: Boolean,
     auto: AutoMode,
-    onAuto: (AutoMode) -> Unit,
     appsOn: Int,
+    allApps: Boolean,
     approveEveryAction: Boolean,
-    showCursor: Boolean,
-    keepAwake: Boolean,
+    folders: Int,
+    photosAllowed: Boolean,
     onOpenSetup: () -> Unit,
+    onPreset: (AccessPreset) -> Unit,
+    onOpenApps: () -> Unit,
     open: (AccessGroup) -> Unit,
 ) {
     val signal = LocalSignal.current
+    val chosen = AccessPreset.matching(enabled)
     ScreenColumn {
-        ScreenTitle("Access", "Choose what your AI may do. Changes work right away.")
+        ScreenTitle("Access", "How much may your AI do? Pick one.")
 
         if (!accessibilityOn) {
             Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
                 ListRow(
                     LatchIcons.Warning,
                     "Screen access is off",
-                    "None of these work until you turn it on.",
+                    "None of this works until you turn it on.",
                     tint = signal.warning,
                     onClick = onOpenSetup,
                     onClickLabel = "Turn on screen access",
@@ -264,56 +287,56 @@ private fun AccessOverview(
             }
         }
 
-        AutoModeCard(auto, onAuto)
-
-        // Tiles only open their page: one tap, one result. Each group's switch is at the top of its page.
-        BentoRow {
-            GroupTile(
-                AccessGroup.AI,
-                status = when {
-                    auto != AutoMode.OFF -> "Auto mode: every app"
-                    appsOn == 0 -> "No apps yet"
-                    else -> "$appsOn app${if (appsOn == 1) "" else "s"} on"
-                } + if (approveEveryAction) " · asks every time" else "",
-                on = auto != AutoMode.OFF || appsOn > 0,
-            ) { open(AccessGroup.AI) }
-            GroupTile(AccessGroup.SCREEN, statusOf(AccessGroup.SCREEN, enabled), AccessGroup.SCREEN.capabilities.any { it in enabled }) { open(AccessGroup.SCREEN) }
-        }
-        BentoRow {
-            GroupTile(AccessGroup.FILES, statusOf(AccessGroup.FILES, enabled), AccessGroup.FILES.capabilities.any { it in enabled }) { open(AccessGroup.FILES) }
-            GroupTile(AccessGroup.SHARING, statusOf(AccessGroup.SHARING, enabled), AccessGroup.SHARING.capabilities.any { it in enabled }) { open(AccessGroup.SHARING) }
+        // The one choice most people need. Each card sets every switch below at once.
+        Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            AccessPreset.entries.forEach { preset ->
+                PresetOption(preset, selected = chosen == preset && (preset != AccessPreset.EVERYTHING || allApps || auto != AutoMode.OFF)) { onPreset(preset) }
+            }
         }
 
         Card {
             ListRow(
-                AccessGroup.CONTROLS.icon,
-                AccessGroup.CONTROLS.title,
-                statusOf(AccessGroup.CONTROLS, enabled),
-                tint = signal.hueOf(AccessGroup.CONTROLS),
-                onClick = { open(AccessGroup.CONTROLS) },
-                onClickLabel = "Open ${AccessGroup.CONTROLS.title}",
+                LatchIcons.Apps,
+                "Your apps",
+                when {
+                    auto != AutoMode.OFF -> "Auto mode: every app, no questions"
+                    allApps -> "Every app \u00b7 bank and password apps ask once"
+                    appsOn == 0 -> "Each app asks you the first time"
+                    else -> "$appsOn on \u00b7 others ask you the first time"
+                },
+                tint = signal.accent,
+                onClick = onOpenApps,
+                onClickLabel = "Choose apps the AI can use",
             )
             RowDivider()
             ListRow(
-                AccessGroup.WORKING.icon,
-                AccessGroup.WORKING.title,
-                listOf(if (showCursor) "Cursor shown" else "Cursor hidden", if (keepAwake) "screen stays on" else "screen may lock").joinToString(" · "),
-                tint = signal.hueOf(AccessGroup.WORKING),
-                onClick = { open(AccessGroup.WORKING) },
-                onClickLabel = "Open ${AccessGroup.WORKING.title}",
+                AccessGroup.FILES.icon,
+                "Files",
+                when {
+                    AccessGroup.FILES.capabilities.none { it in enabled } -> "Off \u00b7 comes with Everything"
+                    folders == 0 && !photosAllowed -> "On \u00b7 Downloads only"
+                    else -> "On \u00b7 " + listOfNotNull(
+                        if (folders > 0) "$folders folder${if (folders == 1) "" else "s"}" else null,
+                        if (photosAllowed) "photos" else null,
+                        "Downloads",
+                    ).joinToString(", ")
+                },
+                tint = signal.hueOf(AccessGroup.FILES),
+                onClick = { open(AccessGroup.FILES) },
+                onClickLabel = "Choose which files the AI may use",
             )
-        }
-
-        // The largest grant in the app gets its own place, so it never reads as one more ordinary switch.
-        SectionCaption("Most access")
-        Card {
+            RowDivider()
             ListRow(
-                AccessGroup.ADB.icon,
-                AccessGroup.ADB.title,
-                if (AccessGroup.ADB.capabilities.any { it in enabled }) "On: the AI can run any ADB command" else "Off. For developers and power users.",
-                tint = signal.warning,
-                onClick = { open(AccessGroup.ADB) },
-                onClickLabel = "Open ${AccessGroup.ADB.title}",
+                AccessGroup.MORE.icon,
+                AccessGroup.MORE.title,
+                listOfNotNull(
+                    if (auto != AutoMode.OFF) "Auto mode on" else null,
+                    if (approveEveryAction) "asks before every action" else null,
+                    if (AccessGroup.ADB.capabilities.any { it in enabled }) "full ADB on" else null,
+                ).ifEmpty { listOf("Asking, the cursor, full ADB") }.joinToString(" \u00b7 "),
+                tint = signal.text2,
+                onClick = { open(AccessGroup.MORE) },
+                onClickLabel = "Open more choices",
             )
         }
     }
@@ -325,29 +348,6 @@ private fun statusOf(group: AccessGroup, enabled: Set<Capability>): String {
         0 -> "Off"
         group.capabilities.size -> "All on"
         else -> "$on of ${group.capabilities.size} on"
-    }
-}
-
-/** A card for one group: its glyph, name, and state. Tapping opens the group's page. */
-@Composable
-private fun RowScope.GroupTile(group: AccessGroup, status: String, on: Boolean, onOpen: () -> Unit) {
-    val signal = LocalSignal.current
-    Tile(
-        modifier = Modifier.weight(1f),
-        onClick = onOpen,
-        onClickLabel = "Open ${group.title}",
-        minHeight = 150.dp,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconBadge(group.icon, signal.hueOf(group), size = 40.dp)
-            Spacer(Modifier.weight(1f))
-            Chevron()
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(group.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = signal.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Push()
-        // On or off in words and in a dot, so it never rests on colour alone.
-        StatusDot(if (on) signal.success else signal.text3, status)
     }
 }
 
@@ -367,31 +367,27 @@ private fun GroupHeader(group: AccessGroup, enabled: Set<Capability>, onBack: ()
         )
         FeatureInfoButton(group.title, group.intro, featuresOf(group))
     }
-    val ink = signal.text
-    Card {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconBadge(group.icon, signal.hueOf(group), size = 44.dp)
-            Spacer(Modifier.width(14.dp))
-            Text(group.intro, style = MaterialTheme.typography.bodyMedium, color = signal.text2, modifier = Modifier.weight(1f))
-        }
-        if (group.capabilities.isNotEmpty()) {
-            val on = group.capabilities.count { it in enabled }
-            Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp).clip(RoundedCornerShape(12.dp))
-                    .background(signal.surface2).border(1.dp, signal.border, RoundedCornerShape(12.dp))
-                    .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(if (on > 0) "On" else "Off", style = MaterialTheme.typography.titleMedium, color = ink)
-                    Text(statusOf(group, enabled), style = MaterialTheme.typography.bodySmall, color = signal.text2)
-                }
-                LatchSwitch(
-                    checked = on > 0,
-                    onCheckedChange = onToggleGroup,
-                    modifier = Modifier.semantics { contentDescription = "${group.title}, all switches" },
-                )
-            }
+    // One switch for the whole page, when the page has one; the ⓘ above explains it.
+    if (group.capabilities.isNotEmpty()) {
+        val on = group.capabilities.count { it in enabled }
+        Card {
+            ListRow(
+                group.icon,
+                if (on > 0) "On" else "Off",
+                when (group) {
+                    AccessGroup.FILES -> if (on > 0) "The AI may use the places below" else "The AI can't see or save files"
+                    AccessGroup.ADB -> if (on > 0) "Any ADB command, after pairing below" else "Off until you turn it on"
+                    else -> statusOf(group, enabled)
+                },
+                tint = signal.hueOf(group),
+                trailing = {
+                    LatchSwitch(
+                        checked = on > 0,
+                        onCheckedChange = onToggleGroup,
+                        modifier = Modifier.semantics { contentDescription = group.title },
+                    )
+                },
+            )
         }
     }
 }
@@ -453,8 +449,6 @@ private fun FilePlaces(
     onPickFolder: () -> Unit,
     onForgetFolder: (Int) -> Unit,
     onAllowPhotos: () -> Unit,
-    photosOn: Boolean,
-    onPhotosOn: (Boolean) -> Unit,
 ) {
     val signal = LocalSignal.current
     SectionCaption("Folders")
@@ -464,7 +458,7 @@ private fun FilePlaces(
             ListRow(
                 LatchIcons.Folder,
                 name,
-                "The AI may read, save, rename, and delete files in this folder and its subfolders.",
+                "Read, save, rename, delete",
                 tint = signal.accent,
                 trailing = {
                     TextButton(
@@ -478,7 +472,7 @@ private fun FilePlaces(
         ListRow(
             LatchIcons.Plus,
             if (folders.isEmpty()) "Add a folder for the AI" else "Add another folder",
-            if (folders.isEmpty()) "For example Documents/AI. The AI never sees folders you don't add." else "The AI never sees folders you don't add.",
+            "It never sees folders you don't add",
             tint = signal.accent,
             onClick = onPickFolder,
             onClickLabel = "Add a folder",
@@ -486,30 +480,15 @@ private fun FilePlaces(
     }
     SectionCaption("Photos")
     Card {
+        // Android's own permission is the one switch: all photos, some, or none.
         ListRow(
             LatchIcons.Photo,
-            "Let the AI see photos",
-            if (photosOn) "On: the AI can see and save the photos and videos Android allows below." else "Off: the AI can't list, open, or save photos.",
-            tint = if (photosOn) signal.accent else signal.text2,
-            trailing = {
-                LatchSwitch(
-                    checked = photosOn,
-                    onCheckedChange = onPhotosOn,
-                    modifier = Modifier.semantics { contentDescription = "Let the AI see photos" },
-                )
-            },
+            if (photosAllowed) "Photos allowed" else "Photos not allowed",
+            if (photosAllowed) "Tap to change which ones" else "Tap to allow all, or only some",
+            tint = if (photosAllowed) signal.success else signal.text2,
+            onClick = onAllowPhotos,
+            onClickLabel = "Choose which photos the AI can see",
         )
-        if (photosOn) {
-            RowDivider()
-            ListRow(
-                LatchIcons.ShieldCheck,
-                if (photosAllowed) "Android: photos allowed" else "Android: photos not allowed",
-                if (photosAllowed) "Tap to change which photos and videos." else "Allow all photos, or only the ones you choose. Saving new pictures works without this.",
-                tint = if (photosAllowed) signal.success else signal.text2,
-                onClick = onAllowPhotos,
-                onClickLabel = "Choose which photos the AI can see",
-            )
-        }
     }
 }
 
@@ -517,16 +496,12 @@ private fun FilePlaces(
 @Composable
 private fun FastTransfers(on: Boolean, onChange: (Boolean) -> Unit) {
     val signal = LocalSignal.current
-    SectionCaption("Copying whole files")
+    SectionCaption("Big files")
     Card {
         ListRow(
             LatchIcons.Wifi,
-            "Fast transfers on the same Wi-Fi",
-            if (on) {
-                "On: when your computer is on this Wi-Fi, files go straight to and from it, encrypted. Elsewhere they use your gateway."
-            } else {
-                "Off: files always go through your gateway, encrypted."
-            },
+            "Faster on the same Wi-Fi",
+            if (on) "Straight to your computer on this Wi-Fi, encrypted" else "Off: files go through your relay, encrypted",
             tint = if (on) signal.accent else signal.text2,
             trailing = {
                 LatchSwitch(
@@ -690,8 +665,7 @@ private fun AdbPairing(
 @Composable
 private fun AiAccessBody(
     auto: AutoMode,
-    appsOn: Int,
-    onOpenApps: () -> Unit,
+    onAuto: (AutoMode) -> Unit,
     approveEveryAction: Boolean,
     onApproveEveryAction: (Boolean) -> Unit,
     remoteApprovals: Boolean,
@@ -699,27 +673,18 @@ private fun AiAccessBody(
     saved: List<SavedApprovalRow>,
     onRemoveSaved: (String) -> Unit,
     onRemoveAllSaved: () -> Unit,
+    trustCritical: Boolean = false,
+    onTrustCritical: (Boolean) -> Unit = {},
 ) {
     val signal = LocalSignal.current
-    SectionCaption("How the AI works")
+    var confirmTrust by remember { mutableStateOf(false) }
+    AutoModeCard(auto, onAuto)
+    SectionCaption("When Latch asks you")
     Card {
-        ListRow(
-            LatchIcons.Apps,
-            "Apps the AI can use",
-            when {
-                auto != AutoMode.OFF -> "Auto mode is on: every app, no questions."
-                appsOn == 0 -> "None yet. Latch asks you the first time the AI needs an app."
-                else -> "$appsOn on. Others ask you the first time."
-            },
-            tint = signal.accent,
-            onClick = onOpenApps,
-            onClickLabel = "Choose apps the AI can use",
-        )
-        RowDivider()
         ListRow(
             LatchIcons.ShieldCheck,
             "Ask me before every action",
-            if (approveEveryAction) "On: you OK every tap and every word the AI types." else "Off: in apps you allowed, the AI works without asking.",
+            "You OK every tap and every word",
             tint = signal.warning,
             trailing = {
                 LatchSwitch(
@@ -732,12 +697,8 @@ private fun AiAccessBody(
         RowDivider()
         ListRow(
             LatchIcons.Sparkle,
-            "Answer from your AI chat too",
-            if (remoteApprovals) {
-                "On: when Latch asks you something, you can answer on this phone or in your AI chat."
-            } else {
-                "Off: only this phone can answer Latch's questions."
-            },
+            "Answer in your AI chat too",
+            "Not only on this phone",
             tint = signal.mint,
             trailing = {
                 LatchSwitch(
@@ -747,18 +708,44 @@ private fun AiAccessBody(
                 )
             },
         )
+        RowDivider()
+        ListRow(
+            LatchIcons.Warning,
+            "Skip asking for payments",
+            if (trustCritical) "On: they don't ask in switched-on apps" else "Off: they always ask you",
+            tint = if (trustCritical) signal.danger else signal.warning,
+            trailing = {
+                LatchSwitch(
+                    checked = trustCritical,
+                    onCheckedChange = { on -> if (on) confirmTrust = true else onTrustCritical(false) },
+                    modifier = Modifier.semantics { contentDescription = "Also allow payments and permissions without asking" },
+                )
+            },
+        )
     }
 
+    if (confirmTrust) {
+        AlertDialog(
+            onDismissRequest = { confirmTrust = false },
+            title = { Text("Never ask, even for money?") },
+            text = {
+                Text(
+                    "In apps you switched on, the AI will pay, transfer, buy, install apps, answer Android permission pop-ups, and delete accounts without asking you. " +
+                        "Text on a screen, like a message or a website, can trick an AI into doing these. " +
+                        "Latch still never types passwords, PINs, or one-time codes, so payments that need your PIN still need you. " +
+                        "You can switch this off at any time; Stop ends everything at once.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { onTrustCritical(true); confirmTrust = false }) { Text("Allow without asking", color = signal.danger) } },
+            dismissButton = { TextButton(onClick = { confirmTrust = false }) { Text("Keep asking") } },
+        )
+    }
+
+    // Only when there is something to undo: an empty list is one more thing to read.
+    if (saved.isEmpty()) return
     SectionCaption("Always allowed")
     Card {
-        if (saved.isEmpty()) {
-            ListRow(
-                LatchIcons.ShieldCheck,
-                "Nothing saved",
-                "When a send, post, or call asks you, choose “Always in this app” to stop being asked for that button there. Payments, installs, and permissions always ask.",
-                tint = signal.text2,
-            )
-        } else {
+        run {
             saved.forEachIndexed { index, row ->
                 if (index > 0) RowDivider()
                 ListRow(
@@ -795,8 +782,8 @@ private fun BrightnessPermission(wanted: Boolean) {
     Card(color = signal.warning.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
         ListRow(
             LatchIcons.Warning,
-            "Let Latch change the brightness, rotation, and timeout",
-            "Android asks once: Modify system settings → Latch → on.",
+            "Brightness and rotation",
+            "Tap to allow it in Android",
             tint = signal.warning,
             onClick = { context.startActivity(PhoneControls.writeSettingsIntent(context)) },
             onClickLabel = "Open Modify system settings",
@@ -816,11 +803,11 @@ private fun DoNotDisturbPermission(wanted: Boolean) {
     val allowed = remember(resumes) { PhoneControls.canChangeDoNotDisturb(context) }
     if (!wanted || allowed) return
     val signal = LocalSignal.current
-    Card(color = signal.accent.copy(alpha = if (signal.dark) 0.14f else 0.1f)) {
+    Card {
         ListRow(
             LatchIcons.Bell,
-            "Optional: let Latch change the ringer and Do Not Disturb",
-            "Volume and media work without this. Android asks once: Do Not Disturb access → Latch → on.",
+            "Ringer and Do Not Disturb",
+            "Optional. Tap to allow it in Android",
             tint = signal.accent,
             onClick = { context.startActivity(PhoneControls.doNotDisturbAccessIntent()) },
             onClickLabel = "Open Do Not Disturb access",
@@ -828,39 +815,6 @@ private fun DoNotDisturbPermission(wanted: Boolean) {
     }
 }
 
-@Composable
-private fun WorkingBody(showCursor: Boolean, keepAwake: Boolean, onShowCursor: (Boolean) -> Unit, onKeepAwake: (Boolean) -> Unit) {
-    val signal = LocalSignal.current
-    Card {
-        ListRow(
-            LatchIcons.Tap,
-            "Show where the AI taps",
-            "A dot moves to each tap and swipe. It cannot press anything, and the AI never sees it.",
-            tint = signal.accent,
-            trailing = {
-                LatchSwitch(
-                    checked = showCursor,
-                    onCheckedChange = onShowCursor,
-                    modifier = Modifier.semantics { contentDescription = "Show where the AI taps" },
-                )
-            },
-        )
-        RowDivider()
-        ListRow(
-            LatchIcons.Phone,
-            "Keep the screen on",
-            "During a session the screen stays on, so a task is not cut off by the lock screen. Uses more battery.",
-            tint = signal.accent,
-            trailing = {
-                LatchSwitch(
-                    checked = keepAwake,
-                    onCheckedChange = onKeepAwake,
-                    modifier = Modifier.semantics { contentDescription = "Keep the screen on during a session" },
-                )
-            },
-        )
-    }
-}
 
 /** One "always allow" answer, ready to show. [action] quotes untrusted app text. */
 data class SavedApprovalRow(val key: String, val action: String, val app: String)
@@ -879,9 +833,9 @@ private fun AutoModeCard(auto: AutoMode, onAuto: (AutoMode) -> Unit) {
             LatchIcons.Sparkle,
             "Auto mode",
             when (auto) {
-                AutoMode.OFF -> "Let the AI use every app and finish tasks without asking you. Off."
-                AutoMode.SESSION -> "On until this session ends. The AI uses every app without asking."
-                AutoMode.ALWAYS -> "On until you turn it off. The AI uses every app without asking."
+                AutoMode.OFF -> "Off. When on, nothing asks, not even payments"
+                AutoMode.SESSION -> "On until this session ends: nothing asks"
+                AutoMode.ALWAYS -> "On until you turn it off: nothing asks"
             },
             tint = signal.accent,
             trailing = {

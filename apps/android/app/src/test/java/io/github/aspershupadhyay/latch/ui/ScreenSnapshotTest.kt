@@ -33,6 +33,8 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "w411dp-h914dp-xxhdpi")
 class ScreenSnapshotTest {
+    private val TAP = AccessPreset.LOOK_AND_TAP.capabilities
+
     @get:org.junit.Rule
     val name = org.junit.rules.TestName()
 
@@ -111,7 +113,7 @@ class ScreenSnapshotTest {
         CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.SCREEN, onOpenGroup = {})
     }
     @Test fun settings() = snap {
-        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {})
+        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {})
     }
 
     @Test fun connect_created() = snap {
@@ -183,6 +185,12 @@ class ScreenSnapshotTest {
     @Test fun welcome_scan_night() = snap(dark = true) { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
     @Test fun welcome_scan() = snap { WelcomeScreen({}, {}, onScan = {}, onFind = {}) }
     @Test fun home_idle_night() = snap(dark = true) { HomeScreen(home(Phase.IDLE), HomeActions()) }
+    @Test fun connect_empty_night() = snap(dark = true) {
+        ConnectScreen(
+            ConnectState("https://latch-gateway-ada.vercel.app/mcp", isOwner = true, clients = emptyList(), loading = false, error = null, created = null),
+            ConnectActions(),
+        )
+    }
     @Test fun sessionBar_night() = snap(dark = true) {
         androidx.compose.foundation.layout.Column {
             SessionBar(io.github.aspershupadhyay.latch.session.SessionState.Active(now + 60_000, paused = false), waiting = false, reducedMotion = true, stop = {}, open = {})
@@ -216,8 +224,11 @@ class ScreenSnapshotTest {
     @Test fun capabilities_night() = snap(dark = true) {
         CapabilitiesScreen(setOf(Capability.UI_OBSERVE, Capability.INPUT_GESTURE), accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {})
     }
+    @Test fun capabilities_more_night() = snap(dark = true) {
+        CapabilitiesScreen(TAP, accessibilityOn = true, approveEveryAction = false, onToggle = { _, _ -> }, onApproveEveryAction = {}, openGroup = AccessGroup.MORE, onOpenGroup = {})
+    }
     @Test fun settings_night() = snap(dark = true) {
-        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {}, {})
+        SettingsScreen("https://latch-gateway-ada.vercel.app", "d_eaddca7638d2e9ae", "Pixel 9", true, "0.1.0-beta.16", {})
     }
     @Test fun activity_night() = snap(dark = true) {
         ActivityScreen(

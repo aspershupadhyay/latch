@@ -245,17 +245,20 @@ class Settings(private val context: Context) {
             approveEveryAction = prefs.getBoolean("approve_every_action", false),
             sessionMinutes = prefs.getInt("session_minutes", 30),
             setupDone = prefs.getBoolean("setup_done", false),
-            showCursor = prefs.getBoolean("show_cursor", true),
-            keepAwake = prefs.getBoolean("keep_awake", true),
-            checkUpdates = prefs.getBoolean("check_updates", true),
-            readButtons = prefs.getBoolean("read_buttons", true),
+            // ADR-066: these are always on, with no switch; an older "off" is no longer read.
+            showCursor = true,
+            keepAwake = true,
+            checkUpdates = true,
+            readButtons = true,
             remoteApprovals = prefs.getBoolean("remote_approvals", false),
             folders = readFolders(),
-            photosOn = prefs.getBoolean("photos_on", true),
+            // ADR-066: Android's own photo permission is the one switch for photos.
+            photosOn = true,
             localTransfers = prefs.getBoolean("local_transfers", false),
             adbEndpoint = prefs.getString("adb_endpoint", null),
             adbFixedPort = prefs.getBoolean("adb_fixed_port", false),
-            bothConnected = prefs.getBoolean("both_connected", true),
+            // ADR-067: both kept connections are always used, so a session survives losing one.
+            bothConnected = true,
             theme = ThemeChoice.fromName(prefs.getString("theme", null)),
         )
     }

@@ -29,7 +29,7 @@ From the first numbered release, the gateway comes as a package, so you install 
 | macOS, Linux (Homebrew) | `brew tap aspershupadhyay/latch https://github.com/aspershupadhyay/latch`<br>`brew install latch` | `brew upgrade latch`, then `latch restart` |
 | Windows (Scoop) | `scoop bucket add latch https://github.com/aspershupadhyay/latch`<br>`scoop install latch` | `scoop update latch` |
 
-This repository is the Homebrew tap and the Scoop bucket ([ADR-064](adr/README.md#adr-064--packages-homebrew-and-scoop-from-tagged-releases-one-latch-command-everywhere)): no second repository and no third party. Each release's workflow builds the archives, writes the formula and the manifest with their checksums, and installs both packages on real macOS and Windows machines before anything is published.
+This repository is the Homebrew tap and the Scoop bucket ([ADR-068](adr/README.md#adr-068--packages-homebrew-and-scoop-from-tagged-releases-one-latch-command-everywhere)): no second repository and no third party. Each release's workflow builds the archives, writes the formula and the manifest with their checksums, and installs both packages on real macOS and Windows machines before anything is published.
 
 **winget** is not offered yet. It puts only `.exe` files on the PATH, so it would install the gateway without the `latch` command. Its manifests are made with every release and will be submitted once `latch` is built into the gateway itself.
 

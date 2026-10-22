@@ -812,8 +812,76 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 
 **Rollback:** visual and navigation only; revert the commit. Settings, pairing, and protocol are untouched.
 
+## ADR-064 — "Everything" in one tap: every ordinary app, no app-by-app questions
+**Status:** accepted (2026-10-21, owner on the R59 beta: "do something so user won't have to provide the access for each and everything … remove the send permission … it will be user only asking ai to do") · **Amends:** ADR-021 (app switches), the Access tab (ADR-062, ADR-063) · **Protocol:** unchanged
 
-## ADR-064 — Packages: Homebrew and Scoop from tagged releases, one `latch` command everywhere
+**Problem:** sending, posting, and deleting already run without asking in an app the owner switched on (ADR-021). But each app had to be switched on one by one, by a question the first time the AI needed it, and the Access tab offered six groups and a dozen switches before the AI could do much. Owners met a "send?"-style question for every new app and called the setup tiring. The "Everything" preset also included full ADB, which ADR-046 keeps off until the owner turns it on by itself.
+
+**Decision:**
+- **One choice, three answers:** Access opens with three big cards, **Only look**, **Look and tap**, and **Everything**, each setting every switch at once. The groups (AI access, Screen & control, Files, Share, Phone controls, While the AI works) fold under **Fine-tune**; Full ADB keeps its own **Most access** place. The same cards are the setup step.
+- **Everything** switches on every capability except device info and full ADB, and turns on **every app** (`allApps`, kept on the phone): the AI opens and works in any ordinary app with no first-time question, and sends, posts, and deletes there without asking, as in a switched-on app.
+- **What still asks:** apps that may hold money, accounts, or passwords (the existing sensitive-app check) ask once, as before. Payments, installs, Android permission prompts, and account deletion still ask every time unless the owner separately opts in (ADR-022) or turns on Auto mode (ADR-024, now under Fine-tune → AI access). "Ask me before every action" still overrides all of it. Full ADB is never part of a preset; picking a card keeps whatever the owner chose for it.
+- **Only look** and **Look and tap** turn every-app off, so each app asks once again; "Switch all off" on the Apps page clears it too.
+
+**Threat review:** the widest new grant is an explicit owner tap on a card that says what it does ("Every app, no questions. Bank apps ask once; payments always ask."). It is not a default: a new install still starts with nothing switched on, and the cards are equal choices. Screen text and remote instructions still cannot choose a card or answer a question. Irreversible money and install actions keep their confirmation (AGENTS.md: payments and installs ask by default). Stop, the session time limit, and the History log are unchanged, so every send is still visible and stoppable.
+
+**Checks:** `AutonomyTest.everyAppCoversOrdinaryAppsButNotMoneyAppsOrPayments`; `SetupStateTest` (presets never include full ADB). The app builds with warnings as errors; unit tests and lint pass. *Needs phone:* WhatsApp send with Everything on (no question), a banking app (asks once), a Play Store install (asks).
+
+**Rollback:** pick Look and tap (every-app off), or revert the commit; the stored `all_apps` flag is then ignored.
+
+## ADR-065 — Access asks only about what is private or permanent
+**Status:** accepted (2026-10-21, owner: "still too many options in the access tab … some of the permission is not required cus any apps can perform such action in just secs") · **Amends:** ADR-064 (Access layout and presets) · **Protocol:** unchanged
+
+**Problem:** after ADR-064 the Access tab still showed three cards, an apps row, six Fine-tune groups, and Full ADB: eleven ways in, and inside them about twenty switches. Most guarded actions any app performs in a second (go back or home, change the volume, the flashlight, copy text, open the share sheet, read Latch's own log). Decision time grows with the number of choices (Hick–Hyman law), people hold about four things in mind at once (Cowan 2001), and repeated permission prompts and lists stop being read (Felt et al. 2012, Android permissions; Anderson, Vance et al. 2015–2018, warning habituation). Asking about trivial things also teaches people to agree without reading the questions that matter.
+
+**Decision:**
+- **Ask only about what is private or permanent:** which apps, your files, and full ADB. Everything else comes with the level the owner picks.
+- **Access shows six things:** three cards (Only look, Look and tap, Everything) and one card with three rows: **Your apps**, **Files** (folders, photos, Downloads; on with Everything, or its own switch on its page), and **More choices**.
+- **Levels:** Only look = read the screen, screenshots, and Latch's log. Look and tap adds tapping, typing, back and home, opening apps, the share sheet, copying text, and the phone controls (sound, brightness, flashlight, settings panels); each new app still asks once. Everything adds files and every ordinary app (ADR-064). No level includes full ADB.
+- **More choices** holds what most people never change: Auto mode, Ask me before every action, Answer from your AI chat, Always allowed answers, the cursor and keep-awake switches, Android's brightness and Do Not Disturb permissions when a control needs them, and Full ADB under its own **Most access** caption. Back from Full ADB returns to More choices.
+- The per-capability switch pages for screen, sharing, and controls are no longer shown; the capability groups stay defined (`AccessGroupTest`) so the levels and the History log keep their meaning.
+
+**Threat review:** no new grant. The actions that moved into Look and tap are reversible and low-impact, and consequential ones inside them (sending in an app that is not switched on, paying, installing) still ask exactly as before. Files and every-app access still need Everything or their own switch. Full ADB (ADR-046) is still off until the owner turns it on by itself, now one level deeper, with no command filter or confirmation added.
+
+**Checks:** the app builds with warnings as errors; unit tests (`SetupStateTest`, `AccessGroupTest`, `AutonomyTest`) and lint pass; the Access screen was rendered (`capabilities_night`). *Needs phone:* the chapter 09 UX gate with first-time users.
+
+**Rollback:** revert the commit; settings and protocol are untouched.
+
+## ADR-066 — Fewer switches: sensible features are simply on
+**Status:** accepted (2026-10-22, owner: "google ml kit must be enable and for that don't give any toggle button … check when latch opens … there shouldn't be any specific updates … make the home tab less cluttered") · **Amends:** ADR-032 (reading unlabeled buttons), ADR-065 (Access sub-pages), ADR-063 (Home, Settings) · **Protocol:** unchanged
+
+**Audit (before):** Home had a hero, two tiles, and a mirror card; Settings had 11 rows, 2 switches, and a version chip; More choices had 7 switches and an empty "Always allowed" card; Files had a Latch switch for photos on top of Android's own; the Apps list opened with two explanation cards and a payments switch before the search box.
+
+**Decision:**
+- **Always on, no switch:** reading unlabeled buttons (Google ML Kit, on the phone), checking for a newer Latch when it opens, the AI cursor, and keeping the screen on during a session. An older stored "off" for these is no longer read. What leaves the phone for each (ML Kit usage statistics; the GitHub version check) is stated in Settings → Privacy ⓘ.
+- **Photos:** Android's photo permission is the one switch; Latch's own photo switch is gone.
+- **Home:** the state, one action, and two tiles. The Encrypted tag shows only as a warning when the link is not encrypted; the session-time tag only while live. The mirror card moves to Connect → On your computer.
+- **Settings:** Relay and phone; Permissions; one help card (setup guide, Privacy, Latch version that checks for updates on tap, open source); one card for Rotate owner key and Disconnect. "Turn off screen access" lives on the Permissions page, which already opens Android's switch.
+- **Access sub-pages:** no intro card (the ⓘ explains); one switch row where a page has one. More choices: Auto mode; Ask me before every action; Answer in your AI chat too; Skip asking for payments (moved from the Apps list, same confirmation); Android helpers only while missing; Full ADB under Most access. "Always allowed" shows only when it has entries. The Apps list starts with search.
+
+**Threat review:** nothing new reaches the AI. Reading button words makes approvals stricter, not looser. The update check sends no personal data. Payments still ask unless the owner turns the switch on through the same warning dialog. Full ADB (ADR-046) is unchanged.
+
+**Checks:** the app builds with warnings as errors; unit tests and lint pass; Home, Settings, and More choices were rendered (`home_idle_night`, `settings_night`, new `capabilities_more_night`).
+
+**Rollback:** revert the commit; the stored preferences are untouched, so the old switches would read them again.
+
+## ADR-067 — Connect and History: one job each, nothing repeated
+**Status:** accepted (2026-10-22, owner: "now do the same for connect and history tab") · **Amends:** ADR-063 (Connect), ADR-053 (both connections at once), the History filters · **Protocol:** unchanged
+
+**Audit (before):** Connect showed the three setup steps forever, a long explanation and a "Keep both connected" switch inside the connection card, rows that repeated how each AI app signed in, and a trash button that removed an AI app in one tap. History offered 13 filter chips in a sideways scroll, each with a count, and every line repeated its kind under an icon that already showed it.
+
+**Decision:**
+- **Connect:** the link card first; the three steps only until the first AI app connects; "Your AI apps" rows say when each was last used, and its app limit only when it has one; removing an AI app asks first. The connection card is the Hosted / Wi-Fi choice, the one in use, and a kept one as **Backup** with Forget.
+- **Both connections are always used:** a kept connection of the other kind joins every session, so losing Wi-Fi or the internet does not end it. The switch is gone; an older stored "off" is no longer read.
+- **History:** four filters, **All, Tasks, Asked you, Blocked**, without counts. Each line shows what happened, the app, the time, and who did it.
+
+**Threat review:** no new grant or data path. Using both kept connections was already the default (ADR-053); each is authenticated as before. Removing an AI app now needs a second tap, which prevents accidental loss of access.
+
+**Checks:** the app builds with warnings as errors; unit tests and lint pass; Connect and History were rendered (`connect_list`, `activity_night`).
+
+**Rollback:** revert the commit; stored preferences are untouched.
+
+## ADR-068 — Packages: Homebrew and Scoop from tagged releases, one `latch` command everywhere
 **Status:** accepted (2026-10-22, owner: "now go ahead and do all of this for all the platforms", after asking to install the gateway "like a package … instead of running this entire command on each machine") · **Protocol:** unchanged
 
 **Problem:** the gateway for a computer was installed by piping a script from the rolling `beta` release (`curl … | sh`, `irm … | iex`). That works, but it is a link to paste on every machine, and each installer wrote its own copy of the `latch` command inline, so the two copies drifted and nothing else could install the same thing. Package managers need numbered releases with fixed checksums; `beta` changes with every merge.
