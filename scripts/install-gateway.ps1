@@ -68,7 +68,7 @@
         Copy-Item -Force (Join-Path $tmp 'latch.cmd') (Join-Path $binDir 'latch.cmd')
         # `latch update` stays on the release this came from.
         $ps1 = (Get-Content -Raw (Join-Path $tmp 'latch.ps1')).Replace('https://github.com/aspershupadhyay/latch/releases/download/beta', $release)
-        Set-Content -Encoding UTF8 -NoNewline (Join-Path $binDir 'latch.ps1') $ps1
+        [IO.File]::WriteAllText((Join-Path $binDir 'latch.ps1'), $ps1, (New-Object Text.UTF8Encoding $false))
         Get-ChildItem $binDir | Unblock-File -ErrorAction SilentlyContinue
         & $exe --version | Out-Null
         if ($LASTEXITCODE -ne 0) {
