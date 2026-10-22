@@ -10,6 +10,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **Calmer Connect and History** (R63, ADR-067): Connect shows the setup steps only until your first AI app connects, keeps your other connection as a backup in every session, and asks before removing an AI app. History has four filters: All, Tasks, Asked you, Blocked.
 - **Fewer switches** (R62, ADR-066): reading unlabeled buttons, the update check, the AI cursor, and keeping the screen on are simply on. Home shows only your phone's state, Start, and two tiles; the computer mirror moved to Connect. Settings fits on one screen, and every Access page is shorter.
 - **A much shorter Access tab** (R61, ADR-065): three choices and three rows (Your apps, Files, More choices). Everyday actions such as going back, volume, the flashlight, copying text, and sharing come with the level you pick; you are asked only about apps, your files, and full ADB.
 - **Everything in one tap** (R60, ADR-064): Access now opens with three choices: Only look, Look and tap, Everything. **Everything** lets the AI use every ordinary app and send, post, and delete there without asking you app by app; bank and password apps ask once, and payments and installs still ask. The detailed switches fold under Fine-tune. Home is calmer, and Connect leads with your link and big Copy and Share buttons.
