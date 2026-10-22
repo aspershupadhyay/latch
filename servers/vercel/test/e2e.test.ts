@@ -161,7 +161,7 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   assert.deepEqual(tools, ["list_devices", "diagnose", "observe", "tap", "type_text", "scroll_to", "wait_for", "scroll", "swipe", "pinch", "gesture", "press", "list_apps", "launch_app", "open_link", "device_status", "ask_owner", "get_activity", "finish_task", "phone_control", "adb",
     "list_files", "read_file", "get_file_link", "upload_link", "transfer_status", "write_file", "create_folder", "rename_file", "delete_file",
     "set_clipboard", "share_to_app", "save_skill", "list_skills", "run_skill", "run_steps", "delete_skill",
-    "answer_approval"]);
+    "run_program", "answer_approval"]);
 
   // Same text as the Rust gateway (servers/mcp/tests/e2e.rs).
   const diagnosis = text(await client.callTool({ name: "diagnose", arguments: {} }));
@@ -436,6 +436,41 @@ test("an MCP client drives a phone through the Vercel gateway", async () => {
   const tapped = text(await client.callTool({ name: "tap", arguments: { text: "+", near: "White bread", repeat: 2 } }));
   assert.match(tapped, /tap "\+" near "White bread" ×2/);
   assert.match(tapped, /"Cart \(10\)"/);
+  // R70 (ADR-072): a whole task in one call; a stop says why and resumes without re-running finished steps.
+  const report = (r: unknown) => JSON.parse(text(r as never).split("\n")[1]!);
+  const shopSteps = [
+    { do: "type", sel: "Search products", text: "bread", submit: true },
+    { do: "tap", sel: { text: "ADD", near: "Brown bread" } },
+    { do: "tap", sel: "+" },
+    { do: "read", sel: { text: "Cart" }, as: "cart" },
+  ];
+  let prog = await client.callTool({ name: "run_program", arguments: { steps: shopSteps } });
+  let rep = report(prog);
+  assert.equal(rep.status, "failed", text(prog as never));
+  assert.equal(rep.step, "3");
+  assert.equal(rep.reason, "ambiguous");
+  assert.equal(rep.candidates.length, 2);
+  assert.equal(rep.resume.from_step, "3");
+  const fixedSteps: Record<string, unknown>[] = [...shopSteps];
+  fixedSteps[2] = { do: "tap", sel: { text: "+", near: "Brown bread" }, repeat: 2 };
+  prog = await client.callTool({ name: "run_program", arguments: { steps: fixedSteps, from_step: "3" } });
+  rep = report(prog);
+  assert.equal(rep.status, "done", text(prog as never));
+  assert.equal(rep.vars.cart, "Cart (13)", "1 ADD + 2 more, and the ADD step did not run again");
+  prog = await client.callTool({ name: "run_program", arguments: { steps: [
+    { do: "open", app: "Settings" },
+    { do: "tap", sel: "Network & internet" },
+    { do: "toggle", sel: "Wi-Fi", on: false },
+    { do: "expect", cond: { state: { sel: { role: "switch" }, checked: false } } },
+    { do: "if", cond: { app: "com.android.settings" }, then: [{ do: "call", route: "flashlight", args: { on: true } }] },
+    { do: "tap", sel: "Not now", optional: true },
+  ] } });
+  rep = report(prog);
+  assert.equal(rep.status, "done", text(prog as never));
+  assert.deepEqual(rep.routes, ["flashlight"]);
+  assert.match(text(prog as never), /6\. – skipped, not on screen/);
+  const badProgram = await client.callTool({ name: "run_program", arguments: { steps: [{ do: "tap", sel: { role: "rocket" } }] } });
+  assert.ok(badProgram.isError && /selector role must be one of/.test(text(badProgram)), text(badProgram));
   const idRepeat = await client.callTool({ name: "tap", arguments: { element_id: "n1", repeat: 2, observation_id: "o_1" } });
   assert.ok(idRepeat.isError && /near and repeat go with text/.test(text(idRepeat)), text(idRepeat));
 

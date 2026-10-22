@@ -19,6 +19,7 @@ use crate::devices::{self, Output};
 
 pub mod diagnose;
 pub mod files;
+pub mod program;
 pub mod replay;
 pub mod skills;
 
@@ -71,9 +72,14 @@ in one call with this time's inputs (a different cart, another contact, a new me
 finishing a task the user will repeat, offer to save it with `save_skill`, generalized: what \
 changes becomes params, things that vary in number become a list with for_each, elements are \
 named by their words, and near picks the right row. If a run stops because the screen \
-differs, do that step yourself and continue with from_step. When you can predict the next few \
-steps (open an app, search, tap a result), send them together with `run_steps` instead of one \
-call each: it saves a round trip per step.";
+differs, do that step yourself and continue with from_step.
+Speed: think once per goal. When you know how a task goes (open an app, search, add three items, \
+toggle a setting), send the whole task as one `run_program`: it finds elements by their words, \
+role, and row, scrolls and closes pop-ups by itself, loops and branches on the phone, and calls \
+back only when a step fails, with the reason, the candidates, and where to resume. Prefer its \
+call routes (media, volume, flashlight, panels, links) over driving the screen. For a single \
+element, `tap` takes its words with near and repeat. Observe first only when you cannot \
+predict the screen.";
 
 /// Shown under the untrusted-content banner for apps `latch_policy::is_sensitive_app` flags.
 pub const SENSITIVE_APP_NOTE: &str = "Caution: this app may hold money, accounts, or passwords. \
@@ -648,6 +654,7 @@ pub fn tool_definitions() -> Vec<Value> {
     .into_iter()
     .chain(files::definitions())
     .chain(skills::definitions())
+    .chain(std::iter::once(program::definition()))
     .chain([{
             let mut answer = tool(
                 "answer_approval",
@@ -1394,6 +1401,9 @@ async fn run_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Val
     }
     if name == "run_steps" {
         return skills::run_steps(state, args, &device_id).await;
+    }
+    if name == program::NAME {
+        return program::run(state, args, &device_id).await;
     }
     if name == "tap"
         && let Some(text) = arg_str(args, "text").map_err(bad)?

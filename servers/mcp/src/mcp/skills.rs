@@ -693,7 +693,7 @@ pub fn label(step: &Value) -> String {
 
 // ---- Matching words on the live screen ----
 
-fn norm(s: &str) -> String {
+pub(super) fn norm(s: &str) -> String {
     s.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -738,7 +738,7 @@ fn score_one(node: &UiNode, target: &str) -> u8 {
     if same_icon { 2 } else { 0 }
 }
 
-fn match_level(c: &str, t: &str) -> u8 {
+pub(super) fn match_level(c: &str, t: &str) -> u8 {
     if c == t {
         3
     } else if c.starts_with(t) {
@@ -751,7 +751,7 @@ fn match_level(c: &str, t: &str) -> u8 {
 }
 
 /// A guessed label's own name and the card it sits in: "+ · Cow Milk" → ("+", "Cow Milk").
-fn label_parts(label: &str) -> (&str, &str) {
+pub(super) fn label_parts(label: &str) -> (&str, &str) {
     match label.split_once(" · ") {
         Some((head, card)) => (head, card),
         None => (label, ""),
@@ -759,7 +759,7 @@ fn label_parts(label: &str) -> (&str, &str) {
 }
 
 /// Words that name the same icon: a plus button is "+", "add", or "plus".
-fn icon_class(word: &str) -> Option<&'static str> {
+pub(super) fn icon_class(word: &str) -> Option<&'static str> {
     match word {
         "+" | "add" | "plus" | "increase" | "increment" => Some("plus"),
         "-" | "−" | "minus" | "remove" | "decrease" | "decrement" => Some("minus"),
@@ -789,7 +789,7 @@ fn is_blank(target: &str) -> bool {
     target.split("||").all(|t| norm(t).is_empty())
 }
 
-fn usable(node: &UiNode) -> bool {
+pub(super) fn usable(node: &UiNode) -> bool {
     !node.sensitive && node.enabled && !node.bounds.is_empty()
 }
 

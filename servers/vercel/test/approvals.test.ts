@@ -201,3 +201,27 @@ test("answer_approval refuses answers the phone did not offer", async () => {
   assert.match(text(wrong), /once, deny/);
   await c.close();
 });
+
+test("run_program pauses on an approval the AI must ask about, and names the step to resume from (R70)", async () => {
+  const p = await phone(true);
+  const c = await plainClient();
+  const call = c.callTool({ name: "run_program", arguments: { device_id: p.deviceId, steps: [
+    { do: "open", app: "com.example.chat" },
+    { do: "back" },
+  ] } });
+  const command = await p.poll();
+  assert.equal((command as { command?: { name?: string } }).command?.name, "app.launch");
+  const id = command!.id as string;
+  await p.post({
+    type: "approval_request", command_id: id, nonce: NONCE, title: "Let the AI use Chat?", detail: "It can see Chat's screen.",
+    kind: "app", choices: ["session", "always", "deny"], remote: true, expires_at_ms: Date.now() + 110_000,
+  });
+  const answer = text(await call);
+  const report = JSON.parse(answer.split("\n")[1]!);
+  assert.equal(report.status, "waiting_for_owner", answer);
+  assert.equal(report.step, "1");
+  assert.deepEqual(report.resume, { from_step: "2" });
+  assert.match(answer, /waiting for the owner/);
+  assert.match(answer, new RegExp(`request_id "${id}"`));
+  await c.close();
+});

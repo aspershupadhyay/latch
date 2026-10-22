@@ -4,6 +4,7 @@
 // texts, and errors as servers/mcp/src/mcp.rs; the shared contract tests in
 // test/ hold both to packages/schemas/v1/mcp.
 
+import { PROGRAM_TOOL, type ProgramContext, runProgram } from "./program.js";
 import { SERVER } from "./generated/contract.js";
 import { renderLatestTaskLimited } from "./replay.js";
 import { renderDiagnosis } from "./diagnose.js";
@@ -277,6 +278,19 @@ async function runTool(ctx: McpContext, name: string, args: Record<string, unkno
       store: ctx.skills,
       deviceId,
       act: async (tool, toolArgs) => (await runToolLogged(ctx, tool, toolArgs)) as Awaited<ReturnType<RunContext["act"]>>,
+      latest: () => ctx.devices.latestObservation(deviceId),
+      deferred: async (e, tool, toolArgs) => {
+        await ctx.devices.saveDeferred(e.request.command_id, {
+          tool, args: toolArgs, device: e.deviceId, conn: e.conn, nonce: e.request.nonce, choices: e.request.choices, title: e.request.title,
+        });
+        return waitingResult(e.request);
+      },
+    }, args);
+  }
+  if (name === PROGRAM_TOOL) {
+    return runProgram({
+      deviceId,
+      act: async (tool, toolArgs) => (await runToolLogged(ctx, tool, toolArgs)) as Awaited<ReturnType<ProgramContext["act"]>>,
       latest: () => ctx.devices.latestObservation(deviceId),
       deferred: async (e, tool, toolArgs) => {
         await ctx.devices.saveDeferred(e.request.command_id, {

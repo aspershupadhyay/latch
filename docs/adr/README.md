@@ -969,3 +969,28 @@ MCP transport, Latch's phone channel, and ADB are separate boundaries. ADR-042's
 **Checks:** shared find cases (`packages/schemas/v1/skills/cases.json`) for both gateways; gateway e2e on both for tap by words, near, and repeat; JVM tests for card names, the stepper, OCR filtering, and the rupee rewrite. On the phone: the cart benchmark under 60 s (the phase 1 gate).
 
 **Rollback:** each fix is local. Reverting removes the label words and the new `tap` arguments; older phones and gateways keep working, since no message changed.
+
+## ADR-072 — `run_program`: one call per goal, run by the gateway step by step
+**Status:** accepted (2026-10-22, owner: "go ahead and do it all") · **Amends:** ADR-033 (`run_steps`), ADR-071 phase 2 · **Protocol:** unchanged
+
+**Problem:** the model pays 5–10 s per round trip. `run_steps` saved round trips only for steps it could expand ahead of time: no branches, no values read from the screen, no recovery, and it picked the first look-alike instead of saying it could not tell.
+
+**Decision:**
+- **A program language, validated before anything runs:** `open`, `go`, `tap`, `type`, `find`, `toggle`, `scroll`, `back`, `home`, `wait`, `expect`, `read`, `if`, `for_each`, `call`, `ask_owner`; at most 50 top-level and 120 steps in all, blocks 3 deep, 30 items per loop, 50 taps per `repeat`, 80 phone actions and 240 s per call. Values: `{name}` and `{item.field}` from `read` and `for_each`.
+- **Selectors, ranked:** `text` (exact, starts-with, contains, then letters-only: "lays indias" = "Lay's India's"; "ADD || +" alternatives; the phone's guessed label, where "+" also means add), `desc`, `id`, `role` (button, input, row, card, switch, tab, video, image, or an icon class), `near` (in the near words' card first, then distance), `inside` (the element the words name or a container around it smaller than the page), `index` (reading order), `state`. A button and its own label count once. **When the two best fits tie on card and score (and, with `near`, are within 10 % of each other's distance), the step fails and lists both.**
+- **Local recovery when nothing fits:** read the screen again → tap a known pop-up's dismiss button (Not now, No thanks, Maybe later, Later, Skip, Dismiss, Close, Got it, Remind me later; never Cancel or OK) → `scroll_to` the words (both ways, R68) → one more look. Keyboard hiding is not tried: the observation does not say whether a keyboard covers the target, and Back could leave the page.
+- **A tap that shows no visible change is noted, not retried:** retrying could add a second item to a cart.
+- **Stops are JSON:** status, step path ("4", or "3.2.1" inside a loop), command, selector, reason (`ambiguous`, `not_found`, `expect_failed`, `state_unchanged`, `not_submitted`, `route_unavailable`, `bad_value`, or the protocol error code), candidates, recovery tried, and `resume {from_step, vars}`. Steps before `from_step` never run again; an `if` on the resume path is decided again on the screen as it is.
+- **Routes (`call`, R71):** media, volume, flashlight, brightness, ringer, do_not_disturb, panel, link, clipboard, all through the existing phone controls; `go "settings > wifi"` opens a settings panel. App maps (`go "app > screen"`) arrive with R73.
+- **The gateway runs the program, one ordinary tool per step.** The spec places the runner on the phone. Here it runs in the gateway, because every step then passes the gateway's own checks (allowed apps, refused fields, rate limits, audit) exactly as a single tool call does, on both gateways, with no protocol change and no phone update. Each step costs one gateway–phone hop (tens of milliseconds on the Wi-Fi gateway) instead of a model round trip (seconds), which is the large part of the saving. A phone-side runner would save those hops too, and stays open for when R69 measures them as the bottleneck.
+
+**Threat review:**
+- **No new reach:** every phone action is an existing tool call with its policy check, approval, freshness check, and audit line; a program cannot do anything a sequence of single calls could not.
+- **No guessing:** ties fail instead of picking one, so a program cannot tap the wrong one of two "Pay" or "Delete" buttons on its own.
+- **Pop-ups:** only buttons whose whole label is one of the dismiss words, and only when the target is missing; the tap goes through `tap` and its rules.
+- **Approvals:** a step that waits for the owner stops the program (Vercel: `waiting_for_owner` with the step to resume after `answer_approval`); nothing runs past it.
+- **Values** read from the screen are untrusted text: they fill selectors and typed text, never tool names or routes, which validation fixes before the run.
+
+**Checks:** shared cases (`packages/schemas/v1/program`: validation, selector resolution, conditions, templates) on both gateways; e2e on both gateways: a settings task with toggle, expect, and read; ambiguity then resume without re-running finished steps; loops with `repeat` from item fields; a missing product with the recovery tried; `if`/`var`, an optional step, a route; Send still asks the owner; the Vercel approval pause.
+
+**Rollback:** remove the tool; nothing else depends on it.
