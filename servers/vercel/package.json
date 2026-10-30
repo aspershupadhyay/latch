@@ -16,7 +16,7 @@
     "smoke": "rm -rf .smoke && tsc --outDir .smoke --noEmit false && node scripts/smoke.mjs"
   },
   "dependencies": {
-    "@upstash/redis": "1.39.0",
+    "@upstash/redis": "1.40.0",
     "@vercel/blob": "2.8.0",
     "qrcode-generator": "2.0.4"
   },
