@@ -21,7 +21,7 @@
     "qrcode-generator": "2.0.4"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "26.6.4",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
