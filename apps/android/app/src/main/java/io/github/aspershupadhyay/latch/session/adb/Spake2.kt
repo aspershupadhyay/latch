@@ -12,7 +12,8 @@ import java.security.SecureRandom
  * SPAKE2 as BoringSSL implements it (R27, ADR-046) — the password-authenticated
  * key exchange ADB wireless-debugging pairing runs. Transcribed byte-for-byte
  * from BoringSSL's `spake25519.cc` so it interoperates with a phone's adbd:
- * the same M and N points, the ×8 cofactor on the ephemeral scalar, and the
+ * the same M and N points (which are not prime-order), the ×8 cofactor on the
+ * ephemeral scalar, the cofactor-clearing password scalar, and the
  * exact length-prefixed SHA-512 transcript (client's fields first, then
  * server's, then the DH point, then SHA-512(password)).
  *
@@ -21,21 +22,31 @@ import java.security.SecureRandom
  * client role is exercised by Latch; the server role is included so the whole
  * exchange can be tested end to end without a device.
  */
-internal class Spake2(private val role: Role, password: ByteArray) {
+internal class Spake2(
+    private val role: Role,
+    password: ByteArray,
+    /** 64 random bytes for the ephemeral scalar; fixed only by tests. */
+    random: ByteArray = ByteArray(64).also { SecureRandom().nextBytes(it) },
+) {
     enum class Role { CLIENT, SERVER } // BoringSSL: client = alice, server = bob
 
     private val myName = if (role == Role.CLIENT) CLIENT_NAME else SERVER_NAME
     private val theirName = if (role == Role.CLIENT) SERVER_NAME else CLIENT_NAME
 
-    // Ephemeral scalar: reduce 64 random bytes mod ℓ, then ×8 to clear the cofactor.
+    // Ephemeral scalar exactly as BoringSSL: reduce 64 random bytes mod ℓ, then ×8
+    // (left_shift_3) with NO further reduction. It must stay a multiple of 8: M and N
+    // are not prime-order (each carries a small-order component), and only a
+    // multiple-of-8 scalar cancels that component in the shared point. Reducing
+    // 8·r mod ℓ again broke pairing with a real adbd most of the time.
     private val privateScalar: BigInteger =
-        Ed25519.scalarFromHash(ByteArray(64).also { SecureRandom().nextBytes(it) })
-            .multiply(BigInteger.valueOf(8)).mod(Ed25519.L)
+        Ed25519.scalarFromHash(random).shiftLeft(3)
 
-    // The full SHA-512(password) is the transcript's final field; its reduction mod ℓ is
-    // the mask scalar. M and N are prime-order, so the cofactor hack is a no-op on the point.
+    // The full SHA-512(password) is the transcript's final field. The mask scalar is
+    // its reduction mod ℓ plus the multiple of ℓ (0..7) that makes it ≡ 0 mod 8,
+    // BoringSSL's "password scalar hack", which keeps the mask point in the
+    // prime-order subgroup. adbd's message is built that way, so ours must be too.
     private val passwordHash: ByteArray = MessageDigest.getInstance("SHA-512").digest(password)
-    private val maskScalar: BigInteger = Ed25519.scalarFromHash(passwordHash)
+    private val maskScalar: BigInteger = cofactorClearedPasswordScalar(Ed25519.scalarFromHash(passwordHash))
 
     /** This side's SPAKE2 message: P* = x·B + s·(M for client, N for server), 32 bytes. */
     val message: ByteArray = run {
@@ -85,6 +96,17 @@ internal class Spake2(private val role: Role, password: ByteArray) {
         /** The TLS exported-keying-material label ADB appends the 64-byte export under. */
         val EXPORT_KEY_LABEL = "adb-label\u0000".toByteArray(Charsets.US_ASCII)
         const val EXPORT_KEY_LENGTH = 64
+
+        /** BoringSSL's spake25519.cc: add ℓ, 2ℓ, 4ℓ as the low three bits require, so the result ≡ 0 mod 8. */
+        internal fun cofactorClearedPasswordScalar(reduced: BigInteger): BigInteger {
+            var scalar = reduced
+            var order = Ed25519.L
+            for (bit in 0..2) {
+                if (scalar.testBit(bit)) scalar = scalar.add(order)
+                order = order.shiftLeft(1)
+            }
+            return scalar
+        }
 
         private fun hex(s: String) = ByteArray(s.length / 2) { s.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
     }

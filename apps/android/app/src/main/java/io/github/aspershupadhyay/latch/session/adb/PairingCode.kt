@@ -4,9 +4,15 @@ package io.github.aspershupadhyay.latch.session.adb
 
 /**
  * The six-digit wireless-debugging pairing code in what the owner typed, or
- * null. Android shows it as `123456`; people also type `123 456` or `123-456`.
+ * null. Android shows it as `123456`; people also type `123 456` or `123-456`,
+ * or paste it with a stray newline or invisible character.
  */
 fun pairingCode(typed: CharSequence?): String? {
-    val digits = typed?.filterNot { it == ' ' || it == '-' || it == ' ' }?.toString() ?: return null
+    // A pasted code can carry a newline, tab, non-breaking or zero-width space, or a
+    // dash variant; drop those. Anything else (letters, other scripts' digits) refuses.
+    val digits = typed?.filterNot { it.isWhitespace() || Character.isSpaceChar(it) || it in SEPARATORS || Character.getType(it) == Character.FORMAT.toInt() }
+        ?.toString() ?: return null
     return digits.takeIf { it.length == 6 && it.all { c -> c in '0'..'9' } }
 }
+
+private const val SEPARATORS = "-\u2010\u2011\u2012\u2013\u2014\u2212"
