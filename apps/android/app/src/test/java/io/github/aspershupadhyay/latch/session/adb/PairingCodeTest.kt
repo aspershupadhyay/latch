@@ -14,6 +14,13 @@ class PairingCodeTest {
         assertEquals("123456", pairingCode("123 456"))
     }
 
+    @Test fun acceptsAPastedCodeWithStrayCharacters() {
+        assertEquals("123456", pairingCode("123456\n"))
+        assertEquals("123456", pairingCode("\t123456\r\n"))
+        assertEquals("123456", pairingCode("\u200b123456\u200b"))
+        assertEquals("123456", pairingCode("123\u2013456"))
+    }
+
     @Test fun refusesAnythingElse() {
         assertNull(pairingCode(null))
         assertNull(pairingCode(""))
