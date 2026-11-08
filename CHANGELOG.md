@@ -68,6 +68,7 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Fixed
 
+- **Full ADB said "bad payload checksum" after pairing** (R27): Android 9 and newer leave each message's checksum empty (0) once both sides agree the modern protocol, and Latch rejected that as corrupt, so connecting failed right after you allowed full ADB. A 0 checksum is now accepted, as `adb` itself does.
 - **Full ADB pairing failed even with the right code** (R27): the pairing math did not match Android's own in one detail (the two fixed SPAKE2 points are not prime-order, and Latch dropped the factor of 8 that cancels that), so most attempts derived a different key than the phone and were refused. It now matches Android's BoringSSL byte for byte, pinned by a known-answer test. A pasted code with a stray newline, tab, or invisible character is accepted too.
 - **A 120 Hz phone's mirror was blurrier than needed**: the encoder took every frame the screen made (up to 120 a second) on a 60 fps bit budget, so each frame got half its bits. It now takes at most the frames it is budgeted for.
 - **The mirror lagged over Wi-Fi even on a fast network** (R53): the phone's Wi-Fi stayed in power save, where it sleeps between beacons and the router holds clicks, keys, and the video's acknowledgements until it wakes. While a computer watches, Latch now keeps the phone's Wi-Fi in low-latency mode (released as soon as no one watches), runs the mirror's video and input threads at display priority, and a drag that pauses ends exactly where the pointer stopped.

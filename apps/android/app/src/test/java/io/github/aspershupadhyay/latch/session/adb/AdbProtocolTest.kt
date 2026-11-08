@@ -51,6 +51,15 @@ class AdbProtocolTest {
         assertThrows(AdbProtocolException::class.java) { AdbMessage.read(ByteArrayInputStream(bytes)) }
     }
 
+    @Test fun aZeroChecksumIsAcceptedAsModernAdbdSendsIt() {
+        // adbd on Android 9+ (protocol 0x01000001) sends data_check = 0 for every payload;
+        // rejecting it made every real connect fail with "bad payload checksum".
+        val bytes = AdbMessage.of(AdbProtocol.A_CNXN, AdbProtocol.CONNECT_VERSION, 4096, "device::features=shell_v2\u0000").encode()
+        for (i in 16 until 20) bytes[i] = 0
+        val msg = AdbMessage.read(java.io.ByteArrayInputStream(bytes))
+        assertEquals("device::features=shell_v2\u0000", String(msg.payload))
+    }
+
     @Test fun aBadChecksumIsRejected() {
         val bytes = AdbMessage.of(AdbProtocol.A_WRTE, 0, 0, byteArrayOf(9)).encode()
         bytes[16] = (bytes[16] + 1).toByte() // corrupt the checksum word

@@ -20,8 +20,10 @@ import java.nio.ByteOrder
  * ```
  *
  * `data_crc32` is the ADB "checksum": the unsigned sum of the payload bytes,
- * not a real CRC. `magic` is `command xor 0xffffffff`. These are validated on
- * every inbound message so a corrupt or desynced stream fails loudly.
+ * not a real CRC. `magic` is `command xor 0xffffffff`. The magic is validated
+ * on every inbound message so a desynced stream fails loudly. From protocol
+ * version 0x01000001 (Android 9+, `A_VERSION_SKIP_CHECKSUM`) adbd leaves the
+ * checksum as 0, so a 0 is accepted; a non-zero checksum is still checked.
  */
 internal object AdbProtocol {
     // Command codes (little-endian four-char codes), from system/core/adb.
@@ -130,7 +132,9 @@ internal data class AdbMessage(
                 throw AdbProtocolException("message payload length out of range: $length")
             }
             val payload = if (length == 0) ByteArray(0) else input.readFully(length)
-            if (checksum(payload) != crc) throw AdbProtocolException("bad payload checksum")
+            // adbd at protocol version 0x01000001+ skips the checksum and sends 0 (TLS and
+            // the transport already protect the bytes); older adbd fills it in.
+            if (crc != 0 && checksum(payload) != crc) throw AdbProtocolException("bad payload checksum")
             return AdbMessage(command, arg0, arg1, payload)
         }
     }
