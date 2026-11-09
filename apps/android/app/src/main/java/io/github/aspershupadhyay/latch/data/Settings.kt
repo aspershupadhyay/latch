@@ -19,7 +19,8 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** Where this phone is paired. The token itself lives in [TokenVault]. */
 /** [pin]: for a gateway on the owner's Wi-Fi (R24), the SHA-256 of its certificate's key. */
-data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String, val pin: String? = null) {
+/** [relay]: where a hosted relay runs, as its `/v1/info` says (`vercel`, `cloudflare`; ADR-075). */
+data class Pairing(val gatewayUrl: String, val deviceId: String, val name: String, val pin: String? = null, val relay: String? = null) {
     val kind: ConnectionKind get() = ConnectionKind.of(this)
 }
 
@@ -29,14 +30,26 @@ data class Pairing(val gatewayUrl: String, val deviceId: String, val name: Strin
  * keys, in its own Keystore-sealed slot.
  */
 enum class ConnectionKind(val title: String, val short: String, val inSentence: String) {
-    /** A relay on the internet, such as the owner's Vercel relay: works on any network. */
-    HOSTED("Hosted relay", "Hosted", "hosted relay"),
+    /** A relay on the internet: the owner's Vercel relay, or any other hosted gateway. Works on any network. */
+    HOSTED("Vercel relay", "Vercel", "Vercel relay"),
+    /** ADR-075: the owner's relay on Cloudflare Workers. Works on any network. */
+    CLOUDFLARE("Cloudflare relay", "Cloudflare", "Cloudflare relay"),
     /** The gateway on the owner's computer on the same Wi-Fi (ADR-042), trusted by its pin. */
     WIFI("Computer on Wi-Fi", "Wi-Fi", "computer on Wi-Fi"),
     ;
 
+    /** A relay on the internet, which any AI app can reach. */
+    val hosted: Boolean get() = this != WIFI
+
     companion object {
-        fun of(pairing: Pairing) = if (pairing.pin != null) WIFI else HOSTED
+        fun of(pairing: Pairing) = when {
+            pairing.pin != null -> WIFI
+            pairing.relay == "cloudflare" -> CLOUDFLARE
+            else -> HOSTED
+        }
+
+        /** The kind for a gateway whose `/v1/info` reports [implementation]. */
+        fun forImplementation(implementation: String?) = if (implementation == "cloudflare") CLOUDFLARE else HOSTED
     }
 }
 
@@ -110,8 +123,9 @@ class Settings(private val context: Context) {
     /** Present only when this phone's owner also owns the gateway. */
     private val ownerVault = TokenVault(context, "latch_owner_key")
 
-    /** ADR-069: the owner key made for a hosted relay deploy, kept until the relay's page is scanned. */
-    private val deployVault = TokenVault(context, "latch_deploy_owner_key")
+    /** ADR-069: the owner key made for a hosted relay deploy, kept until the relay's page is scanned (one per platform, ADR-075). */
+    private fun deployVault(kind: ConnectionKind) =
+        TokenVault(context, if (kind == ConnectionKind.CLOUDFLARE) "latch_deploy_owner_key_cloudflare" else "latch_deploy_owner_key")
 
     /** ADR-058: the live mirror's viewer key, sealed like the token. */
     private val mirrorVault = TokenVault(context, "latch_mirror_key")
@@ -138,7 +152,7 @@ class Settings(private val context: Context) {
     private fun readPairing(): Pairing? {
         val url = prefs.getString("gateway_url", null) ?: return null
         val id = prefs.getString("device_id", null) ?: return null
-        return Pairing(url, id, prefs.getString("device_name", null) ?: "This phone", prefs.getString("gateway_pin", null))
+        return Pairing(url, id, prefs.getString("device_name", null) ?: "This phone", prefs.getString("gateway_pin", null), prefs.getString("gateway_relay", null))
     }
 
     private fun slot(kind: ConnectionKind, field: String) = "saved_${kind.name.lowercase()}_$field"
@@ -148,7 +162,7 @@ class Settings(private val context: Context) {
     private fun readSaved(kind: ConnectionKind): Pairing? {
         val url = prefs.getString(slot(kind, "gateway_url"), null) ?: return null
         val id = prefs.getString(slot(kind, "device_id"), null) ?: return null
-        return Pairing(url, id, prefs.getString(slot(kind, "device_name"), null) ?: "This phone", prefs.getString(slot(kind, "pin"), null))
+        return Pairing(url, id, prefs.getString(slot(kind, "device_name"), null) ?: "This phone", prefs.getString(slot(kind, "pin"), null), prefs.getString(slot(kind, "relay"), null))
     }
 
     /**
@@ -168,6 +182,7 @@ class Settings(private val context: Context) {
             putString(slot(kind, "device_id"), active.deviceId)
             putString(slot(kind, "device_name"), active.name)
             if (active.pin != null) putString(slot(kind, "pin"), active.pin) else remove(slot(kind, "pin"))
+            if (active.relay != null) putString(slot(kind, "relay"), active.relay) else remove(slot(kind, "relay"))
         }
         _saved.value = _saved.value + (kind to active)
         clearActive()
@@ -196,13 +211,16 @@ class Settings(private val context: Context) {
         val gone = _saved.value[kind]
         savedToken(kind).clear()
         savedOwnerKey(kind).clear()
-        prefs.edit { listOf("gateway_url", "device_id", "device_name", "pin").forEach { remove(slot(kind, it)) } }
+        prefs.edit { listOf("gateway_url", "device_id", "device_name", "pin", "relay").forEach { remove(slot(kind, it)) } }
         _saved.value = _saved.value - kind
         return gone
     }
 
     /** The device token of the kept [kind], for connecting it beside the one in use (ADR-053). */
     fun keptToken(kind: ConnectionKind): String? = if (_saved.value[kind] != null) savedToken(kind).load() else null
+
+    /** The owner key of the kept [kind], when this phone owns that relay too (usage, other relays; ADR-075). */
+    fun keptOwnerKey(kind: ConnectionKind): String? = if (_saved.value[kind] != null) savedOwnerKey(kind).load() else null
 
     /** The kept Wi-Fi gateway moved to a new address. */
     fun moveKept(kind: ConnectionKind, url: String) {
@@ -223,6 +241,7 @@ class Settings(private val context: Context) {
             putString("device_id", pairing.deviceId)
             putString("device_name", pairing.name)
             if (pairing.pin != null) putString("gateway_pin", pairing.pin) else remove("gateway_pin")
+            if (pairing.relay != null) putString("gateway_relay", pairing.relay) else remove("gateway_relay")
         }
         _pairing.value = pairing
     }
@@ -237,6 +256,7 @@ class Settings(private val context: Context) {
             remove("device_id")
             remove("device_name")
             remove("gateway_pin")
+            remove("gateway_relay")
         }
         _pairing.value = null
     }
@@ -324,12 +344,12 @@ class Settings(private val context: Context) {
      * (sealed) until a phone pairs with it, so scanning the relay's page after
      * the deploy finds it even if Android closed Latch meanwhile.
      */
-    fun deployOwnerKey(make: () -> String): String = deployVault.load() ?: make().also(deployVault::store)
+    fun deployOwnerKey(kind: ConnectionKind, make: () -> String): String = deployVault(kind).let { v -> v.load() ?: make().also(v::store) }
 
-    /** The kept deploy key, if a deploy is waiting for its scan. */
-    fun pendingDeployKey(): String? = deployVault.load()
+    /** The kept deploy key for [kind], if a deploy is waiting for its scan. */
+    fun pendingDeployKey(kind: ConnectionKind): String? = deployVault(kind).load()
 
-    fun clearDeployKey() = deployVault.clear()
+    fun clearDeployKey(kind: ConnectionKind) = deployVault(kind).clear()
 
     /** Marks the kept key as used by a computer, so the Home card offers to forget it. */
     fun mirrorWatched() {

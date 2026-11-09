@@ -134,6 +134,18 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
                         container = signal.surface2, content = signal.text, outline = signal.border2,
                     )
                 }
+                // ADR-075: with a second relay, the AI app gets its link too and keeps going if one runs out.
+                if (state.backupLinks.isNotEmpty()) {
+                    Text(
+                        if (state.backupLinks.size == 1) "Add this one to your AI app too, as a second server. If one relay runs out of free use, your AI carries on with the other."
+                        else "Add these to your AI app too, as more servers. If one relay runs out of free use, your AI carries on with the next.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = signal.text2,
+                    )
+                    state.backupLinks.forEach { (title, url) ->
+                        CopyRow(title, url, { actions.copy("AI link ($title)", url, false) })
+                    }
+                }
             }
             // The steps are for the first time; once an AI app is connected they are noise.
             if (state.clients.isEmpty()) Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -221,7 +233,7 @@ fun ConnectScreen(state: ConnectState, actions: ConnectActions, mirror: @Composa
         state.connection?.let { current ->
             if (state.created == null) {
                 SectionCaption("Connection")
-                ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved)
+                ConnectionCard(current, state.host, state.saved, actions.switchTo, actions.setUp, actions.forgetSaved, state.usage)
             }
         }
 
