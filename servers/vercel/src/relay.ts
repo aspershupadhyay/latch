@@ -15,6 +15,7 @@
 import { configFromEnv, Gateway, type GatewayConfig, type Platform, PRIVATE_HEADERS } from "./gateway.js";
 import { newToken, secretsEqual, sha256 } from "./secret.js";
 import type { Store } from "./store.js";
+import { countingStore, limitsFromEnv, Usage } from "./usage.js";
 
 /** The claim record: unsealed, since it holds the key the seal is derived from. */
 export const CLAIM_KEY = "latch:claim";
@@ -64,8 +65,16 @@ export class Relay {
   private readonly mode: ClaimMode | null;
   private readonly config: GatewayConfig;
 
-  constructor(private readonly store: Store, env: Record<string, string | undefined>, platform: Platform) {
-    this.config = { ...configFromEnv(env), platform };
+  /** ADR-075: this relay's use of its platform's free allowance. */
+  readonly usage: Usage;
+  private readonly store: Store;
+
+  constructor(raw: Store, env: Record<string, string | undefined>, platform: Platform) {
+    this.usage = new Usage(raw, platform, limitsFromEnv(platform, env.LATCH_USAGE_LIMITS));
+    // Upstash bills per command; a Durable Object's own SQLite does not.
+    this.store = platform === "vercel" ? countingStore(raw, (n) => this.usage.count("store_commands", n)) : raw;
+    const store = this.store;
+    this.config = { ...configFromEnv(env), platform, usage: this.usage };
     const hasToken = this.config.adminToken !== undefined && this.config.adminToken.length >= 32;
     this.mode = hasToken ? null : claimModeFromEnv(env);
     this.expectedHash = env.LATCH_OWNER_KEY_SHA256?.trim().toLowerCase();
@@ -97,6 +106,9 @@ export class Relay {
 
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
+    this.usage.count("requests");
+    const flush = this.usage.tick();
+    if (flush) await flush;
     const gateway = await this.current();
     if (path === "/v1/claim" && request.method === "POST") return this.claim(request, gateway);
     return gateway.fetch(request);

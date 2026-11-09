@@ -59,6 +59,7 @@ export class SealedStore implements Store {
   del(key: string) { return this.inner.del(key); }
   pexpire(key: string, px: number) { return this.inner.pexpire(key, px); }
   incr(key: string, px: number) { return this.inner.incr(key, px); }
+  incrby(key: string, by: number, px: number) { return this.inner.incrby(key, by, px); }
   lpush(key: string, value: string, px: number) { return this.inner.lpush(key, this.in(key, value), px); }
   async rpop(key: string) { return this.out(key, await this.inner.rpop(key)); }
   async lrange(key: string, start: number, stop: number) {

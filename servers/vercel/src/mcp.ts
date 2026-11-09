@@ -40,6 +40,8 @@ export interface McpContext {
   allowedApps?: readonly string[];
   /** Which AI app is calling, so each one gets changes against its own last screen (R5). */
   callerKey?: string;
+  /** ADR-075: this relay's free-allowance use and the owner's other relays. */
+  relay?: { report(): Promise<string>; nearLimit(): Promise<string | undefined> };
 }
 
 /** What an MCP client answered to `elicitation/create`, or undefined when it never did. */
@@ -127,12 +129,21 @@ export async function handle(ctx: McpContext, message: unknown): Promise<unknown
       const args = params?.arguments ?? {};
       if (typeof args !== "object" || args === null || Array.isArray(args)) return rpcError(id, -32602, "arguments must be an object");
       const result = await callTool(ctx, name, args as Record<string, unknown>);
-      return result === undefined ? rpcError(id, -32602, `unknown tool: ${truncate(name, 64)}`) : rpcResult(id, result);
+      if (result === undefined) return rpcError(id, -32602, `unknown tool: ${truncate(name, 64)}`);
+      return rpcResult(id, await withRelayNote(ctx, result));
     }
     case "resources/list": return rpcResult(id, { resources: [] });
     case "prompts/list": return rpcResult(id, { prompts: [] });
     default: return rpcError(id, -32601, "method not found");
   }
+}
+
+/** ADR-075: near a free allowance, every tool answer names the other relays the phone is connected to. */
+async function withRelayNote(ctx: McpContext, result: unknown): Promise<unknown> {
+  const note = ctx.relay ? await ctx.relay.nearLimit().catch(() => undefined) : undefined;
+  const content = (result as { content?: unknown }).content;
+  if (note === undefined || !Array.isArray(content)) return result;
+  return { ...(result as object), content: [...content, { type: "text", text: note }] };
 }
 
 function initialize(params: Record<string, unknown> | null) {
@@ -247,7 +258,7 @@ async function runToolLogged(ctx: McpContext, name: string, args: Record<string,
 
 async function runTool(ctx: McpContext, name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === "list_devices") return textResult(await renderDevices(ctx.devices));
-  if (name === "diagnose") return textResult(await diagnosis(ctx.devices, argStr(args, "device_id")));
+  if (name === "diagnose") return textResult(await diagnosis(ctx.devices, argStr(args, "device_id")) + (ctx.relay ? await ctx.relay.report() : ""));
   if (name === "upload_link") {
     if (!ctx.transfers || !ctx.links || !ctx.baseUrl) throw new ProtocolError("internal", "file links are not available here");
     // Phones on protocol 1.6 still save from the old, unencrypted links.
