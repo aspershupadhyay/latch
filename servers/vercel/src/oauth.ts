@@ -205,7 +205,7 @@ export class OAuth {
     }
     const resource = q.get("resource");
     if (resource !== null && !sameResource(resource, base)) return fail("invalid_target", "this server only issues tokens for its own /mcp endpoint");
-    if (this.host.adminToken === undefined) return page(503, "Gateway not set up", "Set LATCH_ADMIN_TOKEN in the Vercel project, then redeploy.");
+    if (this.host.adminToken === undefined) return page(503, "Gateway not set up", "Finish setting up this relay in the Latch app first.");
 
     // One waiting request per app (signing in again replaces it), and a full list
     // makes room by dropping its oldest: nobody can fill it to keep the owner's own

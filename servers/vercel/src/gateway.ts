@@ -16,7 +16,14 @@ import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha2
 import { SealedStore, storeKey } from "./sealed.js";
 import type { Store } from "./store.js";
 
+/** Where this TypeScript gateway runs (ADR-075); `/v1/info` reports it as `implementation`. */
+export type Platform = "vercel" | "cloudflare";
+
 export interface GatewayConfig {
+  /** Defaults to Vercel. */
+  platform?: Platform;
+  /** ADR-075: set while the relay waits for its owner's phone to claim it (relay.ts). */
+  claim?: "hash" | "first";
   /** Owner secret (LATCH_ADMIN_TOKEN). Undefined or too short puts the gateway in setup mode. */
   adminToken?: string;
   /** Optional static MCP token (LATCH_MCP_TOKEN). */
@@ -180,6 +187,14 @@ export class Gateway {
     });
   }
 
+  /** What is left to do before this relay works, in the owner's words. */
+  private get setupHint() {
+    if (this.config.claim) return "this relay waits for its owner: scan its page with the Latch app that made it";
+    return this.config.platform === "cloudflare"
+      ? "set LATCH_ADMIN_TOKEN (at least 32 characters) in the Worker's Settings → Variables and Secrets"
+      : "set LATCH_ADMIN_TOKEN (at least 32 characters) in the Vercel project settings, then redeploy";
+  }
+
   private get setupMode() {
     return this.config.adminToken === undefined || this.config.adminToken.length < 32;
   }
@@ -234,7 +249,8 @@ export class Gateway {
     if (path === "/healthz" && m === "GET") return this.health();
     // ADR-069: "Connect your phone", with this relay's address as a QR code.
     if (path === "/" && m === "GET") {
-      return new Response(connectPage(this.baseUrl(request), this.setupMode), {
+      const state = this.config.claim ? "claim" : this.setupMode ? "setup" : "ready";
+      return new Response(connectPage(this.baseUrl(request), state, this.config.platform ?? "vercel"), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": PAGE_CSP },
       });
     }
@@ -261,7 +277,7 @@ export class Gateway {
     if (path === "/v1/device/messages" && m === "POST") return this.messages(request);
     if (path === "/v1/device") return error(426, "this gateway offers the HTTP poll transport only; see /v1/info");
     if (path.startsWith("/v1/admin/")) {
-      if (this.setupMode) return error(503, "set LATCH_ADMIN_TOKEN (at least 32 characters) in the Vercel project settings, then redeploy");
+      if (this.setupMode) return error(503, this.setupHint);
       if (!(await this.isAdmin(request))) return unauthorized();
       return this.admin(request, path.slice("/v1/admin/".length), m);
     }
@@ -343,7 +359,7 @@ export class Gateway {
   private info() {
     return json(200, {
       product: "latch-gateway",
-      implementation: "vercel",
+      implementation: this.config.platform ?? "vercel",
       version: "0.1.0",
       protocol: PROTOCOL_VERSION,
       ...BUILD,
@@ -351,6 +367,8 @@ export class Gateway {
       mcp_path: "/mcp",
       mcp_auth: ["oauth", "bearer", "secret_link"],
       setup_required: this.setupMode,
+      // ADR-075: the phone that made this relay claims it with its key (POST /v1/claim).
+      ...(this.config.claim ? { claim: this.config.claim } : {}),
     });
   }
 
