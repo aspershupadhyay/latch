@@ -37,7 +37,7 @@ Set them in **Workers → latch-relay → Settings → Variables and Secrets** (
 | `LATCH_PUBLIC_URL` | — | A custom domain to show in links. |
 | `LATCH_ALLOWED_ORIGINS` | — | Browser origins allowed to call `/mcp`. |
 | `LATCH_CLIENT_CALLS_PER_MINUTE` | 120 | Tool calls each AI app may make per minute (`0` for no limit). |
-| `LATCH_USAGE_LIMITS` | `requests=100000` | The daily allowance the relay compares its count with. |
+| `LATCH_USAGE_LIMITS` | `requests=100000,store_rows=100000` | The daily allowances the relay compares its counts with (requests, and SQLite rows written). |
 | `LATCH_POLL_INTERVAL_MS`, `LATCH_HOT_POLL_INTERVAL_MS`, `LATCH_RESULT_INTERVAL_MS`, `LATCH_SETTLE_MS` | as on Vercel | Timing, see [vercel.md](vercel.md#settings). |
 
 ## Limits and costs (check Cloudflare's current pricing)

@@ -48,8 +48,10 @@ test("requests and Redis commands are counted for this month", async () => {
 test("Cloudflare counts requests per day and no Redis", async () => {
   const { call } = relay({}, "cloudflare");
   await call("GET", "/healthz");
+  await call("POST", "/v1/admin/pairings", { body: { name: "Pixel" } });
   const lines = (await call("GET", "/v1/admin/usage")).body.lines;
-  assert.deepEqual(lines.map((l: { id: string; period: string }) => [l.id, l.period]), [["requests", "day"]]);
+  assert.deepEqual(lines.map((l: { id: string; period: string }) => [l.id, l.period]), [["requests", "day"], ["store_rows", "day"]]);
+  assert.ok(lines[1].used > 0, "SQLite rows written are counted on Cloudflare");
 });
 
 test("the owner registers the other relays; diagnose names them", async () => {
@@ -93,6 +95,15 @@ test("the counting store counts pipelined commands one by one", async () => {
   await store.lpush("l", "x", 1000);
   await store.batch([{ op: "get", key: "a" }, { op: "set", key: "b", value: "1" }]);
   assert.equal(n, 1 + 2 + 2);
+});
+
+test("on Cloudflare only writes count, twice each", async () => {
+  let n = 0;
+  const store = countingStore(new MemoryStore(), (c) => { n += c; }, { writesOnly: true });
+  await store.get("a");
+  await store.set("a", "1");
+  await store.batch([{ op: "get", key: "a" }, { op: "lpush", key: "l", value: "x", px: 1000 }]);
+  assert.equal(n, 4);
 });
 
 test("relay lists are checked", () => {

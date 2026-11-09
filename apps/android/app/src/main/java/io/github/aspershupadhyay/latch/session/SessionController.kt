@@ -339,7 +339,7 @@ class SessionController(
             settings.pairing.value?.let { p -> add(Triple(p.kind, p, settings.ownerKey())) }
             settings.saved.value.forEach { (kind, p) -> add(Triple(kind, p, settings.keptOwnerKey(kind))) }
         }.filter { it.first.hosted }
-        if (all.size < 2) return
+        // With one relay left, its list is emptied, so it never names a relay the owner forgot.
         scope.launch {
             for ((kind, pairing, key) in all) {
                 key ?: continue
@@ -626,6 +626,7 @@ class SessionController(
     fun forgetSaved(kind: ConnectionKind) {
         stopExtra(kind)
         settings.dropSaved(kind)?.let { KeystoreSigner.delete(it.deviceId) }
+        registerRelays()
     }
 
     @Volatile private var rediscovering = false

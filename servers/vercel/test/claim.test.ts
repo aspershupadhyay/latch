@@ -41,6 +41,7 @@ test("Vercel: the pre-filled hash lets only that key claim the relay, once", asy
   assert.equal((await call("POST", "/v1/claim", { body: { owner_key: OTHER } })).status, 403);
   assert.equal((await call("POST", "/v1/claim", { body: { owner_key: "short" } })).status, 400);
   assert.equal((await call("POST", "/v1/claim", { body: "not json" })).status, 400);
+  assert.equal((await call("POST", "/v1/claim", { body: { owner_key: "x".repeat(5000) } })).status, 413, "a big body is refused");
 
   const claimed = await call("POST", "/v1/claim", { body: { owner_key: KEY } });
   assert.equal(claimed.status, 200);

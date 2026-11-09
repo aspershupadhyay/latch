@@ -9,7 +9,7 @@ import type { Platform } from "./gateway.js";
 import type { Store } from "./store.js";
 
 export interface Allowance {
-  id: "requests" | "store_commands";
+  id: "requests" | "store_commands" | "store_rows";
   label: string;
   limit: number;
   period: "day" | "month";
@@ -27,6 +27,8 @@ export const ALLOWANCES: Record<Platform, Allowance[]> = {
   cloudflare: [
     // Each request reaches the Worker and then the Durable Object: the same count for both.
     { id: "requests", label: "Cloudflare Worker and Durable Object requests", limit: 100_000, period: "day" },
+    // Counted as each write plus its expiry index entry: an estimate on the safe side.
+    { id: "store_rows", label: "Durable Object SQLite rows written", limit: 100_000, period: "day" },
   ],
 };
 
@@ -106,8 +108,8 @@ export class Usage {
           const allowance = this.allowances.find((a) => a.id === id);
           if (!allowance) continue;
           await this.store.incrby(`latch:usage:${id}:${periodOf(allowance.period, now).key}`, n, KEEP_MS);
-          // The flush is billed too (INCRBY and PEXPIRE).
-          this.count("store_commands", 2);
+          // The flush is billed too (INCRBY and PEXPIRE, or one row and its index).
+          this.count(this.platform === "vercel" ? "store_commands" : "store_rows", 2);
         }
       } catch {
         // A count that did not reach the store is lost, never a failed request.
@@ -175,16 +177,24 @@ export class Usage {
   }
 }
 
-/** Wraps a store so every command it sends is counted (Upstash bills per command). */
-export function countingStore(inner: Store, onCommands: (n: number) => void): Store {
+const WRITES = new Set(["set", "getdel", "del", "delIfEquals", "pexpire", "incr", "incrby", "lpush", "rpop", "ltrim", "hset", "hdel"]);
+
+/**
+ * Wraps a store so every command it sends is counted: Upstash bills per
+ * command; with `writesOnly`, a Durable Object's SQLite per row written
+ * (each write counted twice, for the row and its expiry index).
+ */
+export function countingStore(inner: Store, onCount: (n: number) => void, opts: { writesOnly?: boolean } = {}): Store {
   return new Proxy(inner, {
     get(target, prop, receiver) {
       const f = Reflect.get(target, prop, receiver);
       if (typeof f !== "function") return f;
       return (...args: unknown[]) => {
-        // A pipeline is one request but each command in it is billed; lpush and incr add a pexpire.
         const ops = prop === "batch" ? (args[0] as { op: string }[]) : [{ op: String(prop) }];
-        onCommands(ops.reduce((n, o) => n + (o.op === "lpush" || o.op === "incr" || o.op === "incrby" ? 2 : 1), 0));
+        onCount(opts.writesOnly
+          ? 2 * ops.filter((o) => WRITES.has(o.op)).length
+          // A pipeline is one request but each command in it is billed; lpush and incr add a pexpire.
+          : ops.reduce((n, o) => n + (o.op === "lpush" || o.op === "incr" || o.op === "incrby" ? 2 : 1), 0));
         return f.apply(target, args);
       };
     },

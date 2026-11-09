@@ -27,6 +27,26 @@ const OWNER_KEY = "latch:ownerkey";
 /** How long a first-claim relay waits for its owner's phone after it first answers. */
 export const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_CLAIM_FAILURES_PER_MINUTE = 20;
+const MAX_CLAIM_BODY = 4096;
+
+/** The body as text, or undefined once it passes [max] bytes (never buffered further). */
+async function readCapped(request: Request, max: number): Promise<string | undefined> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 interface ClaimRecord {
   secret: string;
@@ -71,8 +91,10 @@ export class Relay {
 
   constructor(raw: Store, env: Record<string, string | undefined>, platform: Platform) {
     this.usage = new Usage(raw, platform, limitsFromEnv(platform, env.LATCH_USAGE_LIMITS));
-    // Upstash bills per command; a Durable Object's own SQLite does not.
-    this.store = platform === "vercel" ? countingStore(raw, (n) => this.usage.count("store_commands", n)) : raw;
+    // Upstash bills per command; a Durable Object's SQLite per row written (the row and its expiry index).
+    this.store = platform === "vercel"
+      ? countingStore(raw, (n) => this.usage.count("store_commands", n))
+      : countingStore(raw, (n) => this.usage.count("store_rows", n), { writesOnly: true });
     const store = this.store;
     this.config = { ...configFromEnv(env), platform, usage: this.usage };
     const hasToken = this.config.adminToken !== undefined && this.config.adminToken.length >= 32;
@@ -122,8 +144,10 @@ export class Relay {
     }
     let key: unknown;
     try {
-      const text = await request.text();
-      if (text.length > 4096) return json(400, { error: "body too large" });
+      // Refuse a big body before reading it, and stop reading past the cap.
+      if (Number(request.headers.get("content-length") ?? "0") > MAX_CLAIM_BODY) return json(413, { error: "body too large" });
+      const text = await readCapped(request, MAX_CLAIM_BODY);
+      if (text === undefined) return json(413, { error: "body too large" });
       key = (JSON.parse(text) as { owner_key?: unknown }).owner_key;
     } catch {
       return json(400, { error: "malformed JSON" });
