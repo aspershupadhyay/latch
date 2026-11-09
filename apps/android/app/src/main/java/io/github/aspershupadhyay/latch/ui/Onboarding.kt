@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.aspershupadhyay.latch.data.ConnectionKind
 import io.github.aspershupadhyay.latch.ui.theme.LocalSignal
 import io.github.aspershupadhyay.latch.ui.theme.GeistMono
 
@@ -199,29 +200,34 @@ private fun SetupStep(number: Int, done: Boolean, title: String, text: String, t
 @Composable
 fun CreateGatewayScreen(state: CreateGatewayState, actions: CreateGatewayActions) {
     val signal = LocalSignal.current
+    val cloudflare = state.platform == ConnectionKind.CLOUDFLARE
+    val host = if (cloudflare) "Cloudflare" else "Vercel"
     OnboardingPage {
         BackBar(actions.back)
-        ScreenTitle("Make your relay", "Your relay is a small free website that connects your AI to this phone. It belongs only to you.")
+        ScreenTitle(
+            "Make your $host relay",
+            "Your relay is a small free website that connects your AI to this phone. It belongs only to you. Nothing to copy or type.",
+        )
 
         SetupStep(
-            1, state.keyCopied, "Copy your secret key",
-            "Latch made this key for you. You'll paste it on the next website. Keep it private, like a password.",
-            HelpTopic.SECRET_KEY,
-        ) {
-            CopyRow("Secret key", state.ownerKey, actions.copyKey, masked = true)
-        }
-
-        SetupStep(
-            2, state.deployOpened, "Create the relay on Vercel",
-            "Vercel is a free website host. Sign in (Google or GitHub is fine), paste your key where it asks for LATCH_ADMIN_TOKEN, keep everything else as it is, and tap Deploy.",
+            1, state.deployOpened, "Deploy it on $host",
+            if (cloudflare) {
+                "Sign in to Cloudflare (free), connect GitHub when it asks, keep everything as it is, and tap Create and deploy."
+            } else {
+                "Sign in to Vercel (free; Google or GitHub is fine), keep everything as it is (Latch filled it in), and tap Deploy."
+            },
             HelpTopic.RELAY,
         ) {
-            PrimaryButton("Open Vercel", actions.openDeploy, Modifier.fillMaxWidth())
+            PrimaryButton("Open $host", actions.openDeploy, Modifier.fillMaxWidth())
         }
 
         SetupStep(
-            3, false, "Scan your relay's page",
-            "When Vercel shows “Congratulations”, open your relay's address on the computer (Visit). It shows a QR code: scan it and this phone connects by itself.",
+            2, false, "Scan your relay's page",
+            if (cloudflare) {
+                "When Cloudflare says it is deployed, open the address it shows (it ends in workers.dev) on the computer. Scan the QR code there: this phone makes the relay its own and connects."
+            } else {
+                "When Vercel shows “Congratulations”, open your relay's address on the computer (Visit). Scan the QR code there: this phone connects by itself."
+            },
         ) {
             PrimaryButton(if (state.busy) "Connecting…" else "Scan QR code", actions.scan, Modifier.fillMaxWidth(), enabled = !state.busy)
             state.error?.let { Text(it, color = signal.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
@@ -233,11 +239,11 @@ fun CreateGatewayScreen(state: CreateGatewayState, actions: CreateGatewayActions
             } else {
                 LabeledField(
                     label = "Relay address",
-                    hint = "It ends in .vercel.app, for example latch-gateway-ada.vercel.app",
+                    hint = if (cloudflare) "It ends in workers.dev, for example latch-relay.ada.workers.dev" else "It ends in .vercel.app, for example latch-gateway-ada.vercel.app",
                     value = state.address,
                     onValueChange = actions.setAddress,
                     topic = HelpTopic.RELAY,
-                    placeholder = "something.vercel.app",
+                    placeholder = if (cloudflare) "latch-relay.something.workers.dev" else "something.vercel.app",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
                 SecondaryButton(if (state.busy) "Connecting…" else "Connect", actions.connect, Modifier.fillMaxWidth(), enabled = !state.busy && state.address.isNotBlank())

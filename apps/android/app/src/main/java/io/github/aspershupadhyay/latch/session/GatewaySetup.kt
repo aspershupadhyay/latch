@@ -32,7 +32,30 @@ data class GatewayInfo(
     val protocol: String,
     val transports: List<String> = emptyList(),
     @SerialName("setup_required") val setupRequired: Boolean = false,
+    /** ADR-075: "hash" or "first" while the relay waits for the phone that made it to claim it. */
+    val claim: String? = null,
 )
+
+/** One line of a relay's free-allowance use (ADR-075). */
+@Serializable
+data class UsageLine(
+    val id: String,
+    val label: String,
+    val used: Long,
+    val limit: Long,
+    val period: String,
+    @SerialName("resets_at_ms") val resetsAtMs: Long = 0,
+) {
+    /** The used share, 0 to 1. */
+    val share: Float get() = if (limit <= 0) 0f else (used.toFloat() / limit).coerceIn(0f, 1f)
+}
+
+/** Another relay of this phone, as each relay is told about the others (ADR-075). */
+@Serializable
+data class OtherRelay(val name: String, val platform: String, @SerialName("mcp_url") val mcpUrl: String)
+
+@Serializable
+private data class UsageAnswer(val platform: String = "", val lines: List<UsageLine> = emptyList())
 
 @Serializable
 data class McpClient(
@@ -85,7 +108,15 @@ private data class PairResponse(
 )
 
 /** What a successful pairing produced; the caller stores it. [ownerKey] comes with a terminal setup code. */
-data class Paired(val gatewayUrl: String, val deviceId: String, val name: String, val deviceToken: String, val ownerKey: String? = null)
+/** [implementation]: where the gateway runs, from its `/v1/info` (`vercel`, `cloudflare`, `rust`). */
+data class Paired(
+    val gatewayUrl: String,
+    val deviceId: String,
+    val name: String,
+    val deviceToken: String,
+    val ownerKey: String? = null,
+    val implementation: String? = null,
+)
 
 /**
  * Talks to a gateway outside a session: discovery, pairing, and the owner
@@ -100,20 +131,36 @@ class GatewaySetup(private val http: OkHttpClient) {
         /**
          * One-click deploy of the Vercel gateway into the owner's own Vercel
          * account, with an Upstash Redis store from the Vercel Marketplace.
-         * Vercel asks for LATCH_ADMIN_TOKEN; the owner pastes the key the app made.
+         * ADR-075: the form comes filled in with the SHA-256 of [ownerKey], a
+         * fingerprint and not the key, so the owner types nothing; the phone
+         * claims the relay with the key itself after the deploy.
          */
-        fun vercelDeployUrl(): String {
+        fun vercelDeployUrl(ownerKey: String): String {
             fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
             val stores = """[{"type":"integration","integrationSlug":"upstash","productSlug":"upstash-kv","protocol":"storage"}]"""
+            val defaults = """{"LATCH_OWNER_KEY_SHA256":"${sha256Hex(ownerKey)}"}"""
             return "https://vercel.com/new/clone" +
                 "?repository-url=${enc(REPOSITORY)}" +
                 "&root-directory=${enc("servers/vercel")}" +
                 "&project-name=latch-gateway&repository-name=latch-gateway" +
-                "&env=LATCH_ADMIN_TOKEN" +
-                "&envDescription=${enc("Paste the owner key shown in the Latch app. It stays in your Vercel project and on your phone.")}" +
+                "&env=LATCH_OWNER_KEY_SHA256" +
+                "&envDefaults=${enc(defaults)}" +
+                "&envDescription=${enc("Filled in by the Latch app: a fingerprint of your phone's key, not the key itself. Leave it as it is and press Deploy.")}" +
                 "&envLink=${enc("$REPOSITORY/blob/main/docs/operations/vercel.md")}" +
                 "&stores=${enc(stores)}"
         }
+
+        /**
+         * ADR-075: one-click deploy of the same gateway to Cloudflare Workers.
+         * Cloudflare's button cannot be filled in, so the relay waits for the
+         * first phone to claim it (LATCH_CLAIM=first in wrangler.jsonc).
+         */
+        fun cloudflareDeployUrl(): String =
+            "https://deploy.workers.cloudflare.com/?url=" + URLEncoder.encode("$REPOSITORY/tree/main/servers/vercel", "UTF-8")
+
+        /** Lowercase hex SHA-256 of [text], as the relay compares it. */
+        fun sha256Hex(text: String): String =
+            java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
         /** A fresh 256-bit owner key for LATCH_ADMIN_TOKEN. */
         fun newOwnerKey(): String {
@@ -158,7 +205,7 @@ class GatewaySetup(private val http: OkHttpClient) {
 
     /** Exchanges a pairing code for this phone's credential. */
     suspend fun pairWithCode(gatewayUrl: String, code: String, model: String): Paired {
-        probe(gatewayUrl)
+        val implementation = probe(gatewayUrl).implementation
         val clean = code.trim().uppercase()
         if (clean.count { it.isLetterOrDigit() } != 8) throw SetupException("Pairing codes have 8 letters and digits.")
         val body = """{"code":${Protocol.json.encodeToString(String.serializer(), clean)},"platform":"android","model":${Protocol.json.encodeToString(String.serializer(), model.take(64))}}"""
@@ -170,7 +217,7 @@ class GatewaySetup(private val http: OkHttpClient) {
                     } catch (e: Exception) {
                         throw SetupException("The gateway sent an unexpected answer.")
                     }
-                    Paired(gatewayUrl, r.deviceId, r.name, r.token, r.ownerKey)
+                    Paired(gatewayUrl, r.deviceId, r.name, r.token, r.ownerKey, implementation)
                 }
                 403 -> throw SetupException("That code is wrong, used, or expired. Get a new one (on the computer: latch pair).")
                 429 -> throw SetupException("Too many wrong codes. Wait a minute and try again.")
@@ -187,10 +234,31 @@ class GatewaySetup(private val http: OkHttpClient) {
     suspend fun pairAsOwner(gatewayUrl: String, ownerKey: String, phoneName: String, model: String): Paired {
         val info = probe(gatewayUrl)
         if (info.setupRequired) {
-            throw SetupException("The gateway is running but has no owner key yet. Add LATCH_ADMIN_TOKEN in your Vercel project settings, redeploy, then try again.")
+            // ADR-075: a relay deployed without typing waits for the phone that made its key.
+            if (info.claim != null) {
+                claim(gatewayUrl, ownerKey)
+            } else {
+                val where = if (info.implementation == "cloudflare") "the Worker's Settings → Variables and Secrets" else "your Vercel project settings, then redeploy"
+                throw SetupException("The relay is running but has no owner key yet. Add LATCH_ADMIN_TOKEN in $where, then try again.")
+            }
         }
         val code = OwnerClient(http, gatewayUrl, ownerKey).createPairingCode(phoneName)
         return pairWithCode(gatewayUrl, code, model)
+    }
+
+    /** ADR-075: makes a freshly deployed relay this phone's, with the key it made for the deploy. */
+    suspend fun claim(gatewayUrl: String, ownerKey: String) {
+        val body = """{"owner_key":${Protocol.json.encodeToString(String.serializer(), ownerKey)}}"""
+        call(post("$gatewayUrl/v1/claim", body)) { status, _ ->
+            when (status) {
+                200 -> Unit
+                // Another instance of the relay may have taken this phone's claim a moment ago.
+                409 -> throw SetupException("This relay already has an owner. If you did not set it up from this phone, delete it and deploy a new one from Connect.")
+                403 -> throw SetupException("This relay was made for another phone, or it waited more than a day. Deploy a new one from Connect on this phone.")
+                429 -> throw SetupException("Too many tries. Wait a minute and scan again.")
+                else -> throw SetupException("The relay answered with HTTP $status.")
+            }
+        }
     }
 }
 
@@ -216,8 +284,8 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
             ok -> Unit
             401 -> throw SetupException(
                 "The gateway did not accept the owner key. Computer on Wi-Fi: scan the QR code instead (run latch pair " +
-                    "on the computer for a new one). Hosted relay: the key must match LATCH_ADMIN_TOKEN in Vercel exactly, or the " +
-                    "newest key this app rotated to; lost it? Set a new LATCH_ADMIN_TOKEN and redeploy.",
+                    "on the computer for a new one). Hosted relay: the key must be the one this phone made for it, LATCH_ADMIN_TOKEN in its " +
+                    "settings, or the newest key this app rotated to; lost it? Set a new LATCH_ADMIN_TOKEN and redeploy.",
             )
             503 -> throw SetupException("The gateway has no owner key yet. Add LATCH_ADMIN_TOKEN in your gateway settings and redeploy.")
             429 -> throw SetupException("Too many at once. Revoke unused keys or wait a minute.")
@@ -299,6 +367,23 @@ class OwnerClient(private val http: OkHttpClient, private val gatewayUrl: String
         val o = Protocol.json.parseToJsonElement(body).jsonObject
         if (o["slow"]?.jsonPrimitive?.content != "true") return null
         return o["store_ms"]?.jsonPrimitive?.content?.toIntOrNull()
+    }
+
+    /** ADR-075: this relay's free-allowance use; empty on gateways that do not count (the Wi-Fi gateway). */
+    suspend fun usage(): List<UsageLine> {
+        val (status, body) = send("GET", "usage")
+        if (status == 404) return emptyList()
+        check(status)
+        return runCatching { Protocol.json.decodeFromString(UsageAnswer.serializer(), body).lines }.getOrDefault(emptyList())
+    }
+
+    /** ADR-075: tells this relay about the phone's other relays; false when it cannot keep them (older or Wi-Fi gateway). */
+    suspend fun setRelays(relays: List<OtherRelay>): Boolean {
+        val list = Protocol.json.encodeToString(ListSerializer(OtherRelay.serializer()), relays)
+        val (status, _) = send("PUT", "relays", """{"relays":$list}""")
+        if (status == 404) return false
+        check(status, ok = 204)
+        return true
     }
 
     /** AI apps waiting for the owner's approval. Empty on gateways without sign-in support. */

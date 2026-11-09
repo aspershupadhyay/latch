@@ -37,18 +37,36 @@ function escape(text: string): string {
 
 const MARK = `<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#C2532D"/><path d="M6.9 18.1V10.6a4.6 4.6 0 0 1 9.2 0v1.7" fill="none" stroke="#FFF8EE" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.1" cy="16.6" r="2.3" fill="#FFF8EE"/></svg>`;
 
-/** The page: the QR code once the relay has its owner key, else the one step left. */
-export function connectPage(baseUrl: string, setupRequired: boolean): string {
+/** What the relay's page shows: the code to scan, the code that claims the relay (ADR-075), or the step left. */
+export type PageState = "ready" | "claim" | "setup";
+
+/** The page: the QR code once the relay has its owner key or waits for its phone, else the one step left. */
+export function connectPage(baseUrl: string, state: PageState, platform: "vercel" | "cloudflare" = "vercel"): string {
   const shown = escape(baseUrl.replace(/^https?:\/\//, "").replace(/\/+$/, ""));
-  const body = setupRequired
+  const code = `<figure class="qr">${qrSvg(connectLink(baseUrl))}<figcaption>${shown}</figcaption></figure>`;
+  const where = platform === "cloudflare"
+    ? "In Cloudflare, open this Worker → Settings → Variables and Secrets, add the key the Latch app made as a secret named <code>LATCH_ADMIN_TOKEN</code>, and deploy."
+    : "In Vercel, open this project → Settings → Environment Variables, add the key the Latch app made as <code>LATCH_ADMIN_TOKEN</code>, and redeploy.";
+  const body = state === "setup"
     ? `<h1 id="title">One step left.<br><span>Add the owner key.</span></h1>
-      <p class="lead">In Vercel, open this project → Settings → Environment Variables, add the key the Latch app made as <code>LATCH_ADMIN_TOKEN</code>, and redeploy. Then open this page again: it shows the code to scan.</p>`
+      <p class="lead">${where} Then open this page again: it shows the code to scan.</p>`
+    : state === "claim"
+    ? `<h1 id="title">Your relay is up.<br><span>Scan this to make it yours.</span></h1>
+      <div class="connect">
+        ${code}
+        <ol class="steps">
+          <li>Open <strong>Latch</strong> on the phone that started this deploy.</li>
+          <li>Tap <strong>Scan QR code</strong>.</li>
+          <li>Point it here. The phone makes this relay its own and connects. Nothing to type.</li>
+        </ol>
+      </div>
+      <p class="lead small">The first Latch phone to scan this becomes the relay's owner, and no other phone can after it. If your phone says the relay already has an owner, delete this relay and deploy it again.</p>`
     : `<h1 id="title">Connect your phone.<br><span>Scan this with Latch.</span></h1>
       <div class="connect">
-        <figure class="qr">${qrSvg(connectLink(baseUrl))}<figcaption>${shown}</figcaption></figure>
+        ${code}
         <ol class="steps">
           <li>Open <strong>Latch</strong> on the phone that made this relay.</li>
-          <li>Tap <strong>Scan QR code</strong> (first screen, or step 3 of Make your relay).</li>
+          <li>Tap <strong>Scan QR code</strong> (first screen, or Connect → Add a relay).</li>
           <li>Point it here. The phone connects as this relay's owner by itself.</li>
         </ol>
       </div>
@@ -76,7 +94,7 @@ export function connectPage(baseUrl: string, setupRequired: boolean): string {
       <span class="dots"><i></i><i></i><i></i></span>
       ${MARK}
       <span class="term-name">latch-relay</span>
-      <span class="live"><b></b>${setupRequired ? "setup" : "ready"}</span>
+      <span class="live"><b></b>${state === "ready" ? "ready" : state === "claim" ? "waiting" : "setup"}</span>
     </div>
     <div class="term-body">
       <p class="prompt" aria-hidden="true"><span>$</span> latch connect</p>

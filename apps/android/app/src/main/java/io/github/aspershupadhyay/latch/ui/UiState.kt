@@ -116,6 +116,10 @@ data class ConnectState(
     val host: String = "",
     val saved: Map<ConnectionKind, String> = emptyMap(),
     val bothConnected: Boolean = true,
+    /** ADR-075: each hosted relay's free-allowance use, when it says. */
+    val usage: Map<ConnectionKind, RelayUse> = emptyMap(),
+    /** ADR-075: the other hosted relays' AI links (name, URL), to add as a second server. */
+    val backupLinks: List<Pair<String, String>> = emptyList(),
 )
 
 /** An app on this phone, by package name and the label the owner sees. */
@@ -141,8 +145,8 @@ class ConnectActions(
 )
 
 data class CreateGatewayState(
-    val ownerKey: String,
-    val keyCopied: Boolean,
+    /** ADR-075: where the relay is made, Vercel ([ConnectionKind.HOSTED]) or Cloudflare. */
+    val platform: ConnectionKind,
     val deployOpened: Boolean,
     val address: String,
     val busy: Boolean,
@@ -150,7 +154,6 @@ data class CreateGatewayState(
 )
 
 class CreateGatewayActions(
-    val copyKey: () -> Unit = {},
     val openDeploy: () -> Unit = {},
     val setAddress: (String) -> Unit = {},
     val connect: () -> Unit = {},

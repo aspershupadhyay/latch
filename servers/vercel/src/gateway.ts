@@ -15,8 +15,16 @@ import { PAGE_CSP, connectPage } from "./page.js";
 import { bearer, newId, newToken, normalizeCode, pairingCode, secretsEqual, sha256 } from "./secret.js";
 import { SealedStore, storeKey } from "./sealed.js";
 import type { Store } from "./store.js";
+import { relaysOk, type Usage } from "./usage.js";
+
+/** Where this TypeScript gateway runs (ADR-075); `/v1/info` reports it as `implementation`. */
+export type Platform = "vercel" | "cloudflare";
 
 export interface GatewayConfig {
+  /** Defaults to Vercel. */
+  platform?: Platform;
+  /** ADR-075: set while the relay waits for its owner's phone to claim it (relay.ts). */
+  claim?: "hash" | "first";
   /** Owner secret (LATCH_ADMIN_TOKEN). Undefined or too short puts the gateway in setup mode. */
   adminToken?: string;
   /** Optional static MCP token (LATCH_MCP_TOKEN). */
@@ -30,6 +38,8 @@ export interface GatewayConfig {
   blob?: BlobLinks;
   /** Roadmap R18: tool calls each AI app may make per minute (LATCH_CLIENT_CALLS_PER_MINUTE; 0 = no limit). */
   callsPerMinute?: number;
+  /** ADR-075: free-allowance use and the owner's other relays (set by relay.ts). */
+  usage?: Usage;
 }
 
 /** Tool calls an AI app may make per minute by default, as on the Rust gateway. */
@@ -180,6 +190,14 @@ export class Gateway {
     });
   }
 
+  /** What is left to do before this relay works, in the owner's words. */
+  private get setupHint() {
+    if (this.config.claim) return "this relay waits for its owner: scan its page with the Latch app that made it";
+    return this.config.platform === "cloudflare"
+      ? "set LATCH_ADMIN_TOKEN (at least 32 characters) in the Worker's Settings → Variables and Secrets"
+      : "set LATCH_ADMIN_TOKEN (at least 32 characters) in the Vercel project settings, then redeploy";
+  }
+
   private get setupMode() {
     return this.config.adminToken === undefined || this.config.adminToken.length < 32;
   }
@@ -234,7 +252,8 @@ export class Gateway {
     if (path === "/healthz" && m === "GET") return this.health();
     // ADR-069: "Connect your phone", with this relay's address as a QR code.
     if (path === "/" && m === "GET") {
-      return new Response(connectPage(this.baseUrl(request), this.setupMode), {
+      const state = this.config.claim ? "claim" : this.setupMode ? "setup" : "ready";
+      return new Response(connectPage(this.baseUrl(request), state, this.config.platform ?? "vercel"), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": PAGE_CSP },
       });
     }
@@ -261,7 +280,7 @@ export class Gateway {
     if (path === "/v1/device/messages" && m === "POST") return this.messages(request);
     if (path === "/v1/device") return error(426, "this gateway offers the HTTP poll transport only; see /v1/info");
     if (path.startsWith("/v1/admin/")) {
-      if (this.setupMode) return error(503, "set LATCH_ADMIN_TOKEN (at least 32 characters) in the Vercel project settings, then redeploy");
+      if (this.setupMode) return error(503, this.setupHint);
       if (!(await this.isAdmin(request))) return unauthorized();
       return this.admin(request, path.slice("/v1/admin/".length), m);
     }
@@ -343,7 +362,7 @@ export class Gateway {
   private info() {
     return json(200, {
       product: "latch-gateway",
-      implementation: "vercel",
+      implementation: this.config.platform ?? "vercel",
       version: "0.1.0",
       protocol: PROTOCOL_VERSION,
       ...BUILD,
@@ -351,6 +370,8 @@ export class Gateway {
       mcp_path: "/mcp",
       mcp_auth: ["oauth", "bearer", "secret_link"],
       setup_required: this.setupMode,
+      // ADR-075: the phone that made this relay claims it with its key (POST /v1/claim).
+      ...(this.config.claim ? { claim: this.config.claim } : {}),
     });
   }
 
@@ -448,7 +469,7 @@ export class Gateway {
     const reply = await handleMcp(
       {
         devices: this.devices, settleMs: this.config.settleMs, deferWhenAsked: true, transfers: this.transfers, links: this.links,
-        baseUrl: this.baseUrl(request), skills: this.store, allowedApps: caller.apps, callerKey: caller.key,
+        baseUrl: this.baseUrl(request), skills: this.store, allowedApps: caller.apps, callerKey: caller.key, relay: this.config.usage,
       },
       message,
     );
@@ -486,7 +507,7 @@ export class Gateway {
   private streamToolCall(client: string, message: unknown, baseUrl: string, allowedApps: string[] | undefined, callerKey: string): Response {
     const encoder = new TextEncoder();
     const store = this.store;
-    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl, skills: this.store, allowedApps, callerKey };
+    const ctx = { devices: this.devices, settleMs: this.config.settleMs, transfers: this.transfers, links: this.links, baseUrl, skills: this.store, allowedApps, callerKey, relay: this.config.usage };
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         let open = true;
@@ -688,6 +709,21 @@ export class Gateway {
       return json(200, { code: `${code.slice(0, 4)}-${code.slice(4)}`, expires_at_ms: expires, gateway_url: this.baseUrl(request) });
     }
     if (path === "audit" && method === "GET") return json(200, { events: await this.devices.audit(200) });
+    // ADR-075: free-allowance use, for the app's Connect list.
+    if (path === "usage" && method === "GET") {
+      const usage = this.config.usage;
+      if (!usage) return json(200, { platform: this.config.platform ?? "vercel", lines: [], relays: [] });
+      return json(200, { platform: usage.platform, lines: await usage.lines(), relays: await usage.others(), server_time_ms: Date.now() });
+    }
+    // ADR-075: the owner's other relays, so diagnose and near-limit notes can name them.
+    if (path === "relays" && method === "PUT") {
+      const usage = this.config.usage;
+      if (!usage) return error(404, "not found");
+      const body = (await readJson(request, 8192)) as { relays?: unknown };
+      if (!relaysOk(body?.relays)) return error(400, "relays must be a list of at most 6 {name, platform, mcp_url}, with https://…/mcp addresses");
+      await usage.setOthers(body.relays);
+      return noContent();
+    }
     // R3: one database round trip, so the app can warn when the database is far from the function.
     if (path === "speed" && method === "GET") {
       const askedAt = Date.now();

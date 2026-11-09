@@ -2,7 +2,7 @@
   "name": "latch-gateway-vercel",
   "version": "0.1.0",
   "private": true,
-  "description": "Latch gateway for Vercel: MCP for AI clients and an HTTP long-poll channel for phones, backed by Upstash Redis.",
+  "description": "Latch relay for Vercel and Cloudflare Workers: MCP for AI clients and an HTTP long-poll channel for phones, over Upstash Redis (Vercel) or a Durable Object's SQLite (Cloudflare).",
   "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
@@ -13,7 +13,9 @@
     "pretest": "cargo build --quiet -p latch-fake-device",
     "test": "tsx --test test/*.test.ts",
     "dev": "tsx src/local.ts",
-    "smoke": "rm -rf .smoke && tsc --outDir .smoke --noEmit false && node scripts/smoke.mjs"
+    "smoke": "rm -rf .smoke && tsc --outDir .smoke --noEmit false && node scripts/smoke.mjs",
+    "smoke:cloudflare": "node scripts/smoke-cloudflare.mjs",
+    "deploy": "npx --yes wrangler@4.158.0 deploy"
   },
   "dependencies": {
     "@upstash/redis": "1.39.0",
@@ -28,5 +30,12 @@
   },
   "overrides": {
     "zod": "4.6.7"
+  },
+  "cloudflare": {
+    "bindings": {
+      "LATCH_CLAIM": {
+        "description": "Leave it as `first`: the Latch phone that scans this relay's page first (within 24 hours) becomes its owner. Nothing to type."
+      }
+    }
   }
 }

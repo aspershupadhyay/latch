@@ -33,6 +33,8 @@ export interface Store {
   del(key: string): Promise<void>;
   pexpire(key: string, px: number): Promise<void>;
   incr(key: string, px: number): Promise<number>;
+  /** Adds `by` and sets the expiry (usage counters, ADR-075). */
+  incrby(key: string, by: number, px: number): Promise<number>;
   lpush(key: string, value: string, px: number): Promise<void>;
   rpop(key: string): Promise<string | null>;
   lrange(key: string, start: number, stop: number): Promise<string[]>;
@@ -67,6 +69,10 @@ export class UpstashStore implements Store {
   async pexpire(key: string, px: number) { await this.redis.pexpire(key, px); }
   async incr(key: string, px: number) {
     const [n] = await this.redis.pipeline().incr(key).pexpire(key, px).exec<[number, number]>();
+    return n;
+  }
+  async incrby(key: string, by: number, px: number) {
+    const [n] = await this.redis.pipeline().incrby(key, by).pexpire(key, px).exec<[number, number]>();
     return n;
   }
   async lpush(key: string, value: string, px: number) { await this.redis.pipeline().lpush(key, value).pexpire(key, px).exec(); }
@@ -158,6 +164,11 @@ export class MemoryStore implements Store {
   async pexpire(key: string, px: number) { const e = this.entry(key); if (e) e.expiresAt = Date.now() + px; }
   async incr(key: string, px: number) {
     const n = Number((await this.get(key)) ?? "0") + 1;
+    this.data.set(key, { value: String(n), expiresAt: Date.now() + px });
+    return n;
+  }
+  async incrby(key: string, by: number, px: number) {
+    const n = Number((await this.get(key)) ?? "0") + by;
     this.data.set(key, { value: String(n), expiresAt: Date.now() + px });
     return n;
   }

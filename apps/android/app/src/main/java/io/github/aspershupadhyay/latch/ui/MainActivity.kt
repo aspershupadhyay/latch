@@ -200,7 +200,17 @@ internal fun applyPreset(app: LatchApp, preset: AccessPreset) {
     app.autonomy.setAllApps(preset.allApps)
 }
 
-private fun Paired.save(app: LatchApp, pin: String?) = app.settings.savePairing(SavedPairing(gatewayUrl, deviceId, name, pin), deviceToken)
+/** ADR-075: the most used of a relay's free allowances, in the owner's words; null when it does not count. */
+internal fun relayUse(lines: List<io.github.aspershupadhyay.latch.session.UsageLine>): RelayUse? {
+    val worst = lines.maxByOrNull { it.share } ?: return null
+    val pct = (worst.share * 100).toInt().coerceIn(0, 100)
+    val period = if (worst.period == "day") "today's" else "this month's"
+    return RelayUse(worst.share, "$pct% of $period free use")
+}
+
+/** ADR-075: a hosted relay remembers where it runs, so Vercel and Cloudflare are kept side by side. */
+private fun Paired.save(app: LatchApp, pin: String?) =
+    app.settings.savePairing(SavedPairing(gatewayUrl, deviceId, name, pin, implementation?.takeIf { pin == null && it in setOf("vercel", "cloudflare") }), deviceToken)
 
 @Composable
 fun LatchRoot(app: LatchApp, reducedMotion: Boolean) {
@@ -223,7 +233,7 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
     var step by rememberSaveable {
         mutableStateOf(
             when (setUp) {
-                ConnectionKind.HOSTED -> Onboarding.CREATE
+                ConnectionKind.HOSTED, ConnectionKind.CLOUDFLARE -> Onboarding.CREATE
                 ConnectionKind.WIFI -> Onboarding.WIFI
                 null -> Onboarding.WELCOME
             },
@@ -232,9 +242,8 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
     LaunchedEffect(Unit) { app.pendingSetup.value = null }
     var installCopied by rememberSaveable { mutableStateOf(false) }
     var startCopied by rememberSaveable { mutableStateOf(false) }
-    // ADR-069: a key already made for a deploy is kept until the relay's page is scanned.
-    var ownerKey by rememberSaveable { mutableStateOf(app.settings.pendingDeployKey() ?: GatewaySetup.newOwnerKey()) }
-    var keyCopied by rememberSaveable { mutableStateOf(false) }
+    // ADR-075: which relay CREATE makes, Vercel (HOSTED) or Cloudflare.
+    var platform by rememberSaveable { mutableStateOf(if (setUp == ConnectionKind.CLOUDFLARE) ConnectionKind.CLOUDFLARE else ConnectionKind.HOSTED) }
     var deployOpened by rememberSaveable { mutableStateOf(false) }
     var address by rememberSaveable { mutableStateOf("") }
     var mode by rememberSaveable { mutableStateOf(JoinMode.OWNER_KEY) }
@@ -273,7 +282,9 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
                 val paired = if (asOwner) app.setup.pairAsOwner(url, key.trim(), model, model) else app.setup.pairWithCode(url, key, model)
                 // A setup code from the owner's terminal also brings the owner key (ADR-054).
                 (if (asOwner) key.trim() else paired.ownerKey)?.let { app.settings.saveOwnerKey(it) }
-                if (asOwner && key.trim() == app.settings.pendingDeployKey()) app.settings.clearDeployKey()
+                ConnectionKind.entries.filter { it.hosted }.forEach { kind ->
+                    if (asOwner && key.trim() == app.settings.pendingDeployKey(kind)) app.settings.clearDeployKey(kind)
+                }
                 paired.save(app, parsed.pin)
                 // A newer connection of the same kind replaces the one kept before.
                 app.settings.pairing.value?.kind?.let { app.session.forgetSaved(it) }
@@ -341,21 +352,42 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         }
     }
 
-    // ADR-069: the hosted relay's page shows its address as a QR code. With the key
-    // this phone made for the deploy, it pairs as the owner at once; otherwise
-    // the owner pastes that key once.
+    // ADR-069, ADR-075: the hosted relay's page shows its address as a QR code. With
+    // the key this phone made for that platform's deploy it claims the relay (if
+    // it still waits for its owner) and pairs as the owner at once. A Cloudflare
+    // relay waiting for its first phone takes a key made right now. Otherwise the
+    // owner pastes the relay's key once.
     fun connectHosted(url: String) {
         address = url
-        val kept = app.settings.pendingDeployKey()
-        if (kept != null) {
-            ownerKey = kept
-            step = Onboarding.CREATE
-            connect(asOwner = true, key = kept, input = url)
-        } else {
-            mode = JoinMode.OWNER_KEY
-            secret = ""
-            step = Onboarding.JOIN
-            error = "Found your relay. Paste its owner key (LATCH_ADMIN_TOKEN in Vercel) once, then tap Connect."
+        busy = true
+        error = null
+        scope.launch {
+            val info = try {
+                app.setup.probe(url)
+            } catch (e: SetupException) {
+                busy = false
+                step = Onboarding.CREATE
+                error = e.message
+                return@launch
+            }
+            busy = false
+            val kind = ConnectionKind.forImplementation(info.implementation)
+            val key = app.settings.pendingDeployKey(kind)
+                ?: if (info.claim == "first") app.settings.deployOwnerKey(kind) { GatewaySetup.newOwnerKey() } else null
+            if (key != null) {
+                platform = kind
+                step = Onboarding.CREATE
+                connect(asOwner = true, key = key, input = url)
+            } else if (info.claim != null) {
+                platform = kind
+                step = Onboarding.CREATE
+                error = "This relay was made for another phone. Deploy a new one from this phone."
+            } else {
+                mode = JoinMode.OWNER_KEY
+                secret = ""
+                step = Onboarding.JOIN
+                error = "Found your relay. Paste its owner key (LATCH_ADMIN_TOKEN in its settings) once, then tap Connect."
+            }
         }
     }
 
@@ -406,7 +438,11 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
         )
         Onboarding.GUIDE -> GuideScreen(onBack = { step = Onboarding.WELCOME }, onStart = { step = Onboarding.CHOOSE })
         Onboarding.CHOOSE -> ChooseConnectionScreen(
-            onChoose = { kind -> address = ""; secret = ""; error = null; step = if (kind == ConnectionKind.WIFI) Onboarding.WIFI else Onboarding.CREATE },
+            onChoose = { kind ->
+                address = ""; secret = ""; error = null
+                if (kind.hosted) platform = kind
+                step = if (kind == ConnectionKind.WIFI) Onboarding.WIFI else Onboarding.CREATE
+            },
             onBack = { step = Onboarding.WELCOME },
         )
         Onboarding.WIFI -> WifiGatewayScreen(
@@ -426,20 +462,21 @@ private fun OnboardingFlow(app: LatchApp, notice: String?, setUp: ConnectionKind
             ),
         )
         Onboarding.CREATE -> CreateGatewayScreen(
-            CreateGatewayState(ownerKey, keyCopied, deployOpened, address, busy, error),
+            CreateGatewayState(platform, deployOpened, address, busy, error),
             CreateGatewayActions(
-                copyKey = {
-                    app.settings.deployOwnerKey { ownerKey }
-                    copyToClipboard(context, "Owner key", ownerKey, sensitive = true)
-                    keyCopied = true
-                },
                 openDeploy = {
-                    app.settings.deployOwnerKey { ownerKey }
+                    // ADR-075: the key never leaves the phone; Vercel gets only its fingerprint.
+                    val key = app.settings.deployOwnerKey(platform) { GatewaySetup.newOwnerKey() }
                     deployOpened = true
-                    context.startActivity(Intent(Intent.ACTION_VIEW, GatewaySetup.vercelDeployUrl().toUri()))
+                    val url = if (platform == ConnectionKind.CLOUDFLARE) GatewaySetup.cloudflareDeployUrl() else GatewaySetup.vercelDeployUrl(key)
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                 },
                 setAddress = { address = it; error = null },
-                connect = { connect(asOwner = true, key = ownerKey) },
+                connect = {
+                    val parsed = Pairing.parse(address, BuildConfig.ALLOW_CLEARTEXT)
+                    if (parsed == null) error = if (address.trim().startsWith("http://")) "Use an https:// address." else "That does not look like a web address."
+                    else connectHosted(parsed.url)
+                },
                 back = { step = Onboarding.CHOOSE; error = null },
                 scan = {
                     error = null
@@ -1067,11 +1104,25 @@ private fun ConnectRoute(app: LatchApp, requests: List<SignInRequest>, openSetup
     val saved by app.settings.saved.collectAsStateWithLifecycle()
     val connectPrefs by app.settings.preferences.collectAsStateWithLifecycle()
     fun hostOf(url: String) = url.removePrefix("https://").removePrefix("http://")
+    // ADR-075: each hosted relay this phone owns says how much of its free allowance is used.
+    val usage by produceState(emptyMap<ConnectionKind, RelayUse>(), p, saved, ownerKeyVersion) {
+        val relays = buildList {
+            if (p.kind.hosted) app.settings.ownerKey()?.let { add(Triple(p.kind, p.gatewayUrl, it)) }
+            saved.forEach { (kind, kept) -> if (kind.hosted) app.settings.keptOwnerKey(kind)?.let { add(Triple(kind, kept.gatewayUrl, it)) } }
+        }
+        value = relays.mapNotNull { (kind, url, key) ->
+            val lines = runCatching { OwnerClient(app.http, url, key).usage() }.getOrNull().orEmpty()
+            relayUse(lines)?.let { kind to it }
+        }.toMap()
+    }
+    val backupLinks = saved.filterKeys { it.hosted && it != p.kind }.map { (kind, kept) -> kind.title to "${kept.gatewayUrl}/mcp" }
     ConnectScreen(
         ConnectState(
             "${p.gatewayUrl}/mcp", isOwner, clients, loading, error, created, requests, phoneApps, phones,
             connection = p.kind, host = hostOf(p.gatewayUrl), saved = saved.mapValues { (_, s) -> hostOf(s.gatewayUrl) },
             bothConnected = connectPrefs.bothConnected,
+            usage = usage,
+            backupLinks = if (p.kind.hosted) backupLinks else emptyList(),
         ),
         ConnectActions(
             switchTo = { kind -> app.session.switchTo(kind) },

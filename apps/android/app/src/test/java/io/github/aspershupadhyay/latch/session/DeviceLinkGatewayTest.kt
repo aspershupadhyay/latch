@@ -72,7 +72,8 @@ class DeviceLinkGatewayTest(private val implementation: String) {
         process?.destroyForcibly()
     }
 
-    private fun startGateway() {
+    /** [env]: extra settings for the gateway; a null value removes one (LATCH_ADMIN_TOKEN, for a relay that waits for its claim). */
+    private fun startGateway(env: Map<String, String?> = emptyMap()) {
         val port = ServerSocket(0).use { it.localPort }
         base = "http://127.0.0.1:$port"
         val builder = when (implementation) {
@@ -97,6 +98,7 @@ class DeviceLinkGatewayTest(private val implementation: String) {
             }
         }
         builder.environment()["LATCH_ADMIN_TOKEN"] = ADMIN
+        env.forEach { (k, v) -> if (v == null) builder.environment().remove(k) else builder.environment()[k] = v }
         builder.redirectErrorStream(true).redirectOutput(File.createTempFile("latch-gateway", ".log"))
         process = builder.start()
         repeat(150) {
@@ -415,12 +417,55 @@ class DeviceLinkGatewayTest(private val implementation: String) {
 
     @Test
     fun vercelDeployLinkCarriesTheSetup() {
-        val url = GatewaySetup.vercelDeployUrl()
-        assertTrue(url.startsWith("https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch"))
-        assertTrue(url.contains("root-directory=servers%2Fvercel"))
-        assertTrue(url.contains("env=LATCH_ADMIN_TOKEN"))
-        assertTrue(url.contains("upstash-kv"))
         val key = GatewaySetup.newOwnerKey()
         assertTrue(key.length >= 32 && key != GatewaySetup.newOwnerKey())
+        val url = GatewaySetup.vercelDeployUrl(key)
+        assertTrue(url.startsWith("https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch"))
+        assertTrue(url.contains("root-directory=servers%2Fvercel"))
+        assertTrue(url.contains("upstash-kv"))
+        // ADR-075: the form is filled in with the key's fingerprint, never the key.
+        assertTrue(url.contains("env=LATCH_OWNER_KEY_SHA256"))
+        val defaults = java.net.URLDecoder.decode(url.substringAfter("envDefaults=").substringBefore('&'), "UTF-8")
+        assertEquals("""{"LATCH_OWNER_KEY_SHA256":"${GatewaySetup.sha256Hex(key)}"}""", defaults)
+        assertTrue(key !in java.net.URLDecoder.decode(url, "UTF-8"))
+        assertEquals(64, GatewaySetup.sha256Hex(key).length)
+    }
+
+    @Test
+    fun cloudflareDeployLinkPointsAtTheRelayFolder() {
+        assertEquals(
+            "https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Ftree%2Fmain%2Fservers%2Fvercel",
+            GatewaySetup.cloudflareDeployUrl(),
+        )
+    }
+
+    /** ADR-075: a relay deployed with nothing typed becomes this phone's with one scan, and reports its use. */
+    @Test
+    fun aDeployedRelayIsClaimedByThePhoneThatMadeItsKey() = runBlocking {
+        assumeTrue("claiming is a relay feature (TypeScript gateway)", implementation == "vercel")
+        val key = GatewaySetup.newOwnerKey()
+        startGateway(mapOf("LATCH_ADMIN_TOKEN" to null, "LATCH_OWNER_KEY_SHA256" to GatewaySetup.sha256Hex(key)))
+        val setup = GatewaySetup(http)
+        val info = setup.probe(base)
+        assertTrue(info.setupRequired)
+        assertEquals("hash", info.claim)
+
+        // Another phone's key is refused; this phone's key claims and pairs.
+        val other = runCatching { setup.pairAsOwner(base, GatewaySetup.newOwnerKey(), "Pixel", "Pixel") }.exceptionOrNull()
+        assertTrue(other?.message ?: "", other is SetupException && other.message!!.contains("another phone"))
+        val paired = setup.pairAsOwner(base, key, "Pixel 9", "Google Pixel 9")
+        assertEquals("vercel", paired.implementation)
+        assertTrue(paired.deviceToken.startsWith("ldt_"))
+        assertEquals(false, setup.probe(base).setupRequired)
+        // Pairing again works with the same key, without a new claim.
+        setup.pairAsOwner(base, key, "Pixel 9", "Google Pixel 9")
+
+        val owner = OwnerClient(http, base, key)
+        val usage = owner.usage()
+        assertTrue(usage.map { it.id }.containsAll(listOf("requests", "store_commands")))
+        assertTrue(usage.all { it.limit > 0 && it.used >= 0 && it.share in 0f..1f })
+        assertTrue(owner.setRelays(listOf(OtherRelay("Cloudflare relay", "cloudflare", "https://latch-relay.ada.workers.dev/mcp"))))
+        val refused = runCatching { owner.setRelays(listOf(OtherRelay("x", "cloudflare", "http://insecure.example/mcp"))) }.exceptionOrNull()
+        assertTrue(refused is SetupException)
     }
 }

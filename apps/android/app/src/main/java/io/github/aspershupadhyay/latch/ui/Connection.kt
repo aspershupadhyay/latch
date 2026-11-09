@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.getValue
@@ -59,6 +61,7 @@ private val ConnectionKind.icon: ImageVector get() = if (this == ConnectionKind.
 
 private val ConnectionKind.tagline: String get() = when (this) {
     ConnectionKind.HOSTED -> "Your own free relay on Vercel. Works anywhere."
+    ConnectionKind.CLOUDFLARE -> "Your own free relay on Cloudflare. Works anywhere."
     ConnectionKind.WIFI -> "Latch on your computer. Stays on your home network."
 }
 
@@ -66,7 +69,12 @@ private val ConnectionKind.facts: List<String> get() = when (this) {
     ConnectionKind.HOSTED -> listOf(
         "Works on any Wi-Fi or mobile data",
         "Nothing to keep running on a computer",
-        "One-time setup in your browser, about 5 minutes",
+        "One tap in your browser, nothing to type",
+    )
+    ConnectionKind.CLOUDFLARE -> listOf(
+        "Works on any Wi-Fi or mobile data",
+        "Fastest hosted relay: no database in between",
+        "One tap in your browser, nothing to type",
     )
     ConnectionKind.WIFI -> listOf(
         "Nothing goes through the internet",
@@ -163,7 +171,7 @@ fun ChooseConnectionScreen(onChoose: (ConnectionKind) -> Unit, onBack: () -> Uni
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             BackBar(onBack)
-            ScreenTitle("How should your AI reach this phone?", "Pick one now. You can add the other later and switch in one tap.")
+            ScreenTitle("How should your AI reach this phone?", "Pick one now. You can add the others later: they all stay connected, and you switch in one tap.")
             ConnectionKind.entries.forEach { kind ->
                 ConnectionOption(kind, selected = picked == kind, onClick = { picked = kind })
             }
@@ -299,9 +307,10 @@ fun SavedConnectionsCard(saved: Map<ConnectionKind, String>, onUse: (ConnectionK
 }
 
 /**
- * AI apps page: how the AI reaches this phone now, and the switch to the other
- * way. A kept connection switches in one tap; otherwise the owner sets it up
- * once and this one is kept.
+ * Connect tab (ADR-067, ADR-075): every way the AI reaches this phone, in one
+ * card. The segments switch to a kept connection, or set one up; the rows are
+ * the one in use and the backups, which every session uses too. A hosted
+ * relay's row shows how much of its free allowance is used.
  */
 @Composable
 fun ConnectionCard(
@@ -311,6 +320,7 @@ fun ConnectionCard(
     onSwitch: (ConnectionKind) -> Unit,
     onSetUp: (ConnectionKind) -> Unit,
     onForgetSaved: (ConnectionKind) -> Unit,
+    usage: Map<ConnectionKind, RelayUse> = emptyMap(),
 ) {
     val signal = LocalSignal.current
     var confirm by remember { mutableStateOf<ConnectionKind?>(null) }
@@ -322,22 +332,16 @@ fun ConnectionCard(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 ConnectionKind.entries.forEach { kind ->
-                    Segment(kind, kind == current, Modifier.weight(1f)) { if (kind != current) confirm = kind }
+                    Segment(kind, kind == current, kept = saved[kind] != null, Modifier.weight(1f)) { if (kind != current) confirm = kind }
                 }
             }
-            ListRow(current.icon, "In use", host, tint = signal.success, showChevron = false)
-            // A kept connection of the other kind is used in every session too (ADR-067), so losing one is not fatal.
+            ConnectionRow(current, "In use", host, usage[current], signal.success)
+            // Every kept connection joins every session (ADR-067, ADR-075), so losing one is not fatal.
             ConnectionKind.entries.filter { it != current }.forEach { other ->
                 saved[other]?.let { keptHost ->
-                    ListRow(
-                        other.icon,
-                        "Backup",
-                        keptHost,
-                        tint = signal.text2,
-                        trailing = {
-                            TextButton(onClick = { onForgetSaved(other) }) { Text("Forget", color = signal.danger) }
-                        },
-                    )
+                    ConnectionRow(other, "Backup", keptHost, usage[other], signal.text2) {
+                        TextButton(onClick = { onForgetSaved(other) }) { Text("Forget", color = signal.danger) }
+                    }
                 }
             }
         }
@@ -346,42 +350,84 @@ fun ConnectionCard(
         val kept = saved[target] != null
         AlertDialog(
             onDismissRequest = { confirm = null },
-            title = { Text(if (kept) "Switch to ${target.inSentence}?" else "Set up a ${target.inSentence}?") },
+            title = { Text(if (kept) "Switch to your ${target.inSentence}?" else "Add a ${target.inSentence}?") },
             text = {
                 Text(
                     if (kept) {
-                        "A running session stops. Your AI then reaches this phone through ${saved[target]}. Your ${current.inSentence} stays kept for switching back."
+                        "A running session stops. Then this tab manages ${saved[target]}. Your ${current.inSentence} stays connected as a backup: nothing to set up again."
+                    } else if (target.hosted) {
+                        "A running session stops and you deploy the relay in your browser: one tap, nothing to type. Your ${current.inSentence} stays connected as a backup, so your AI can use either."
                     } else {
-                        "A running session stops and you set up the ${target.inSentence} once. Your ${current.inSentence} stays kept: you can switch back from the first screen or from here, with no key."
-                    },
+                        "A running session stops and you set up the ${target.inSentence} once. Your ${current.inSentence} stays connected as a backup, so your AI can use either."
+                    }
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     confirm = null
                     if (kept) onSwitch(target) else onSetUp(target)
-                }) { Text(if (kept) "Switch" else "Set up") }
+                }) { Text(if (kept) "Switch" else "Add") }
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
     }
 }
 
+/** How much of a hosted relay's free allowance is used (ADR-075), for its row. */
+data class RelayUse(
+    /** The most used allowance, 0 to 1. */
+    val share: Float,
+    /** For example "12% of today's free requests". */
+    val text: String,
+)
+
 @Composable
-private fun Segment(kind: ConnectionKind, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ConnectionRow(kind: ConnectionKind, label: String, host: String, use: RelayUse?, tint: Color, trailing: (@Composable () -> Unit)? = null) {
+    val signal = LocalSignal.current
+    Column {
+        ListRow(kind.icon, "$label · ${kind.short}", host, tint = tint, showChevron = false, trailing = trailing)
+        use?.let { u ->
+            val bar = when {
+                u.share >= 0.9f -> signal.danger
+                u.share >= 0.8f -> signal.warning
+                else -> signal.accent
+            }
+            Column(Modifier.padding(start = 72.dp, end = 16.dp, bottom = 12.dp).semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(signal.border)) {
+                    Box(Modifier.fillMaxWidth(u.share.coerceIn(0.02f, 1f)).fillMaxHeight().background(bar))
+                }
+                Text(u.text, style = MaterialTheme.typography.bodySmall, color = if (u.share >= 0.8f) bar else signal.text2)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Segment(kind: ConnectionKind, selected: Boolean, kept: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val signal = LocalSignal.current
     val fill by animateColorAsState(if (selected) signal.ink else Color.Transparent, label = "segment")
     Row(
         modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(11.dp)).background(fill)
-            .clickable(role = Role.Tab, onClickLabel = kind.title, onClick = onClick)
+            .clickable(role = Role.Tab, onClickLabel = if (selected || kept) kind.title else "Add a ${kind.inSentence}", onClick = onClick)
             .semantics { this.selected = selected }
             .padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(kind.icon, contentDescription = null, tint = if (selected) signal.onInk else signal.text2, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(kind.short, style = MaterialTheme.typography.labelLarge, color = if (selected) signal.onInk else signal.text)
+        // A way not set up yet reads as "add it" (ADR-075).
+        if (selected || kept) {
+            Icon(kind.icon, contentDescription = null, tint = if (selected) signal.onInk else signal.text2, modifier = Modifier.size(16.dp))
+        } else {
+            Text("+", style = MaterialTheme.typography.labelLarge, color = signal.text3)
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(
+            kind.short,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) signal.onInk else if (kept) signal.text else signal.text2,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 

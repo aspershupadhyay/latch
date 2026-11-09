@@ -153,14 +153,15 @@ class SessionController(
     private var reader: Pair<LatchAccessibilityService, ButtonReader>? = null
     private var link: DeviceLink? = null
     /**
-     * ADR-053: the kept connection of the other kind, connected beside [link]
-     * while a session runs, so an AI can reach the phone through either.
+     * ADR-053, ADR-075: every kept connection (Vercel, Cloudflare, Wi-Fi), connected
+     * beside [link] while a session runs, so an AI can reach the phone through any.
      */
-    private var second: DeviceLink? = null
-    @Volatile private var secondKind: ConnectionKind? = null
-    @Volatile private var secondMinor = 0
-    /** Commands that came through [second], so approvals are offered back to the gateway that asked. */
-    private val secondCommands = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private class Extra(val link: DeviceLink) {
+        @Volatile var minor = 0
+    }
+    private val extras = java.util.concurrent.ConcurrentHashMap<ConnectionKind, Extra>()
+    /** Which kept connection each running command came through, so approvals are offered back to the gateway that asked. */
+    private val extraCommands = java.util.concurrent.ConcurrentHashMap<String, ConnectionKind>()
     private val screenLock = kotlinx.coroutines.sync.Mutex()
     @Volatile private var wanted = false
     @Volatile private var paused = false
@@ -278,7 +279,8 @@ class SessionController(
             signer = KeystoreSigner.forPairing(pairing.deviceId),
             recent = recentCommands,
         ).also { it.start() }
-        startSecond()
+        startExtras()
+        registerRelays()
     }
 
     private fun hello() = HelloMessage(
@@ -290,45 +292,67 @@ class SessionController(
         batteryRestricted = batteryRestricted(),
     )
 
-    /** Connects the kept connection too, when the owner keeps both connected (ADR-053). */
-    private fun startSecond() {
-        if (!wanted || second != null || !settings.preferences.value.bothConnected) return
+    /** Connects every kept connection too (ADR-053, ADR-067; all of them since ADR-075). */
+    private fun startExtras() {
+        if (!wanted || !settings.preferences.value.bothConnected) return
         val active = settings.pairing.value ?: return
-        val kind = ConnectionKind.entries.firstOrNull { it != active.kind } ?: return
-        val kept = settings.saved.value[kind] ?: return
-        val token = settings.keptToken(kind) ?: return
-        GatewayPins.set(kept.gatewayUrl, kept.pin)
-        secondKind = kind
-        second = DeviceLink(
-            http = http,
-            gatewayUrl = kept.gatewayUrl,
-            token = token,
-            scope = scope,
-            hello = ::hello,
-            onCommand = { envelope ->
-                secondCommands += envelope.id
-                try {
-                    runCommand(envelope)
-                } finally {
-                    secondCommands -= envelope.id
-                }
-            },
-            events = secondEvents,
-            signer = KeystoreSigner.forPairing(kept.deviceId),
-        ).also { it.start() }
+        for ((kind, kept) in settings.saved.value) {
+            if (kind == active.kind || extras.containsKey(kind)) continue
+            val token = settings.keptToken(kind) ?: continue
+            GatewayPins.set(kept.gatewayUrl, kept.pin)
+            val link = DeviceLink(
+                http = http,
+                gatewayUrl = kept.gatewayUrl,
+                token = token,
+                scope = scope,
+                hello = ::hello,
+                onCommand = { envelope ->
+                    extraCommands[envelope.id] = kind
+                    try {
+                        runCommand(envelope)
+                    } finally {
+                        extraCommands -= envelope.id
+                    }
+                },
+                events = extraEvents(kind),
+                signer = KeystoreSigner.forPairing(kept.deviceId),
+            )
+            extras[kind] = Extra(link)
+            link.start()
+        }
     }
 
-    private fun stopSecond() {
-        val closing = second ?: return
-        second = null
-        secondKind = null
-        scope.launch { closing.stop(sayBye = true) }
+    private fun stopExtra(kind: ConnectionKind) {
+        val closing = extras.remove(kind) ?: return
+        scope.launch { closing.link.stop(sayBye = true) }
+    }
+
+    private fun stopExtras() = extras.keys.toList().forEach(::stopExtra)
+
+    /**
+     * ADR-075: tells each hosted relay this phone owns about the others, so its
+     * `diagnose` and near-limit notes can send an AI there. Quiet on failure:
+     * older relays and the Wi-Fi gateway do not keep the list.
+     */
+    private fun registerRelays() {
+        val all = buildList {
+            settings.pairing.value?.let { p -> add(Triple(p.kind, p, settings.ownerKey())) }
+            settings.saved.value.forEach { (kind, p) -> add(Triple(kind, p, settings.keptOwnerKey(kind))) }
+        }.filter { it.first.hosted }
+        // With one relay left, its list is emptied, so it never names a relay the owner forgot.
+        scope.launch {
+            for ((kind, pairing, key) in all) {
+                key ?: continue
+                val others = all.filter { it.first != kind }.map { (k, p, _) -> OtherRelay(k.title, if (k == ConnectionKind.CLOUDFLARE) "cloudflare" else "vercel", "${p.gatewayUrl}/mcp") }
+                runCatching { OwnerClient(http, pairing.gatewayUrl, key).setRelays(others) }
+            }
+        }
     }
 
     /** Turns keeping both connected on or off; takes effect at once in a running session. */
     fun setBothConnected(on: Boolean) {
         settings.update { it.copy(bothConnected = on) }
-        if (on) startSecond() else stopSecond()
+        if (on) startExtras() else stopExtras()
     }
 
     /** Whether full-access ADB is switched on and paired, so `adb.shell` can run. */
@@ -422,7 +446,7 @@ class SessionController(
         if (turbo?.restore() == true) log.add(ActivityKind.SESSION, "Turbo: system animations are back as they were")
         val closing = link
         link = null
-        stopSecond()
+        stopExtras()
         // Tell the gateway right away so tool calls fail fast instead of timing out.
         scope.launch { closing?.stop(sayBye = true) }
         log.add(ActivityKind.SESSION, reason, by = if (reason.startsWith("You ") || reason == FORGOT) ActivityActor.OWNER else ActivityActor.LATCH)
@@ -600,8 +624,9 @@ class SessionController(
 
     /** Forgets a kept connection for good, with its device key. */
     fun forgetSaved(kind: ConnectionKind) {
-        if (secondKind == kind) stopSecond()
+        stopExtra(kind)
         settings.dropSaved(kind)?.let { KeystoreSigner.delete(it.deviceId) }
+        registerRelays()
     }
 
     @Volatile private var rediscovering = false
@@ -609,7 +634,7 @@ class SessionController(
     /** The network came back: links waiting between attempts try again at once. */
     fun networkBack() {
         link?.retryNow()
-        second?.retryNow()
+        extras.values.forEach { it.link.retryNow() }
     }
 
     /**
@@ -655,7 +680,7 @@ class SessionController(
         } else {
             val kind = settings.saved.value.entries.firstOrNull { it.value.deviceId == pairing.deviceId }?.key ?: return
             settings.moveKept(kind, found)
-            if (secondKind == kind) second?.moveTo(found)
+            extras[kind]?.link?.moveTo(found)
         }
         onGatewayMoved?.invoke(pairing.deviceId, found)
         log.add(ActivityKind.CONNECTION, note)
@@ -679,8 +704,9 @@ class SessionController(
         }
     }
 
-    private fun rediscover(kept: Boolean = false) {
-        val pairing = if (kept) secondKind?.let { settings.saved.value[it] } else settings.pairing.value
+    /** Looks for a Wi-Fi gateway at a new address: the one in use, or the kept one of [kept]. */
+    private fun rediscover(kept: ConnectionKind? = null) {
+        val pairing = if (kept != null) settings.saved.value[kept] else settings.pairing.value
         pairing?.let(::findAgain)
     }
 
@@ -764,40 +790,41 @@ class SessionController(
     }
 
     /**
-     * The kept connection's link only adds a way in: its drops and refusals are
+     * A kept connection's link only adds a way in: its drops and refusals are
      * logged and never end or change the session on the main connection.
      */
-    private val secondEvents = object : DeviceLink.Events {
-        private fun title() = secondKind?.title ?: "kept connection"
+    private fun extraEvents(kind: ConnectionKind) = object : DeviceLink.Events {
+        private val name = if (kind == ConnectionKind.WIFI) "your computer on Wi-Fi" else "your ${kind.title}"
+        private val capitalized = name.replaceFirstChar { it.uppercase() }
 
         override fun connected() {
-            scope.launch { if (wanted) log.add(ActivityKind.CONNECTION, "Also connected through your ${title().lowercase()}") }
+            scope.launch { if (wanted) log.add(ActivityKind.CONNECTION, "Also connected through $name") }
         }
 
         override fun retrying(attempt: Int) {
             scope.launch {
                 if (!wanted) return@launch
-                if (attempt == 1) log.add(ActivityKind.CONNECTION, "Your ${title().lowercase()} is not answering; retrying")
-                if (attempt == 2 || attempt % 5 == 0) rediscover(kept = true)
+                if (attempt == 1) log.add(ActivityKind.CONNECTION, "$capitalized is not answering; retrying")
+                if (attempt == 2 || attempt % 5 == 0) rediscover(kept = kind)
             }
         }
 
         override fun rejected(revoked: Boolean) {
             scope.launch {
-                log.add(ActivityKind.CONNECTION, "Your ${title().lowercase()} no longer accepts this phone; set it up again from Connect")
-                stopSecond()
+                log.add(ActivityKind.CONNECTION, "$capitalized no longer accepts this phone; set it up again from Connect")
+                stopExtra(kind)
             }
         }
 
         override fun incompatible(gatewayVersion: String) {
             scope.launch {
-                log.add(ActivityKind.CONNECTION, "Your ${title().lowercase()} speaks protocol $gatewayVersion; update it to use both")
-                stopSecond()
+                log.add(ActivityKind.CONNECTION, "$capitalized speaks protocol $gatewayVersion; update it to use it beside the others")
+                stopExtra(kind)
             }
         }
 
         override fun gatewayProtocol(version: String) {
-            secondMinor = Protocol.minorOf(version) ?: 0
+            extras[kind]?.minor = Protocol.minorOf(version) ?: 0
         }
 
         override fun cancel(commandId: String) = linkEvents.cancel(commandId)
@@ -810,11 +837,11 @@ class SessionController(
     /** Tells a 1.4 gateway the phone waits for the owner; it may ask in the AI app too. */
     private fun offerApproval(pending: PendingApproval) {
         val id = pending.commandId ?: return
-        val viaSecond = id in secondCommands
-        if ((if (viaSecond) secondMinor else gatewayMinor) < 4) return
+        val via = extraCommands[id]?.let { extras[it] }
+        if ((via?.minor ?: gatewayMinor) < 4) return
         // A step handed to the owner is answered on the phone only, never in the AI app.
         if (pending.kind == ApprovalKind.OWNER_TASK) return
-        (if (viaSecond) second else link)?.send(
+        (via?.link ?: link)?.send(
             Outgoing.approvalRequest(
                 id, pending.nonce, pending.title, pending.detail, pending.kind == ApprovalKind.APP, pending.choices,
                 settings.preferences.value.remoteApprovals, pending.expiresAtMs,
@@ -832,7 +859,7 @@ class SessionController(
         if (_state.value !is SessionState.Active) return
         val message = StateMessage(wireCapabilities(), sessionInfo(), System.currentTimeMillis())
         current.pushState(message)
-        second?.pushState(message)
+        extras.values.forEach { it.link.pushState(message) }
     }
 
     // ---- Commands: strictly one at a time (DeviceLink serialises them) ----

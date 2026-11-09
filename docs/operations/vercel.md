@@ -8,17 +8,17 @@ AI app ──MCP (HTTPS)──▶ your Vercel project (servers/vercel) ◀──
                          your Upstash Redis
 ```
 
-## The two-minute path (from the phone)
+## The two-minute path (from the phone, nothing to type)
 
-1. Install the Latch app and choose **Create my own gateway**.
-2. **Copy your owner key.** The app generates a random 256-bit key. It is the only credential that controls your gateway; it stays on your phone (encrypted) and in your Vercel project.
-3. **Open Vercel.** The app opens a Deploy page preconfigured with this repository, `servers/vercel` as the root directory, and an Upstash Redis store.
+1. Install the Latch app and choose **Create my own gateway** → **Vercel relay**. Already set up? **Connect** → the **+ Vercel** segment.
+2. **Open Vercel.** The app makes a random 256-bit owner key and keeps it sealed on the phone; it is never shown. The Deploy page opens preconfigured with this repository, `servers/vercel` as the root directory, an Upstash Redis store, and **`LATCH_OWNER_KEY_SHA256` already filled in** with the key's SHA-256 (ADR-075). That is a fingerprint, not the key: the link and your browser history hold nothing that controls the relay.
    - Sign in or create a free Vercel account.
    - Keep the suggested **Upstash Redis** store (it creates `KV_REST_API_URL` and `KV_REST_API_TOKEN` for you).
-   - Paste the owner key into **LATCH_ADMIN_TOKEN**.
    - Press **Deploy**.
-4. **Scan your relay's page.** When Vercel says the deploy is done, open your relay's address on the computer (**Visit**). The page shows **Connect your phone** with a QR code of its own address; in the app, tap **Scan QR code** (step 3, or the first screen). The phone checks the gateway, creates its own pairing code with the owner key it made in step 2, and pairs itself (ADR-069). The app keeps that key, sealed, until this scan, so it works even if Android closed Latch while you were in Vercel. Can't scan? **Type the address** under the button instead. A phone that did not make the key (another phone, or a key you made yourself) is asked for the owner key once after the scan.
-5. In the app open **Connect**, create a key for your AI app, and paste it there.
+3. **Scan your relay's page.** When Vercel says the deploy is done, open your relay's address on the computer (**Visit**). The page shows **Scan this to make it yours** with a QR code of its own address; in the app, tap **Scan QR code**. The phone sends its key once (`POST /v1/claim`); the relay checks it against the fingerprint, keeps it as its owner, and the phone pairs as the owner. Only the phone whose key matches can claim it. Can't scan? **Type the address** under the button instead.
+4. In the app open **Connect**, and give your AI app the link (or create a key for it).
+
+A relay deployed this way keeps a random relay secret in its Redis in place of `LATCH_ADMIN_TOKEN`. Screen content in Redis is still sealed (ADR-039), but with a key derived from that secret, which lives in the same Redis; if you want Upstash to hold only ciphertext it cannot open, set `LATCH_ADMIN_TOKEN` yourself (below), which turns claiming off.
 
 Without the app, use the button: [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=Paste+the+owner+key+shown+in+the+Latch+app.+It+stays+in+your+Vercel+project+and+on+your+phone.&envLink=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Fblob%2Fmain%2Fdocs%2Foperations%2Fvercel.md&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D) and generate the key yourself (`openssl rand -hex 32`).
 
@@ -45,7 +45,8 @@ The container gateway (`servers/mcp`) supports the same sign-in with only the UR
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `LATCH_ADMIN_TOKEN` | yes | Owner key, at least 32 characters. Without it the gateway reports `setup_required` and refuses pairing and MCP. |
+| `LATCH_OWNER_KEY_SHA256` | set by the app | SHA-256 of the key the phone made (ADR-075). The relay waits until that phone claims it. |
+| `LATCH_ADMIN_TOKEN` | no | Owner key you choose, at least 32 characters; when set, claiming is off. Without it or a claim the gateway reports `setup_required` and refuses pairing and MCP. |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | yes | Set automatically by the Upstash store. `UPSTASH_REDIS_REST_URL` / `_TOKEN` also work. |
 | `LATCH_MCP_TOKEN` | no | An extra static MCP token, if you prefer one fixed key. |
 | `LATCH_PUBLIC_URL` | no | Custom domain to show in links. |
@@ -57,6 +58,7 @@ The container gateway (`servers/mcp`) supports the same sign-in with only the UR
 | `LATCH_SETTLE_MS` | no | How long the phone lets the screen settle after an action before observing it (default 500, at most 3000). |
 | `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` | no | Set automatically when you connect a Vercel Blob store: file links then carry files up to 2 GB (see below). |
 | `LATCH_MAX_TRANSFER_MB` | no | Largest file through Vercel Blob, in MB (default 2048, at most 4096). |
+| `LATCH_USAGE_LIMITS` | no | The free allowances the relay compares its counts with (default `requests=1000000,store_commands=500000` a month). Connect shows the use; from 80 % tool answers name your other relays. |
 
 ## Big files: Vercel Blob
 

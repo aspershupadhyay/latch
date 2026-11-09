@@ -2,19 +2,13 @@
 
 About five minutes, start to finish.
 
-You need: an **Android phone** (Android 11 or newer), and a free **[Vercel](https://vercel.com/signup)** account. You can make the Vercel account during setup.
+You need: an **Android phone** (Android 11 or newer), and a free **[Vercel](https://vercel.com/signup)** or **[Cloudflare](https://dash.cloudflare.com/sign-up)** account. You can make the account during setup.
 
-> **Gateway on your own Mac or Linux computer instead of Vercel?** Follow [Connect your phone to a gateway on your Mac](connect-your-phone.md): one install line, then pair, connect your AI, and try every feature.
+> **Gateway on your own Mac or Linux computer instead?** Follow [Connect your phone to a gateway on your Mac](connect-your-phone.md): one install line, then pair, connect your AI, and try every feature.
 
-## You only copy-paste 3 things
+## Nothing to type
 
-| # | What | Copy it from | Paste it into |
-|---|---|---|---|
-| 1 | **Owner key** (your master password) | Latch app | Vercel, in the box called `LATCH_ADMIN_TOKEN` |
-| 2 | **Gateway address** (looks like `latch-gateway-you.vercel.app`) | Vercel, after you press Deploy | Latch app |
-| 3 | **MCP address** `https://<your-address>/mcp` | Latch app, **Connect** tab | Your AI app (Claude, ChatGPT, Codex…), then approve in the app |
-
-That's it. Every step below is just one of these.
+Latch makes your relay's key on the phone and never shows it. You tap **Deploy** in your browser, scan your relay's page, and copy one link into your AI app. You can make a relay on Vercel, on Cloudflare, or both: the phone keeps every relay connected, and you switch between them (and your computer on Wi-Fi) in one tap from **Connect** ([ADR-075](adr/README.md#adr-075--many-relays-vercel-and-cloudflare-in-one-tap-each-used-together-wi-fi-beside-them)).
 
 > **Prefer no cloud at all?** If your AI app runs on your computer (Claude Code, Claude Desktop, Cursor), the gateway can run there too and the phone connects over your Wi-Fi: see [phones on the same Wi-Fi](operations/gateway.md#phones-on-the-same-wi-fi-no-cloud).
 
@@ -27,34 +21,31 @@ That's it. Every step below is just one of these.
 
 **Updates:** you only do this once. When a newer build exists, Latch shows **Update available** on Home: tap **Update**, then **Update** again on Android's screen if it asks. Your pairing and settings stay. The first time, Android asks you to allow Latch to install apps.
 
-## Step 2: Copy thing #1, the owner key
+## Step 2: Deploy your relay (one tap)
 
-In the Latch app, tap **Create my own gateway**, then tap **copy** next to **Owner key**.
+In the Latch app, tap **Create my own gateway**, choose **Vercel relay** or **Cloudflare relay**, and tap **Open Vercel** (or **Open Cloudflare**).
 
-> [!IMPORTANT]
-> Don't leave this screen until Step 4 (you can switch to your browser and come back). Keep this key secret.
-
-## Step 3: Paste it into Vercel
-
-Open Vercel **either way**, whichever is easier. Both open the exact same page:
-
-- **On your phone:** tap **Open Vercel** in the Latch app, **or**
-- **On a computer:** click [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=Paste+the+owner+key+shown+in+the+Latch+app.+It+stays+in+your+Vercel+project+and+on+your+phone.&envLink=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Fblob%2Fmain%2Fdocs%2Foperations%2Fvercel.md&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D)
-
-Then on Vercel:
+**On Vercel:**
 
 1. Sign in (or make a free account). If it asks for a plan, pick **Hobby** (free).
 2. **Git repository:** keep the name and keep it **private**. Click **Create**.
 3. **Upstash Redis:** click **Add**. Plan **Free**, region **`us-east-1`**, read regions **none**.
    Keep `us-east-1`: it sits next to Vercel's default function region (`iad1`, Washington). Picked another region? See [Fix: AI actions are slow](troubleshooting.md#fix-ai-actions-are-slow).
-4. **`LATCH_ADMIN_TOKEN`:** paste thing #1 (the owner key from the app).
+4. **`LATCH_OWNER_KEY_SHA256`** is already filled in by Latch: a fingerprint of the phone's key, not the key. Leave it.
 5. Click **Deploy** and wait about a minute.
 
-## Step 4: Copy thing #2, the address, back into the app
+**On Cloudflare:**
 
-1. On Vercel's **"Congratulations!"** page, copy the address (`latch-gateway-….vercel.app`).
-   No such page? Go to the [Vercel dashboard](https://vercel.com/dashboard) → your project → the address next to **Domains**.
-2. In the Latch app, paste it into **Paste your gateway address** → tap **Connect this phone**. Done.
+1. Sign in (or make a free account). Connect GitHub when it asks: Cloudflare copies the relay into a repository of your own.
+2. Keep every name as it is, and leave `LATCH_CLAIM` as `first`.
+3. Click **Create and deploy** and wait about a minute. No database, card, or region to pick: the relay keeps its state in its own Durable Object.
+
+## Step 3: Scan your relay's page
+
+1. Open your relay's address on the computer: Vercel's **Visit** button (`latch-gateway-….vercel.app`), or the `….workers.dev` address Cloudflare shows.
+2. The page shows **Scan this to make it yours** with a QR code. In the Latch app, tap **Scan QR code** and point it at the page. The phone makes the relay its own and connects. Done.
+
+A Cloudflare relay belongs to the first Latch phone that scans it, within 24 hours of its first visit. If your phone says *this relay already has an owner*, delete the Worker in Cloudflare and deploy again.
 
 ## Step 5: Follow the setup the app shows you
 

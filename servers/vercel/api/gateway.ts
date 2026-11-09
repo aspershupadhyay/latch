@@ -2,11 +2,12 @@
 // Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 // Vercel Function entry point. vercel.json rewrites "/", /mcp, /healthz, and /v1/*
 // here; only the stylesheet and robots.txt are static (public/).
-import { Gateway, configFromEnv } from "../src/gateway.js";
+import { Relay } from "../src/relay.js";
 import { storeFromEnv } from "../src/store.js";
 
 const store = storeFromEnv(process.env);
-const gateway = store ? new Gateway(store, configFromEnv(process.env)) : undefined;
+// ADR-075: the owner key comes from LATCH_ADMIN_TOKEN or from the phone's claim.
+const gateway = store ? new Relay(store, process.env, "vercel") : undefined;
 
 async function handle(request: Request): Promise<Response> {
   if (!gateway) {

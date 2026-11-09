@@ -170,7 +170,7 @@ export class OAuth {
     if (cached) return JSON.parse(cached) as RegisteredClient;
     if (url.length > 512 || !isPublicHttps(url)) return undefined;
     try {
-      const text = await fetchPublic(url);
+      const text = await publicFetcher(url);
       if (text === undefined) return undefined;
       const doc = JSON.parse(text) as Record<string, unknown>;
       const uris = doc.redirect_uris;
@@ -205,7 +205,7 @@ export class OAuth {
     }
     const resource = q.get("resource");
     if (resource !== null && !sameResource(resource, base)) return fail("invalid_target", "this server only issues tokens for its own /mcp endpoint");
-    if (this.host.adminToken === undefined) return page(503, "Gateway not set up", "Set LATCH_ADMIN_TOKEN in the Vercel project, then redeploy.");
+    if (this.host.adminToken === undefined) return page(503, "Gateway not set up", "Finish setting up this relay in the Latch app first.");
 
     // One waiting request per app (signing in again replaces it), and a full list
     // makes room by dropping its oldest: nobody can fill it to keep the owner's own
@@ -454,6 +454,38 @@ export function publicLookup(
     if (options.all) callback(null, addresses);
     else callback(null, addresses[0]!.address, addresses[0]!.family);
   });
+}
+
+/** How client metadata documents are fetched; a Cloudflare relay uses `fetch` (setPublicFetcher). */
+let publicFetcher: (url: string) => Promise<string | undefined> = fetchPublic;
+
+/** ADR-075: Workers have no DNS hook, and their `fetch` reaches only the public internet. */
+export function setPublicFetcher(fetcher: (url: string) => Promise<string | undefined>) {
+  publicFetcher = fetcher;
+}
+
+/** The same rules with plain `fetch`: no redirects, 3 s, at most 16 KB; undefined on any failure. */
+export async function fetchPublicWithFetch(url: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(url, { method: "GET", headers: { accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(3000) });
+    if (res.status !== 200 || !res.body) return undefined;
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 16 * 1024) {
+        await reader.cancel();
+        return undefined;
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 /** GET a small public https document: no redirects, 3 s, at most 16 KB; undefined on any failure. */

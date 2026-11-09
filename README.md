@@ -54,9 +54,9 @@ flowchart LR
 
   Then run `latch start` and, in the app, tap **Scan the QR code**.
 
-- **Anywhere, on your free Vercel account**: in the app, tap **Create my own gateway**, copy the owner key, and
+- **Anywhere, on your free Vercel or Cloudflare account**: in the app, tap **Create my own gateway**, pick Vercel or Cloudflare, tap **Deploy** in the browser, and scan your relay's page. Nothing to type. Make both and the phone uses both: if one runs out of free use, your AI carries on through the other ([how](docs/operations/cloudflare.md)).
 
-  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=Paste+the+owner+key+shown+in+the+Latch+app.+It+stays+in+your+Vercel+project+and+on+your+phone.&envLink=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Fblob%2Fmain%2Fdocs%2Foperations%2Fvercel.md&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D)
+  Without the app, use a button: [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Ftree%2Fmain%2Fservers%2Fvercel) (the first Latch phone to scan it owns it) or [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=Paste+the+owner+key+shown+in+the+Latch+app.+It+stays+in+your+Vercel+project+and+on+your+phone.&envLink=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Fblob%2Fmain%2Fdocs%2Foperations%2Fvercel.md&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D) (asks for a key you make with `openssl rand -hex 32`).
 
 **3. Connect your AI app.** Add the gateway's `/mcp` address as a remote MCP server (`latch start` prints the exact command for Claude Code), then approve the 4-letter code on the phone.
 
@@ -81,7 +81,7 @@ Start a session on the phone and ask: *"What's on my screen right now?"* Every t
 | [Troubleshooting](docs/troubleshooting.md) | Play Protect, Restricted setting, sessions that drop, slow actions, updating your gateway |
 | [Safety and privacy](docs/safety.md) | What the AI can and cannot do, and what is stored where |
 | [MCP tools](docs/tools.md) | Every tool an AI app can call, including any gesture and full-access ADB |
-| [Run on Vercel](docs/operations/vercel.md) · [Self-host](docs/operations/gateway.md) · [Releases](docs/operations/release.md) | Operating a gateway, keys, big files, and how releases are made |
+| [Run on Vercel](docs/operations/vercel.md) · [Run on Cloudflare](docs/operations/cloudflare.md) · [Other hosts](docs/operations/hosting.md) · [Self-host](docs/operations/gateway.md) · [Releases](docs/operations/release.md) | Operating a gateway, keys, big files, and how releases are made |
 | [Device protocol](docs/protocol/v1.md) · [Decisions](docs/adr/README.md) · [Handbook](handbook/README.md) | The phone ↔ gateway contract, why it looks this way, and the [roadmap](handbook/17-plan-review-and-revised-delivery.md) |
 
 <a name="help-im-stuck"></a><a name="phone-and-vercel-settings"></a><a name="set-it-up-about-5-minutes"></a><a name="fix-update-your-gateway"></a><a name="fix-app-blocked-by-play-protect"></a><a name="fix-restricted-setting"></a><a name="fix-session-stops-when-the-screen-is-off"></a><a name="fix-ai-actions-are-slow"></a>
@@ -100,7 +100,7 @@ scripts/check.sh                 # everything CI runs
 | Path | What lives there |
 |---|---|
 | [`apps/android`](apps/android) | The app (Kotlin, Jetpack Compose) |
-| [`servers/mcp`](servers/mcp) · [`servers/vercel`](servers/vercel) | The gateway for computers and containers (Rust) and for Vercel (TypeScript) |
+| [`servers/mcp`](servers/mcp) · [`servers/vercel`](servers/vercel) | The gateway for computers and containers (Rust) and the relay for Vercel and Cloudflare (TypeScript) |
 | [`crates/protocol`](crates/protocol) · [`crates/policy`](crates/policy) | The device protocol and the rules that decide what is allowed |
 | [`crates/fake-device`](crates/fake-device) · [`packages/schemas`](packages/schemas) | A simulated phone, and the schemas and fixtures every implementation shares |
 | [`packaging`](packaging) · [`scripts`](scripts) | The `latch` command, the package manifests, and the installers |

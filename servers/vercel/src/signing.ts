@@ -33,9 +33,11 @@ export const signingInput = (connection: string, payload: string) => Buffer.from
 export function verifySignature(key: string, connection: string, payload: string, sig: string): boolean {
   if (!isBase64(key, MAX_DEVICE_KEY_CHARS) || !isBase64(sig, MAX_SIGNATURE_CHARS) || payload.length === 0) return false;
   try {
-    const publicKey = createPublicKey({ key: Buffer.from(key, "base64"), format: "der", type: "spki" });
+    const der = Buffer.from(key, "base64");
+    const publicKey = createPublicKey({ key: der, format: "der", type: "spki" });
     if (publicKey.asymmetricKeyType !== "ec" || publicKey.asymmetricKeyDetails?.namedCurve !== "prime256v1") return false;
-    return cryptoVerify("sha256", signingInput(connection, payload), { key: publicKey, dsaEncoding: "der" }, Buffer.from(sig, "base64"));
+    // The key as DER, not the KeyObject: Cloudflare's runtime refuses a KeyObject inside an options object (ADR-075).
+    return cryptoVerify("sha256", signingInput(connection, payload), { key: der, format: "der", type: "spki", dsaEncoding: "der" }, Buffer.from(sig, "base64"));
   } catch {
     return false;
   }

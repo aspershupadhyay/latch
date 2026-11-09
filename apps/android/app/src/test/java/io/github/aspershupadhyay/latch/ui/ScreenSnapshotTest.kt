@@ -87,7 +87,11 @@ class ScreenSnapshotTest {
     }
 
     @Test fun createGateway() = snap {
-        CreateGatewayScreen(CreateGatewayState("lok_" + "a".repeat(64), keyCopied = true, deployOpened = false, address = "", busy = false, error = null), CreateGatewayActions())
+        CreateGatewayScreen(CreateGatewayState(io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED, deployOpened = false, address = "", busy = false, error = null), CreateGatewayActions())
+    }
+
+    @Test fun createCloudflare() = snap(dark = true) {
+        CreateGatewayScreen(CreateGatewayState(io.github.aspershupadhyay.latch.data.ConnectionKind.CLOUDFLARE, deployOpened = true, address = "", busy = false, error = null), CreateGatewayActions())
     }
 
     @Test fun join() = snap {
@@ -134,6 +138,22 @@ class ScreenSnapshotTest {
                 loading = false, error = null, created = null,
                 connection = io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED, host = "latch-gateway-ada.vercel.app",
                 saved = mapOf(io.github.aspershupadhyay.latch.data.ConnectionKind.WIFI to "192.168.1.5:8788"),
+            ),
+            ConnectActions(),
+        )
+    }
+
+    /** ADR-075: Vercel in use, Cloudflare and Wi-Fi kept, with each relay's use. */
+    @Test fun connect_relays() = snap {
+        ConnectScreen(
+            ConnectState(
+                "https://latch-gateway-ada.vercel.app/mcp", isOwner = true,
+                clients = listOf(McpClient("m_1", "Claude on laptop", now, now)),
+                loading = false, error = null, created = null,
+                connection = io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED, host = "latch-gateway-ada.vercel.app",
+                saved = mapOf(io.github.aspershupadhyay.latch.data.ConnectionKind.CLOUDFLARE to "latch-relay.ada.workers.dev", io.github.aspershupadhyay.latch.data.ConnectionKind.WIFI to "192.168.1.5:8788"),
+                usage = mapOf(io.github.aspershupadhyay.latch.data.ConnectionKind.HOSTED to RelayUse(0.84f, "84% of this month's free use"), io.github.aspershupadhyay.latch.data.ConnectionKind.CLOUDFLARE to RelayUse(0.06f, "6% of today's free use")),
+                backupLinks = listOf("Cloudflare relay" to "https://latch-relay.ada.workers.dev/mcp"),
             ),
             ConnectActions(),
         )

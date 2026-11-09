@@ -5,7 +5,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { Gateway, PRIVATE_HEADERS, configFromEnv } from "./gateway.js";
+import { PRIVATE_HEADERS } from "./gateway.js";
+import { Relay } from "./relay.js";
 import { MemoryStore, storeFromEnv } from "./store.js";
 import { PAGE_CSP } from "./page.js";
 
@@ -43,7 +44,10 @@ async function send(res: ServerResponse, response: Response) {
   res.end();
 }
 
-export function startLocal(gateway: Gateway, port: number) {
+/** Anything that answers requests: a `Gateway`, or a `Relay` that claims one (ADR-075). */
+export interface Handler { fetch(request: Request): Promise<Response> }
+
+export function startLocal(gateway: Handler, port: number) {
   const server = createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
     const asset = STATIC[path];
@@ -64,7 +68,7 @@ export function startLocal(gateway: Gateway, port: number) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const store = storeFromEnv(process.env) ?? new MemoryStore();
   const port = Number(process.env.PORT ?? 8788);
-  startLocal(new Gateway(store, configFromEnv(process.env)), port).then(() => {
+  startLocal(new Relay(store, process.env, "vercel"), port).then(() => {
     console.log(`Latch (Vercel build) on http://127.0.0.1:${port} with ${store instanceof MemoryStore ? "an in-memory store" : "Upstash Redis"}`);
   });
 }

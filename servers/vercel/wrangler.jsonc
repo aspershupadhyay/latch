@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// The Latch relay on Cloudflare Workers (ADR-075; docs/operations/cloudflare.md).
+// The same folder deploys to Vercel (vercel.json); each platform ignores the
+// other's file. Free plan: Workers and SQLite Durable Objects, no card needed.
+{
+  "name": "latch-relay",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "LatchRelay" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LatchRelay"] }],
+  "vars": {
+    // The first Latch phone to scan the relay's page within 24 hours owns it,
+    // since Cloudflare's deploy button cannot pass the phone's key. A secret
+    // LATCH_ADMIN_TOKEN, if you add one, turns this off.
+    "LATCH_CLAIM": "first"
+  }
+}
