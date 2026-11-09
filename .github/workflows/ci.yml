@@ -242,6 +242,9 @@ jobs:
           LATCH_TEST_UPSTASH_URL: http://127.0.0.1:8079
           LATCH_TEST_UPSTASH_TOKEN: ci_token
         run: npx tsx --test test/e2e.test.ts
+      - name: Cloudflare relay end to end in Cloudflare's runtime (workerd, ADR-075)
+        working-directory: servers/vercel
+        run: npm run smoke:cloudflare
 
   android:
     name: Android (build, unit tests, lint)
