@@ -29,7 +29,7 @@ Then `latch start` runs it for phones on this Wi-Fi and prints the AI key and th
 
 **Why not the browser download on a Mac:** a file downloaded in a browser gets macOS's quarantine flag, and macOS refuses a quarantined program that Apple has not notarized ("cannot be opened… Move to Trash"); `chmod +x` cannot change that. `curl` sets no such flag. If you already downloaded it in a browser: `xattr -d com.apple.quarantine ~/Downloads/latch-gateway-macos-arm64 && chmod +x ~/Downloads/latch-gateway-macos-arm64`, or open it once, then **System Settings → Privacy & Security → Open Anyway**.
 
-Every merge to `main` publishes the files themselves (~7 MB) next to the Android beta, at `https://github.com/aspershupadhyay/latch/releases/download/beta/<file>`: `latch-gateway-linux-x86_64`, `latch-gateway-macos-arm64` (Apple Silicon), `latch-gateway-macos-x86_64` (Intel Mac), or `latch-gateway-windows-x86_64.exe`, with checksums in `latch-gateway.sha256`. The macOS files are signed ad hoc (Apple Silicon runs nothing unsigned) but not notarized. Building from source (`cargo build --release -p latch-gateway`) needs about 2 GB for the Rust toolchain while building.
+Every merge to `main` publishes the files themselves (~7 MB) next to the Android beta, at `https://github.com/aspershupadhyay/latch/releases/download/beta/<file>`: `latch-gateway-linux-x86_64`, `latch-gateway-linux-arm64` (Raspberry Pi and other 64-bit ARM Linux), `latch-gateway-macos-arm64` (Apple Silicon), `latch-gateway-macos-x86_64` (Intel Mac), or `latch-gateway-windows-x86_64.exe`, with checksums in `latch-gateway.sha256`. The macOS files are signed ad hoc (Apple Silicon runs nothing unsigned) but not notarized. Building from source (`cargo build --release -p latch-gateway`) needs about 2 GB for the Rust toolchain while building.
 
 ## Configuration
 
@@ -65,7 +65,7 @@ Generate tokens with `latch-gateway gen-token` (or `openssl rand -hex 32`).
 
 ## Deploy
 
-**Any container platform.** Deploy the image (`docker build -t latch-gateway .`, or `ghcr.io/<owner>/latch-gateway:<version>` once released), set the two tokens and `LATCH_PUBLIC_URL`, mount a persistent volume at `/data`, and expose port 8787 over HTTPS. The platform must support WebSockets and keep idle connections open for at least 60 s (the gateway pings every 20 s). Run **one** instance: device connections live in process memory.
+**Any container platform.** Deploy the image (`ghcr.io/aspershupadhyay/latch-gateway:beta`, published on every merge to `main`, or `docker build -t latch-gateway .`; step by step for each host: [hosting.md](hosting.md)), set the two tokens and `LATCH_PUBLIC_URL`, mount a persistent volume at `/data`, and expose port 8787 over HTTPS. The platform must support WebSockets and keep idle connections open for at least 60 s (the gateway pings every 20 s). Run **one** instance: device connections live in process memory.
 
 **VPS or home server with automatic HTTPS.** `deploy/docker-compose.yml` runs the gateway behind Caddy, which obtains certificates automatically:
 

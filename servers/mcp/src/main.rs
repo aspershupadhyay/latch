@@ -151,6 +151,13 @@ async fn run(mode: String) -> ExitCode {
                 "cannot open data directory {}: {e}",
                 config.data_dir.display()
             );
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                eprintln!(
+                    "The gateway must be able to write there. In the container it runs as user 65532: \
+                     give that user the disk (chown -R 65532:65532 on it), or point LATCH_DATA_DIR at a \
+                     folder it owns. See docs/operations/hosting.md."
+                );
+            }
             return ExitCode::FAILURE;
         }
     };

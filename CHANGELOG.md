@@ -10,6 +10,9 @@ The work toward the first alpha. Rows refer to the [roadmap](handbook/17-plan-re
 
 ### Added
 
+- **Run the gateway on any host**: every merge to `main` now publishes the container image `ghcr.io/aspershupadhyay/latch-gateway:beta`, so Render, Fly.io, Railway, Koyeb, Cloud Run, Azure, a VPS, or a home server can run it without building. The gateway listens on the port those hosts assign, works out its own `https://` address on Render, Railway, Koyeb, and Fly.io, and stops at start, with the fix, when its disk is not writable instead of failing at the first pairing. The one-line installer now works on Raspberry Pi and other 64-bit ARM Linux machines. [Five settings, any host](docs/operations/hosting.md#the-rust-gateway-as-a-container-any-host-that-runs-one).
+- **A place to talk**: [Discussions](https://github.com/aspershupadhyay/latch/discussions) for questions, ideas, and what you built, and a social preview image for shared links.
+
 - **A whole task in one call** (R70, ADR-072): your AI app can send a complete program (open an app, search, add three items, check the cart) with `run_program` and gets one answer back. It names buttons by their words and rows, scrolls and closes pop-ups by itself, and when two buttons look the same it stops and asks instead of guessing. Approvals and refused fields work exactly as before, step by step.
 - **Timers and alarms without opening the clock** (R71, ADR-073): "set a 10-minute timer" goes straight to your clock app through Android, behind the settings-pages switch in Access.
 - **Turbo** (R72, ADR-074): an optional switch in Access → More choices → Speed turns system animations off while the AI works and puts yours back when the session ends, even after a crash. It needs a one-time Android permission that Latch can give itself through your paired Full ADB. The notification says when it is on.

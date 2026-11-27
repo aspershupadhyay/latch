@@ -59,6 +59,8 @@ flowchart LR
 
   Without the app, use a button: [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Ftree%2Fmain%2Fservers%2Fvercel) (the first Latch phone to scan it owns it) or [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch&root-directory=servers%2Fvercel&project-name=latch-gateway&repository-name=latch-gateway&env=LATCH_ADMIN_TOKEN&envDescription=Paste+the+owner+key+shown+in+the+Latch+app.+It+stays+in+your+Vercel+project+and+on+your+phone.&envLink=https%3A%2F%2Fgithub.com%2Faspershupadhyay%2Flatch%2Fblob%2Fmain%2Fdocs%2Foperations%2Fvercel.md&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22upstash%22%2C%22productSlug%22%3A%22upstash-kv%22%2C%22protocol%22%3A%22storage%22%7D%5D) (asks for a key you make with `openssl rand -hex 32`).
 
+- **Anywhere else that runs a container**: Render, Fly.io, Railway, Koyeb, Google Cloud Run, Azure, a VPS, or a home server. Run `ghcr.io/aspershupadhyay/latch-gateway:beta` with one secret and a disk ([five settings, any host](docs/operations/hosting.md#the-rust-gateway-as-a-container-any-host-that-runs-one)). Raspberry Pi and other ARM Linux machines use the one-line installer above.
+
 **3. Connect your AI app.** Add the gateway's `/mcp` address as a remote MCP server (`latch start` prints the exact command for Claude Code), then approve the 4-letter code on the phone.
 
 Start a session on the phone and ask: *"What's on my screen right now?"* Every tap, screen by screen: **[setup guide](docs/setup.md)**.
@@ -72,7 +74,7 @@ Start a session on the phone and ask: *"What's on my screen right now?"* Every t
 | **Every gesture, fast** | Tap, swipe, drag, pinch, and any multi-finger gesture. Actions return only what changed; `run_steps` and saved skills do several steps in one call. |
 | **Full ADB, no cable** | Optional and off by default: pair wireless debugging once, and your AI app runs any `adb shell` command over Wi-Fi, with complete output. You turn it on; Stop ends it. [Compared with ADB agents →](https://aspershupadhyay.github.io/latch/security.html) |
 | **Files and a live mirror** | Files up to 2 GB over encrypted 15-minute links, and the phone's screen live in your browser, with mouse and keyboard. |
-| **Yours to run** | Your computer, a free Vercel deploy, or a small container. No Latch server in the middle, and Latch collects nothing. AGPL-3.0. |
+| **Yours to run** | Your computer, a free Vercel or Cloudflare deploy, or a small container on any host. No Latch server in the middle, and Latch collects nothing. AGPL-3.0. |
 
 ## Documentation
 

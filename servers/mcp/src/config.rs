@@ -63,6 +63,26 @@ fn token(name: &'static str) -> Result<String, ConfigError> {
     Ok(value)
 }
 
+/// The gateway's public `https://` base URL: `LATCH_PUBLIC_URL`, or else the
+/// address a hosting platform announces to the container, so a one-click
+/// deploy needs no address typed in. Each name below is set by that platform
+/// itself, never by a request.
+fn public_url(var: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let set = |name: &str| {
+        var(name)
+            .map(|v| v.trim().trim_end_matches('/').to_owned())
+            .filter(|v| !v.is_empty())
+    };
+    set("LATCH_PUBLIC_URL")
+        // Render: the full URL, e.g. https://latch-gateway.onrender.com
+        .or_else(|| set("RENDER_EXTERNAL_URL"))
+        // Railway and Koyeb: the public host name only.
+        .or_else(|| set("RAILWAY_PUBLIC_DOMAIN").map(|h| format!("https://{h}")))
+        .or_else(|| set("KOYEB_PUBLIC_DOMAIN").map(|h| format!("https://{h}")))
+        // Fly.io: the app name; its public address is <app>.fly.dev.
+        .or_else(|| set("FLY_APP_NAME").map(|a| format!("https://{a}.fly.dev")))
+}
+
 impl Config {
     pub fn from_env(stdio: bool) -> Result<Self, ConfigError> {
         let bind = match (std::env::var("LATCH_BIND"), std::env::var("PORT")) {
@@ -114,10 +134,7 @@ impl Config {
             admin_token,
             mcp_token,
             mcp_http: !stdio,
-            public_url: std::env::var("LATCH_PUBLIC_URL")
-                .ok()
-                .map(|u| u.trim_end_matches('/').to_owned())
-                .filter(|u| !u.is_empty()),
+            public_url: public_url(|name| std::env::var(name).ok()),
             allowed_origins: std::env::var("LATCH_ALLOWED_ORIGINS")
                 .map(|v| {
                     v.split(',')
@@ -128,5 +145,54 @@ impl Config {
                 .unwrap_or_default(),
             wifi_bind,
         })
+    }
+}
+
+#[cfg(test)]
+mod public_url_tests {
+    use super::public_url;
+
+    fn with(vars: &[(&str, &str)]) -> Option<String> {
+        let vars: Vec<(String, String)> = vars
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        public_url(|name| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()))
+    }
+
+    #[test]
+    fn none_without_any_variable() {
+        assert_eq!(with(&[]), None);
+        assert_eq!(with(&[("LATCH_PUBLIC_URL", "  ")]), None);
+    }
+
+    #[test]
+    fn latch_public_url_wins_and_loses_its_trailing_slash() {
+        let got = with(&[
+            ("LATCH_PUBLIC_URL", "https://latch.example.com/"),
+            ("RENDER_EXTERNAL_URL", "https://x.onrender.com"),
+            ("FLY_APP_NAME", "x"),
+        ]);
+        assert_eq!(got.as_deref(), Some("https://latch.example.com"));
+    }
+
+    #[test]
+    fn each_platform_gives_an_https_address() {
+        assert_eq!(
+            with(&[("RENDER_EXTERNAL_URL", "https://g.onrender.com")]).as_deref(),
+            Some("https://g.onrender.com")
+        );
+        assert_eq!(
+            with(&[("RAILWAY_PUBLIC_DOMAIN", "g.up.railway.app")]).as_deref(),
+            Some("https://g.up.railway.app")
+        );
+        assert_eq!(
+            with(&[("KOYEB_PUBLIC_DOMAIN", "g-me.koyeb.app")]).as_deref(),
+            Some("https://g-me.koyeb.app")
+        );
+        assert_eq!(
+            with(&[("FLY_APP_NAME", "my-latch")]).as_deref(),
+            Some("https://my-latch.fly.dev")
+        );
     }
 }
