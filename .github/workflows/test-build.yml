@@ -32,6 +32,8 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, name: latch-gateway-linux-x86_64, bin: latch-gateway }
+          # Raspberry Pi, Oracle's free ARM servers, and other 64-bit ARM Linux machines.
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: latch-gateway-linux-arm64, bin: latch-gateway }
           - { os: macos-latest, target: aarch64-apple-darwin, name: latch-gateway-macos-arm64, bin: latch-gateway }
           # Intel runners are being retired; Apple's toolchain on the arm64 runner builds x86_64 too.
           - { os: macos-latest, target: x86_64-apple-darwin, name: latch-gateway-macos-x86_64, bin: latch-gateway }
@@ -56,6 +58,28 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: dist/*
+
+  # The gateway as a container image, so any host that runs containers (Render,
+  # Fly.io, Railway, Koyeb, Cloud Run, a VPS, a NAS) can pull it without building:
+  # ghcr.io/<owner>/latch-gateway:beta. Numbered releases add :<version> and :latest.
+  container:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/latch-gateway:beta
 
   android:
     # Waits for the gateways but still publishes the APK if one of them failed.

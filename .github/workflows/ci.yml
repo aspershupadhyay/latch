@@ -338,3 +338,9 @@ jobs:
           for i in $(seq 1 30); do curl -fs localhost:8787/healthz && break; sleep 1; done
           curl -fs localhost:8787/healthz | grep '"status":"ok"'
           docker logs latch
+      - name: A host-assigned PORT moves the listener
+        run: |
+          docker run -d --name latch-port -p 9000:9000 -e PORT=9000 \
+            -e LATCH_ADMIN_TOKEN=ci-admin-token-0123456789abcdef0123 latch-gateway:ci
+          for i in $(seq 1 30); do curl -fs localhost:9000/healthz && break; sleep 1; done
+          curl -fs localhost:9000/healthz | grep '"status":"ok"' || { docker logs latch-port; exit 1; }

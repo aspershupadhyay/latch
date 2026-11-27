@@ -2,6 +2,9 @@
 # Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 blank_issues_enabled: false
 contact_links:
+  - name: Ask a question or share an idea
+    url: https://github.com/aspershupadhyay/latch/discussions
+    about: Setup help, ideas, and what you built with Latch. Chat with the maintainer and other users.
   - name: Report a security problem (privately)
     url: https://github.com/aspershupadhyay/latch/security/advisories/new
     about: Never post vulnerabilities, tokens, or screenshots in a public issue.

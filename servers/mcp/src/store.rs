@@ -111,6 +111,11 @@ pub struct Store {
 impl Store {
     pub fn open(data_dir: &Path) -> io::Result<Self> {
         std::fs::create_dir_all(data_dir)?;
+        // Fail at start, not at the first pairing: a host's disk mounted
+        // read-only or owned by another user would otherwise look healthy.
+        let probe = data_dir.join(".latch-write-check");
+        std::fs::write(&probe, b"")?;
+        std::fs::remove_file(&probe)?;
         let path = data_dir.join("devices.json");
         let file = match std::fs::read_to_string(&path) {
             Ok(text) => serde_json::from_str::<StoreFile>(&text).map_err(|e| {

@@ -36,10 +36,6 @@ case "$(uname -m)" in
   x86_64 | amd64) arch=x86_64 ;;
   *) echo "Unsupported processor: $(uname -m)" >&2; exit 1 ;;
 esac
-if [ "$os" = linux ] && [ "$arch" = arm64 ]; then
-  echo "There is no ready-made Linux arm64 gateway yet; build it with: cargo build --release -p latch-gateway" >&2
-  exit 1
-fi
 file="latch-gateway-$os-$arch"
 
 tmp="$(mktemp -d)"
