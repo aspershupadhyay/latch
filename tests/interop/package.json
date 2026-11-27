@@ -7,6 +7,6 @@
     "test": "node mcp-sdk-client.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1"
+    "@modelcontextprotocol/sdk": "1.32.2"
   }
 }
