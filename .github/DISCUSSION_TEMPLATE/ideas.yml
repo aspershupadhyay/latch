@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Discussions are public. Never paste owner keys, AI app keys, screenshots of private apps, or Activity logs with personal data.
   - type: textarea
     id: outcome
     attributes:
