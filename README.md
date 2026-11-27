@@ -20,6 +20,8 @@
 
 ---
 
+<p align="center"><img src="docs/assets/latch-demo.gif" alt="Illustration of a session: the AI app asks to play Liked Songs, the phone asks the owner to let the AI use Music for this session, then the AI taps Liked Songs and Play" width="720"></p>
+
 Latch is an Android app and a small gateway that you own. Claude, ChatGPT, Cursor, or any other [MCP](https://modelcontextprotocol.io) app connects to your gateway and can read your screen, tap, type, and move files, but only in the apps you switch on, and never past a payment, a password, or the Stop button. Developers can also switch on full ADB shell access over Wi-Fi.
 
 Your phone connects out to a gateway you run: on your computer, your free Vercel account, or your own server. No cable, and no Latch server in the middle.

@@ -1,0 +1,136 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only
+     Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+     Source of docs/assets/latch-demo.gif, the README's illustration of a session.
+     It is an illustration, not a recording: the approval sheet and Stop pill follow the
+     app's real wording (CommandExecutor.requireApp), and the tool names are real.
+     Regenerate: node docs/assets/latch-demo.cjs (needs Playwright and Python with Pillow). -->
+<html><head><meta charset="utf-8">
+<style>
+:root{--bg:#09090b;--panel:#111114;--line:#1d1d22;--line2:#2b2b32;--text:#ededef;--muted:#8b8b94;--dim:#5d5d66;--ember:#ff6a3d;--green:#4ade80;--red:#ff5a5a}
+*{box-sizing:border-box;margin:0}
+body{width:960px;height:540px;background:var(--bg);color:var(--text);font:15px/1.45 "DejaVu Sans",system-ui,sans-serif;overflow:hidden;position:relative}
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:48px 48px}
+.glow{position:absolute;right:60px;top:40px;width:420px;height:460px;background:radial-gradient(closest-side,rgba(255,106,61,.16),transparent);}
+.chat{position:absolute;left:40px;top:40px;width:500px;height:460px;background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:18px 20px}
+.chat h4{font:600 12px "DejaVu Sans Mono",monospace;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:16px}
+.chat h4 span:last-child{color:var(--dim)}
+.msg{opacity:0;transform:translateY(6px);transition:none;margin-bottom:12px}
+.msg.on{opacity:1;transform:none}
+.user{margin-left:auto;width:fit-content;max-width:80%;background:#1f1f25;border-radius:14px 14px 4px 14px;padding:10px 14px}
+.tool{font:13px "DejaVu Sans Mono",monospace;color:var(--muted);display:flex;gap:8px;align-items:center}
+.tool b{color:var(--green);font-weight:400}
+.tool i{font-style:normal;color:var(--text)}
+.tool .ok{color:var(--green)}
+.ai{padding:2px 0}
+.ai strong{color:var(--text)}
+.phone{position:absolute;right:110px;top:26px;width:250px;height:490px;border-radius:36px;background:#141418;border:1px solid #2e2e36;padding:12px}
+.screen{position:relative;width:100%;height:100%;border-radius:26px;background:#0c0c0f;overflow:hidden}
+.bar{height:26px;display:flex;justify-content:space-between;padding:6px 16px;font:11px "DejaVu Sans Mono",monospace;color:var(--dim)}
+.view{position:absolute;left:0;right:0;top:26px;bottom:0;padding:10px 14px;opacity:0}
+.view.on{opacity:1}
+.icons{display:grid;grid-template-columns:repeat(4,1fr);gap:16px 10px;margin-top:30px}
+.ic{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
+.ic div{width:40px;height:40px;border-radius:12px;background:#1f1f26}
+.ic.music div{background:linear-gradient(135deg,#ff6a3d,#c2532d)}
+.app-h{font:700 20px "DejaVu Sans",sans-serif;margin:8px 0 14px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:10px;font-size:13px;position:relative}
+.row .art{width:38px;height:38px;border-radius:8px;background:#22222a}
+.row .art.liked{background:linear-gradient(135deg,#6e56cf,#ff6a3d)}
+.row small{display:block;color:var(--dim);font-size:11px}
+.play{margin:14px 0 10px;display:flex;align-items:center;gap:12px}
+.play .btn{width:46px;height:46px;border-radius:50%;background:var(--green);display:grid;place-items:center;color:#0a0a0a;font-size:18px;position:relative}
+.track{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:7px 2px;border-bottom:1px solid #18181d}
+.now{position:absolute;left:10px;right:10px;bottom:12px;background:#1b1b21;border-radius:10px;padding:8px 10px;font-size:11px;display:flex;align-items:center;gap:8px;opacity:0}
+.now.on{opacity:1}
+.eq{display:flex;gap:2px;align-items:flex-end;height:12px}
+.eq span{width:3px;background:var(--green);border-radius:1px}
+.sheet{position:absolute;left:8px;right:8px;bottom:-320px;background:#16161c;border:1px solid var(--line2);border-radius:18px;padding:14px}
+.sheet h5{font-size:15px;margin-bottom:6px}
+.sheet p{font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.4}
+.btns{display:flex;flex-direction:column;gap:6px}
+.btns div{text-align:center;font-size:12px;font-weight:700;padding:8px 2px;white-space:nowrap;border-radius:9px;background:#22222a;color:var(--muted);position:relative}
+.btns .pri{background:var(--green);color:#0a0a0a}
+.stop{position:absolute;right:-12px;top:150px;background:var(--red);color:#fff;font:700 11px sans-serif;padding:6px 10px 6px 9px;border-radius:14px 0 0 14px}
+.touch{position:absolute;width:34px;height:34px;border-radius:50%;border:2px solid var(--ember);background:rgba(255,106,61,.25);opacity:0;pointer-events:none;transform:translate(-50%,-50%)}
+.finger{position:absolute;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.35);opacity:0;transform:translate(-50%,-50%)}
+.tag{position:absolute;left:40px;bottom:14px;font:11px "DejaVu Sans Mono",monospace;color:var(--dim)}
+.tag b{color:var(--ember);font-weight:400}
+.brand{position:absolute;right:40px;bottom:12px;font:700 13px sans-serif;color:var(--muted);display:flex;gap:7px;align-items:center}
+.brand i{width:18px;height:18px;border-radius:5px;background:#c2532d;display:inline-block}
+.caret{display:inline-block;width:2px;height:15px;background:var(--text);vertical-align:-2px;margin-left:1px}
+</style></head>
+<body>
+<div class="grid"></div><div class="glow"></div>
+<div class="chat">
+  <h4><span>Your AI app</span><span>MCP · latch</span></h4>
+  <div class="msg user" id="m1"><span id="typed"></span><span class="caret" id="caret"></span></div>
+  <div class="msg tool" id="m2"><b>●</b> launch_app <i>Music</i> <span id="m2s"></span></div>
+  <div class="msg tool" id="m3"><b>●</b> tap <i>"Liked Songs"</i> <span class="ok">✓</span></div>
+  <div class="msg tool" id="m4"><b>●</b> tap <i>"Play"</i> <span class="ok">✓</span></div>
+  <div class="msg tool" id="m5"><b>●</b> finish_task <span class="ok">✓</span></div>
+  <div class="msg ai" id="m6">Done: your <strong>Liked Songs</strong> are playing. You let me use Music for this session only.</div>
+</div>
+<div class="phone"><div class="screen" id="screen">
+  <div class="bar"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="view on" id="home">
+    <div class="icons">
+      <div class="ic"><div></div>Phone</div><div class="ic"><div></div>Camera</div><div class="ic"><div></div>Photos</div><div class="ic"><div></div>Maps</div>
+      <div class="ic"><div></div>Mail</div><div class="ic music"><div></div>Music</div><div class="ic"><div></div>Clock</div><div class="ic"><div></div>Files</div>
+    </div>
+  </div>
+  <div class="view" id="lib">
+    <div class="app-h">Your library</div>
+    <div class="row" id="likedRow"><div class="art liked"></div><div>Liked Songs<small>Playlist · 214 songs</small></div></div>
+    <div class="row"><div class="art"></div><div>Recently played<small>Playlist</small></div></div>
+    <div class="row"><div class="art"></div><div>Focus mix<small>Made for you</small></div></div>
+    <div class="row"><div class="art"></div><div>Road trip<small>Playlist · 48 songs</small></div></div>
+  </div>
+  <div class="view" id="pl">
+    <div class="app-h">Liked Songs</div>
+    <div class="play"><div class="btn" id="playBtn">▶</div><div style="font-size:12px;color:var(--muted)">214 songs</div></div>
+    <div class="track"><span>Morning light</span><span>3:12</span></div>
+    <div class="track"><span>Slow river</span><span>4:05</span></div>
+    <div class="track"><span>Paper planes</span><span>2:58</span></div>
+    <div class="track"><span>Night drive</span><span>3:47</span></div>
+    <div class="now" id="now"><div class="eq"><span style="height:6px"></span><span style="height:11px"></span><span style="height:8px"></span></div>Playing · Morning light</div>
+  </div>
+  <div class="sheet" id="sheet">
+    <h5>Let the AI use Music?</h5>
+    <p>Payments, installs, and permissions still ask you every time.</p>
+    <div class="btns"><div>Not now</div><div class="pri" id="sessBtn">This session</div><div>Always</div></div>
+  </div>
+  <div class="touch" id="touch"></div>
+  <div class="finger" id="finger"></div>
+</div><div class="stop">● Stop</div></div>
+<div class="tag"><b>$</b> illustration of a Latch session · your phone asks first</div>
+<div class="brand"><i></i>Latch</div>
+<script>
+const $=id=>document.getElementById(id);
+const PROMPT="Play my Liked Songs in Music";
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const ease=x=>1-Math.pow(1-clamp(x),3);
+function show(id,on){$(id).classList.toggle('on',on)}
+function place(el,target,dx=0,dy=0){const s=$('screen').getBoundingClientRect(),r=$(target).getBoundingClientRect();el.style.left=(r.left-s.left+r.width/2+dx)+'px';el.style.top=(r.top-s.top+r.height/2+dy)+'px'}
+function pulse(el,target,t0,t){const k=t-t0;if(k<0||k>0.8){el.style.opacity=0;return}place(el,target);el.style.opacity=k<0.6?1:1-(k-0.6)/0.2;el.style.transform=`translate(-50%,-50%) scale(${1+0.4*ease(k/0.6)})`}
+window.setFrame=function(t){
+  const n=Math.floor(clamp((t-0.3)/1.4)*PROMPT.length);
+  $('typed').textContent=PROMPT.slice(0,n);
+  $('caret').style.opacity=(t<2&&Math.floor(t*3)%2===0)?1:0;
+  show('m1',t>=0.2);
+  show('m2',t>=2.0); $('m2s').textContent=t>=4.0?'✓':'… waiting for you'; $('m2s').className=t>=4.0?'ok':'';
+  // sheet slides up 2.3 → 2.6, down 3.9 → 4.2
+  const up=ease((t-2.3)/0.3), down=ease((t-3.9)/0.3);
+  $('sheet').style.bottom=(-320+332*up-332*down)+'px';
+  const f=$('finger'); if(t>=3.2&&t<3.9){place(f,'sessBtn');f.style.opacity=1;f.style.transform=`translate(-50%,-50%) scale(${t<3.55?1:0.8})`}else f.style.opacity=0;
+  $('sessBtn').style.filter=(t>=3.5&&t<3.9)?'brightness(.8)':'none';
+  show('home',t<4.2); show('lib',t>=4.2&&t<5.6); show('pl',t>=5.6);
+  show('m3',t>=4.6); pulse($('touch'),'likedRow',4.9,t);
+  $('likedRow').style.background=(t>=4.9&&t<5.6)?'#1d1d24':'transparent';
+  show('m4',t>=6.0); pulse($('touch'),t<5.7?'likedRow':'playBtn',t<5.7?4.9:6.3,t);
+  $('playBtn').textContent=t>=6.6?'❚❚':'▶'; show('now',t>=6.6);
+  const eq=document.querySelectorAll('.eq span');eq.forEach((s,i)=>s.style.height=(4+((Math.sin(t*9+i*2)+1)*4))+'px');
+  show('m5',t>=7.0); show('m6',t>=7.4);
+};
+setFrame(0);
+</script></body></html>
