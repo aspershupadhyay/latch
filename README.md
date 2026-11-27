@@ -13,7 +13,8 @@
 [**Set up in 5 minutes**](docs/setup.md) &nbsp;·&nbsp;
 [Website](https://aspershupadhyay.github.io/latch/) &nbsp;·&nbsp;
 [Safety](docs/safety.md) &nbsp;·&nbsp;
-[Benchmarks](https://aspershupadhyay.github.io/latch/benchmark.html)
+[Benchmarks](https://aspershupadhyay.github.io/latch/benchmark.html) &nbsp;·&nbsp;
+[Discussions](https://github.com/aspershupadhyay/latch/discussions)
 
 </div>
 
@@ -85,7 +86,7 @@ Start a session on the phone and ask: *"What's on my screen right now?"* Every t
 | [Device protocol](docs/protocol/v1.md) · [Decisions](docs/adr/README.md) · [Handbook](handbook/README.md) | The phone ↔ gateway contract, why it looks this way, and the [roadmap](handbook/17-plan-review-and-revised-delivery.md) |
 
 <a name="help-im-stuck"></a><a name="phone-and-vercel-settings"></a><a name="set-it-up-about-5-minutes"></a><a name="fix-update-your-gateway"></a><a name="fix-app-blocked-by-play-protect"></a><a name="fix-restricted-setting"></a><a name="fix-session-stops-when-the-screen-is-off"></a><a name="fix-ai-actions-are-slow"></a>
-**Stuck?** "App blocked", a greyed-out accessibility switch, a session that stops with the screen off, or slow actions: [troubleshooting](docs/troubleshooting.md) has each fix. Anything else: [open an issue](https://github.com/aspershupadhyay/latch/issues).
+**Stuck?** "App blocked", a greyed-out accessibility switch, a session that stops with the screen off, or slow actions: [troubleshooting](docs/troubleshooting.md) has each fix. Questions and ideas: [Discussions](https://github.com/aspershupadhyay/latch/discussions). Something broken: [open an issue](https://github.com/aspershupadhyay/latch/issues).
 
 **iPhone:** iOS has no public way for one app to operate another, so a full iPhone version is not possible ([why](handbook/06-ios-application-plan.md)).
 

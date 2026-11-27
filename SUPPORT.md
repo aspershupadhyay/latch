@@ -3,6 +3,7 @@
 | You want to… | Go here |
 |---|---|
 | Set Latch up | [Setup guide](docs/setup.md) |
+| Ask a question, share an idea, or show what you built | [Discussions](https://github.com/aspershupadhyay/latch/discussions) |
 | Fix "App blocked", "Restricted setting", dropped sessions, or slow actions | [Troubleshooting](docs/troubleshooting.md) |
 | Know what the AI can and cannot do | [Safety and privacy](docs/safety.md) |
 | Report a bug | [Open a bug report](https://github.com/aspershupadhyay/latch/issues/new/choose) with your phone model, Android version, and gateway type |

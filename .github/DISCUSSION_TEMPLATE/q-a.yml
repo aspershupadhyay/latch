@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+title: "[Q] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask anything about setting up or using Latch. First, ask your AI app to run the `diagnose` tool: it often names the fix.
+        Never paste owner keys, AI app keys, screenshots of private apps, or Activity logs with personal data.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Phone, Android version, and gateway
+      placeholder: Pixel 8, Android 15, Vercel relay

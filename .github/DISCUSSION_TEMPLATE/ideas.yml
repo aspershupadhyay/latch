@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Aspersh Upadhyay and the Latch contributors
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What do you want your AI to do on your phone?
+      description: Describe the task, not the implementation. Which app, and what should happen?
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today?
